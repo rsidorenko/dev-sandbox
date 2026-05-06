@@ -33,8 +33,8 @@ def test_faq_and_menu_text_avoid_sensitive_keywords() -> None:
 
 def test_menu_text_contains_header_and_contact_hint() -> None:
     text = build_support_menu_text()
-    assert text.startswith("Support & Help")
-    assert "use /support_contact" in text.lower()
+    assert text.startswith("Помощь и поддержка")
+    assert "/support_contact" in text.lower()
 
 
 @pytest.mark.parametrize(
@@ -85,7 +85,7 @@ def test_menu_text_contains_header_and_contact_hint() -> None:
                 support_url=None,
                 support_handle=None,
             ),
-            ("support is currently unavailable",),
+            ("поддержка временно недоступна",),
             ("http://", "https://", "@"),
         ),
     ),

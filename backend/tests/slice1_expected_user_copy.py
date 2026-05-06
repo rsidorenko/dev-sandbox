@@ -1,64 +1,64 @@
 """Expected user-facing copy for slice-1 catalog tests (align with message_catalog._CATALOG_TEXT)."""
 
 IDENTITY_READY_TEXT = (
-    "Welcome! Your chat is connected.\n"
-    "Use /menu to browse plans and purchase options.\n"
-    "Use /my_subscription anytime to check current status."
+    "Добро пожаловать! Ваш чат подключён.\n"
+    "Используйте /menu для просмотра тарифов и оформления подписки.\n"
+    "Используйте /my_subscription, чтобы проверить текущий статус."
 )
 
 NEEDS_ONBOARDING_TEXT = (
-    "Send /start to register, then you can use /status or /help. "
-    "The bot must know this chat before it can show access information."
+    "Отправьте /start для регистрации, затем вы сможете использовать /status или /help. "
+    "Бот должен распознать этот чат, прежде чем показать информацию о доступе."
 )
 
 INACTIVE_OR_NOT_ELIGIBLE_TEXT = (
-    "No access is available for this account right now. If you are new here, send /start, then /status, or /help. "
-    "This build does not grant new access and does not send files."
+    "Доступ для этого аккаунта сейчас недоступен. Если вы здесь впервые, отправьте /start, затем /status или /help. "
+    "Эта версия не предоставляет новый доступ и не отправляет файлы."
 )
 
 SLICE1_HELP_TEXT = (
-    "Available commands:\n"
-    "/start - connect this chat\n"
-    "/menu - main menu\n"
-    "/plans - available plans\n"
-    "/buy - open checkout\n"
-    "/checkout - alias of /buy\n"
-    "/success - post-payment next steps\n"
-    "/my_subscription - subscription status (same as /status)\n"
-    "/status - subscription status\n"
-    "/renew - renewal checkout link\n"
-    "/support - help and FAQ\n"
-    "/support_contact - contact options\n"
-    "/resend_access - resend access instructions when eligible\n"
-    "/get_access - alias of /resend_access\n"
-    "/help - this help"
+    "Доступные команды:\n"
+    "/start - подключить чат\n"
+    "/menu - главное меню\n"
+    "/plans - доступные тарифы\n"
+    "/buy - оформить подписку\n"
+    "/checkout - аналог /buy\n"
+    "/success - что делать после оплаты\n"
+    "/my_subscription - статус подписки (аналог /status)\n"
+    "/status - статус подписки\n"
+    "/renew - продлить подписку\n"
+    "/support - помощь и FAQ\n"
+    "/support_contact - контакты поддержки\n"
+    "/resend_access - повторно получить инструкции доступа\n"
+    "/get_access - аналог /resend_access\n"
+    "/help - эта справка"
 )
 
 RESEND_ACCESS_ACCEPTED_TEXT = (
-    "Access instructions request accepted. If safe delivery is available, instructions will be resent."
+    "Запрос на получение инструкций доступа принят. Если доставка доступна, инструкции будут отправлены повторно."
 )
 
-RESEND_ACCESS_NOT_ENABLED_TEXT = "This feature is not available yet."
+RESEND_ACCESS_NOT_ENABLED_TEXT = "Эта функция пока недоступна."
 
 RESEND_ACCESS_NOT_ELIGIBLE_TEXT = (
-    "Access instructions cannot be resent for this account right now.\n"
-    "If your subscription is inactive or expired, use /renew."
+    "Инструкции доступа нельзя повторно отправить для этого аккаунта.\n"
+    "Если подписка неактивна или истекла, используйте /renew."
 )
 
 RESEND_ACCESS_COOLDOWN_TEXT = (
-    "Please wait a moment before requesting access instructions again."
+    "Подождите немного перед повторным запросом инструкций доступа."
 )
 
 RESEND_ACCESS_NOT_READY_TEXT = (
-    "Access instructions are not ready to resend yet. Please try again later."
+    "Инструкции доступа ещё не готовы для повторной отправки. Попробуйте позже."
 )
 
 RESEND_ACCESS_TEMPORARILY_UNAVAILABLE_TEXT = (
-    "Access instructions resend is temporarily unavailable. Please try again later."
+    "Повторная отправка инструкций временно недоступна. Попробуйте позже."
 )
 
-SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY_TEXT = "Your subscription is active until {date}."
+SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY_TEXT = "Ваша подписка активна до {date}."
 
-SUBSCRIPTION_ACTIVE_ACCESS_READY_TEXT = "Your subscription is active until {date}."
+SUBSCRIPTION_ACTIVE_ACCESS_READY_TEXT = "Ваша подписка активна до {date}."
 
-TELEGRAM_COMMAND_RATE_LIMITED_TEXT = "Too many requests. Please try again later."
+TELEGRAM_COMMAND_RATE_LIMITED_TEXT = "Слишком много запросов. Пожалуйста, попробуйте позже."

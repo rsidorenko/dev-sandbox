@@ -233,10 +233,10 @@ def test_dispatch_support_renders_safe_text_and_hides_checkout_secret(monkeypatc
         r_contact = await dispatch_slice1_transport(_env(cid=cid, text="/support_contact"), c)
         pkg_menu = render_telegram_outbound_plan(map_transport_safe_to_outbound_plan(r_menu))
         pkg_contact = render_telegram_outbound_plan(map_transport_safe_to_outbound_plan(r_contact))
-        assert "Support & Help" in pkg_menu.message_text
+        assert "Помощь и поддержка" in pkg_menu.message_text
         assert "MustNeverAppearInSupportCopy123" not in pkg_menu.message_text
         assert "MustNeverAppearInSupportCopy123" not in pkg_contact.message_text
-        assert "Support is currently unavailable" in pkg_contact.message_text
+        assert "Поддержка временно недоступна" in pkg_contact.message_text
 
     _run(main())
 
@@ -348,8 +348,8 @@ def test_dispatch_active_subscription_status_commands_emit_two_outbound_texts() 
         assert r.subscription_active_recovery_followup is True
         texts = _uc02_status_outbound_texts(r)
         assert len(texts) == 2
-        assert "active until" in texts[0].lower()
-        assert "Your subscription is active" in texts[1]
+        assert "подписк" in texts[0].lower() and "активн" in texts[0].lower()
+        assert "подписк" in texts[1].lower() and "активн" in texts[1].lower()
 
     for command in ("/my_subscription", "/status"):
         _run(main(command))
