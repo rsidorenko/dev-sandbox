@@ -10,26 +10,26 @@ def get_support_faq_items() -> list[dict[str, str]]:
     return [
         {
             "key": "pricing",
-            "question": "Where do I see the price?",
+            "question": "Где посмотреть стоимость?",
             "answer": (
-                "Plan details and the amount due appear at checkout before you pay. "
-                "Use /plans for a short summary, then /buy when you are ready."
+                "Детали тарифа и сумма к оплате отображаются при оформлении до совершения платежа. "
+                "Используйте /plans для краткой информации, затем /buy, когда будете готовы."
             ),
         },
         {
             "key": "access",
-            "question": "How do I get access after paying?",
+            "question": "Как получить доступ после оплаты?",
             "answer": (
-                "Activation can take a short moment after checkout. "
-                "Use /my_subscription to check status, then /get_access when it shows active."
+                "Активация может занять некоторое время после оплаты. "
+                "Используйте /my_subscription для проверки статуса, затем /get_access, когда подписка станет активной."
             ),
         },
         {
             "key": "refund",
-            "question": "What about refunds?",
+            "question": "Как насчёт возврата средств?",
             "answer": (
-                "If you need a refund, reach out through the contact options when they are available. "
-                "Each request is reviewed individually; outcomes depend on your situation."
+                "Если вам нужен возврат, обратитесь через контактные данные поддержки. "
+                "Каждый запрос рассматривается индивидуально."
             ),
         },
     ]
@@ -38,12 +38,12 @@ def get_support_faq_items() -> list[dict[str, str]]:
 def build_support_menu_text() -> str:
     """Header, FAQ list, and hint toward safe contact command."""
     items = get_support_faq_items()
-    lines: list[str] = ["Support & Help", ""]
+    lines: list[str] = ["Помощь и поддержка", ""]
     for i, item in enumerate(items, start=1):
         lines.append(f"{i}. {item['question']}")
         lines.append(f"   {item['answer']}")
         lines.append("")
-    lines.append("Use /support_contact to reach us.")
+    lines.append("Используйте /support_contact, чтобы связаться с нами.")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -53,8 +53,8 @@ def build_support_contact_text(cfg: StorefrontPublicConfig) -> str:
     Never emit raw, unvalidated URLs.
     """
     if not cfg.support_handle and not cfg.support_url:
-        return "Support is currently unavailable. Please try again later."
-    lines: list[str] = ["Contact support", ""]
+        return "Поддержка временно недоступна. Пожалуйста, попробуйте позже."
+    lines: list[str] = ["Контакты поддержки", ""]
     if cfg.support_handle:
         lines.append(cfg.support_handle)
     if cfg.support_url:

@@ -179,7 +179,7 @@ def test_needs_review_safe_no_internals() -> None:
         message_key=OutboundMessageKey.NEEDS_REVIEW.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "review" in out.message_text.lower()
+    assert "проверк" in out.message_text.lower()
     assert "ticket" not in out.message_text.lower()
     assert "internal" not in out.message_text.lower()
     _assert_no_dsn_or_secretish(out.message_text)
@@ -194,7 +194,7 @@ def test_subscription_active_confirmation_copy_safe() -> None:
     )
     out = render_telegram_outbound_plan(plan)
     lowered = out.message_text.lower()
-    assert "active" in lowered
+    assert "активн" in lowered
     assert "2026-12-31" in out.message_text
     for needle in ("token", "secret", "reference", "signature"):
         assert needle not in lowered
@@ -211,7 +211,7 @@ def test_subscription_active_renders_without_billing_internals() -> None:
         active_until_ymd="2026-05-27",
     )
     out = render_telegram_outbound_plan(plan)
-    assert "active until" in out.message_text.lower()
+    assert "подписк" in out.message_text.lower() and "активн" in out.message_text.lower()
     assert "provider" not in out.message_text.lower()
     _assert_no_dsn_or_secretish(out.message_text)
 
@@ -222,7 +222,7 @@ def test_subscription_expired_copy_contains_renew_cta() -> None:
         message_key=OutboundMessageKey.SUBSCRIPTION_EXPIRED.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "expired" in out.message_text.lower()
+    assert "истекл" in out.message_text.lower()
     assert "/renew" in out.message_text
 
 
@@ -242,7 +242,7 @@ def test_subscription_access_readiness_messages_are_safe(
         active_until_ymd="2026-05-27",
     )
     out = render_telegram_outbound_plan(plan)
-    assert "active until" in out.message_text.lower()
+    assert "активн" in out.message_text.lower()
     assert "/get_access" in out.message_text
     _assert_no_dsn_or_secretish(out.message_text)
 
@@ -253,7 +253,7 @@ def test_invalid_input_safe() -> None:
         message_key=OutboundMessageKey.INVALID_INPUT.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "not valid" in out.message_text.lower()
+    assert "некоррект" in out.message_text.lower()
     _assert_no_dsn_or_secretish(out.message_text)
 
 
@@ -263,7 +263,7 @@ def test_try_again_later_retry_safe() -> None:
         message_key=OutboundMessageKey.TRY_AGAIN_LATER.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "try again" in out.message_text.lower()
+    assert "попробуйте позже" in out.message_text.lower()
     _assert_no_dsn_or_secretish(out.message_text)
 
 
@@ -273,7 +273,7 @@ def test_service_unavailable_generic() -> None:
         message_key=OutboundMessageKey.SERVICE_UNAVAILABLE.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "temporarily unavailable" in out.message_text.lower()
+    assert "временно недоступен" in out.message_text.lower()
     _assert_no_dsn_or_secretish(out.message_text)
 
 
@@ -294,7 +294,7 @@ def test_unknown_message_key_fail_closed_outage() -> None:
     )
     out = render_telegram_outbound_plan(plan)
     assert out.message_text == (
-        "Service is temporarily unavailable. Please try again later."
+        "Сервис временно недоступен. Пожалуйста, попробуйте позже."
     )
     assert out.action_keys == ()
 
@@ -403,7 +403,7 @@ def test_all_catalog_messages_forbid_doc35_g_instruction_class_material() -> Non
         _assert_no_doc35_g_instruction_class_material(text)
         _assert_no_dsn_or_secretish(text)
         _assert_plain_text_no_markup(text)
-    assert "instructions" in RESEND_ACCESS_ACCEPTED_TEXT.lower()
+    assert "инструкци" in RESEND_ACCESS_ACCEPTED_TEXT.lower()
 
 
 def test_storefront_plans_fallback_copy(monkeypatch) -> None:
@@ -415,7 +415,7 @@ def test_storefront_plans_fallback_copy(monkeypatch) -> None:
         keyboard_marker=OutboundKeyboardMarker.STOREFRONT_MAIN.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "Current price is shown at checkout" in out.message_text
+    assert "стоимость указана при оформлении" in out.message_text.lower()
     assert out.reply_markup is not None
 
 
@@ -436,14 +436,14 @@ def test_storefront_buy_missing_or_invalid_checkout_fails_closed(monkeypatch) ->
     plan = _plan(category=OutboundPlanCategory.SUCCESS, message_key=OutboundMessageKey.STORE_BUY.value)
     monkeypatch.delenv("TELEGRAM_STOREFRONT_CHECKOUT_URL", raising=False)
     out_missing = render_telegram_outbound_plan(plan)
-    assert out_missing.message_text == "Checkout is not configured yet, contact support."
+    assert out_missing.message_text == "Оплата пока не настроена, обратитесь в поддержку."
     monkeypatch.setenv("TELEGRAM_STOREFRONT_CHECKOUT_URL", "http://example.com/pay")
     out_invalid = render_telegram_outbound_plan(plan)
-    assert out_invalid.message_text == "Checkout is not configured yet, contact support."
+    assert out_invalid.message_text == "Оплата пока не настроена, обратитесь в поддержку."
     monkeypatch.setenv("TELEGRAM_STOREFRONT_CHECKOUT_URL", "https://example.com/pay?signature=abc")
     monkeypatch.setenv("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "Checkout_Secret_1234567890_ABC")
     out_unsafe_query = render_telegram_outbound_plan(plan, telegram_user_id=12345)
-    assert out_unsafe_query.message_text == "Checkout is not configured yet, contact support."
+    assert out_unsafe_query.message_text == "Оплата пока не настроена, обратитесь в поддержку."
 
 
 def test_storefront_buy_uses_valid_checkout_url(monkeypatch) -> None:
@@ -460,7 +460,7 @@ def test_storefront_success_safe_pending_copy() -> None:
     plan = _plan(category=OutboundPlanCategory.SUCCESS, message_key=OutboundMessageKey.STORE_SUCCESS.value)
     out = render_telegram_outbound_plan(plan)
     lowered = out.message_text.lower()
-    assert "payment step completed" in lowered
+    assert "оплата получен" in lowered
     assert "/my_subscription" in out.message_text
     assert "/get_access" in out.message_text
     assert "paid" not in lowered
@@ -470,7 +470,7 @@ def test_storefront_success_active_copy_safe() -> None:
     plan = _plan(category=OutboundPlanCategory.SUCCESS, message_key=OutboundMessageKey.STORE_SUCCESS_ACTIVE.value)
     out = render_telegram_outbound_plan(plan)
     lowered = out.message_text.lower()
-    assert "subscription is active" in lowered
+    assert "подписк" in lowered and "активн" in lowered
     assert "/my_subscription" in out.message_text
     assert "/get_access" in out.message_text
     assert "payment payload" not in lowered
@@ -500,10 +500,10 @@ def test_support_menu_renders_faq_and_actions_keyboard() -> None:
         keyboard_marker=OutboundKeyboardMarker.SUPPORT_MENU.value,
     )
     out = render_telegram_outbound_plan(plan)
-    assert "Support & Help" in out.message_text
-    assert "Use /support_contact to reach us." in out.message_text
+    assert "Помощь и поддержка" in out.message_text
+    assert "Используйте /support_contact, чтобы связаться с нами." in out.message_text
     assert out.reply_markup is not None
-    assert out.reply_markup["keyboard"] == [["/support_contact"], ["/menu"]]
+    assert out.reply_markup["keyboard"] == [["📞 Контакты"], ["📋 Меню"]]
 
 
 def test_support_contact_fallback_and_configured(monkeypatch) -> None:
@@ -515,9 +515,9 @@ def test_support_contact_fallback_and_configured(monkeypatch) -> None:
     monkeypatch.delenv("TELEGRAM_STOREFRONT_SUPPORT_URL", raising=False)
     monkeypatch.delenv("TELEGRAM_STOREFRONT_SUPPORT_HANDLE", raising=False)
     out_fallback = render_telegram_outbound_plan(plan)
-    assert "Support is currently unavailable. Please try again later." in out_fallback.message_text
+    assert "Поддержка временно недоступна. Пожалуйста, попробуйте позже." in out_fallback.message_text
     assert out_fallback.reply_markup is not None
-    assert out_fallback.reply_markup["keyboard"] == [["/menu"]]
+    assert out_fallback.reply_markup["keyboard"] == [["📋 Меню"]]
 
     monkeypatch.setenv("TELEGRAM_STOREFRONT_SUPPORT_URL", "https://example.com/support")
     monkeypatch.setenv("TELEGRAM_STOREFRONT_SUPPORT_HANDLE", "@vpn_support")

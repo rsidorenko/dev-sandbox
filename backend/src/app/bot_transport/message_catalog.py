@@ -33,109 +33,109 @@ class RenderedMessagePackage:
 
 
 def _text_service_unavailable() -> str:
-    return "Service is temporarily unavailable. Please try again later."
+    return "Сервис временно недоступен. Пожалуйста, попробуйте позже."
 
 
 _CATALOG_TEXT: dict[str, str] = {
     OutboundMessageKey.IDENTITY_READY.value: (
-        "Welcome! Your chat is connected.\n"
-        "Use /menu to browse plans and purchase options.\n"
-        "Use /my_subscription anytime to check current status."
+        "Добро пожаловать! Ваш чат подключён.\n"
+        "Используйте /menu для просмотра тарифов и оформления подписки.\n"
+        "Используйте /my_subscription, чтобы проверить текущий статус."
     ),
     OutboundMessageKey.NEEDS_ONBOARDING.value: (
-        "Send /start to register, then you can use /status or /help. "
-        "The bot must know this chat before it can show access information."
+        "Отправьте /start для регистрации, затем вы сможете использовать /status или /help. "
+        "Бот должен распознать этот чат, прежде чем показать информацию о доступе."
     ),
     OutboundMessageKey.INACTIVE_OR_NOT_ELIGIBLE.value: (
-        "No access is available for this account right now. If you are new here, send /start, then /status, or /help. "
-        "This build does not grant new access and does not send files."
+        "Доступ для этого аккаунта сейчас недоступен. Если вы здесь впервые, отправьте /start, затем /status или /help. "
+        "Эта версия не предоставляет новый доступ и не отправляет файлы."
     ),
     OutboundMessageKey.NEEDS_REVIEW.value: (
-        "Access is temporarily restricted while a review is in place. You can use /status or /help. "
-        "This build does not send files."
+        "Доступ временно ограничен в связи с проверкой. Вы можете использовать /status или /help. "
+        "Эта версия не отправляет файлы."
     ),
     OutboundMessageKey.SUBSCRIPTION_EXPIRED.value: (
-        "Your subscription has expired.\n"
-        "Use /renew to continue and then check /my_subscription again."
+        "Ваша подписка истекла.\n"
+        "Используйте /renew для продления, затем проверьте /my_subscription."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE.value: (
-        "Your subscription is active.\n"
-        "Use /my_subscription to check the active-until date."
+        "Ваша подписка активна.\n"
+        "Используйте /my_subscription, чтобы узнать дату окончания."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value: (
-        "Your subscription is active, but access instructions are not ready yet. "
-        "Try /get_access in a bit."
+        "Ваша подписка активна, но инструкции по доступу ещё не готовы. "
+        "Попробуйте /get_access немного позже."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_READY.value: (
-        "Your subscription is active and access instructions are ready. "
-        "Use /get_access to receive them safely."
+        "Ваша подписка активна и инструкции по доступу готовы. "
+        "Используйте /get_access, чтобы получить их."
     ),
     OutboundMessageKey.SLICE1_HELP.value: (
-        "Available commands:\n"
-        "/start - connect this chat\n"
-        "/menu - main menu\n"
-        "/plans - available plans\n"
-        "/buy - open checkout\n"
-        "/checkout - alias of /buy\n"
-        "/success - post-payment next steps\n"
-        "/my_subscription - subscription status (same as /status)\n"
-        "/status - subscription status\n"
-        "/renew - renewal checkout link\n"
-        "/support - help and FAQ\n"
-        "/support_contact - contact options\n"
-        "/resend_access - resend access instructions when eligible\n"
-        "/get_access - alias of /resend_access\n"
-        "/help - this help"
+        "Доступные команды:\n"
+        "/start - подключить чат\n"
+        "/menu - главное меню\n"
+        "/plans - доступные тарифы\n"
+        "/buy - оформить подписку\n"
+        "/checkout - аналог /buy\n"
+        "/success - что делать после оплаты\n"
+        "/my_subscription - статус подписки (аналог /status)\n"
+        "/status - статус подписки\n"
+        "/renew - продлить подписку\n"
+        "/support - помощь и FAQ\n"
+        "/support_contact - контакты поддержки\n"
+        "/resend_access - повторно получить инструкции доступа\n"
+        "/get_access - аналог /resend_access\n"
+        "/help - эта справка"
     ),
-    OutboundMessageKey.INVALID_INPUT.value: "That input is not valid. Try again.",
+    OutboundMessageKey.INVALID_INPUT.value: "Ввод некорректен. Попробуйте снова.",
     OutboundMessageKey.TRY_AGAIN_LATER.value: (
-        "Something went wrong. Please try again in a moment."
+        "Что-то пошло не так. Пожалуйста, попробуйте позже."
     ),
     OutboundMessageKey.SERVICE_UNAVAILABLE.value: _text_service_unavailable(),
-    OutboundMessageKey.TELEGRAM_COMMAND_RATE_LIMITED.value: "Too many requests. Please try again later.",
+    OutboundMessageKey.TELEGRAM_COMMAND_RATE_LIMITED.value: "Слишком много запросов. Пожалуйста, попробуйте позже.",
     OutboundMessageKey.RESEND_ACCESS_ACCEPTED.value: (
-        "Access instructions request accepted. If safe delivery is available, instructions will be resent."
+        "Запрос на получение инструкций доступа принят. Если доставка доступна, инструкции будут отправлены повторно."
     ),
     OutboundMessageKey.RESEND_ACCESS_NOT_ENABLED.value: (
-        "This feature is not available yet."
+        "Эта функция пока недоступна."
     ),
     OutboundMessageKey.RESEND_ACCESS_NOT_ELIGIBLE.value: (
-        "Access instructions cannot be resent for this account right now.\n"
-        "If your subscription is inactive or expired, use /renew."
+        "Инструкции доступа нельзя повторно отправить для этого аккаунта.\n"
+        "Если подписка неактивна или истекла, используйте /renew."
     ),
     OutboundMessageKey.RESEND_ACCESS_COOLDOWN.value: (
-        "Please wait a moment before requesting access instructions again."
+        "Подождите немного перед повторным запросом инструкций доступа."
     ),
     OutboundMessageKey.RESEND_ACCESS_NOT_READY.value: (
-        "Access instructions are not ready to resend yet. Please try again later."
+        "Инструкции доступа ещё не готовы для повторной отправки. Попробуйте позже."
     ),
     OutboundMessageKey.RESEND_ACCESS_TEMPORARILY_UNAVAILABLE.value: (
-        "Access instructions resend is temporarily unavailable. Please try again later."
+        "Повторная отправка инструкций временно недоступна. Попробуйте позже."
     ),
     OutboundMessageKey.STORE_MENU.value: (
-        "Main menu:\n"
-        "/plans - view plans\n"
-        "/buy - open checkout\n"
-        "/my_subscription - check subscription status\n"
-        "/renew - renewal options\n"
-        "/support - help and FAQ\n"
-        "/support_contact - contact support"
+        "Главное меню:\n"
+        "/plans - посмотреть тарифы\n"
+        "/buy - оформить подписку\n"
+        "/my_subscription - проверить статус подписки\n"
+        "/renew - продлить подписку\n"
+        "/support - помощь и FAQ\n"
+        "/support_contact - связаться с поддержкой"
     ),
     OutboundMessageKey.STORE_SUCCESS.value: (
-        "Payment step completed and received.\n"
-        "Activation may take a moment.\n"
-        "Use /my_subscription to check status, then /get_access when subscription is active."
+        "Оплата получена.\n"
+        "Активация может занять некоторое время.\n"
+        "Используйте /my_subscription для проверки статуса, затем /get_access, когда подписка станет активной."
     ),
     OutboundMessageKey.STORE_SUCCESS_ACTIVE.value: (
-        "Subscription is active.\n"
-        "Use /my_subscription for current status and /get_access to receive access instructions."
+        "Подписка активна.\n"
+        "Используйте /my_subscription для проверки статуса и /get_access для получения инструкций доступа."
     ),
-    OutboundMessageKey.STORE_PLANS.value: "Current price is shown at checkout. Use /buy to continue.",
-    OutboundMessageKey.STORE_BUY.value: "Checkout is not configured yet, contact support.",
-    OutboundMessageKey.STORE_RENEW.value: "Checkout is not configured yet, contact support.",
-    OutboundMessageKey.SUPPORT_MENU.value: "Support menu placeholder.",
-    OutboundMessageKey.SUPPORT_CONTACT.value: "Support contact placeholder.",
-    OutboundMessageKey.FULFILLMENT_SUCCESS_NOTIFICATION.value: "Fulfillment success placeholder.",
+    OutboundMessageKey.STORE_PLANS.value: "Стоимость указана при оформлении. Используйте /buy для продолжения.",
+    OutboundMessageKey.STORE_BUY.value: "Оплата пока не настроена, обратитесь в поддержку.",
+    OutboundMessageKey.STORE_RENEW.value: "Продление пока не настроено, обратитесь в поддержку.",
+    OutboundMessageKey.SUPPORT_MENU.value: "Меню поддержки.",
+    OutboundMessageKey.SUPPORT_CONTACT.value: "Контакты поддержки.",
+    OutboundMessageKey.FULFILLMENT_SUCCESS_NOTIFICATION.value: "Оплата успешно обработана.",
     OutboundMessageKey.SUBSCRIPTION_ACTIVE_CONFIRMATION.value: "",
 }
 
@@ -154,10 +154,10 @@ def _action_keys_from_plan(plan: TelegramOutboundPlan) -> tuple[str, ...]:
 def _storefront_keyboard() -> dict[str, Any]:
     return {
         "keyboard": [
-            ["/menu", "/plans"],
-            ["/buy", "/my_subscription"],
-            ["/renew", "/support"],
-            ["/help"],
+            ["📋 Меню", "📊 Тарифы"],
+            ["💳 Купить", "📱 Подписка"],
+            ["🔄 Продлить", "🆘 Поддержка"],
+            ["❓ Помощь"],
         ],
         "resize_keyboard": True,
     }
@@ -165,60 +165,58 @@ def _storefront_keyboard() -> dict[str, Any]:
 
 def _support_menu_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["/support_contact"], ["/menu"]],
+        "keyboard": [["📞 Контакты"], ["📋 Меню"]],
         "resize_keyboard": True,
     }
 
 
 def _support_contact_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["/menu"]],
+        "keyboard": [["📋 Меню"]],
         "resize_keyboard": True,
     }
 
 
 def _fulfillment_success_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["/get_access"], ["/menu"]],
+        "keyboard": [["🔓 Доступ"], ["📋 Меню"]],
         "resize_keyboard": True,
     }
 
 
 def _format_fulfillment_success_notification_text(*, active_until_ymd: str | None) -> str:
-    """User copy after trusted UC-05 apply + snapshot; no payment payload or ids."""
     lines = [
-        "Payment received ✅",
+        "Оплата получена ✅",
         "",
-        "Your subscription is now active.",
+        "Ваша подписка теперь активна.",
     ]
     if active_until_ymd:
-        lines.extend(["", f"Active until: {active_until_ymd}"])
+        lines.extend(["", f"Действует до: {active_until_ymd}"])
     lines.extend(
         [
             "",
-            "Next steps:",
-            "/get_access - receive access instructions",
-            "/menu - open the main menu",
+            "Дальнейшие действия:",
+            "/get_access — получить инструкции доступа",
+            "/menu — открыть главное меню",
         ]
     )
     return "\n".join(lines)
 
 
 def _format_subscription_active_confirmation_text(*, active_until_ymd: str | None) -> str:
-    """Post-/status recovery copy; wording distinct from fulfillment success; no ids or payment material."""
     lines = [
-        "Your subscription is active ✅",
+        "Ваша подписка активна ✅",
         "",
-        "You are covered right now.",
+        "Всё в порядке, доступ открыт.",
     ]
     if active_until_ymd:
-        lines.extend(["", f"Good through: {active_until_ymd}"])
+        lines.extend(["", f"Действует до: {active_until_ymd}"])
     lines.extend(
         [
             "",
-            "Next:",
-            "/get_access — open access delivery",
-            "/menu — main menu",
+            "Дальнейшие действия:",
+            "/get_access — получить инструкции доступа",
+            "/menu — главное меню",
         ]
     )
     return "\n".join(lines)
@@ -227,27 +225,27 @@ def _format_subscription_active_confirmation_text(*, active_until_ymd: str | Non
 def _format_plans_copy() -> str:
     cfg = load_storefront_public_config()
     if cfg.plan_name and cfg.plan_price:
-        return f"Plan: {cfg.plan_name}\nPrice: {cfg.plan_price}\nUse /buy to continue to checkout."
+        return f"Тариф: {cfg.plan_name}\nСтоимость: {cfg.plan_price}\nИспользуйте /buy для оформления подписки."
     if cfg.plan_name:
         return (
-            f"Plan: {cfg.plan_name}\n"
-            "Current price is shown at checkout.\n"
-            "Use /buy to continue."
+            f"Тариф: {cfg.plan_name}\n"
+            "Стоимость указана при оформлении.\n"
+            "Используйте /buy для продолжения."
         )
     if cfg.plan_price:
-        return f"Current plan price: {cfg.plan_price}\nUse /buy to continue to checkout."
-    return "Current price is shown at checkout. Use /buy to continue."
+        return f"Стоимость тарифа: {cfg.plan_price}\nИспользуйте /buy для оформления подписки."
+    return "Стоимость указана при оформлении. Используйте /buy для продолжения."
 
 
 def _format_buy_copy(*, telegram_user_id: int | None) -> str:
     cfg = load_storefront_public_config()
     if cfg.checkout_url is None:
-        return "Checkout is not configured yet, contact support."
+        return "Оплата пока не настроена, обратитесь в поддержку."
     if telegram_user_id is None:
-        return "Checkout is not configured yet, contact support."
+        return "Оплата пока не настроена, обратитесь в поддержку."
     secret = load_checkout_reference_secret()
     if not secret:
-        return "Checkout is not configured yet, contact support."
+        return "Оплата пока не настроена, обратитесь в поддержку."
     signed = create_signed_checkout_reference(
         telegram_user_id=telegram_user_id,
         internal_user_id=f"u{telegram_user_id}",
@@ -259,16 +257,16 @@ def _format_buy_copy(*, telegram_user_id: int | None) -> str:
         client_reference_proof=signed.reference_proof,
     )
     if checkout_url is None:
-        return "Checkout is not configured yet, contact support."
-    return f"Open checkout: {checkout_url}"
+        return "Оплата пока не настроена, обратитесь в поддержку."
+    return f"Оформить подписку: {checkout_url}"
 
 
 def _format_status_active_copy(message_key: str, active_until_ymd: str | None) -> str:
-    until = f"Your subscription is active until {active_until_ymd}." if active_until_ymd else "Your subscription is active."
+    until = f"Ваша подписка активна до {active_until_ymd}." if active_until_ymd else "Ваша подписка активна."
     if message_key == OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value:
-        return until + "\nAccess instructions are not ready yet. Try /get_access in a bit."
+        return until + "\nИнструкции доступа ещё не готовы. Попробуйте /get_access немного позже."
     if message_key == OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_READY.value:
-        return until + "\nAccess instructions are ready. Use /get_access."
+        return until + "\nИнструкции доступа готовы. Используйте /get_access."
     return until
 
 
@@ -276,10 +274,10 @@ def _format_renew_copy(*, telegram_user_id: int | None) -> str:
     cfg = load_storefront_public_config()
     base_url = cfg.renewal_url or cfg.checkout_url
     if base_url is None or telegram_user_id is None:
-        return "Checkout is not configured yet, contact support."
+        return "Продление пока не настроено, обратитесь в поддержку."
     secret = load_checkout_reference_secret()
     if not secret:
-        return "Checkout is not configured yet, contact support."
+        return "Продление пока не настроено, обратитесь в поддержку."
     signed = create_signed_checkout_reference(
         telegram_user_id=telegram_user_id,
         internal_user_id=f"u{telegram_user_id}",
@@ -291,8 +289,8 @@ def _format_renew_copy(*, telegram_user_id: int | None) -> str:
         client_reference_proof=signed.reference_proof,
     )
     if url is None:
-        return "Checkout is not configured yet, contact support."
-    return f"Renew subscription: {url}"
+        return "Продление пока не настроено, обратитесь в поддержку."
+    return f"Продлить подписку: {url}"
 
 
 def render_telegram_outbound_plan(

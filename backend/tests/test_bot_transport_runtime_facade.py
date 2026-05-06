@@ -123,7 +123,7 @@ def test_facade_unsupported_update_surface_maps_to_invalid_input_rendered() -> N
             callback_query={"id": "q", "from": {"id": 1}, "data": "x"},
         )
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == "That input is not valid. Try again."
+        assert pkg.message_text == "Ввод некорректен. Попробуйте снова."
         assert pkg.correlation_id == cid
 
     _run(main())
