@@ -212,7 +212,7 @@ async def _send_fulfillment(
 
 
 def _extract_checkout_reference(message_text: str) -> _CheckoutReference:
-    marker = "Open checkout: "
+    marker = "Оформить подписку: "
     if marker not in message_text:
         raise RuntimeError("buy copy is missing checkout marker")
     checkout_url = message_text.split(marker, 1)[1].strip()
@@ -346,15 +346,15 @@ async def run_customer_journey_e2e() -> None:
 
         # Before fulfillment (pending/inactive customer-facing state)
         start = await _render_command(command="/start", ids=ids, composition=composition, update_id=1)
-        _assert_contains(start.message_text, "Welcome!")
+        _assert_contains(start.message_text, "Добро пожаловать")
         if not isinstance(start.reply_markup, dict) or "keyboard" not in start.reply_markup:
             raise RuntimeError("start must provide reply keyboard")
 
         plans = await _render_command(command="/plans", ids=ids, composition=composition, update_id=2)
-        _assert_contains(plans.message_text, "Use /buy")
+        _assert_contains(plans.message_text, "Используйте /buy")
 
         buy = await _render_command(command="/buy", ids=ids, composition=composition, update_id=3)
-        if "Open checkout:" not in buy.message_text and "Checkout is not configured yet" not in buy.message_text:
+        if "Оформить подписку:" not in buy.message_text and "Оплата пока не настроена" not in buy.message_text:
             raise RuntimeError("buy copy mismatch")
 
         checkout = await _render_command(command="/checkout", ids=ids, composition=composition, update_id=4)
@@ -363,14 +363,14 @@ async def run_customer_journey_e2e() -> None:
         checkout_reference = _extract_checkout_reference(buy.message_text)
 
         pending_success = await _render_command(command="/success", ids=ids, composition=composition, update_id=5)
-        _assert_contains(pending_success.message_text, "Activation may take a moment")
+        _assert_contains(pending_success.message_text, "Активация может занять")
 
         pending_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=6)
-        if "active" in pending_status.message_text.lower():
+        if "активн" in pending_status.message_text.lower():
             raise RuntimeError("pending status must not claim active")
 
         pending_access = await _render_command(command="/get_access", ids=ids, composition=composition, update_id=7)
-        if "accepted" in pending_access.message_text.lower():
+        if "принят" in pending_access.message_text.lower():
             raise RuntimeError("pending access request must not be accepted")
 
         # Signed fulfillment ingress (invalid -> valid -> duplicate valid)
@@ -397,7 +397,7 @@ async def run_customer_journey_e2e() -> None:
         if invalid_sig_status != 401:
             raise RuntimeError("invalid signature must be rejected")
         still_pending = await _render_command(command="/success", ids=ids, composition=composition, update_id=8)
-        _assert_contains(still_pending.message_text, "Activation may take a moment")
+        _assert_contains(still_pending.message_text, "Активация может занять")
 
         stale_payload = dict(payload)
         stale_payload["external_event_id"] = f"{ids.billing_external_event_id}-stale"
@@ -413,7 +413,7 @@ async def run_customer_journey_e2e() -> None:
         if stale_status != 400:
             raise RuntimeError("stale checkout reference must be rejected")
         stale_pending = await _render_command(command="/success", ids=ids, composition=composition, update_id=81)
-        _assert_contains(stale_pending.message_text, "Activation may take a moment")
+        _assert_contains(stale_pending.message_text, "Активация может занять")
 
         tampered_payload = dict(payload)
         tampered_payload["external_event_id"] = f"{ids.billing_external_event_id}-tampered"
@@ -429,7 +429,7 @@ async def run_customer_journey_e2e() -> None:
         if tampered_status != 400:
             raise RuntimeError("tampered checkout reference must be rejected")
         tampered_pending = await _render_command(command="/success", ids=ids, composition=composition, update_id=82)
-        _assert_contains(tampered_pending.message_text, "Activation may take a moment")
+        _assert_contains(tampered_pending.message_text, "Активация может занять")
 
         valid_status = await _send_fulfillment(
             app=ingress_app,
@@ -453,9 +453,9 @@ async def run_customer_journey_e2e() -> None:
         await _ensure_active_snapshot(pool, ids)
 
         active_success = await _render_command(command="/success", ids=ids, composition=composition, update_id=9)
-        _assert_contains(active_success.message_text, "Subscription is active.")
+        _assert_contains(active_success.message_text, "Подписка активна")
         active_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=10)
-        _assert_contains(active_status.message_text.lower(), "active until")
+        _assert_contains(active_status.message_text.lower(), "активн")
 
         # Existing safe operator fixture path: ensure access via ADM-02 internal handler.
         adm02 = _build_adm02_handler(pool)
@@ -472,13 +472,13 @@ async def run_customer_journey_e2e() -> None:
             raise RuntimeError("adm02 ensure-access failed")
 
         get_access = await _render_command(command="/get_access", ids=ids, composition=composition, update_id=11)
-        _assert_contains(get_access.message_text, "accepted")
+        _assert_contains(get_access.message_text.lower(), "принят")
         resend_access = await _render_command(command="/resend_access", ids=ids, composition=composition, update_id=12)
-        if "please wait" not in resend_access.message_text.lower() and "accepted" not in resend_access.message_text.lower():
+        if "подождите" not in resend_access.message_text.lower() and "принят" not in resend_access.message_text.lower():
             raise RuntimeError("resend access must stay idempotent-safe")
 
         renew = await _render_command(command="/renew", ids=ids, composition=composition, update_id=121)
-        _assert_contains(renew.message_text, "Renew subscription:")
+        _assert_contains(renew.message_text, "Продлить подписку:")
         _assert_contains(renew.message_text, "client_reference_id=")
         _assert_contains(renew.message_text, "client_reference_proof=")
 
@@ -491,7 +491,7 @@ async def run_customer_journey_e2e() -> None:
             )
         )
         expired_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=122)
-        _assert_contains(expired_status.message_text.lower(), "expired")
+        _assert_contains(expired_status.message_text.lower(), "истекл")
         _assert_contains(expired_status.message_text, "/renew")
 
         # Reconcile before expired-path resend commands: the resend handler contains a best-effort
@@ -516,7 +516,7 @@ async def run_customer_journey_e2e() -> None:
         _assert_contains(expired_resend.message_text, "/renew")
 
         support = await _render_command(command="/support", ids=ids, composition=composition, update_id=13)
-        _assert_contains(support.message_text.lower(), "support")
+        _assert_contains(support.message_text.lower(), "поддержк")
     finally:
         try:
             async with pool.acquire() as conn:
