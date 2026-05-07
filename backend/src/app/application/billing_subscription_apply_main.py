@@ -1,9 +1,9 @@
-"""Operator entrypoint: apply an existing ingested billing fact to subscription (UC-05, Postgres atomic).
+"""Точка входа оператора: применить существующий загруженный биллинг-факт к подписке (UC-05, Postgres атомарно).
 
-Run: ``BILLING_SUBSCRIPTION_APPLY_ENABLE=1`` and
-``python -m app.application.billing_subscription_apply_main --internal-fact-ref <ref>`` (from ``backend/``).
+Запуск: ``BILLING_SUBSCRIPTION_APPLY_ENABLE=1`` и
+``python -m app.application.billing_subscription_apply_main --internal-fact-ref <ref>`` (из ``backend/``).
 
-No public HTTP, no raw provider payload, no automatic coupling to billing ingest.
+Без публичного HTTP, без сырых нагрузок провайдера, без автоматической связи с биллинг-загрузкой.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def _stderr_fail(category: str) -> None:
 
 
 def _outcome_state_labels(res: ApplyAcceptedBillingFactResult) -> tuple[str, str]:
-    """(operation category value, apply outcome or literal none)."""
+    """(значение категории операции, исход apply или литерал none)."""
     out = res.operation_outcome.value
     if res.apply_outcome is not None:
         st = res.apply_outcome.value
@@ -110,7 +110,7 @@ async def async_run_apply(
     dsn: str,
     open_pool: OpenPoolFn | None = None,
 ) -> ApplyAcceptedBillingFactResult:
-    """Run UC-05 in one pool lifecycle; delegates to :class:`ApplyAcceptedBillingFactHandler`."""
+    """Запускает UC-05 в одном жизненном цикле пула; делегирует :class:`ApplyAcceptedBillingFactHandler`."""
     open_fn: OpenPoolFn = open_pool if open_pool is not None else _default_open_pool
     pool = await open_fn(dsn)
     try:
@@ -122,7 +122,7 @@ async def async_run_apply(
 
 
 def _parse_ref_arg(raw: str) -> str:
-    """Strip and validate ``internal_fact_ref`` (no control chars, bounded)."""
+    """Очищает и валидирует ``internal_fact_ref`` (без управляющих символов, ограниченный)."""
     return validate_internal_fact_ref_uc05(raw)
 
 
@@ -132,7 +132,7 @@ def main() -> None:
 
 
 async def async_main(argv: Sequence[str] | None = None) -> int:
-    """Run operator UC-05 apply; process exit 0 on success or idempotent replay."""
+    """Запускает UC-05 apply оператора; код завершения 0 при успехе или идемпотентном повторе."""
     qargv = list(sys.argv[1:]) if argv is None else list(argv)
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -192,7 +192,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
 
 
 def _safety_deny_zero_exit(res: ApplyAcceptedBillingFactResult) -> bool:
-    """If outcome claims success but apply payload is missing where required, do not exit 0."""
+    """Если исход заявляет успех, но нагрузка apply отсутствует где требуется, не завершать с кодом 0."""
     if res.operation_outcome is OperationOutcomeCategory.IDEMPOTENT_NOOP and res.apply_outcome is None:
         return True
     if res.operation_outcome is OperationOutcomeCategory.SUCCESS and res.apply_outcome is None:

@@ -1,4 +1,4 @@
-"""Provider-neutral config issuance v1 contracts (no persistence, no real provider)."""
+"""Провайдер-независимые контракты config issuance v1 (без персистентности, без реального провайдера)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.shared.types import SubscriptionSnapshotState
 
 
 class IssuanceOperationType(StrEnum):
-    """Normalized issuance operation (design UC-06 / UC-08 / UC-07 intent)."""
+    """Нормализованная операция выдачи (дизайн UC-06 / UC-08 / UC-07 intent)."""
 
     ISSUE = "issue"
     RESEND = "resend"
@@ -19,8 +19,8 @@ class IssuanceOperationType(StrEnum):
 
 class IssuanceOutcomeCategory(StrEnum):
     """
-    Failure taxonomy and outcomes aligned with design doc §J (and explicit success classes).
-    No secret payload classes.
+    Таксономия ошибок и исходов, согласованная с документом дизайна §J (и явные классы успеха).
+    Без классов секретных нагрузок.
     """
 
     NOT_ENTITLED = "not_entitled"
@@ -38,11 +38,11 @@ class IssuanceOutcomeCategory(StrEnum):
 @dataclass(frozen=True, slots=True)
 class IssuanceRequest:
     """
-    In-process issuance intent.
+    In-process интент выдачи.
 
-    * ``idempotency_key`` scopes *this* operation (issue / a single resend / a revoke).
-    * For :attr:`REVOKE` and :attr:`RESEND`, ``link_issue_idempotency_key`` must be the
-      ``idempotency_key`` used for the original successful :attr:`ISSUE` (same process).
+    * ``idempotency_key`` ограничивает *эту* операцию (issue / один resend / revoke).
+    * Для :attr:`REVOKE` и :attr:`RESEND`, ``link_issue_idempotency_key`` должен быть
+      ``idempotency_key``, использованным для оригинального успешного :attr:`ISSUE` (тот же процесс).
     """
 
     internal_user_id: str
@@ -55,7 +55,7 @@ class IssuanceRequest:
 
 @dataclass(frozen=True, slots=True)
 class IssuanceServiceResult:
-    """Normalized outcome; ``safe_ref`` is an opaque, non-secret handle (when present)."""
+    """Нормализованный исход; ``safe_ref`` — непрозрачный, несекретный дескриптор (если присутствует)."""
 
     category: IssuanceOutcomeCategory
     safe_ref: str | None = None
@@ -63,7 +63,7 @@ class IssuanceServiceResult:
 
 @dataclass(frozen=True, slots=True)
 class IssuanceAuditRecord:
-    """Category-only in-memory seam for tests; no config/secret/payload content."""
+    """In-memory шов только с категориями для тестов; без конфиг/секрет/нагрузок."""
 
     operation: IssuanceOperationType
     outcome: IssuanceOutcomeCategory

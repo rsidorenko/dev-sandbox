@@ -1,4 +1,4 @@
-"""Minimal type-safe primitives for slice 1 (UC-01 / UC-02)."""
+"""Минимальные типобезопасные примитивы для slice 1 (UC-01 / UC-02)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from enum import Enum
 
 
 class OperationOutcomeCategory(str, Enum):
-    """High-level outcome for structured telemetry (low-cardinality)."""
+    """Категория результата верхнего уровня для структурной телеметрии (низкая кардинальность)."""
 
     SUCCESS = "success"
     VALIDATION_FAILURE = "validation_failure"
@@ -18,7 +18,7 @@ class OperationOutcomeCategory(str, Enum):
 
 
 class SafeUserStatusCategory(str, Enum):
-    """Fail-closed user-facing status buckets for UC-02 (UC-05 may add explicit subscription active)."""
+    """Категории пользовательского статуса с fail-closed для UC-02 (UC-05 может добавить явный subscription active)."""
 
     NEEDS_BOOTSTRAP = "needs_bootstrap"
     INACTIVE_OR_NOT_ELIGIBLE = "inactive_or_not_eligible"
@@ -30,7 +30,7 @@ class SafeUserStatusCategory(str, Enum):
 
 
 class SubscriptionSnapshotState(str, Enum):
-    """Stored or inferred subscription snapshot classification (read model input)."""
+    """Классификация снапшота подписки (сохранённая или выведенная) для входных данных read model."""
 
     ABSENT = "absent"
     INACTIVE = "inactive"
@@ -41,7 +41,7 @@ class SubscriptionSnapshotState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ActorContext:
-    """Minimal actor/context for normalized ingress (no raw Telegram payloads)."""
+    """Минимальный контекст актора для нормализованного входа (без сырых Telegram-нагрузок)."""
 
     telegram_user_id: int
     telegram_chat_id: int

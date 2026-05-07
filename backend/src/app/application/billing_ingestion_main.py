@@ -1,7 +1,7 @@
-"""Operator entrypoint: one normalized JSON fact -> ledger + audit (no public HTTP, no raw provider payload).
+"""Точка входа оператора: один нормализованный JSON-факт -> ledger + аудит (без публичного HTTP, без сырых нагрузок провайдера).
 
-Run: ``BILLING_NORMALIZED_INGEST_ENABLE=1`` and ``python -m app.application.billing_ingestion_main --input-file <path>``
-(optionally ``--input-file -`` for stdin).
+Запуск: ``BILLING_NORMALIZED_INGEST_ENABLE=1`` и ``python -m app.application.billing_ingestion_main --input-file <путь>``
+(опционально ``--input-file -`` для stdin).
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ from app.security.config import ConfigurationError, load_runtime_config
 from app.security.errors import PersistenceDependencyError
 from app.security.validation import ValidationError
 
-# Explicit operator opt-in: without a truthy value, the entrypoint exits without DB access.
+# Явное согласие оператора: без истинного значения точка входа завершается без доступа к БД.
 BILLING_NORMALIZED_INGEST_ENABLE = "BILLING_NORMALIZED_INGEST_ENABLE"
 
-# Schema 1: normalized scalars only (must match :class:`NormalizedBillingFactInput`).
+# Схема 1: только нормализованные скаляры (должно совпадать с :class:`NormalizedBillingFactInput`).
 _SCHEMA_VERSION = 1
 _JSON_KEYS_ALLOWED = frozenset(
     {
@@ -122,7 +122,7 @@ def _require_non_empty_str(data: dict[str, object], key: str) -> str:
 
 
 def parse_json_to_normalized_billing_input(raw: str) -> NormalizedBillingFactInput:
-    """Parse strict JSON (schema 1) into a :class:`NormalizedBillingFactInput` (for tests/CLI)."""
+    """Разбирает строгий JSON (схема 1) в :class:`NormalizedBillingFactInput` (для тестов/CLI)."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -196,7 +196,7 @@ def _err_category(exc: BaseException) -> str:
 
 
 def _stderr_fail(category: str) -> None:
-    # Fixed shape; no exception text (may contain DSN/PII in nested causes).
+    # Фиксированная форма; без текста исключения (может содержать DSN/PII во вложенных причинах).
     print(
         f"{_STDERR_FAIL} {_CATEGORY_KEY}={category}",
         file=sys.stderr,
@@ -238,7 +238,7 @@ async def async_run_billing_ingest_from_parsed(
     dsn: str,
     open_pool: OpenPoolFn | None = None,
 ) -> tuple[str, str, str, str]:
-    """Ingest one fact in a single Postgres transaction; returns (outcome, ref, status, correlation_id)."""
+    """Загружает один факт в одной транзакции Postgres; возвращает (outcome, ref, status, correlation_id)."""
     open_fn: OpenPoolFn = open_pool if open_pool is not None else _default_open_pool
     pool = await open_fn(dsn)
     try:
@@ -252,12 +252,12 @@ async def async_run_billing_ingest_from_parsed(
 
 
 def main() -> None:
-    """CLI entry: ``python -m app.application.billing_ingestion_main``."""
+    """CLI-точка входа: ``python -m app.application.billing_ingestion_main``."""
     raise SystemExit(asyncio.run(async_main()))
 
 
 async def async_main(argv: Sequence[str] | None = None) -> int:
-    """Run operator ingest; returns process exit code (0 ok, 1 error)."""
+    """Запускает загрузку оператора; возвращает код завершения процесса (0 ok, 1 ошибка)."""
     qargv = list(sys.argv[1:]) if argv is None else list(argv)
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -269,7 +269,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
     try:
         ns = p.parse_args(qargv)
     except SystemExit as e:
-        # argparse: 0 for -h/--help; non-zero for invalid arguments.
+        # argparse: 0 для -h/--help; ненулевое для некорректных аргументов.
         c = e.code
         if c in (0, None):
             return 0

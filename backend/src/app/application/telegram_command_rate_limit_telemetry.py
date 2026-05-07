@@ -1,4 +1,4 @@
-"""Safe/redacted observability events for Telegram command rate-limit decisions."""
+"""Безопасные/редуцированные события наблюдаемости для решений rate-limit команд Telegram."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class NoopTelegramCommandRateLimitTelemetry:
 
 
 class StructuredLoggingTelegramCommandRateLimitTelemetry:
-    """Emit bounded, redacted telemetry for command rate-limit decisions."""
+    """Отправляет ограниченную, редуцированную телеметрию для решений rate-limit команд."""
 
     async def emit_decision(self, event: TelegramCommandRateLimitDecisionEvent) -> None:
         try:

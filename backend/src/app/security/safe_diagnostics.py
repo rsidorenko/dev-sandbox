@@ -1,4 +1,4 @@
-"""Safe diagnostics helpers for operator-facing preflight output."""
+"""Безопасные помощники диагностики для предзапускового вывода оператору."""
 
 from __future__ import annotations
 

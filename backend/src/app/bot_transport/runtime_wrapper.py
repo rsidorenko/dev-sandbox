@@ -1,8 +1,8 @@
-"""Pure slice-1 runtime wrapper: Telegram-like update mapping → runtime send action (no SDK, no I/O).
+"""Чистая обёртка runtime slice 1: маппинг Telegram-подобного update → действие отправки runtime (без SDK, без I/O).
 
-Bridges raw updates to :func:`handle_slice1_telegram_update_to_rendered_message`, then applies
-send/no-op policy from architecture docs 17/18: eligible private chat target + rendered copy → send;
-otherwise no-op. Does not duplicate adapter dispatch, normalization, or application logic.
+Связывает сырые обновления с :func:`handle_slice1_telegram_update_to_rendered_message`, затем применяет
+политику отправки/не-действия из архитектурных документов 17/18: целевой приватный чат + отрендеренный текст → отправка;
+иначе не-действие. Не дублирует диспетчеризацию адаптера, нормализацию или логику приложения.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.security.validation import ValidationError, validate_telegram_user_id
 
 
 class TelegramRuntimeActionKind(str, Enum):
-    """Minimal runtime outbound intent for slice 1 (transport-agnostic, no SDK)."""
+    """Минимальный исходящий интент runtime для slice 1 (транспорт-агностичный, без SDK)."""
 
     SEND_MESSAGE = "send_message"
     NOOP = "noop"
@@ -26,7 +26,7 @@ class TelegramRuntimeActionKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class TelegramRuntimeFollowUpSend:
-    """Additional outbound text after the primary rendered message (same update, same chat)."""
+    """Дополнительный исходящий текст после основного отрендеренного сообщения (тот же update, тот же чат)."""
 
     message_text: str
     reply_markup: Mapping[str, Any] | None
@@ -34,7 +34,7 @@ class TelegramRuntimeFollowUpSend:
 
 @dataclass(frozen=True, slots=True)
 class TelegramRuntimeAction:
-    """Single outbound action derived from a rendered package; no raw Telegram payload."""
+    """Единичное исходящее действие, полученное из отрендеренного пакета; без сырой Telegram-нагрузки."""
 
     kind: TelegramRuntimeActionKind
     correlation_id: str
@@ -50,11 +50,11 @@ def extract_eligible_private_chat_id_from_telegram_like_update(
     update: Mapping[str, Any],
 ) -> int | None:
     """
-    Fail-closed extraction of an outbound chat id for slice 1.
+    Извлечение исходящего chat id с fail-closed для slice 1.
 
-    Validates only structural/private-chat identity (private ``message.chat``, stable ids,
-    ``from.id`` consistent with ``chat.id``). Does not interpret commands or duplicate the
-    slice-1 command allowlist; malformed or non-private shapes return ``None``.
+    Валидирует только структурную идентичность приватного чата (приватный ``message.chat``, стабильные id,
+    ``from.id`` совпадает с ``chat.id``). Не интерпретирует команды и не дублирует
+    разрешённый список команд slice 1; некорректные или неприватные формы возвращают ``None``.
     """
     if not isinstance(update, Mapping):
         return None
@@ -88,10 +88,10 @@ async def handle_slice1_telegram_update_to_runtime_action(
     correlation_id: str | None = None,
 ) -> TelegramRuntimeAction:
     """
-    Raw Telegram-like update → existing runtime facade → one :class:`TelegramRuntimeAction`.
+    Сырой Telegram-подобный update → существующий facade runtime → одно :class:`TelegramRuntimeAction`.
 
-    Correlation id on the action is always taken from the rendered package (pipeline truth).
-    Expected adapter/service paths do not raise; errors are expressed as safe rendered copy.
+    Correlation id действия всегда берётся из отрендеренного пакета (истина пайплайна).
+    Ожидаемые пути адаптера/сервиса не выбрасывают исключения; ошибки выражаются как безопасный отрендеренный текст.
     """
     rendered = await handle_slice1_telegram_update_to_rendered_message(
         update,
@@ -165,7 +165,7 @@ async def handle_slice1_telegram_update_to_runtime_action(
 
 
 class Slice1TelegramRuntimeWrapper:
-    """Holds :class:`Slice1Composition` and delegates to :func:`handle_slice1_telegram_update_to_runtime_action`."""
+    """Хранит :class:`Slice1Composition` и делегирует :func:`handle_slice1_telegram_update_to_runtime_action`."""
 
     __slots__ = ("_composition",)
 

@@ -1,7 +1,7 @@
-"""Internal normalized billing fact ingestion (no HTTP, no provider parsing).
+"""Внутренняя загрузка нормализованного биллинг-факта (без HTTP, без парсинга провайдера).
 
-Appends to :class:`BillingEventsLedgerRepository`, then append-only UC-04 billing ingestion audit
-(no raw provider payload). UC-05 apply-to-subscription is out of scope.
+Добавляет в :class:`BillingEventsLedgerRepository`, затем append-only UC-04 аудит биллинг-загрузки
+(без сырых нагрузок провайдера). UC-05 apply-to-subscription вне области видимости.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from app.persistence.billing_ingestion_audit_contracts import (
 )
 from app.security.validation import ValidationError
 
-# Reasonable upper bounds (TEXT columns; keep ingress bounded)
+# Разумные верхние границы (TEXT-столбцы; держим вход ограниченным)
 _MAX_ID_LEN = 256
 _MAX_EVENT_TYPE_LEN = 128
 _MAX_CORR_LEN = 256
@@ -89,7 +89,7 @@ def _validate_amount_currency(value: BillingEventAmountCurrency | None) -> Billi
 
 @dataclass(frozen=True, slots=True)
 class NormalizedBillingFactInput:
-    """Normalized scalars only — no raw provider payload field."""
+    """Только нормализованные скаляры — без поля сырой нагрузки провайдера."""
 
     billing_provider_key: str
     external_event_id: str
@@ -108,15 +108,15 @@ class NormalizedBillingFactInput:
 class IngestNormalizedBillingFactResult:
     record: BillingEventLedgerRecord
     is_idempotent_replay: bool
-    """True when ingest hit an existing (provider, external_event_id) ledger row (replay path).
+    """True когда загрузка попала в существующую строку (provider, external_event_id) ledger (путь повтора).
 
-    Postgres atomic ingest detects replay from the INSERT idempotency outcome, so this is True
-    even when the caller repeats the same explicit ``internal_fact_ref`` for that external id.
+    Postgres атомарная загрузка обнаруживает повтор из исхода идемпотентности INSERT, поэтому это True
+    даже когда вызывающий повторяет тот же явный ``internal_fact_ref`` для этого external id.
     """
 
 
 def resolve_internal_fact_ref_for_ingest(provided: str | None) -> str:
-    """Validate and resolve :attr:`NormalizedBillingFactInput.internal_fact_ref` to a string ref."""
+    """Валидирует и разрешает :attr:`NormalizedBillingFactInput.internal_fact_ref` в строковую ссылку."""
     if provided is None:
         return str(uuid.uuid4())
     s = provided.strip()
@@ -130,7 +130,7 @@ def resolve_internal_fact_ref_for_ingest(provided: str | None) -> str:
 
 
 def build_ledger_record_for_ingest(input_: NormalizedBillingFactInput) -> BillingEventLedgerRecord:
-    """Map validated :class:`NormalizedBillingFactInput` to a :class:`BillingEventLedgerRecord` (no I/O)."""
+    """Отображает валидированный :class:`NormalizedBillingFactInput` в :class:`BillingEventLedgerRecord` (без I/O)."""
     pkey = _require_non_empty_trimmed(
         name="billing_provider_key", value=input_.billing_provider_key, max_len=_MAX_ID_LEN
     )
@@ -170,7 +170,7 @@ def build_ledger_record_for_ingest(input_: NormalizedBillingFactInput) -> Billin
 
 
 class IngestNormalizedBillingFactHandler:
-    """Validates :class:`NormalizedBillingFactInput` and appends to the billing events ledger."""
+    """Валидирует :class:`NormalizedBillingFactInput` и добавляет в биллинг-леджер событий."""
 
     def __init__(self, ledger: BillingEventsLedgerRepository, audit: BillingIngestionAuditAppender) -> None:
         self._ledger = ledger
@@ -180,21 +180,21 @@ class IngestNormalizedBillingFactHandler:
         return build_ledger_record_for_ingest(input_)
 
     async def handle(self, input_: NormalizedBillingFactInput) -> IngestNormalizedBillingFactResult:
-        """Persist the normalized fact (idempotent on provider + external_event_id)."""
+        """Сохраняет нормализованный факт (идемпотентный по provider + external_event_id)."""
         constructed = self._build_record(input_)
         stored = await self._ledger.append_or_get_by_provider_and_external_id(constructed)
-        # Idempotent hit: same (provider, external_id) already stored with a different internal ref
-        # (typical when internal_fact_ref is auto-generated per request).
+        # Попадание идемпотентности: тот же (provider, external_id) уже сохранён с другим internal ref
+        # (типично, когда internal_fact_ref генерируется автоматически для каждого запроса).
         is_replay = stored.internal_fact_ref != constructed.internal_fact_ref
         audit_outcome = (
             BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY
             if is_replay
             else BILLING_INGESTION_OUTCOME_ACCEPTED
         )
-        # Fail-closed: :class:`PersistenceDependencyError` from the audit appender (e.g. Postgres)
-        # propagates to the caller. Non-atomic repository wiring: ledger may already be committed
-        # before the audit write; the operator Postgres entrypoint uses a single database transaction
-        # for ledger+audit.
+        # Fail-closed: :class:`PersistenceDependencyError` от аппендера аудита (напр. Postgres)
+        # пробрасывается вызывающему. Неатомарная сборка репозитория: ledger может быть уже закоммичен
+        # до записи аудита; операторский Postgres entrypoint использует одну транзакцию БД
+        # для ledger+аудита.
         await self._audit.append(
             BillingIngestionAuditRecord(
                 internal_fact_ref=stored.internal_fact_ref,

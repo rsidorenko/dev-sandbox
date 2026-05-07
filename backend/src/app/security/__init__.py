@@ -1,1 +1,1 @@
-"""Security: config boundary, validation, idempotency policy, safe errors."""
+"""Безопасность: граница конфигурации, валидация, политика идемпотентности, безопасные ошибки."""

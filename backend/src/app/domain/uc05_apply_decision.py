@@ -1,4 +1,4 @@
-"""Pure UC-05 apply decision (no I/O) for subscription snapshot transitions."""
+"""Чистое решение UC-05 apply (без I/O) для переходов снапшота подписки."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app.shared.types import SubscriptionSnapshotState
 
 
 class UC05ApplyPath(str, Enum):
-    """Result path before durable persistence (handler maps to operation outcomes)."""
+    """Результирующий путь перед персистентной записью (обработчик маппит на исходы операций)."""
 
     FACT_NOT_FOUND = "fact_not_found"
     IDEMPOTENT_REPLAY = "idempotent_replay"
@@ -30,16 +30,16 @@ class UC05ApplyPath(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class UC05PersistInstruction:
-    """Durable work for a first-time apply of this internal_fact_ref."""
+    """Долговременная работа для первого применения данного internal_fact_ref."""
 
     internal_fact_ref: str
-    # Row in billing_subscription_apply_records (NOT NULL user column; may be sentinel)
+    # Строка в billing_subscription_apply_records (столбец NOT NULL; может быть сентинелем)
     record_internal_user_id: str
     apply_outcome: BillingSubscriptionApplyOutcome
     reason: BillingSubscriptionApplyReason
-    # If set, upsert subscription_snapshots to this state_label (UserSnapshotState value string)
+    # Если установлено, выполнить upsert subscription_snapshots с этим state_label (значение UserSnapshotState)
     snapshot_state_label: str | None
-    # Audit: internal user from ledger (optional)
+    # Аудит: внутренний пользователь из ledger (опционально)
     audit_internal_user_id: str | None
     billing_provider_key: str
     external_event_id: str
@@ -50,9 +50,9 @@ class UC05PersistInstruction:
 def first_time_decision(
     fact: BillingEventLedgerRecord,
 ) -> UC05PersistInstruction:
-    """Compute durable apply for a fact that is not yet present in idempotency store.
+    """Вычисляет долговременное применение для факта, которого ещё нет в хранилище идемпотентности.
 
-    Precondition: caller has verified no idempotency row for ``fact.internal_fact_ref`` yet.
+    Предусловие: вызывающий подтвердил, что строки идемпотентности для ``fact.internal_fact_ref`` ещё нет.
     """
     st = fact.status
     if st is not BillingEventLedgerStatus.ACCEPTED:

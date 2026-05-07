@@ -1,4 +1,4 @@
-"""UC-01 / UC-02 application orchestration (no transport, no persistence implementations)."""
+"""Оркестрация UC-01 / UC-02 (без транспорта, без реализаций персистентности)."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from app.shared.types import (
 
 @dataclass(frozen=True, slots=True)
 class BootstrapIdentityInput:
-    """Normalized UC-01 input (transport must not pass raw Telegram payloads)."""
+    """Нормализованный ввод UC-01 (транспорт не должен передавать сырые Telegram-нагрузки)."""
 
     telegram_user_id: int
     telegram_update_id: int
@@ -53,13 +53,13 @@ class BootstrapIdentityResult:
     internal_user_id: str | None
     user_safe: UserSafeErrorCode | None
     idempotent_replay: bool
-    #: UC-01 bootstrap only: same digest as ``idempotency_records.idempotency_key`` (success paths).
+    #: Только UC-01 bootstrap: тот же дайджест, что и ``idempotency_records.idempotency_key`` (успешные пути).
     uc01_idempotency_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class GetSubscriptionStatusInput:
-    """Normalized UC-02 input."""
+    """Нормализованный ввод UC-02."""
 
     telegram_user_id: int
     correlation_id: str
@@ -82,7 +82,7 @@ def _snapshot_state_from_reader_label(state_label: str) -> SubscriptionSnapshotS
 
 
 class BootstrapIdentityHandler:
-    """UC-01: validation → idempotency → find-or-create identity → minimal audit → complete key."""
+    """UC-01: валидация → идемпотентность → найти-или-создать идентичность → минимальный аудит → завершить ключ."""
 
     def __init__(
         self,
@@ -278,7 +278,7 @@ class BootstrapIdentityHandler:
 
 
 class GetSubscriptionStatusHandler:
-    """UC-02: read-only identity + subscription snapshot → fail-closed domain mapping; no audit."""
+    """UC-02: идентичность только для чтения + снапшот подписки → fail-closed доменное отображение; без аудита."""
 
     def __init__(
         self,

@@ -1,4 +1,4 @@
-"""Validation helpers for public HTTPS operator URLs."""
+"""Помощники валидации публичных HTTPS-URL оператора."""
 
 from __future__ import annotations
 

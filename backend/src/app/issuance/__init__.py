@@ -1,4 +1,4 @@
-"""Config issuance v1 in-process domain slice (entitlement, fake-capable service; no transport)."""
+"""Config issuance v1 in-process доменный slice (права доступа, сервис с fake-провайдером; без транспорта)."""
 
 from app.issuance.contracts import (
     IssuanceAuditRecord,

@@ -1,4 +1,4 @@
-"""UC-05: apply accepted billing fact to subscription (no transport, no public HTTP)."""
+"""UC-05: применить принятый биллинг-факт к подписке (без транспорта, без публичного HTTP)."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from app.shared.types import OperationOutcomeCategory
 
 @dataclass(frozen=True, slots=True)
 class ApplyAcceptedBillingFactInput:
-    """Normalized UC-05 input: stable ledger key."""
+    """Нормализованный ввод UC-05: стабильный ключ ledger."""
 
     internal_fact_ref: str
 
 
 @dataclass(frozen=True, slots=True)
 class ApplyAcceptedBillingFactResult:
-    """Outcome of :meth:`ApplyAcceptedBillingFactHandler.handle`."""
+    """Результат :meth:`ApplyAcceptedBillingFactHandler.handle`."""
 
     operation_outcome: OperationOutcomeCategory
     idempotent_replay: bool
@@ -37,7 +37,7 @@ def _outcome_to_result(pg: UC05PostgresApplyResult) -> ApplyAcceptedBillingFactR
 
 
 class ApplyAcceptedBillingFactHandler:
-    """UC-05: delegates to :class:`PostgresAtomicUC05SubscriptionApply` (one PG transaction)."""
+    """UC-05: делегирует :class:`PostgresAtomicUC05SubscriptionApply` (одна PG-транзакция)."""
 
     def __init__(self, apply_pg: PostgresAtomicUC05SubscriptionApply) -> None:
         self._apply = apply_pg

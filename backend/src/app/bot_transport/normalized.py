@@ -1,4 +1,4 @@
-"""Slice-1 transport normalization: allowlisted commands → handler inputs (no raw payloads)."""
+"""Нормализация транспорта slice 1: разрешённые команды → входы обработчиков (без сырых нагрузок)."""
 
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ _SLICE1_SUPPORT_CONTACT_COMMANDS: frozenset[str] = frozenset({"/support_contact"
 @dataclass(frozen=True, slots=True)
 class TransportIncomingEnvelope:
     """
-    Generic slice-1 ingress envelope: identifiers + bounded normalized command only.
-    No Telegram update objects or opaque payload blobs.
+    Общая входная обёртка slice 1: идентификаторы + ограниченная нормализованная команда.
+    Без объектов Telegram update или непрозрачных нагрузок.
     """
 
     telegram_user_id: int
@@ -47,7 +47,7 @@ class TransportIncomingEnvelope:
 
 
 class NormalizationRejectReason(str, Enum):
-    """Safe, low-cardinality rejection categories for transport normalization."""
+    """Безопасные, низкокардинальные категории отклонения для нормализации транспорта."""
 
     UNKNOWN_COMMAND = "unknown_command"
     INVALID_INPUT = "invalid_input"
@@ -72,14 +72,14 @@ class NormalizedSlice1ResendAccess:
 
 @dataclass(frozen=True, slots=True)
 class NormalizedSlice1Help:
-    """Read-only /help: correlation id for transport only; no application handler inputs."""
+    """Только для чтения /help: correlation id только для транспорта; без входов обработчика приложения."""
 
     correlation_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizedSlice1Menu:
-    """Read-only /menu: shows storefront main menu; no handler, no state change."""
+    """Только для чтения /menu: показывает главное меню магазина; без обработчика, без изменения состояния."""
 
     correlation_id: str
 
@@ -106,14 +106,14 @@ class NormalizedSlice1Renew:
 
 @dataclass(frozen=True, slots=True)
 class NormalizedSlice1SupportMenu:
-    """Read-only /support: FAQ menu; no handler, no state change."""
+    """Только для чтения /support: меню FAQ; без обработчика, без изменения состояния."""
 
     correlation_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizedSlice1SupportContact:
-    """Read-only /support_contact: safe contact lines; no handler, no state change."""
+    """Только для чтения /support_contact: безопасные контактные данные; без обработчика, без изменения состояния."""
 
     correlation_id: str
 
@@ -141,8 +141,8 @@ NormalizedSlice1Result = (
 
 def normalize_command_token(raw: str | None) -> str | None:
     """
-    Extract a bounded first-token command (e.g. /start, /start@bot → /start).
-    Returns None if input is unusable; does not retain or echo full message bodies.
+    Извлекает ограниченную первую токен-команду (напр. /start, /start@bot → /start).
+    Возвращает None если ввод непригоден; не сохраняет и не повторяет полные тела сообщений.
     """
     if raw is None:
         return None
@@ -162,7 +162,7 @@ def normalize_command_token(raw: str | None) -> str | None:
 
 
 def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSlice1Result:
-    """Map allowlisted slice-1 commands to handler inputs; reject everything else safely."""
+    """Отображает разрешённые команды slice 1 во входы обработчиков; безопасно отклоняет всё остальное."""
     try:
         require_correlation_id(envelope.correlation_id)
     except ValueError:

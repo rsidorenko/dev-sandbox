@@ -1,4 +1,4 @@
-"""Safe error taxonomy: user-visible vs internal, fail-closed friendly mapping."""
+"""Безопасная таксономия ошибок: пользовательские vs внутренние, удобное отображение fail-closed."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from enum import Enum
 
 
 class UserSafeErrorCode(str, Enum):
-    """Stable categories safe to map to end-user messaging (no internals)."""
+    """Стабильные категории, безопасные для отображения конечным пользователям (без внутренних деталей)."""
 
     INVALID_INPUT = "invalid_input"
     TRY_AGAIN_LATER = "try_again_later"
@@ -15,7 +15,7 @@ class UserSafeErrorCode(str, Enum):
 
 
 class InternalErrorCategory(str, Enum):
-    """Operational / failure classification (not for end users)."""
+    """Операционная классификация ошибок (не для конечных пользователей)."""
 
     VALIDATION = "validation"
     IDEMPOTENCY_CONFLICT = "idempotency_conflict"
@@ -25,7 +25,7 @@ class InternalErrorCategory(str, Enum):
 
 
 class PersistenceDependencyError(Exception):
-    """Raised by repository implementations when persistence fails; carries internal classification."""
+    """Выбрасывается реализациями репозиториев при ошибке персистентности; содержит внутреннюю классификацию."""
 
     def __init__(self, category: InternalErrorCategory) -> None:
         self.category = category
@@ -33,7 +33,7 @@ class PersistenceDependencyError(Exception):
 
 
 def map_internal_to_user_safe(category: InternalErrorCategory) -> UserSafeErrorCode:
-    """Fail-closed mapping from internal categories to user-safe codes."""
+    """Отображение fail-closed из внутренних категорий в пользовательские коды."""
     if category is InternalErrorCategory.VALIDATION:
         return UserSafeErrorCode.INVALID_INPUT
     if category is InternalErrorCategory.PERSISTENCE_TRANSIENT:

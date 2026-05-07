@@ -1,8 +1,8 @@
-"""Operator entrypoint for config issuance actions (issue/resend/revoke).
+"""Точка входа оператора для действий конфиг-выдачи (issue/resend/revoke).
 
-Run: ``ISSUANCE_OPERATOR_ENABLE=1`` and
+Запуск: ``ISSUANCE_OPERATOR_ENABLE=1`` и
 ``python -m app.application.issuance_operator_main <action> --internal-user-id <id> --access-profile-key <key> --issue-idempotency-key <key> [--correlation-id <hex32>]``
-from ``backend/``.
+из ``backend/``.
 """
 
 from __future__ import annotations

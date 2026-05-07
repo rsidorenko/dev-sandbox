@@ -1,4 +1,4 @@
-"""Map handler results to transport-safe responses (categories/codes only; no product copy)."""
+"""Отображает результаты обработчиков в безопасные транспортные ответы (только категории/коды; без продуктового текста)."""
 
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ class TransportResponseCategory(str, Enum):
 
 
 class TransportBootstrapCode(str, Enum):
-    """Stable bootstrap outcome codes for transport (success paths unified)."""
+    """Стабильные коды исхода bootstrap для транспорта (успешные пути объединены)."""
 
     IDENTITY_READY = "identity_ready"
 
 
 class TransportStatusCode(str, Enum):
-    """Stable UC-02 summary codes (fail-closed; no billing or provider claims)."""
+    """Стабильные сводные коды UC-02 (fail-closed; без заявлений о биллинге или провайдере)."""
 
     NEEDS_ONBOARDING = "needs_onboarding"
     INACTIVE_OR_NOT_ELIGIBLE = "inactive_or_not_eligible"
@@ -39,7 +39,7 @@ class TransportStatusCode(str, Enum):
 
 
 class TransportErrorCode(str, Enum):
-    """Stable error-class codes aligned with user-safe taxonomy (no internals)."""
+    """Стабильные коды классов ошибок, согласованные с пользовательской таксономией (без внутренних деталей)."""
 
     INVALID_INPUT = "invalid_input"
     TRY_AGAIN_LATER = "try_again_later"
@@ -48,7 +48,7 @@ class TransportErrorCode(str, Enum):
 
 
 class TransportHelpCode(str, Enum):
-    """Read-only slice-1 help; no application handler, no state change."""
+    """Справка slice 1 только для чтения; без обработчика приложения, без изменения состояния."""
 
     SLICE1_HELP = "slice1_help"
 
@@ -63,7 +63,7 @@ class TransportStorefrontCode(str, Enum):
 
 
 class TransportSupportCode(str, Enum):
-    """Read-only support surfaces; no billing or issuance."""
+    """Поверхности поддержки только для чтения; без биллинга или выдачи."""
 
     SUPPORT_MENU = "support_menu"
     SUPPORT_CONTACT = "support_contact"
@@ -88,12 +88,12 @@ class TransportSafeResponse:
     code: str
     correlation_id: str
     next_action_hint: str | None = None
-    #: UC-01 only: same Telegram update replay handled idempotently; runtime may skip duplicate send.
+    #: Только UC-01: повтор того же Telegram update обработан идемпотентно; runtime может пропустить дублированную отправку.
     replay_suppresses_outbound: bool = False
-    #: UC-01 success only: digest key aligned with ``idempotency_records`` for outbound delivery ledger.
+    #: Только при успехе UC-01: ключ-дайджест, согласованный с ``idempotency_records`` для исходящего delivery ledger.
     uc01_idempotency_key: str | None = None
     active_until_ymd: str | None = None
-    #: UC-02 /status and /my_subscription: second outbound with success-style recovery copy (read-only).
+    #: UC-02 /status и /my_subscription: второе исходящее сообщение с восстановительным текстом стиля успеха (только чтение).
     subscription_active_recovery_followup: bool = False
 
 
@@ -141,7 +141,7 @@ def _status_code_for_safe_category(status: SafeUserStatusCategory) -> str:
 
 
 def map_bootstrap_identity_to_transport(result: BootstrapIdentityResult) -> TransportSafeResponse:
-    """Map UC-01 result to transport-safe response; replay shares success codes but may suppress outbound."""
+    """Отображает результат UC-01 в безопасный транспортный ответ; повтор использует коды успеха, но может подавить исходящую отправку."""
     cid = result.correlation_id
     if result.outcome is OperationOutcomeCategory.SUCCESS:
         return TransportSafeResponse(
@@ -156,7 +156,7 @@ def map_bootstrap_identity_to_transport(result: BootstrapIdentityResult) -> Tran
 
 
 def map_slice1_help_to_transport(correlation_id: str) -> TransportSafeResponse:
-    """Map /help to a transport success path without invoking UC-01/UC-02 handlers."""
+    """Отображает /help в успешный транспортный путь без вызова обработчиков UC-01/UC-02."""
     return TransportSafeResponse(
         category=TransportResponseCategory.SUCCESS,
         code=TransportHelpCode.SLICE1_HELP.value,
@@ -185,7 +185,7 @@ def map_slice1_support_to_transport(
     code: TransportSupportCode,
     correlation_id: str,
 ) -> TransportSafeResponse:
-    """Map read-only /support and /support_contact to transport (no handlers)."""
+    """Отображает /support и /support_contact только для чтения в транспорт (без обработчиков)."""
     return TransportSafeResponse(
         category=TransportResponseCategory.SUCCESS,
         code=code.value,
@@ -199,7 +199,7 @@ def map_slice1_support_to_transport(
 def map_get_subscription_status_to_transport(
     result: GetSubscriptionStatusResult,
 ) -> TransportSafeResponse:
-    """Map UC-02 result; unknown user stays onboarding-style guidance; inactive stays fail-closed."""
+    """Отображает результат UC-02; неизвестный пользователь получает руководство по onboarding; неактивный — fail-closed."""
     cid = result.correlation_id
     oc = result.outcome
 
