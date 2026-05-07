@@ -22,7 +22,8 @@ _MAX_COMMAND_TOKEN_LEN = 64
 
 _SLICE1_BOOTSTRAP_COMMANDS: frozenset[str] = frozenset({"/start"})
 _SLICE1_STATUS_COMMANDS: frozenset[str] = frozenset({"/status", "/my_subscription"})
-_SLICE1_HELP_COMMANDS: frozenset[str] = frozenset({"/help", "/menu"})
+_SLICE1_MENU_COMMANDS: frozenset[str] = frozenset({"/menu"})
+_SLICE1_HELP_COMMANDS: frozenset[str] = frozenset({"/help"})
 _SLICE1_RESEND_COMMANDS: frozenset[str] = frozenset({"/resend_access", "/get_access"})
 _SLICE1_PLANS_COMMANDS: frozenset[str] = frozenset({"/plans"})
 _SLICE1_BUY_COMMANDS: frozenset[str] = frozenset({"/buy", "/checkout"})
@@ -77,6 +78,13 @@ class NormalizedSlice1Help:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizedSlice1Menu:
+    """Read-only /menu: shows storefront main menu; no handler, no state change."""
+
+    correlation_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedSlice1Plans:
     correlation_id: str
 
@@ -119,6 +127,7 @@ NormalizedSlice1Result = (
     NormalizedSlice1Bootstrap
     | NormalizedSlice1Status
     | NormalizedSlice1ResendAccess
+    | NormalizedSlice1Menu
     | NormalizedSlice1Help
     | NormalizedSlice1Plans
     | NormalizedSlice1Buy
@@ -216,6 +225,8 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
             ),
         )
 
+    if token in _SLICE1_MENU_COMMANDS:
+        return NormalizedSlice1Menu(correlation_id=envelope.correlation_id)
     if token in _SLICE1_HELP_COMMANDS:
         return NormalizedSlice1Help(correlation_id=envelope.correlation_id)
     if token in _SLICE1_PLANS_COMMANDS:

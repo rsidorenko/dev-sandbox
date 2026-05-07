@@ -154,10 +154,10 @@ def _action_keys_from_plan(plan: TelegramOutboundPlan) -> tuple[str, ...]:
 def _storefront_keyboard() -> dict[str, Any]:
     return {
         "keyboard": [
-            ["📋 Меню", "📊 Тарифы"],
-            ["💳 Купить", "📱 Подписка"],
-            ["🔄 Продлить", "🆘 Поддержка"],
-            ["❓ Помощь"],
+            ["📊 Тарифы", "💳 Купить"],
+            ["📱 Подписка", "🔄 Продлить"],
+            ["🆘 Поддержка", "❓ Помощь"],
+            ["🔓 Доступ"],
         ],
         "resize_keyboard": True,
     }
@@ -165,21 +165,21 @@ def _storefront_keyboard() -> dict[str, Any]:
 
 def _support_menu_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["📞 Контакты"], ["📋 Меню"]],
+        "keyboard": [["📞 Контакты"]],
         "resize_keyboard": True,
     }
 
 
 def _support_contact_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["📋 Меню"]],
+        "keyboard": [["📊 Тарифы", "💳 Купить"]],
         "resize_keyboard": True,
     }
 
 
 def _fulfillment_success_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [["🔓 Доступ"], ["📋 Меню"]],
+        "keyboard": [["🔓 Доступ", "📱 Подписка"]],
         "resize_keyboard": True,
     }
 

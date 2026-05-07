@@ -119,6 +119,16 @@ class HttpxTelegramRawPollingClient:
             out.append(item)
         return out
 
+    async def set_my_commands(self, commands: Sequence[Mapping[str, str]]) -> None:
+        """Call Telegram ``setMyCommands`` to define the bot's native menu commands."""
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        body: dict[str, Any] = {"commands": [dict(c) for c in commands]}
+        response = await self._client.post(f"{self._base}setMyCommands", json=body, **post_kw)
+        response.raise_for_status()
+        data = _parse_json_object(response)
+        _raise_if_not_ok(data)
+
     async def send_text_message(
         self,
         chat_id: int,

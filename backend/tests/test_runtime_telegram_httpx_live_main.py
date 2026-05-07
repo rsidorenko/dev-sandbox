@@ -225,13 +225,18 @@ def test_run_from_env_logs_start_and_normal_completion(
         for record in caplog.records
         if record.getMessage() == "runtime.live.entrypoint.lifecycle"
     ]
-    assert len(lifecycle_records) == 2
+    assert len(lifecycle_records) == 3
     assert lifecycle_records[0].structured_fields == {
         "intent": "startup",
         "outcome": "begin",
         "operation": "run_until_stopped",
     }
     assert lifecycle_records[1].structured_fields == {
+        "intent": "startup",
+        "outcome": "completed",
+        "operation": "set_my_commands",
+    }
+    assert lifecycle_records[2].structured_fields == {
         "intent": "shutdown",
         "outcome": "completed",
         "operation": "run_until_stopped",

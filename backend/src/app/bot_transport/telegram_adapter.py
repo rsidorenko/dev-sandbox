@@ -14,7 +14,6 @@ from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 _MAX_MESSAGE_TEXT_LEN = 512
 
 _BUTTON_LABEL_TO_COMMAND: dict[str, str] = {
-    "📋 меню": "/menu",
     "📊 тарифы": "/plans",
     "💳 купить": "/buy",
     "📱 подписка": "/my_subscription",

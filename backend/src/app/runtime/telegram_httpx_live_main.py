@@ -13,6 +13,18 @@ from app.runtime.telegram_httpx_live_process import (
     build_slice1_httpx_live_process_from_env_async,
 )
 
+_BOT_MENU_COMMANDS: list[dict[str, str]] = [
+    {"command": "start", "description": "Подключить чат"},
+    {"command": "menu", "description": "Главное меню"},
+    {"command": "plans", "description": "Доступные тарифы"},
+    {"command": "buy", "description": "Оформить подписку"},
+    {"command": "my_subscription", "description": "Статус подписки"},
+    {"command": "renew", "description": "Продлить подписку"},
+    {"command": "get_access", "description": "Получить инструкции доступа"},
+    {"command": "support", "description": "Помощь и FAQ"},
+    {"command": "help", "description": "Справка"},
+]
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -94,6 +106,26 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         except (NotImplementedError, RuntimeError):
             # Keep run path functional when signal hooks are unavailable.
             pass
+        try:
+            await process.app.bundle.client.set_my_commands(_BOT_MENU_COMMANDS)
+            _log_lifecycle_event(
+                intent="startup",
+                outcome="completed",
+                operation="set_my_commands",
+            )
+        except Exception:
+            _LOGGER.warning(
+                "runtime.live.entrypoint.set_my_commands_failed",
+                extra={
+                    "structured_fields": sanitize_structured_fields(
+                        {
+                            "intent": "startup",
+                            "outcome": "warning",
+                            "operation": "set_my_commands",
+                        }
+                    )
+                },
+            )
         try:
             summary = await process.run_until_stopped()
         except Exception:

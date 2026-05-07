@@ -19,6 +19,7 @@ from app.application.telegram_command_rate_limit_telemetry import (
 from app.bot_transport.normalized import (
     NormalizedSlice1Bootstrap,
     NormalizedSlice1Help,
+    NormalizedSlice1Menu,
     NormalizedSlice1Buy,
     NormalizedSlice1Plans,
     NormalizedSlice1Rejected,
@@ -115,6 +116,8 @@ async def dispatch_slice1_transport(
             return _normalization_reject_response(envelope)
         case NormalizedSlice1Help(correlation_id=help_cid):
             return map_slice1_help_to_transport(help_cid)
+        case NormalizedSlice1Menu(correlation_id=menu_cid):
+            return map_slice1_storefront_to_transport(TransportStorefrontCode.STORE_MENU, menu_cid)
         case NormalizedSlice1Plans(correlation_id=cid):
             return map_slice1_storefront_to_transport(TransportStorefrontCode.STORE_PLANS, cid)
         case NormalizedSlice1Buy(correlation_id=cid):

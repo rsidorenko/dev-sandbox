@@ -124,9 +124,9 @@ def test_script_contains_lifecycle_active_and_expired_path_contract() -> None:
     text = _SCRIPT_PATH.read_text(encoding="utf-8")
     assert "await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)" in text
     assert '"period_days": 30' in text
-    assert "_assert_contains(active_status.message_text.lower(), \"active until\")" in text
+    assert '_assert_contains(active_status.message_text.lower(), "активн")' in text
     assert "active_until_utc=datetime(2020, 1, 1, tzinfo=UTC)" in text
-    assert "_assert_contains(expired_status.message_text.lower(), \"expired\")" in text
+    assert '_assert_contains(expired_status.message_text.lower(), "истекл")' in text
     assert "_assert_contains(expired_access.message_text, \"/renew\")" in text
     assert "expired_resend = await _render_command(command=\"/resend_access\"" in text
     assert "reconciled_rows = await _reconcile_expired_access(pool)" in text
