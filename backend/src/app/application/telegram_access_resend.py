@@ -1,4 +1,4 @@
-"""Telegram user-facing access resend orchestration (resend-only, fail-closed, redacted)."""
+"""Оркестрация повторной отправки доступа пользователю Telegram (только повтор, fail-closed, редуцированный)."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ class NoopTelegramAccessResendDisabledHitMarker:
 
 
 class InMemoryAccessResendCooldownStore:
-    """Simple in-process fixed-window cooldown keyed by internal user id."""
+    """Простой in-process фиксированный оконный cooldown по ключу internal user id."""
 
     def __init__(self, cooldown_seconds: float = TELEGRAM_ACCESS_RESEND_COOLDOWN_SECONDS) -> None:
         self._cooldown_seconds = float(cooldown_seconds)
@@ -119,7 +119,7 @@ def _snapshot_state_from_reader_label(state_label: str) -> SubscriptionSnapshotS
 
 
 class TelegramAccessResendHandler:
-    """Resend-only flow: identity+active gate+cooldown+issuance resend call."""
+    """Поток только повторной отправки: идентичность+шлюз active+cooldown+вызов issuance resend."""
 
     def __init__(
         self,
@@ -161,7 +161,7 @@ class TelegramAccessResendHandler:
                     TelegramAccessResendDisabledHitEvent(source_command=inp.source_command),
                 )
             except Exception:
-                # Telemetry marker must not change fail-closed user-visible behavior.
+                # Маркер телеметрии не должен менять fail-closed пользовательское поведение.
                 pass
             return TelegramAccessResendResult(
                 outcome=TelegramAccessResendOutcome.NOT_ENABLED,
@@ -188,8 +188,8 @@ class TelegramAccessResendHandler:
                 correlation_id=cid,
             )
         if snapshot.active_until_utc is not None and self._now_utc() > snapshot.active_until_utc:
-            # Best-effort local durable revoke for already-issued access when lifecycle is expired.
-            # This preserves fail-closed behavior even if revoke mutation fails.
+            # Best-effort локальный долговременный отзыв уже выданного доступа при истечении жизненного цикла.
+            # Это сохраняет поведение fail-closed даже если мутация отзыва не удалась.
             if self._issuance_state_lookup is not None and self._issuance_state_mutation is not None:
                 try:
                     current = await self._issuance_state_lookup.get_current_for_user(identity.internal_user_id)

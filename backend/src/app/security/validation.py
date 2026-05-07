@@ -1,4 +1,4 @@
-"""Strict allowlisted intents for slice 1; bounded validation; unknown intents forbidden."""
+"""Строгие разрешённые интенты для slice 1; ограниченная валидация; неизвестные интенты запрещены."""
 
 from __future__ import annotations
 
@@ -11,19 +11,19 @@ _UC05_REF_SAFE = re.compile(r"^[\w.\-:]{1,256}$")
 
 
 class NormalizedIntent(str, Enum):
-    """Only intents permitted for slice 1 transport normalization."""
+    """Только интенты, разрешённые для нормализации транспорта slice 1."""
 
     BOOTSTRAP_IDENTITY = "bootstrap_identity"
     GET_SUBSCRIPTION_STATUS = "get_subscription_status"
 
 
 class ValidationError(Exception):
-    """Raised when normalized input fails bounds or allowlist checks."""
+    """Выбрасывается, когда нормализованный ввод не проходит проверку границ или разрешённого списка."""
 
 
 def parse_allowlisted_intent(raw: str | None) -> NormalizedIntent:
     """
-    Parse intent from a normalized string. Rejects unknown intents and oversize input.
+    Разбирает интент из нормализованной строки. Отклоняет неизвестные интенты и слишком длинный ввод.
     """
     if raw is None:
         raise ValidationError("intent is required")
@@ -41,7 +41,7 @@ def parse_allowlisted_intent(raw: str | None) -> NormalizedIntent:
 
 
 def validate_telegram_user_id(value: int) -> int:
-    """Bounded positive Telegram user id."""
+    """Ограниченный положительный Telegram user id."""
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValidationError("telegram_user_id must be an integer")
     if value <= 0:
@@ -52,7 +52,7 @@ def validate_telegram_user_id(value: int) -> int:
 
 
 def validate_telegram_update_id(value: int) -> int:
-    """Non-negative update id for idempotency material (Telegram update_id)."""
+    """Неотрицательный update id для материала идемпотентности (Telegram update_id)."""
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValidationError("update_id must be an integer")
     if value < 0:
@@ -63,7 +63,7 @@ def validate_telegram_update_id(value: int) -> int:
 
 
 def validate_internal_fact_ref_uc05(value: str) -> str:
-    """Bounded :class:`internal_fact_ref` for UC-05 (aligned with billing ingest ref rules)."""
+    """Ограниченный :class:`internal_fact_ref` для UC-05 (согласован с правилами billing ingest ref)."""
     if not isinstance(value, str):
         raise ValidationError("internal_fact_ref must be a string")
     s = value.strip()

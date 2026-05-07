@@ -1,1 +1,1 @@
-"""Shared primitives: types, correlation."""
+"""Общие примитивы: типы, корреляция."""

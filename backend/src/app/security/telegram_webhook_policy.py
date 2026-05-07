@@ -1,4 +1,4 @@
-"""Shared Telegram webhook URL and allowed_updates policy for operator tooling."""
+"""Общая политика URL и allowed_updates для вебхуков Telegram (инструменты оператора)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def parse_webhook_allowed_updates(raw: str | None) -> tuple[str, ...]:
 
 
 def validate_allowed_updates_for_command_bot(updates: tuple[str, ...]) -> str | None:
-    """Return issue_code if unsupported for command-only bot, else None."""
+    """Возвращает issue_code если тип не поддерживается для command-only бота, иначе None."""
     unsupported = sorted({u for u in updates if u not in _COMMAND_BOT_SUPPORTED_UPDATE_TYPES})
     if unsupported:
         return "telegram_webhook_allowed_updates_unsupported_for_command_bot"
@@ -31,7 +31,7 @@ def validate_allowed_updates_for_command_bot(updates: tuple[str, ...]) -> str | 
 
 
 def normalize_webhook_url_for_compare(url: str) -> str:
-    """Normalize public webhook URL for equality checks (no query/fragment)."""
+    """Нормализует публичный URL вебхука для сравнения на равенство (без query/fragment)."""
     stripped = url.strip()
     parsed = urlsplit(stripped)
     scheme = parsed.scheme.lower()

@@ -1,4 +1,4 @@
-"""Safe Telegram update dedup guard for dispatcher boundary."""
+"""Безопасная защита от дублирования обновлений Telegram на границе диспетчера."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def dedup_key_hash_for_update(
 
 
 class InMemoryTelegramUpdateDedupGuard:
-    """Bounded in-memory dedup keyed by (command bucket, Telegram update id)."""
+    """Ограниченный in-memory dedup по ключу (command bucket, Telegram update id)."""
 
     def __init__(
         self,

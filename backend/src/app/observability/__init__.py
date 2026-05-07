@@ -1,1 +1,1 @@
-"""Observability: logging policy and redaction (no vendor coupling)."""
+"""Наблюдаемость: политика логирования и редукция (без привязки к вендорам)."""

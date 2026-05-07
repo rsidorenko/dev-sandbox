@@ -1,4 +1,4 @@
-"""Safe in-process Telegram command rate limiting primitives (no transport copy)."""
+"""Безопасные in-process примитивы rate limiting команд Telegram (без копирования транспорта)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class _FixedWindowRule:
 
 
 class InMemoryTelegramCommandRateLimiter:
-    """Deterministic fixed-window limiter keyed by (telegram user id, command key)."""
+    """Детерминированный fixed-window лимитер по ключу (telegram user id, command key)."""
 
     def __init__(
         self,

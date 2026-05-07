@@ -171,26 +171,55 @@ Always check these for additional or updated commands before assuming the list a
 
 ---
 
-## Delivery batch workflow
+## Trunk Based Development workflow
 
-A standard delivery batch should follow this sequence:
+This project follows **Trunk Based Development** (TBD). See `/deliver` skill for the full step-by-step cycle.
 
-1. **Inspect repo state** — `git status --short`, `git branch --show-current`, `git rev-parse --short HEAD`, `git remote -v`
-2. **Inspect GitHub/CI state** — `gh auth status`, `gh repo view`, `gh workflow list`, `gh run list --limit 10`
-3. **Read relevant files** — do not rely on memory or prior session context; read current HEAD files
-4. **Create a feature branch** — `git checkout -b <type>/<scope>` (e.g. `feat/`, `fix/`, `docs/`, `test/`)
-5. **Implement scoped changes** — only what the batch scope requires; no scope creep
-6. **Run tests and local validation** — run relevant scripts; do not fake success if environment is missing
-7. **Update docs when behavior or ops changes** — runbooks, release status, handoff docs as needed
-8. **Verify clean diff** — `git diff --check`; `git status --short`; `git diff -- <files>`
-9. **Stage only the intended files** — do not add unrelated files; never `git add .` blindly
-10. **Commit** — scoped, descriptive commit message (`type(scope): description`)
-11. **Push** — `git push -u origin <branch>` (never push directly to `main`)
-12. **Open or update PR** — `gh pr create` if appropriate; include summary and test plan
-13. **Check CI** — `gh run list --limit 5`; wait for runs to complete; inspect failures
-14. **Fix CI failures caused by this batch** — investigate, fix, commit, push, re-check
-15. **Report pre-existing CI failures** — do not hide; report with evidence and next-step recommendation
-16. **Return complete final report** — use the format in the section below
+### Core TBD rules
+
+- **Short-lived feature branches** — max 24 hours from creation to merge
+- **One developer per branch** — one person owns one branch at a time
+- **Small scope** — one task = one branch = one PR. Decompose if it doesn't fit in 24h
+- **Pre-integration build** — tests MUST pass locally before pushing
+- **CI green before merge** — never merge a red PR into `main`
+- **Release from main** — feature branches never produce release artifacts
+- **Commit early and often** — each commit should leave code in a working state
+
+### Branch naming
+
+```
+<type>/<short-scope>
+
+Types: feat  fix  refactor  docs  test  chore
+```
+
+### Commit messages
+
+```
+type(scope): imperative description
+```
+
+### Delivery cycle (summary)
+
+1. **Sync** — `git checkout main && git pull --rebase origin main`
+2. **Branch** — `git checkout -b <type>/<scope>`
+3. **Read** — read relevant source files, do not rely on memory
+4. **Implement** — small focused commits, each compilable
+5. **Validate** — `cd backend && python -m pytest -q` (must pass before push)
+6. **Commit** — stage only intended files, never `git add .` blindly
+7. **Push** — `git push -u origin <branch>` (within 24h of branch creation)
+8. **PR** — `gh pr create` with summary and test plan
+9. **CI + review** — wait for green CI, get review approval
+10. **Merge and cleanup** — delete branch after merge
+
+### Branch by abstraction
+
+For changes too large for a single 24h branch: introduce an abstraction layer first (no behavior change),
+then implement behind a feature flag, then switch over. Each step is its own short-lived branch.
+
+### Reporting
+
+Return a concise delivery report using the format below. Do not invent output, commit hashes, PR links, or CI status.
 
 **Docs-only changes** still require:
 - `git diff --check` (no whitespace errors)
@@ -260,66 +289,21 @@ cd backend && python scripts/run_postgres_mvp_smoke_local.py
 
 ---
 
-## Required final report format
+## Delivery report format
 
-Every Claude Code delivery batch must return a report with these sections. Do not invent output,
-commit hashes, PR links, or CI status. Report exactly what happened.
+After each delivery, return a concise report. Do not invent output, commit hashes, PR links, or CI status.
 
 ```
-## Final Report
+## Delivery Report
 
-### 1. Initial repo state
-- Initial branch: <branch>
-- Initial HEAD: <hash>
-- Initial git status: <summary of modified/untracked/clean>
-- Git remote: <name> <url>
-
-### 2. GitHub state
-- GitHub auth status: <logged in / not logged in / error>
-- Repo view: <name, description, or error>
-- Workflows found: <list>
-- Recent CI runs: <table or list of last ~10 runs>
-
-### 3. Files inspected
-- <list of files/directories read>
-- Absent expected files: <list or "none">
-
-### 4. Files changed
-- Changed: <list — should match batch scope>
-- Summary: <what meaningful content was added or updated>
-
-### 5. Implementation summary
-- What was implemented/changed
-- How it reflects current repo state and docs
-- How .cursor/plans was treated
-
-### 6. Local validation
-- <command> → <result / exit code / error>
-- Skipped: <command> — <exact reason (missing dep, no env, no Docker, etc.)>
-
-### 7. Git result
-- Feature branch: <branch name>
-- Commit hash: <short hash>
-- Push result: <success / error / skipped and why>
-
-### 8. PR and CI
-- PR link: <URL or "not created">
-- CI run links: <URLs or "not triggered">
-- CI status: <success / failure / pending / not triggered>
+- Branch: <branch> → merged into main
+- Commit: <short hash>
+- Files changed: <list>
+- PR: <URL or "not created">
+- Local validation: <pass/fail/skip with reason>
+- CI status: <green/red/pending/not triggered>
 - CI failures: <description or "none">
-- Fixes made for CI failures: <description or "none">
-
-### 9. Final repo state
-- Final branch: <branch>
-- Final HEAD: <hash>
-- Final git status: <summary>
-
-### 10. Risks / blockers
-- <list of missing tools, auth issues, unclear doc conflicts, pre-existing CI failures, user action required>
-- "None" if genuinely clean
-
-### 11. Recommended next delivery batch
-- <specific, actionable proposal based on current repo state>
+- Risks/blockers: <list or "none">
 ```
 
 ---
@@ -430,4 +414,4 @@ paid/active. Subscription state change requires a controlled UC-05 apply step. D
 
 ---
 
-*Last updated: 2026-04-28. Maintained by: rsidorenko / Claude Code delivery batches.*
+*Last updated: 2026-05-07. Maintained by: rsidorenko / Claude Code delivery batches.*

@@ -1,4 +1,4 @@
-"""Runtime configuration loaded from environment (secrets are never logged here)."""
+"""Конфигурация времени выполнения, загружаемая из окружения (секреты никогда не логируются здесь)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from dataclasses import dataclass
 
 
 class ConfigurationError(Exception):
-    """Raised when required configuration is missing or invalid."""
+    """Выбрасывается, когда обязательная конфигурация отсутствует или некорректна."""
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    """Slice-1 runtime configuration (single boundary for secrets and service settings)."""
+    """Конфигурация slice-1 runtime (единая граница для секретов и настроек сервиса)."""
 
     bot_token: str
     database_url: str | None
@@ -37,10 +37,10 @@ def _has_explicit_sslmode(database_url: str) -> bool:
 
 def validate_runtime_config(config: RuntimeConfig) -> None:
     """
-    Validate an already-assembled :class:`RuntimeConfig` (no env reads).
+    Валидирует уже собранный :class:`RuntimeConfig` (без чтения окружения).
 
-    Applies the same rules as :func:`load_runtime_config` for token, DSN shape,
-    and non-local PostgreSQL ``sslmode`` policy. Never logs raw DSN values.
+    Применяет те же правила, что и :func:`load_runtime_config` для токена, формата DSN
+    и политики ``sslmode`` для non-local PostgreSQL. Никогда не логирует сырые значения DSN.
     """
     if len(config.bot_token) < 10:
         raise ConfigurationError("invalid configuration: BOT_TOKEN")
@@ -55,9 +55,9 @@ def validate_runtime_config(config: RuntimeConfig) -> None:
 
 def load_runtime_config() -> RuntimeConfig:
     """
-    Load configuration from the process environment.
+    Загружает конфигурацию из окружения процесса.
 
-    Never logs values. On failure raises ConfigurationError with field names only.
+    Никогда не логирует значения. При ошибке выбрасывает ConfigurationError только с именами полей.
     """
     bot_token = _require_non_empty("BOT_TOKEN")
 

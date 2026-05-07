@@ -1,4 +1,4 @@
-"""UC-01 idempotency key construction: deterministic, bounded, no persistence."""
+"""UC-01: построение ключа идемпотентности: детерминированное, ограниченное, без персистентности."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ _MAX_KEY_HEX_LEN = 128
 
 def build_bootstrap_idempotency_key(telegram_user_id: int, update_id: int) -> str:
     """
-    Build a deterministic idempotency key from safe normalized inputs.
+    Строит детерминированный ключ идемпотентности из безопасных нормализованных входов.
 
-    No secrets are embedded; key material is hashed for stable length and comparison.
+    Секреты не встраиваются; материал ключа хешируется для стабильной длины и сравнения.
     """
     uid = validate_telegram_user_id(telegram_user_id)
     u = validate_telegram_update_id(update_id)

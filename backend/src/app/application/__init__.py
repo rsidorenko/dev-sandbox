@@ -1,1 +1,1 @@
-"""Application layer: orchestration contracts (handlers added in a later step)."""
+"""Слой application: контракты оркестрации (обработчики добавлены на следующем шаге)."""

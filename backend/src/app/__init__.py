@@ -1,1 +1,1 @@
-"""Application package (slice 1: security, observability, domain, application contracts)."""
+"""Пакет приложения (slice 1: безопасность, наблюдаемость, домен, контракты application)."""

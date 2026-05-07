@@ -1,11 +1,11 @@
-"""Structured field allowlist / redaction; testable without external logging backends."""
+"""Структурированный разрешённый список полей / редукция; тестируемый без внешних logging-бэкендов."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-# Slice 1: low-cardinality, operational fields only (no free text / payloads).
+# Slice 1: только низкокардинальные операционные поля (без свободного текста / нагрузок).
 ALLOWED_LOG_FIELDS: frozenset[str] = frozenset(
     {
         "correlation_id",
@@ -39,11 +39,11 @@ _CORRELATION_RE = re.compile(r"^[0-9a-f]{32}$")
 
 def sanitize_structured_fields(record: dict[str, Any]) -> dict[str, Any]:
     """
-    Return a new dict with only allowed keys; values redacted when policy requires.
+    Возвращает новый словарь только с разрешёнными ключами; значения редуцируются по необходимости.
 
-    - Drops unknown keys.
-    - Redacts values for keys that look sensitive.
-    - Enforces correlation_id shape when present.
+    - Отбрасывает неизвестные ключи.
+    - Редуцирует значения для ключей, которые выглядят чувствительными.
+    - Проверяет формат correlation_id при наличии.
     """
     out: dict[str, Any] = {}
     for key, value in record.items():

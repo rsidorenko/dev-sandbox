@@ -1,4 +1,4 @@
-"""Signed checkout reference helpers (provider-agnostic, HMAC SHA-256)."""
+"""Помощники подписанных checkout-ссылок (провайдер-независимые, HMAC SHA-256)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def create_signed_checkout_reference(
     secret: str,
     now: datetime | None = None,
 ) -> SignedCheckoutReference:
-    """Build signed customer correlation reference for checkout metadata."""
+    """Создаёт подписанную референс-ссылку для корреляции клиента в метаданных checkout."""
     normalized_user_id = validate_telegram_user_id(telegram_user_id)
     normalized_internal = _normalize_internal_user_id(internal_user_id)
     dt = now or datetime.now(UTC)
@@ -97,7 +97,7 @@ def verify_signed_checkout_reference(
     max_age_seconds: int = DEFAULT_CHECKOUT_REFERENCE_MAX_AGE_SECONDS,
     max_future_seconds: int = DEFAULT_CHECKOUT_REFERENCE_MAX_FUTURE_SECONDS,
 ) -> CheckoutReferencePayload:
-    """Verify and decode checkout reference (constant-time proof compare)."""
+    """Проверяет и декодирует checkout-референс (сравнение proof в постоянное время)."""
     if max_age_seconds <= 0:
         raise ValidationError("checkout reference max age must be positive")
     if max_future_seconds < 0:
