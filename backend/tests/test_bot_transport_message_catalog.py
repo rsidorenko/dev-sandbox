@@ -503,7 +503,7 @@ def test_support_menu_renders_faq_and_actions_keyboard() -> None:
     assert "Помощь и поддержка" in out.message_text
     assert "Используйте /support_contact, чтобы связаться с нами." in out.message_text
     assert out.reply_markup is not None
-    assert out.reply_markup["keyboard"] == [["📞 Контакты"], ["📋 Меню"]]
+    assert out.reply_markup["keyboard"] == [["📞 Контакты"]]
 
 
 def test_support_contact_fallback_and_configured(monkeypatch) -> None:
@@ -517,7 +517,7 @@ def test_support_contact_fallback_and_configured(monkeypatch) -> None:
     out_fallback = render_telegram_outbound_plan(plan)
     assert "Поддержка временно недоступна. Пожалуйста, попробуйте позже." in out_fallback.message_text
     assert out_fallback.reply_markup is not None
-    assert out_fallback.reply_markup["keyboard"] == [["📋 Меню"]]
+    assert out_fallback.reply_markup["keyboard"] == [["📊 Тарифы", "💳 Купить"]]
 
     monkeypatch.setenv("TELEGRAM_STOREFRONT_SUPPORT_URL", "https://example.com/support")
     monkeypatch.setenv("TELEGRAM_STOREFRONT_SUPPORT_HANDLE", "@vpn_support")

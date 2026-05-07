@@ -11,6 +11,7 @@ from app.bot_transport.normalized import (
     NormalizedSlice1Buy,
     NormalizedSlice1Bootstrap,
     NormalizedSlice1Help,
+    NormalizedSlice1Menu,
     NormalizedSlice1Plans,
     NormalizedSlice1Rejected,
     NormalizedSlice1ResendAccess,
@@ -111,10 +112,10 @@ def test_help_with_bot_suffix_normalized() -> None:
     assert r.correlation_id == cid
 
 
-def test_menu_alias_maps_to_help_path() -> None:
+def test_menu_alias_maps_to_store_menu_path() -> None:
     cid = new_correlation_id()
     r = parse_slice1_transport(_env(cid=cid, cmd="/menu", update_id=None))
-    assert isinstance(r, NormalizedSlice1Help)
+    assert isinstance(r, NormalizedSlice1Menu)
     assert r.correlation_id == cid
 
 
