@@ -1,6 +1,6 @@
-"""Pure Telegram outbound plan mapping (slice 1): TransportSafeResponse → catalog keys only.
+"""Чистый маппинг исходящего плана Telegram (slice 1): TransportSafeResponse → только ключи каталога.
 
-No Telegram SDK, no network, no user-facing copy — stable keys for a future message catalog.
+Без Telegram SDK, без сети, без пользовательского текста — стабильные ключи для будущего каталога сообщений.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.bot_transport.presentation import (
 
 
 class OutboundPlanCategory(str, Enum):
-    """High-level plan kind aligned with transport categories (catalog routing only)."""
+    """Тип плана верхнего уровня, согласованный с транспортными категориями (только маршрутизация каталога)."""
 
     SUCCESS = "success"
     GUIDANCE = "guidance"
@@ -31,7 +31,7 @@ class OutboundPlanCategory(str, Enum):
 
 
 class OutboundMessageKey(str, Enum):
-    """Stable message catalog keys; values are the lookup id (no prose)."""
+    """Стабильные ключи каталога сообщений; значения — идентификаторы поиска (без текста)."""
 
     IDENTITY_READY = "identity_ready"
     NEEDS_ONBOARDING = "needs_onboarding"
@@ -69,7 +69,7 @@ class OutboundNextActionKey(str, Enum):
 
 
 class OutboundKeyboardMarker(str, Enum):
-    """Non-text hint for which reply keyboard / action row shape to use (if any)."""
+    """Нетекстовая подсказка, какую клавиатуру ответа / форму строки действий использовать (если есть)."""
 
     NONE = "none"
     PRIMARY_ONBOARDING = "primary_onboarding"
@@ -81,7 +81,7 @@ class OutboundKeyboardMarker(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class TelegramOutboundPlan:
-    """Telegram-facing send plan: keys only, safe for thin runtime + message catalog."""
+    """План отправки для Telegram: только ключи, безопасен для тонкого runtime + каталог сообщений."""
 
     category: OutboundPlanCategory
     message_key: str
@@ -117,7 +117,7 @@ def build_fulfillment_success_notification_plan(
     correlation_id: str,
     active_until_ymd: str | None,
 ) -> TelegramOutboundPlan:
-    """Outbound plan for proactive post-checkout Telegram notice (not command-driven)."""
+    """Исходящий план для проактивного уведомления Telegram после checkout (не инициирован командой)."""
     return TelegramOutboundPlan(
         category=OutboundPlanCategory.SUCCESS,
         message_key=OutboundMessageKey.FULFILLMENT_SUCCESS_NOTIFICATION.value,
@@ -129,7 +129,7 @@ def build_fulfillment_success_notification_plan(
 
 
 def build_subscription_active_recovery_confirmation_plan(transport: TransportSafeResponse) -> TelegramOutboundPlan:
-    """Second outbound after UC-02 status when subscription window is still valid (command-driven)."""
+    """Второе исходящее сообщение после UC-02 status, когда окно подписки ещё действует (инициировано командой)."""
     return TelegramOutboundPlan(
         category=OutboundPlanCategory.SUCCESS,
         message_key=OutboundMessageKey.SUBSCRIPTION_ACTIVE_CONFIRMATION.value,
@@ -141,12 +141,12 @@ def build_subscription_active_recovery_confirmation_plan(transport: TransportSaf
 
 
 def map_transport_safe_to_outbound_plan(transport: TransportSafeResponse) -> TelegramOutboundPlan:
-    """Map a transport-safe response to a Telegram outbound plan (keys only).
+    """Отображает безопасный транспортный ответ в исходящий план Telegram (только ключи).
 
-    UC-01 bootstrap replay sets ``replay_suppresses_outbound`` on the plan so runtime can
-    skip a duplicate user-visible send for the same Telegram ``update_id``.
+    Повтор UC-01 bootstrap устанавливает ``replay_suppresses_outbound`` в плане, чтобы runtime мог
+    пропустить дублированную пользовательскую отправку для того же Telegram ``update_id``.
 
-    Unknown or inconsistent codes are mapped to a generic safe outage class (fail-closed).
+    Неизвестные или неконсистентные коды маппятся в общий безопасный класс сбоя (fail-closed).
     """
     cid = transport.correlation_id
     cat = transport.category

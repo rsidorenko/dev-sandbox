@@ -1,4 +1,4 @@
-"""Pure transport boundary helpers (slice 1): normalization and presentation mapping."""
+"""Чистые помощники транспортной границы (slice 1): нормализация и маппинг представления."""
 
 from __future__ import annotations
 

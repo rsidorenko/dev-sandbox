@@ -1,4 +1,4 @@
-"""Thin slice-1 service entry: raw Telegram-like update → adapter → dispatcher (no SDK, no runtime)."""
+"""Тонкая точка входа сервиса slice 1: сырой Telegram-подобный update → адаптер → диспетчер (без SDK, без runtime)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from app.bot_transport.telegram_adapter import (
 
 
 def _adapter_reject_to_transport_safe(rejected: TelegramAdapterRejected) -> TransportSafeResponse:
-    """Stable user-safe mapping; do not surface adapter reason codes to transport."""
+    """Стабильное пользовательское маппинг; не раскрывает коды причин адаптера в транспорте."""
     return TransportSafeResponse(
         category=TransportResponseCategory.ERROR,
         code=TransportErrorCode.INVALID_INPUT.value,
@@ -36,10 +36,10 @@ async def handle_slice1_telegram_update(
     correlation_id: str | None = None,
 ) -> TransportSafeResponse:
     """
-    Raw Telegram-like update mapping → extract envelope → dispatch UC-01/UC-02.
+    Маппинг сырого Telegram-подобного update → извлечение обёртки → диспетчеризация UC-01/UC-02.
 
-    Raw payload does not pass the adapter boundary; adapter rejection returns a safe
-    transport response (no exception, no internal reason in the response body).
+    Сырая нагрузка не проходит границу адаптера; отклонение адаптера возвращает безопасный
+    транспортный ответ (без исключения, без внутренней причины в теле ответа).
     """
     extracted = extract_slice1_envelope_from_telegram_update(
         update,
@@ -51,7 +51,7 @@ async def handle_slice1_telegram_update(
 
 
 class Slice1TelegramService:
-    """Thin callable wrapper for :func:`handle_slice1_telegram_update` (optional composition host)."""
+    """Тонкая вызываемая обёртка для :func:`handle_slice1_telegram_update` (опциональный хост композиции)."""
 
     __slots__ = ()
 

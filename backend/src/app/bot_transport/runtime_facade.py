@@ -1,7 +1,7 @@
-"""Thin slice-1 runtime facade: raw Telegram-like update → rendered message package (no SDK, no server).
+"""Тонкий facade runtime slice 1: сырой Telegram-подобный update → пакет отрендеренного сообщения (без SDK, без сервера).
 
-Orchestrates existing adapter → service/dispatch → outbound keys → message catalog render.
-Raw updates do not cross the adapter boundary; this module does not accept Telegram SDK types.
+Оркестрирует adapter → service/dispatch → outbound keys → рендер каталога сообщений.
+Сырые обновления не пересекают границу адаптера; этот модуль не принимает типы Telegram SDK.
 """
 
 from __future__ import annotations
@@ -47,10 +47,10 @@ async def handle_slice1_telegram_update_to_rendered_message(
     correlation_id: str | None = None,
 ) -> RenderedMessagePackage:
     """
-    Full slice-1 pipeline to user-facing copy: extract → dispatch → outbound plan → catalog render.
+    Полный пайплайн slice 1 до пользовательского текста: извлечение → диспетчеризация → исходящий план → рендер каталога.
 
-    Adapter rejection and handler-level safe errors yield a stable :class:`RenderedMessagePackage`
-    (no exceptions for expected failure classes).
+    Отклонение адаптера и безопасные ошибки уровня обработчика возвращают стабильный :class:`RenderedMessagePackage`
+    (без исключений для ожидаемых классов ошибок).
     """
     transport = await handle_slice1_telegram_update(
         update,
@@ -70,7 +70,7 @@ async def handle_slice1_telegram_update_to_rendered_message(
 
 
 class Slice1TelegramRuntimeFacade:
-    """Callable wrapper for :func:`handle_slice1_telegram_update_to_rendered_message`."""
+    """Вызываемая обёртка для :func:`handle_slice1_telegram_update_to_rendered_message`."""
 
     __slots__ = ()
 
