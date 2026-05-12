@@ -20,10 +20,14 @@ from app.bot_transport.outbound import (
 from app.bot_transport.presentation import TransportSafeResponse
 from app.bot_transport.service import handle_slice1_telegram_update
 from app.bot_transport.storefront_ui import (
+    CB_ADD_DEVICE,
+    CB_ADD_DEV,
+    CB_ADD_DEV_BALANCE,
     CB_BALANCE,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
     CB_DEVICES,
+    CB_DO_PAY,
     CB_HELP,
     CB_MAIN_MENU,
     CB_MY_KEYS,
@@ -34,12 +38,21 @@ from app.bot_transport.storefront_ui import (
     CB_ROUTER,
     CB_SETTINGS,
     CB_SUB_URL,
+    add_device_confirm_keyboard,
+    add_device_select_keyboard,
     back_only_keyboard,
     buy_vpn_keyboard,
     confirm_pay_keyboard,
     device_select_keyboard,
     main_menu_keyboard,
     settings_keyboard,
+    text_add_device_confirm,
+    text_add_device_intro,
+    text_add_device_success,
+    text_add_device_unavailable,
+    text_balance_insufficient,
+    text_balance_payment_error,
+    text_balance_payment_success,
     text_buy_vpn_intro,
     text_device_select,
     text_error_generic,
@@ -109,6 +122,7 @@ _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 _CALLBACK_ONLY_STOREFRONT = frozenset({
     CB_MAIN_MENU, CB_BUY_VPN, CB_MY_SUB, CB_MY_KEYS, CB_SUB_URL,
     CB_REFERRAL, CB_BALANCE, CB_SETTINGS, CB_HELP, CB_ROUTER,
+    CB_ADD_DEVICE, "add_device",
     "store_plans", "store_success", "store_success_active",
 })
 
@@ -123,6 +137,9 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
         or code.startswith(CB_DEVICES)
         or code.startswith(CB_CONFIRM_PAY)
         or code.startswith(CB_PAY_BALANCE)
+        or code.startswith(CB_DO_PAY)
+        or code.startswith(CB_ADD_DEV)
+        or code.startswith("add_dev_pay:")
     ):
         return True
     return False
@@ -180,6 +197,227 @@ async def _has_active_subscription(
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY,
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_READY,
     )
+
+
+# ─── Balance payment helpers ──────────────────────────────────────────
+
+
+async def _get_internal_user_id(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> str | None:
+    if uid is None:
+        return None
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    return id_rec.internal_user_id if id_rec is not None else None
+
+
+async def _process_balance_payment(
+    composition: Slice1Composition,
+    uid: int | None,
+    *,
+    plan_id: str,
+    device_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    from datetime import UTC, datetime
+
+    from app.application.interfaces import SubscriptionSnapshot
+    from app.domain.plans import calculate_total_price_kopecks
+    from app.domain.referral import build_commissions_for_payment
+
+    plan = get_plan(plan_id)
+    if plan is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    total_kopecks = calculate_total_price_kopecks(plan, device_count)
+
+    balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
+    balance_kopecks = balance_record.balance_kopecks if balance_record else 0
+
+    if balance_kopecks < total_kopecks:
+        return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+    debit_result = await composition.referral_balance_repo.debit(internal_user_id, total_kopecks)
+    if debit_result is None:
+        return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+    now = datetime.now(UTC)
+    new_month = now.month + plan.duration_months
+    new_year = now.year + (new_month - 1) // 12
+    new_month = ((new_month - 1) % 12) + 1
+    import calendar
+    max_day = calendar.monthrange(new_year, new_month)[1]
+    active_until = now.replace(
+        year=new_year, month=new_month,
+        day=min(now.day, max_day),
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+    await composition.snapshots.upsert_state(
+        SubscriptionSnapshot(
+            internal_user_id=internal_user_id,
+            state_label="active",
+            active_until_utc=active_until,
+            plan_id=plan_id,
+            device_count=device_count,
+        )
+    )
+
+    if composition.vless_provider is not None:
+        try:
+            await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+        except Exception:
+            pass
+
+    from app.persistence.referral_contracts import ReferralTransactionRecord
+    import uuid
+
+    referrers = await composition.referral_relationship_repo.find_referrers(internal_user_id)
+    direct_referrer = None
+    indirect_referrer = None
+    for r in referrers:
+        if r.level == 1:
+            direct_referrer = r.referrer_user_id
+        if r.level == 2:
+            indirect_referrer = r.referrer_user_id
+
+    commissions = build_commissions_for_payment(
+        payer_user_id=internal_user_id,
+        direct_referrer_user_id=direct_referrer,
+        indirect_referrer_user_id=indirect_referrer,
+        plan_id=plan_id,
+        payment_amount_kopecks=total_kopecks,
+    )
+    for comm in commissions:
+        existing = await composition.referral_transaction_repo.list_by_user(comm.referrer_user_id, limit=100)
+        if any(
+            t.transaction_type == "referral_credit"
+            and t.related_user_id == comm.payer_user_id
+            and t.related_plan_id == comm.plan_id
+            and t.description == f"level {comm.level} commission"
+            for t in existing
+        ):
+            continue
+        await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
+        await composition.referral_transaction_repo.append_transaction(
+            ReferralTransactionRecord(
+                transaction_id=f"ref-{uuid.uuid4()}",
+                internal_user_id=comm.referrer_user_id,
+                amount_kopecks=comm.amount_kopecks,
+                transaction_type="referral_credit",
+                related_user_id=comm.payer_user_id,
+                related_plan_id=comm.plan_id,
+                description=f"level {comm.level} commission",
+                created_at=datetime.now(UTC),
+            )
+        )
+
+    active_until_str = active_until.date().isoformat()
+    return text_balance_payment_success(active_until_str), main_menu_keyboard()
+
+
+# ─── Add device helpers ────────────────────────────────────────────────
+
+
+async def _render_add_device_intro(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> tuple[str, dict[str, Any] | None]:
+    if uid is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    has_sub = await _has_active_subscription(composition, uid)
+    if not has_sub:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    snap = await composition.snapshots.get_for_user(internal_user_id)
+    current = snap.device_count if snap and snap.device_count else 5
+
+    text = text_add_device_intro(current)
+    return text, add_device_select_keyboard(current)
+
+
+async def _render_add_device_confirm(
+    composition: Slice1Composition,
+    uid: int | None,
+    new_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    if uid is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_SETTINGS)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_SETTINGS)
+
+    snap = await composition.snapshots.get_for_user(internal_user_id)
+    current = snap.device_count if snap and snap.device_count else 5
+
+    if new_count <= current:
+        return text_add_device_intro(current), add_device_select_keyboard(current)
+
+    extra = new_count - current
+    cost = extra * 80
+
+    balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
+    balance_kopecks = balance_record.balance_kopecks if balance_record else 0
+
+    text = text_add_device_confirm(current, new_count)
+    return text, add_device_confirm_keyboard(
+        new_count,
+        balance_kopecks=balance_kopecks,
+        cost_kopecks=cost * 100,
+    )
+
+
+async def _process_add_device_balance(
+    composition: Slice1Composition,
+    uid: int | None,
+    new_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    from datetime import UTC, datetime
+
+    from app.application.interfaces import SubscriptionSnapshot
+
+    if uid is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    snap = await composition.snapshots.get_for_user(internal_user_id)
+    if snap is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    current = snap.device_count if snap.device_count else 5
+    if new_count <= current:
+        return text_add_device_intro(current), add_device_select_keyboard(current)
+
+    extra = new_count - current
+    cost_kopecks = extra * 80 * 100
+
+    debit_result = await composition.referral_balance_repo.debit(internal_user_id, cost_kopecks)
+    if debit_result is None:
+        return text_balance_insufficient(), back_only_keyboard(CB_SETTINGS)
+
+    await composition.snapshots.upsert_state(
+        SubscriptionSnapshot(
+            internal_user_id=internal_user_id,
+            state_label=snap.state_label,
+            active_until_utc=snap.active_until_utc,
+            plan_id=snap.plan_id,
+            device_count=new_count,
+        )
+    )
+
+    return text_add_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
 
 
 # ─── Storefront rendering ────────────────────────────────────────────
@@ -307,15 +545,70 @@ async def _render_storefront_response(
         device_count = int(parts[1]) if len(parts) > 1 else 5
         summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
         if summary is not None:
+            user_balance_kopecks = 0
+            if uid is not None:
+                id_rec = await composition.identity.find_by_telegram_user_id(uid)
+                if id_rec is not None:
+                    from app.application.referral_handler import get_referral_balance
+                    bal = await get_referral_balance(
+                        internal_user_id=id_rec.internal_user_id,
+                        balance_repo=composition.referral_balance_repo,
+                    )
+                    user_balance_kopecks = bal.balance_kopecks
             text = text_purchase_summary(summary)
-            keyboard = confirm_pay_keyboard(plan_id, device_count)
+            keyboard = confirm_pay_keyboard(
+                plan_id, device_count,
+                balance_kopecks=user_balance_kopecks,
+                total_kopecks=summary.total_price_rubles * 100,
+            )
         else:
             text = text_payment_unavailable()
             keyboard = back_only_keyboard(CB_BUY_VPN)
 
-    elif code.startswith(CB_PAY_BALANCE):
+    elif code.startswith(CB_DO_PAY):
         text = text_payment_unavailable()
-        keyboard = back_only_keyboard(CB_MAIN_MENU)
+        keyboard = back_only_keyboard(CB_BUY_VPN)
+
+    elif code.startswith(CB_PAY_BALANCE):
+        parts = code[len(CB_PAY_BALANCE):].split(":")
+        plan_id = parts[0] if parts else ""
+        device_count = int(parts[1]) if len(parts) > 1 else 5
+        text, keyboard = await _process_balance_payment(
+            composition, uid, plan_id=plan_id, device_count=device_count,
+        )
+
+    elif code in (CB_ADD_DEVICE, "add_device"):
+        text, keyboard = await _render_add_device_intro(composition, uid)
+
+    elif code.startswith(CB_ADD_DEV):
+        remainder = code[len(CB_ADD_DEV):]
+        if remainder.startswith("confirm:"):
+            new_count = int(remainder.split(":")[1])
+            text, keyboard = await _render_add_device_confirm(composition, uid, new_count)
+        elif remainder.startswith("pay:"):
+            text = text_payment_unavailable()
+            keyboard = back_only_keyboard(CB_SETTINGS)
+        else:
+            try:
+                new_count = int(remainder)
+                text = text_add_device_intro(new_count)
+                keyboard = add_device_select_keyboard(new_count)
+            except (ValueError, TypeError):
+                text = text_error_generic()
+                keyboard = back_only_keyboard(CB_SETTINGS)
+
+    elif code.startswith("add_dev_pay:"):
+        text = text_payment_unavailable()
+        keyboard = back_only_keyboard(CB_SETTINGS)
+
+    elif code.startswith(CB_ADD_DEV_BALANCE):
+        new_count_str = code[len(CB_ADD_DEV_BALANCE):]
+        try:
+            new_count = int(new_count_str)
+            text, keyboard = await _process_add_device_balance(composition, uid, new_count)
+        except (ValueError, TypeError):
+            text = text_error_generic()
+            keyboard = back_only_keyboard(CB_SETTINGS)
 
     return RenderedMessagePackage(
         message_text=text,

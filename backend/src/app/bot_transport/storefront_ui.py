@@ -31,6 +31,10 @@ CB_DEVICES = "devices:"
 CB_CONFIRM_PAY = "confirm_pay:"
 CB_PAY_BALANCE = "pay_balance:"
 CB_ROUTER = "router_config"
+CB_DO_PAY = "do_pay:"
+CB_ADD_DEVICE = "add_device"
+CB_ADD_DEV = "add_dev:"
+CB_ADD_DEV_BALANCE = "add_dev_bal:"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -79,11 +83,19 @@ def device_select_keyboard(plan_id: str, current: int = 5) -> dict[str, Any]:
     return _inline_kb(rows)
 
 
-def confirm_pay_keyboard(plan_id: str, device_count: int) -> dict[str, Any]:
-    rows = [
-        [{"text": "💳 Оплатить", "callback_data": f"{CB_CONFIRM_PAY}{plan_id}:{device_count}"}],
-        [{"text": "↩️ Назад", "callback_data": f"{CB_DEVICES}{plan_id}:{device_count}"}],
+def confirm_pay_keyboard(
+    plan_id: str,
+    device_count: int,
+    *,
+    balance_kopecks: int = 0,
+    total_kopecks: int = 0,
+) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = [
+        [{"text": "💳 Оплатить", "callback_data": f"{CB_DO_PAY}{plan_id}:{device_count}"}],
     ]
+    if balance_kopecks >= total_kopecks and total_kopecks > 0:
+        rows.append([{"text": f"💰 С баланса ({balance_kopecks // 100} ₽)", "callback_data": f"{CB_PAY_BALANCE}{plan_id}:{device_count}"}])
+    rows.append([{"text": "↩️ Назад", "callback_data": f"{CB_DEVICES}{plan_id}:{device_count}"}])
     return _inline_kb(rows)
 
 
@@ -137,8 +149,8 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
         f"📱 Устройств: {device_count}",
     ]
     if extra > 0:
-        per_month = extra * 80
-        lines.append(f"  ➕ Доп. устройств: {extra} × {per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽")
+        per_device_per_month = 80
+        lines.append(f"  ➕ Доп. устройств: {extra} × {per_device_per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽")
     lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)
@@ -151,7 +163,7 @@ def text_purchase_summary(summary: PurchaseSummary) -> str:
         f"  Устройств: {summary.device_count}",
     ]
     if summary.extra_devices > 0:
-        lines.append(f"  Доп. устройств: {summary.extra_devices} × 80 ₽ = {summary.extra_device_cost_rubles} ₽")
+        lines.append(f"  Доп. устройств: {summary.extra_devices} × 80 ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽")
     lines.extend(["", f"💳 К оплате: {summary.total_price_rubles} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
     return "\n".join(lines)
 
@@ -209,7 +221,7 @@ def text_referral_program(info: ReferralInfo) -> str:
         f"👤 Прямых рефералов: {info.direct_referrals_count}\n\n"
         "📤 Отправляйте ссылку друзьям и получайте:\n"
         "  1 мес — 35% | 3 мес — 30% | 6 мес — 25%\n"
-        "Рефералы 2-го уровня:\n"
+        "Со 2-го уровня:\n"
         "  1 мес — 5% | 3 мес — 3% | 6 мес — 2%\n\n"
         "💰 Реферальными деньгами можно оплачивать подписку."
     )
@@ -262,3 +274,77 @@ def text_error_generic() -> str:
 
 def text_rate_limited() -> str:
     return "⏳ Слишком много запросов. Пожалуйста, подождите."
+
+
+def text_balance_payment_success(active_until: str | None) -> str:
+    lines = ["✅ Подписка оплачена с реферального баланса!", "", "Ваша подписка активирована."]
+    if active_until:
+        lines.extend(["", f"📅 Действует до: {active_until}"])
+    lines.extend(["", "🔐 Нажмите «Мои ключи» для получения VPN-ключей."])
+    return "\n".join(lines)
+
+
+def text_balance_insufficient() -> str:
+    return "❌ Недостаточно средств на балансе.\n\nПриглашайте друзей по реферальной ссылке, чтобы пополнить баланс."
+
+
+def text_balance_payment_error() -> str:
+    return "⚠️ Не удалось оплатить с баланса. Попробуйте позже."
+
+
+def add_device_select_keyboard(current: int) -> dict[str, Any]:
+    rows = [
+        [
+            {"text": "➖", "callback_data": f"{CB_ADD_DEV}{max(5, current - 1)}"},
+            {"text": f"Устройств: {current}", "callback_data": "noop"},
+            {"text": "➕", "callback_data": f"{CB_ADD_DEV}{min(20, current + 1)}"},
+        ],
+    ]
+    if current > 5:
+        rows.append([{"text": f"✅ Подтвердить ({current} устройств)", "callback_data": f"{CB_ADD_DEV}confirm:{current}"}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_SETTINGS}])
+    return _inline_kb(rows)
+
+
+def add_device_confirm_keyboard(new_count: int, *, balance_kopecks: int = 0, cost_kopecks: int = 0) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    if balance_kopecks >= cost_kopecks and cost_kopecks > 0:
+        rows.append([{"text": f"💰 Оплатить с баланса ({cost_kopecks // 100} ₽)", "callback_data": f"{CB_ADD_DEV_BALANCE}{new_count}"}])
+    else:
+        rows.append([{"text": "💳 Оплатить", "callback_data": f"add_dev_pay:{new_count}"}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}])
+    return _inline_kb(rows)
+
+
+def text_add_device_intro(current_count: int) -> str:
+    lines = [
+        "📱 Добавление устройств",
+        "",
+        f"Текущее количество: {current_count}",
+        "Стоимость: 80 ₽ за каждое дополнительное устройство.",
+        "",
+        "Выберите количество устройств:",
+    ]
+    return "\n".join(lines)
+
+
+def text_add_device_confirm(current_count: int, new_count: int) -> str:
+    extra = new_count - current_count
+    cost = extra * 80
+    lines = [
+        "📱 Подтверждение",
+        "",
+        f"Добавляем устройств: {extra}",
+        f"Стоимость: {extra} × 80 ₽ = {cost} ₽",
+        "",
+        "Устройства будут добавлены к текущей подписке.",
+    ]
+    return "\n".join(lines)
+
+
+def text_add_device_success(new_count: int) -> str:
+    return f"✅ Готово! Теперь у вас {new_count} устройств.\n\nНовое количество будет учтено при следующем продлении."
+
+
+def text_add_device_unavailable() -> str:
+    return "❌ У вас нет активной подписки.\n\nНажмите «🔑 Купить VPN» для оформления."

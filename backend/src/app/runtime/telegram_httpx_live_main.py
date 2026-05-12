@@ -14,15 +14,7 @@ from app.runtime.telegram_httpx_live_process import (
 )
 
 _BOT_MENU_COMMANDS: list[dict[str, str]] = [
-    {"command": "start", "description": "Подключить чат"},
-    {"command": "menu", "description": "Главное меню"},
-    {"command": "plans", "description": "Доступные тарифы"},
-    {"command": "buy", "description": "Оформить подписку"},
-    {"command": "my_subscription", "description": "Статус подписки"},
-    {"command": "renew", "description": "Продлить подписку"},
-    {"command": "get_access", "description": "Получить инструкции доступа"},
-    {"command": "support", "description": "Помощь и FAQ"},
-    {"command": "help", "description": "Справка"},
+    {"command": "start", "description": "Начать / главное меню"},
 ]
 
 _LOGGER = logging.getLogger(__name__)
