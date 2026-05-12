@@ -11,13 +11,36 @@ from app.bot_transport.runtime_facade import (
     Slice1TelegramRuntimeFacade,
     handle_slice1_telegram_update_to_rendered_message,
 )
+from app.bot_transport.storefront_ui import (
+    text_help,
+    text_welcome,
+    text_main_menu,
+    text_buy_vpn_intro,
+    text_keys_not_available,
+    text_device_select,
+    text_purchase_summary,
+    text_no_subscription,
+    text_router_soon,
+    text_settings,
+    CB_MAIN_MENU,
+    CB_BUY_VPN,
+    CB_PLAN,
+    CB_DEVICES,
+    CB_CONFIRM_PAY,
+    CB_MY_SUB,
+    CB_MY_KEYS,
+    CB_SUB_URL,
+    CB_HELP,
+    CB_ROUTER,
+    CB_SETTINGS,
+    CB_REFERRAL,
+    CB_BALANCE,
+)
 from app.security.idempotency import build_bootstrap_idempotency_key
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 from tests.slice1_expected_user_copy import (
-    IDENTITY_READY_TEXT,
     INACTIVE_OR_NOT_ELIGIBLE_TEXT,
     NEEDS_ONBOARDING_TEXT,
-    SLICE1_HELP_TEXT,
 )
 
 
@@ -45,17 +68,19 @@ def _update(
     return u
 
 
-def test_facade_raw_private_start_returns_identity_ready_rendered() -> None:
+def test_facade_raw_private_start_returns_storefront_welcome() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(message=_base_message(text="/start"))
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert isinstance(pkg, RenderedMessagePackage)
-        assert pkg.message_text == IDENTITY_READY_TEXT
+        assert pkg.message_text == text_welcome()
         assert pkg.action_keys == ()
         assert pkg.correlation_id == cid
         assert pkg.uc01_idempotency_key == build_bootstrap_idempotency_key(42, 1)
+        assert pkg.reply_markup is not None
+        assert "inline_keyboard" in pkg.reply_markup
 
     _run(main())
 
@@ -112,18 +137,16 @@ def test_facade_raw_status_after_bootstrap_no_snapshot_fail_closed_rendered() ->
     _run(main())
 
 
-def test_facade_unsupported_update_surface_maps_to_invalid_input_rendered() -> None:
-    """Adapter rejects callback_query surfaces; pipeline maps to invalid_input catalog copy."""
+def test_facade_callback_query_rendered_as_unknown_action() -> None:
+    """Callback_query is now accepted; unknown action code maps to service_unavailable catalog copy."""
 
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(
-            message=_base_message(text="/start"),
             callback_query={"id": "q", "from": {"id": 1}, "data": "x"},
         )
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == "Ввод некорректен. Попробуйте снова."
         assert pkg.correlation_id == cid
 
     _run(main())
@@ -193,20 +216,190 @@ def test_slice1_telegram_runtime_facade_delegates() -> None:
         raw = _update(message=_base_message(text="/start"))
         facade = Slice1TelegramRuntimeFacade()
         pkg = await facade.handle_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == IDENTITY_READY_TEXT
+        assert pkg.message_text == text_welcome()
         assert pkg.correlation_id == cid
 
     _run(main())
 
 
-def test_facade_raw_private_help_read_only() -> None:
+def test_facade_raw_private_help_storefront_rendered() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(message=_base_message(text="/help"))
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == SLICE1_HELP_TEXT
+        assert pkg.message_text == text_help()
         assert pkg.uc01_idempotency_key is None
         assert len(await c.audit.recorded_events()) == 0
+        assert pkg.reply_markup is not None
+        assert "inline_keyboard" in pkg.reply_markup
+
+    _run(main())
+
+
+# ─── Storefront callback rendering tests ──────────────────────────────
+
+
+def _callback_update(*, callback_data: str, user_id: int = 42) -> dict[str, object]:
+    return _update(
+        callback_query={"id": "cq1", "from": {"id": user_id}, "data": callback_data},
+    )
+
+
+def test_facade_callback_main_menu_renders_storefront() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_MAIN_MENU)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_main_menu()
+        assert pkg.reply_markup is not None
+        assert "inline_keyboard" in pkg.reply_markup
+        assert pkg.correlation_id == cid
+
+    _run(main())
+
+
+def test_facade_callback_buy_vpn_renders_plans_list() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_BUY_VPN)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_buy_vpn_intro()
+        kb = pkg.reply_markup
+        assert kb is not None
+        buttons = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+        assert any(b.startswith("plan:") for b in buttons)
+
+    _run(main())
+
+
+def test_facade_callback_help_renders_storefront_help() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_HELP)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_help()
+        assert pkg.reply_markup is not None
+
+    _run(main())
+
+
+def test_facade_callback_plan_select_renders_device_select() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=f"{CB_PLAN}1m")
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert "1 мес" in pkg.message_text
+        assert "300" in pkg.message_text
+        kb = pkg.reply_markup
+        assert kb is not None
+        buttons = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+        assert any(b.startswith("devices:") for b in buttons)
+
+    _run(main())
+
+
+def test_facade_callback_devices_changes_count() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=f"{CB_DEVICES}1m:7")
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert "7" in pkg.message_text
+        assert "Устройств: 7" in pkg.reply_markup["inline_keyboard"][0][1]["text"]
+
+    _run(main())
+
+
+def test_facade_callback_confirm_pay_renders_summary() -> None:
+    async def main() -> None:
+        from app.application.purchase_handler import build_purchase_summary
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=f"{CB_CONFIRM_PAY}1m:5")
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        summary = build_purchase_summary(plan_id="1m", device_count=5)
+        assert pkg.message_text == text_purchase_summary(summary)
+
+    _run(main())
+
+
+def test_facade_callback_my_keys_not_available() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_MY_KEYS)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_keys_not_available()
+
+    _run(main())
+
+
+def test_facade_callback_subscription_url_not_available() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_SUB_URL)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_keys_not_available()
+
+    _run(main())
+
+
+def test_facade_callback_my_sub_no_subscription() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_MY_SUB, user_id=999)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_no_subscription()
+
+    _run(main())
+
+
+def test_facade_callback_router_soon() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_ROUTER)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_router_soon()
+
+    _run(main())
+
+
+def test_facade_callback_settings_no_subscription() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_SETTINGS, user_id=999)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert pkg.message_text == text_settings(has_subscription=False)
+
+    _run(main())
+
+
+def test_facade_callback_referral_placeholder() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_REFERRAL)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert "Реферальная программа" in pkg.message_text
+
+    _run(main())
+
+
+def test_facade_callback_balance_placeholder() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        raw = _callback_update(callback_data=CB_BALANCE)
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
+        assert "баланс" in pkg.message_text.lower()
 
     _run(main())

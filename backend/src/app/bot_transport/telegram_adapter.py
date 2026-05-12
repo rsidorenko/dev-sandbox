@@ -27,7 +27,6 @@ _BUTTON_LABEL_TO_COMMAND: dict[str, str] = {
 # Telegram update keys that are not plain private messages for slice 1.
 _SLICE1_FORBIDDEN_UPDATE_KEYS: frozenset[str] = frozenset(
     {
-        "callback_query",
         "inline_query",
         "chosen_inline_result",
         "shipping_query",
@@ -120,6 +119,10 @@ def extract_slice1_envelope_from_telegram_update(
     except ValidationError:
         return _reject(TelegramAdapterRejectReason.INVALID_IDS, cid)
 
+    # Handle callback_query updates (inline button presses)
+    if "callback_query" in update and update["callback_query"] is not None:
+        return _extract_callback_envelope(update, cid=cid, telegram_update_id=telegram_update_id)
+
     message = update.get("message")
     if message is None:
         return _reject(TelegramAdapterRejectReason.MISSING_MESSAGE, cid)
@@ -157,4 +160,36 @@ def extract_slice1_envelope_from_telegram_update(
         correlation_id=cid,
         telegram_update_id=telegram_update_id,
         normalized_command_text=text,
+    )
+
+
+def _extract_callback_envelope(
+    update: Mapping[str, Any],
+    *,
+    cid: str,
+    telegram_update_id: int,
+) -> TransportIncomingEnvelope | TelegramAdapterRejected:
+    """Extract envelope from a callback_query update."""
+    cq = update.get("callback_query")
+    if not isinstance(cq, Mapping):
+        return _reject(TelegramAdapterRejectReason.UNSUPPORTED_UPDATE_SURFACE, cid)
+
+    from_user = cq.get("from")
+    if not isinstance(from_user, Mapping):
+        return _reject(TelegramAdapterRejectReason.MISSING_USER_ID, cid)
+    try:
+        telegram_user_id = validate_telegram_user_id(from_user.get("id"))
+    except ValidationError:
+        return _reject(TelegramAdapterRejectReason.INVALID_IDS, cid)
+
+    callback_data = _non_empty_str(cq.get("data"))
+    if callback_data is None:
+        return _reject(TelegramAdapterRejectReason.NON_TEXT_MESSAGE, cid)
+
+    return TransportIncomingEnvelope(
+        telegram_user_id=telegram_user_id,
+        correlation_id=cid,
+        telegram_update_id=telegram_update_id,
+        normalized_command_text=None,
+        callback_data=callback_data,
     )

@@ -17,6 +17,7 @@ from app.application.telegram_command_rate_limit_telemetry import (
     window_bucket_from_key,
 )
 from app.bot_transport.normalized import (
+    NormalizedCallback,
     NormalizedSlice1Bootstrap,
     NormalizedSlice1Help,
     NormalizedSlice1Menu,
@@ -102,6 +103,44 @@ async def _emit_rate_limit_decision(
         )
 
 
+def _dispatch_callback(
+    cb: NormalizedCallback,
+    envelope: TransportIncomingEnvelope,
+) -> TransportSafeResponse:
+    """Route inline callback to storefront UI actions. Returns a transport response with storefront code."""
+    from app.bot_transport.storefront_ui import (
+        CB_BUY_VPN,
+        CB_MAIN_MENU,
+        CB_HELP,
+        CB_REFERRAL,
+        CB_BALANCE,
+        CB_SETTINGS,
+        CB_MY_SUB,
+        CB_MY_KEYS,
+        CB_SUB_URL,
+        CB_ROUTER,
+        CB_PLAN,
+        CB_DEVICES,
+        CB_CONFIRM_PAY,
+    )
+    action = cb.action
+    # Map callback actions to existing transport storefront codes
+    if action in (CB_MAIN_MENU,):
+        return map_slice1_storefront_to_transport(TransportStorefrontCode.STORE_MENU, cb.correlation_id)
+    if action in (CB_BUY_VPN,):
+        return map_slice1_storefront_to_transport(TransportStorefrontCode.STORE_PLANS, cb.correlation_id)
+    if action in (CB_MY_SUB,):
+        return map_slice1_storefront_to_transport(TransportStorefrontCode.STORE_SUCCESS, cb.correlation_id)
+    if action in (CB_HELP,):
+        return map_slice1_help_to_transport(cb.correlation_id)
+    # For new storefront actions, return a storefront response with the action as code
+    return TransportSafeResponse(
+        category=TransportResponseCategory.SUCCESS,
+        code=action,
+        correlation_id=cb.correlation_id,
+    )
+
+
 async def dispatch_slice1_transport(
     envelope: TransportIncomingEnvelope,
     composition: Slice1Composition,
@@ -111,6 +150,11 @@ async def dispatch_slice1_transport(
     Unknown commands and invalid transport fields are rejected before handlers; correlation id is echoed.
     """
     parsed = parse_slice1_transport(envelope)
+
+    # Inline callback buttons → storefront UI (bypasses transport-safe pipeline)
+    if isinstance(parsed, NormalizedCallback):
+        return _dispatch_callback(parsed, envelope)
+
     match parsed:
         case NormalizedSlice1Rejected():
             return _normalization_reject_response(envelope)

@@ -15,11 +15,10 @@ from app.bot_transport.runtime_wrapper import (
     handle_slice1_telegram_update_to_runtime_action,
 )
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
+from app.bot_transport.storefront_ui import text_help, text_welcome
 from tests.slice1_expected_user_copy import (
-    IDENTITY_READY_TEXT,
     INACTIVE_OR_NOT_ELIGIBLE_TEXT,
     NEEDS_ONBOARDING_TEXT,
-    SLICE1_HELP_TEXT,
 )
 
 
@@ -55,9 +54,10 @@ def test_runtime_wrapper_private_start_send_message() -> None:
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
         assert action.chat_id == 42
-        assert action.message_text == IDENTITY_READY_TEXT
+        assert action.message_text == text_welcome()
         assert action.action_keys == ()
         assert action.reply_markup is not None
+        assert "inline_keyboard" in action.reply_markup
         assert action.correlation_id == cid
 
     _run(main())
@@ -134,7 +134,7 @@ def test_runtime_wrapper_private_help_send_message_no_uc01_ledger() -> None:
         )
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
-        assert action.message_text == SLICE1_HELP_TEXT
+        assert action.message_text == text_help()
         assert action.action_keys == ()
         assert action.reply_markup is not None
         assert action.uc01_idempotency_key is None

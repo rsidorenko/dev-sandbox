@@ -347,7 +347,7 @@ async def run_customer_journey_e2e() -> None:
         # Before fulfillment (pending/inactive customer-facing state)
         start = await _render_command(command="/start", ids=ids, composition=composition, update_id=1)
         _assert_contains(start.message_text, "Добро пожаловать")
-        if not isinstance(start.reply_markup, dict) or "keyboard" not in start.reply_markup:
+        if not isinstance(start.reply_markup, dict) or ("keyboard" not in start.reply_markup and "inline_keyboard" not in start.reply_markup):
             raise RuntimeError("start must provide reply keyboard")
 
         plans = await _render_command(command="/plans", ids=ids, composition=composition, update_id=2)

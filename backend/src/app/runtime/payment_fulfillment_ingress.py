@@ -381,6 +381,74 @@ async def _send_activation_notice_best_effort(
         return
 
 
+def _plan_id_from_period_days(period_days: int) -> str:
+    if period_days <= 31:
+        return "1m"
+    if period_days <= 93:
+        return "3m"
+    return "6m"
+
+
+async def _process_referral_commissions_best_effort(
+    *,
+    pool: asyncpg.Pool,
+    payer_internal_user_id: str,
+    payment_amount_kopecks: int,
+    period_days: int,
+    correlation_id: str,
+) -> None:
+    """Look up referrers and credit commissions. Best-effort: never fails the payment."""
+    try:
+        from app.domain.referral import build_commissions_for_payment
+        from app.persistence.postgres_referral import (
+            PostgresReferralBalanceRepository,
+            PostgresReferralRelationshipRepository,
+            PostgresReferralTransactionRepository,
+        )
+        from app.persistence.referral_contracts import ReferralTransactionRecord
+
+        rel_repo = PostgresReferralRelationshipRepository(pool)
+        bal_repo = PostgresReferralBalanceRepository(pool)
+        tx_repo = PostgresReferralTransactionRepository(pool)
+
+        referrers = await rel_repo.find_referrers(payer_internal_user_id)
+        if not referrers:
+            return
+
+        direct_referrer = None
+        indirect_referrer = None
+        for r in referrers:
+            if r.level == 1:
+                direct_referrer = r.referrer_user_id
+            if r.level == 2:
+                indirect_referrer = r.referrer_user_id
+
+        plan_id = _plan_id_from_period_days(period_days)
+        commissions = build_commissions_for_payment(
+            payer_user_id=payer_internal_user_id,
+            direct_referrer_user_id=direct_referrer,
+            indirect_referrer_user_id=indirect_referrer,
+            plan_id=plan_id,
+            payment_amount_kopecks=payment_amount_kopecks,
+        )
+
+        for comm in commissions:
+            await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
+            tx_record = ReferralTransactionRecord(
+                transaction_id=f"ref-{uuid.uuid4()}",
+                internal_user_id=comm.referrer_user_id,
+                amount_kopecks=comm.amount_kopecks,
+                transaction_type="referral_credit",
+                related_user_id=comm.payer_user_id,
+                related_plan_id=comm.plan_id,
+                description=f"level {comm.level} commission",
+                created_at=datetime.now(UTC),
+            )
+            await tx_repo.append_transaction(tx_record)
+    except Exception:
+        return
+
+
 def create_payment_fulfillment_ingress_app(
     *,
     pool: asyncpg.Pool,
@@ -512,6 +580,19 @@ def create_payment_fulfillment_ingress_app(
                         telegram_user_id=telegram_user_id,
                         text=rendered.message_text,
                         reply_markup=rendered.reply_markup,
+                        correlation_id=correlation_id,
+                    )
+                # Referral commission processing (best-effort, after durable activation)
+                if (
+                    apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
+                    and not apply_result.idempotent_replay
+                    and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
+                ):
+                    await _process_referral_commissions_best_effort(
+                        pool=pool,
+                        payer_internal_user_id=internal_user_id,
+                        payment_amount_kopecks=0,
+                        period_days=period_days,
                         correlation_id=correlation_id,
                     )
         except Exception:

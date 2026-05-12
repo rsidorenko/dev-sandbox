@@ -53,6 +53,11 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "013_telegram_update_dedup.sql",
         "014_subscription_lifecycle_v1.sql",
         "015_access_reconcile_runs.sql",
+        "016_subscription_plans.sql",
+        "017_referral_codes.sql",
+        "018_referral_relationships.sql",
+        "019_referral_balances.sql",
+        "020_subscription_snapshots_extend.sql",
     ]
 
 
