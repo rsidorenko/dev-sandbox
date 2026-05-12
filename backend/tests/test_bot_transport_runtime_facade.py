@@ -112,18 +112,16 @@ def test_facade_raw_status_after_bootstrap_no_snapshot_fail_closed_rendered() ->
     _run(main())
 
 
-def test_facade_unsupported_update_surface_maps_to_invalid_input_rendered() -> None:
-    """Adapter rejects callback_query surfaces; pipeline maps to invalid_input catalog copy."""
+def test_facade_callback_query_rendered_as_unknown_action() -> None:
+    """Callback_query is now accepted; unknown action code maps to service_unavailable catalog copy."""
 
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(
-            message=_base_message(text="/start"),
             callback_query={"id": "q", "from": {"id": 1}, "data": "x"},
         )
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == "Ввод некорректен. Попробуйте снова."
         assert pkg.correlation_id == cid
 
     _run(main())

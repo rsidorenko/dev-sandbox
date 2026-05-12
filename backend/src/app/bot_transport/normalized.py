@@ -19,6 +19,7 @@ from app.shared.correlation import require_correlation_id
 
 _MAX_LINE_LEN = 512
 _MAX_COMMAND_TOKEN_LEN = 64
+_REF_START_RE = __import__("re").compile(r"^ref_([a-z0-9]{4,32})$", __import__("re").IGNORECASE)
 
 _SLICE1_BOOTSTRAP_COMMANDS: frozenset[str] = frozenset({"/start"})
 _SLICE1_STATUS_COMMANDS: frozenset[str] = frozenset({"/status", "/my_subscription"})
@@ -44,6 +45,8 @@ class TransportIncomingEnvelope:
     correlation_id: str
     telegram_update_id: int | None
     normalized_command_text: str | None
+    callback_data: str | None = None
+    start_param: str | None = None
 
 
 class NormalizationRejectReason(str, Enum):
@@ -58,6 +61,15 @@ class NormalizationRejectReason(str, Enum):
 @dataclass(frozen=True, slots=True)
 class NormalizedSlice1Bootstrap:
     input: BootstrapIdentityInput
+    referral_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedCallback:
+    """Parsed inline callback button press."""
+    action: str
+    data: str | None = None
+    correlation_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +147,7 @@ NormalizedSlice1Result = (
     | NormalizedSlice1Renew
     | NormalizedSlice1SupportMenu
     | NormalizedSlice1SupportContact
+    | NormalizedCallback
     | NormalizedSlice1Rejected
 )
 
@@ -161,8 +174,26 @@ def normalize_command_token(raw: str | None) -> str | None:
     return first.lower()
 
 
+def _parse_start_param(command_text: str | None) -> str | None:
+    if command_text is None:
+        return None
+    parts = command_text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+    match = _REF_START_RE.match(parts[1].strip())
+    return match.group(1) if match else None
+
+
 def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSlice1Result:
-    """Отображает разрешённые команды slice 1 во входы обработчиков; безопасно отклоняет всё остальное."""
+    """Отображает разрешённые команды slice 1 и inline callback'и во входы обработчиков."""
+    # Callback takes priority over text commands
+    if envelope.callback_data:
+        return NormalizedCallback(
+            action=envelope.callback_data,
+            data=None,
+            correlation_id=envelope.correlation_id,
+        )
+
     try:
         require_correlation_id(envelope.correlation_id)
     except ValueError:
@@ -186,12 +217,14 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
             validate_telegram_update_id(envelope.telegram_update_id)
         except ValidationError:
             return NormalizedSlice1Rejected(reason=NormalizationRejectReason.INVALID_INPUT)
+        ref_code = _parse_start_param(envelope.normalized_command_text)
         return NormalizedSlice1Bootstrap(
             input=BootstrapIdentityInput(
                 telegram_user_id=envelope.telegram_user_id,
                 telegram_update_id=envelope.telegram_update_id,
                 correlation_id=envelope.correlation_id,
             ),
+            referral_code=ref_code,
         )
 
     if token in _SLICE1_STATUS_COMMANDS:

@@ -122,17 +122,16 @@ def test_service_raw_status_after_bootstrap_no_snapshot_fail_closed() -> None:
     _run(main())
 
 
-def test_service_unsupported_update_surface_safe() -> None:
+def test_service_callback_query_accepted() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(
-            message=_base_message(text="/start"),
             callback_query={"id": "q", "from": {"id": 1}, "data": "x"},
         )
         r = await handle_slice1_telegram_update(raw, c, correlation_id=cid)
-        assert r.category is TransportResponseCategory.ERROR
-        assert r.code == TransportErrorCode.INVALID_INPUT.value
+        assert r.category is TransportResponseCategory.SUCCESS
+        assert r.code == "x"
         assert r.correlation_id == cid
 
     _run(main())

@@ -124,15 +124,16 @@ def test_missing_update_id_rejected() -> None:
     assert r.reason is TelegramAdapterRejectReason.MISSING_UPDATE_ID
 
 
-def test_callback_like_update_rejected() -> None:
+def test_callback_query_update_accepted() -> None:
     cid = new_correlation_id()
     raw = _update(
-        message=_base_message(text="/start"),
-        callback_query={"id": "q", "from": {"id": 1}, "data": "x"},
+        callback_query={"id": "q", "from": {"id": 1}, "data": "buy_vpn"},
     )
     r = extract_slice1_envelope_from_telegram_update(raw, correlation_id=cid)
-    assert isinstance(r, TelegramAdapterRejected)
-    assert r.reason is TelegramAdapterRejectReason.UNSUPPORTED_UPDATE_SURFACE
+    assert isinstance(r, TransportIncomingEnvelope)
+    assert r.callback_data == "buy_vpn"
+    assert r.normalized_command_text is None
+    assert r.telegram_user_id == 1
 
 
 def test_envelope_has_no_raw_payload_fields() -> None:
