@@ -150,6 +150,11 @@ def test_composition_has_no_extra_service_surface() -> None:
             "command_rate_limiter",
             "command_rate_limit_telemetry",
             "telegram_update_dedup",
+            "referral_code_repo",
+            "referral_relationship_repo",
+            "referral_balance_repo",
+            "referral_transaction_repo",
+            "bot_username",
         },
     )
     for name in allowed:

@@ -42,10 +42,20 @@ from app.persistence.in_memory import (
     InMemoryAuditAppender,
     InMemoryIdempotencyRepository,
     InMemoryOutboundDeliveryLedger,
+    InMemoryReferralBalanceRepository,
+    InMemoryReferralCodeRepository,
+    InMemoryReferralRelationshipRepository,
+    InMemoryReferralTransactionRepository,
     InMemorySubscriptionSnapshotReader,
     InMemoryUserIdentityRepository,
 )
 from app.issuance.service import IssuanceService
+from app.persistence.referral_contracts import (
+    ReferralBalanceRepository,
+    ReferralCodeRepository,
+    ReferralRelationshipRepository,
+    ReferralTransactionRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +73,11 @@ class Slice1Composition:
     command_rate_limiter: TelegramCommandRateLimiter
     command_rate_limit_telemetry: TelegramCommandRateLimitTelemetry
     telegram_update_dedup: TelegramUpdateDedupGuard
+    referral_code_repo: ReferralCodeRepository
+    referral_relationship_repo: ReferralRelationshipRepository
+    referral_balance_repo: ReferralBalanceRepository
+    referral_transaction_repo: ReferralTransactionRepository
+    bot_username: str
 
 
 def build_slice1_composition(
@@ -82,6 +97,11 @@ def build_slice1_composition(
     command_rate_limiter: TelegramCommandRateLimiter | None = None,
     command_rate_limit_telemetry: TelegramCommandRateLimitTelemetry | None = None,
     telegram_update_dedup: TelegramUpdateDedupGuard | None = None,
+    referral_code_repo: ReferralCodeRepository | None = None,
+    referral_relationship_repo: ReferralRelationshipRepository | None = None,
+    referral_balance_repo: ReferralBalanceRepository | None = None,
+    referral_transaction_repo: ReferralTransactionRepository | None = None,
+    bot_username: str | None = None,
 ) -> Slice1Composition:
     if (identity is None) ^ (idempotency is None):
         raise ValueError("identity and idempotency must both be provided or both omitted")
@@ -109,6 +129,11 @@ def build_slice1_composition(
         if access_resend_enabled is not None
         else telegram_access_resend_enabled_from_env(os.environ.get)
     )
+    ref_code = referral_code_repo or InMemoryReferralCodeRepository()
+    ref_rel = referral_relationship_repo or InMemoryReferralRelationshipRepository()
+    ref_bal = referral_balance_repo or InMemoryReferralBalanceRepository()
+    ref_tx = referral_transaction_repo or InMemoryReferralTransactionRepository()
+    resolved_bot_username = bot_username or os.environ.get("BOT_USERNAME", "")
     return Slice1Composition(
         bootstrap=BootstrapIdentityHandler(identity, idempotency, audit, snapshot_writer),
         get_status=GetSubscriptionStatusHandler(
@@ -134,4 +159,9 @@ def build_slice1_composition(
         command_rate_limiter=rate_limiter,
         command_rate_limit_telemetry=rate_telemetry,
         telegram_update_dedup=dedup,
+        referral_code_repo=ref_code,
+        referral_relationship_repo=ref_rel,
+        referral_balance_repo=ref_bal,
+        referral_transaction_repo=ref_tx,
+        bot_username=resolved_bot_username,
     )
