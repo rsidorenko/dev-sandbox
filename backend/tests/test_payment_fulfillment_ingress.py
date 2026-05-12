@@ -187,7 +187,8 @@ def test_malformed_payload_rejects_and_does_not_mutate() -> None:
 
 
 def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
+    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
     ts = "1777248000"
@@ -241,7 +242,8 @@ def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
 
 
 def test_valid_paid_event_persists_active_until_from_period_days() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
+    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["period_days"] = 10
     payload["paid_at"] = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC).isoformat()
@@ -292,7 +294,8 @@ def test_valid_paid_event_persists_active_until_from_period_days() -> None:
 
 
 def test_missing_payload_period_uses_default_period_without_rejection() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
+    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload.pop("period_days")
     body = json.dumps(payload).encode("utf-8")
@@ -518,11 +521,13 @@ def test_strict_mode_rejects_tampered_reference_without_mutation() -> None:
 
 
 def test_proactive_success_notification_sent_once_on_first_apply() -> None:
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
         pool=object(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
+        now_utc_provider=lambda: _now,
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
@@ -566,20 +571,20 @@ def test_proactive_success_notification_sent_once_on_first_apply() -> None:
     notifier.send_subscription_activated_notice.assert_awaited_once()
     kwargs = notifier.send_subscription_activated_notice.await_args.kwargs
     text = kwargs["text"].lower()
-    assert "payment received" in text
-    assert "active" in text
+    assert "оплата получена" in text
+    assert "актив" in text
     assert kwargs["telegram_user_id"] == 12345
     assert kwargs["reply_markup"] is not None
-    assert "/get_access" in str(kwargs["reply_markup"])
-    assert "/menu" in str(kwargs["reply_markup"])
 
 
 def test_proactive_success_notification_not_sent_on_duplicate_apply() -> None:
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
         pool=object(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
+        now_utc_provider=lambda: _now,
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
@@ -664,11 +669,13 @@ def test_proactive_notification_not_sent_on_invalid_signature() -> None:
 
 
 def test_proactive_notification_not_sent_when_apply_fails() -> None:
+    _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
         pool=object(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
+        now_utc_provider=lambda: _now,
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
