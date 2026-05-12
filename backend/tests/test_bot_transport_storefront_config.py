@@ -35,16 +35,18 @@ def test_storefront_config_rejects_non_https_and_secret_like_urls(monkeypatch) -
 
 
 def test_checkout_reference_generation_is_deterministic_and_verifiable() -> None:
+    issued_at = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     signed = create_signed_checkout_reference(
         telegram_user_id=123456,
         internal_user_id="u123456",
         secret="S" * 32,
-        now=datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC),
+        now=issued_at,
     )
     verified = verify_signed_checkout_reference(
         reference_id=signed.reference_id,
         reference_proof=signed.reference_proof,
         secret="S" * 32,
+        now=issued_at,
     )
     assert verified.telegram_user_id == 123456
     assert verified.internal_user_id == "u123456"
