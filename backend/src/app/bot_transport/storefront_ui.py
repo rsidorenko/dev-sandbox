@@ -129,7 +129,7 @@ def text_buy_vpn_intro() -> str:
 def text_device_select(plan_id: str, price_rubles: int, duration_months: int, device_count: int) -> str:
     from app.domain.devices import extra_device_count, extra_device_cost
     extra = extra_device_count(device_count)
-    extra_cost = extra_device_cost(device_count)
+    extra_cost = extra_device_cost(device_count, duration_months=duration_months)
     total = price_rubles + extra_cost
     lines = [
         f"📦 Тариф: {plan_display_name(plan_id)}",
@@ -137,7 +137,8 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
         f"📱 Устройств: {device_count}",
     ]
     if extra > 0:
-        lines.append(f"  ➕ Доп. устройств: {extra} × 80 ₽ = {extra_cost} ₽")
+        per_month = extra * 80
+        lines.append(f"  ➕ Доп. устройств: {extra} × {per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽")
     lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)

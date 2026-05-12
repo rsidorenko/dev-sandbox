@@ -51,7 +51,7 @@ def test_calculate_total_price_default_devices():
 
 def test_calculate_total_price_extra_devices():
     plan = get_plan("1m")
-    assert calculate_total_price(plan, 7) == 300 + 2 * 80  # 460
+    assert calculate_total_price(plan, 7) == 300 + 2 * 80 * 1  # 460
 
 
 def test_calculate_total_price_no_extra():
@@ -61,7 +61,7 @@ def test_calculate_total_price_no_extra():
 
 def test_calculate_total_price_many_extra():
     plan = get_plan("6m")
-    assert calculate_total_price(plan, 10) == 1350 + 5 * 80  # 1750
+    assert calculate_total_price(plan, 10) == 1350 + 5 * 80 * 6  # 3750
 
 
 def test_plan_display_name():

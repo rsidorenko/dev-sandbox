@@ -46,16 +46,20 @@ from app.bot_transport.storefront_ui import (
     text_help,
     text_keys_not_available,
     text_main_menu,
+    text_my_keys,
     text_no_subscription,
     text_payment_unavailable,
     text_purchase_summary,
+    text_referral_program,
+    text_balance,
     text_router_soon,
     text_settings,
     text_subscription_active,
     text_subscription_expired,
+    text_subscription_url,
     text_welcome,
 )
-from app.domain.plans import get_plan
+from app.domain.plans import get_plan, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
 
@@ -145,7 +149,16 @@ async def _render_subscription_status(
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_READY,
     ):
         active_until = result.active_until_utc.date().isoformat() if result.active_until_utc else None
-        return text_subscription_active(active_until, None, None), main_menu_keyboard()
+        plan_name = None
+        device_count = None
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is not None:
+            snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+            if snap is not None:
+                if snap.plan_id:
+                    plan_name = plan_display_name(snap.plan_id)
+                device_count = snap.device_count
+        return text_subscription_active(active_until, plan_name, device_count), main_menu_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), back_only_keyboard(CB_BUY_VPN)
     return text_no_subscription(), back_only_keyboard(CB_BUY_VPN)
@@ -209,74 +222,64 @@ async def _render_storefront_response(
         text, keyboard = await _render_subscription_status(composition, uid, cid)
 
     elif code in (CB_MY_KEYS, CB_SUB_URL):
-        text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+        has_sub = await _has_active_subscription(composition, uid)
+        if has_sub and uid is not None and composition.vless_provider is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                vless_result = await composition.vless_provider.get_user_config(
+                    internal_user_id=id_rec.internal_user_id,
+                )
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    if code == CB_MY_KEYS:
+                        text, keyboard = text_my_keys(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
+                    else:
+                        text, keyboard = text_subscription_url(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
+                else:
+                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+            else:
+                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+        else:
+            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_REFERRAL:
-        if uid is not None:
-            from app.application.handlers import GetSubscriptionStatusInput
-            from app.application.referral_handler import get_referral_info
-            identity_result = await composition.get_status.handle(
-                GetSubscriptionStatusInput(telegram_user_id=uid, correlation_id=cid),
-            )
-            if identity_result.outcome.value == "success" and identity_result.internal_user_id is None:
-                from app.application.interfaces import UserIdentityRepository
-                from app.shared.types import OperationOutcomeCategory
-                id_repo: UserIdentityRepository = composition.identity
-                id_rec = await id_repo.find_by_telegram_user_id(uid)
-                if id_rec is not None:
-                    internal_uid = id_rec.internal_user_id
-                else:
-                    internal_uid = None
-            else:
-                from app.application.interfaces import UserIdentityRepository
-                id_repo: UserIdentityRepository = composition.identity
-                id_rec = await id_repo.find_by_telegram_user_id(uid)
-                internal_uid = id_rec.internal_user_id if id_rec else None
-            if internal_uid is not None and composition.bot_username:
+        if uid is not None and composition.bot_username:
+            from app.application.referral_handler import get_referral_info, ReferralInfo
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
                 info = await get_referral_info(
-                    internal_user_id=internal_uid,
+                    internal_user_id=id_rec.internal_user_id,
                     code_repo=composition.referral_code_repo,
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
                     bot_username=composition.bot_username,
                 )
-                text = (
-                    f"👥 Реферальная программа\n\n"
-                    f"🔗 Ваша ссылка: {info.referral_link}\n"
-                    f"📊 Приглашено: {info.direct_referrals_count} чел.\n"
-                    f"💰 Реферальный баланс: {info.balance_rubles:.2f} ₽"
-                )
+                text, keyboard = text_referral_program(info), back_only_keyboard(CB_MAIN_MENU)
             else:
-                text = (
-                    "👥 Реферальная программа\n\n"
-                    "🔗 Ваша реферальная ссылка будет доступна после настройки.\n"
-                    "💰 Реферальный баланс: 0.00 ₽"
-                )
+                text, keyboard = text_referral_program(
+                    ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                ), back_only_keyboard(CB_MAIN_MENU)
         else:
-            text = (
-                "👥 Реферальная программа\n\n"
-                "🔗 Ваша реферальная ссылка будет доступна после настройки.\n"
-                "💰 Реферальный баланс: 0.00 ₽"
-            )
-        keyboard = back_only_keyboard(CB_MAIN_MENU)
+            from app.application.referral_handler import ReferralInfo
+            text, keyboard = text_referral_program(
+                ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+            ), back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_BALANCE:
         if uid is not None:
-            from app.application.referral_handler import get_referral_balance
-            from app.application.interfaces import UserIdentityRepository
-            id_repo: UserIdentityRepository = composition.identity
-            id_rec = await id_repo.find_by_telegram_user_id(uid)
+            from app.application.referral_handler import get_referral_balance, ReferralBalanceInfo
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
                 bal = await get_referral_balance(
                     internal_user_id=id_rec.internal_user_id,
                     balance_repo=composition.referral_balance_repo,
                 )
-                text = f"💰 Ваш баланс: {bal.balance_rubles:.2f} ₽\n\nЭтими деньгами можно оплатить подписку."
+                text, keyboard = text_balance(bal), back_only_keyboard(CB_MAIN_MENU)
             else:
-                text = "💰 Ваш баланс: 0.00 ₽\n\nЭтими деньгами можно оплатить подписку."
+                text, keyboard = text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)), back_only_keyboard(CB_MAIN_MENU)
         else:
-            text = "💰 Ваш баланс: 0.00 ₽\n\nЭтими деньгами можно оплатить подписку."
-        keyboard = back_only_keyboard(CB_MAIN_MENU)
+            from app.application.referral_handler import ReferralBalanceInfo
+            text, keyboard = text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)), back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_SETTINGS:
         has_sub = await _has_active_subscription(composition, uid)

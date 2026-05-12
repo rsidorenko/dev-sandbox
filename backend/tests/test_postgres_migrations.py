@@ -58,6 +58,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "018_referral_relationships.sql",
         "019_referral_balances.sql",
         "020_subscription_snapshots_extend.sql",
+        "021_referral_relationships_fix_unique.sql",
     ]
 
 

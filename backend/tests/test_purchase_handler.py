@@ -25,7 +25,7 @@ def test_build_purchase_summary_default():
 
 def test_build_purchase_summary_with_extra_devices():
     result = build_purchase_summary("1m", 8)
-    assert result.total_price_rubles == 300 + 3 * 80  # 540
+    assert result.total_price_rubles == 300 + 3 * 80 * 1  # 540
     assert result.extra_devices == 3
     assert result.extra_device_cost_rubles == 240
 
@@ -49,4 +49,4 @@ def test_build_purchase_summary_3m():
 
 def test_build_purchase_summary_6m_extra():
     result = build_purchase_summary("6m", 7)
-    assert result.total_price_rubles == 1350 + 2 * 80  # 1510
+    assert result.total_price_rubles == 1350 + 2 * 80 * 6  # 2310

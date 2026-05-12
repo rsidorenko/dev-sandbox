@@ -557,11 +557,14 @@ def create_payment_fulfillment_ingress_app(
                 OperationOutcomeCategory.IDEMPOTENT_NOOP,
             ):
                 snapshots = PostgresSubscriptionSnapshotReader(pool)
+                snapshot_plan_id = _plan_id_from_period_days(period_days)
                 await snapshots.upsert_state(
                     SubscriptionSnapshot(
                         internal_user_id=internal_user_id,
                         state_label="active",
                         active_until_utc=active_until_utc,
+                        plan_id=snapshot_plan_id,
+                        device_count=5,
                     )
                 )
                 if (
@@ -588,10 +591,14 @@ def create_payment_fulfillment_ingress_app(
                     and not apply_result.idempotent_replay
                     and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
                 ):
+                    from app.domain.plans import get_plan
+                    ref_plan_id = _plan_id_from_period_days(period_days)
+                    ref_plan = get_plan(ref_plan_id)
+                    ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
                     await _process_referral_commissions_best_effort(
                         pool=pool,
                         payer_internal_user_id=internal_user_id,
-                        payment_amount_kopecks=0,
+                        payment_amount_kopecks=ref_amount_kopecks,
                         period_days=period_days,
                         correlation_id=correlation_id,
                     )

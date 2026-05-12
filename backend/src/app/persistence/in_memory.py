@@ -93,6 +93,8 @@ class InMemorySubscriptionSnapshotReader:
                 internal_user_id=snap.internal_user_id,
                 state_label=snap.state_label,
                 active_until_utc=snap.active_until_utc,
+                plan_id=snap.plan_id,
+                device_count=snap.device_count,
             )
 
     async def put_if_absent(self, snapshot: SubscriptionSnapshot) -> None:
@@ -103,6 +105,8 @@ class InMemorySubscriptionSnapshotReader:
                 internal_user_id=snapshot.internal_user_id,
                 state_label=snapshot.state_label,
                 active_until_utc=snapshot.active_until_utc,
+                plan_id=snapshot.plan_id,
+                device_count=snapshot.device_count,
             )
 
     async def upsert_state(self, snapshot: SubscriptionSnapshot) -> None:
@@ -111,6 +115,8 @@ class InMemorySubscriptionSnapshotReader:
                 internal_user_id=snapshot.internal_user_id,
                 state_label=snapshot.state_label,
                 active_until_utc=snapshot.active_until_utc,
+                plan_id=snapshot.plan_id,
+                device_count=snapshot.device_count,
             )
 
     async def upsert_for_tests(self, internal_user_id: str, snapshot: SubscriptionSnapshot | None) -> None:
@@ -123,6 +129,8 @@ class InMemorySubscriptionSnapshotReader:
                     internal_user_id=snapshot.internal_user_id,
                     state_label=snapshot.state_label,
                     active_until_utc=snapshot.active_until_utc,
+                    plan_id=snapshot.plan_id,
+                    device_count=snapshot.device_count,
                 )
 
 
