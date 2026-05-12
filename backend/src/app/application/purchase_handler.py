@@ -63,7 +63,7 @@ def build_purchase_summary(plan_id: str, device_count: int) -> PurchaseSummary |
     if err is not None:
         return err
     extra = extra_device_count(device_count, plan.default_device_limit)
-    extra_cost = extra_device_cost(device_count, plan.default_device_limit)
+    extra_cost = extra_device_cost(device_count, plan.default_device_limit, plan.duration_months)
     total = calculate_total_price(plan, device_count)
     return PurchaseSummary(
         plan_id=plan_id,

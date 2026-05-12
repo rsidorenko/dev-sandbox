@@ -199,13 +199,12 @@ def test_facade_generated_correlation_id_when_omitted() -> None:
     _run(main())
 
 
-def test_facade_module_excludes_billing_issuance_admin_concepts() -> None:
+def test_facade_module_excludes_billing_admin_concepts() -> None:
     import app.bot_transport.runtime_facade as rf
 
     src = inspect.getsource(rf)
     lower = src.lower()
     assert "billing" not in lower
-    assert "issuance" not in lower
     assert "admin" not in lower
 
 

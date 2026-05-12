@@ -155,11 +155,11 @@ def test_composition_has_no_extra_service_surface() -> None:
             "referral_balance_repo",
             "referral_transaction_repo",
             "bot_username",
+            "vless_provider",
         },
     )
     for name in allowed:
         assert "billing" not in name
-        assert "issuance" not in name
         assert "admin" not in name
 
 

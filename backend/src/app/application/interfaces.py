@@ -33,6 +33,8 @@ class SubscriptionSnapshot:
     internal_user_id: str
     state_label: str
     active_until_utc: datetime | None = None
+    plan_id: str | None = None
+    device_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

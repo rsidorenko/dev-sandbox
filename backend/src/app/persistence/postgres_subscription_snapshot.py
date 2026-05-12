@@ -19,7 +19,7 @@ class PostgresSubscriptionSnapshotReader:
             async with self._pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    SELECT internal_user_id, state_label, active_until_utc
+                    SELECT internal_user_id, state_label, active_until_utc, plan_id, device_count
                     FROM subscription_snapshots
                     WHERE internal_user_id = $1::text
                     """,
@@ -33,6 +33,8 @@ class PostgresSubscriptionSnapshotReader:
             internal_user_id=row["internal_user_id"],
             state_label=row["state_label"],
             active_until_utc=row["active_until_utc"],
+            plan_id=row.get("plan_id"),
+            device_count=row.get("device_count"),
         )
 
     async def put_if_absent(self, snapshot: SubscriptionSnapshot) -> None:
@@ -52,11 +54,13 @@ class PostgresSubscriptionSnapshotReader:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
 
     _UPSERT_STATE = """
-        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc)
-        VALUES ($1::text, $2::text, $3::timestamptz)
+        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count)
+        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5))
         ON CONFLICT (internal_user_id) DO UPDATE
         SET state_label = EXCLUDED.state_label,
             active_until_utc = EXCLUDED.active_until_utc,
+            plan_id = EXCLUDED.plan_id,
+            device_count = COALESCE(EXCLUDED.device_count, subscription_snapshots.device_count),
             updated_at = now()
     """
 
@@ -71,6 +75,8 @@ class PostgresSubscriptionSnapshotReader:
                 snapshot.internal_user_id,
                 snapshot.state_label,
                 snapshot.active_until_utc,
+                snapshot.plan_id,
+                snapshot.device_count,
             )
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc

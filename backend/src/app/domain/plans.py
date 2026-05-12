@@ -62,7 +62,7 @@ def get_all_plans() -> tuple[SubscriptionPlan, ...]:
 
 def calculate_total_price(plan: SubscriptionPlan, device_count: int) -> int:
     extra = max(0, device_count - plan.default_device_limit)
-    return plan.price_rubles + extra * plan.extra_device_price_rubles
+    return plan.price_rubles + extra * plan.extra_device_price_rubles * plan.duration_months
 
 
 def calculate_total_price_kopecks(plan: SubscriptionPlan, device_count: int) -> int:

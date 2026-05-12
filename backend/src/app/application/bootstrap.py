@@ -50,6 +50,7 @@ from app.persistence.in_memory import (
     InMemoryUserIdentityRepository,
 )
 from app.issuance.service import IssuanceService
+from app.issuance.vless_provider import VlessProviderPort
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
     ReferralCodeRepository,
@@ -78,6 +79,7 @@ class Slice1Composition:
     referral_balance_repo: ReferralBalanceRepository
     referral_transaction_repo: ReferralTransactionRepository
     bot_username: str
+    vless_provider: VlessProviderPort | None = None
 
 
 def build_slice1_composition(
@@ -102,6 +104,7 @@ def build_slice1_composition(
     referral_balance_repo: ReferralBalanceRepository | None = None,
     referral_transaction_repo: ReferralTransactionRepository | None = None,
     bot_username: str | None = None,
+    vless_provider: VlessProviderPort | None = None,
 ) -> Slice1Composition:
     if (identity is None) ^ (idempotency is None):
         raise ValueError("identity and idempotency must both be provided or both omitted")
@@ -164,4 +167,5 @@ def build_slice1_composition(
         referral_balance_repo=ref_bal,
         referral_transaction_repo=ref_tx,
         bot_username=resolved_bot_username,
+        vless_provider=vless_provider,
     )
