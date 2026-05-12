@@ -212,15 +212,70 @@ async def _render_storefront_response(
         text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_REFERRAL:
-        text = (
-            "👥 Реферальная программа\n\n"
-            "🔗 Ваша реферальная ссылка будет доступна после настройки.\n"
-            "💰 Реферальный баланс: 0.00 ₽"
-        )
+        if uid is not None:
+            from app.application.handlers import GetSubscriptionStatusInput
+            from app.application.referral_handler import get_referral_info
+            identity_result = await composition.get_status.handle(
+                GetSubscriptionStatusInput(telegram_user_id=uid, correlation_id=cid),
+            )
+            if identity_result.outcome.value == "success" and identity_result.internal_user_id is None:
+                from app.application.interfaces import UserIdentityRepository
+                from app.shared.types import OperationOutcomeCategory
+                id_repo: UserIdentityRepository = composition.identity
+                id_rec = await id_repo.find_by_telegram_user_id(uid)
+                if id_rec is not None:
+                    internal_uid = id_rec.internal_user_id
+                else:
+                    internal_uid = None
+            else:
+                from app.application.interfaces import UserIdentityRepository
+                id_repo: UserIdentityRepository = composition.identity
+                id_rec = await id_repo.find_by_telegram_user_id(uid)
+                internal_uid = id_rec.internal_user_id if id_rec else None
+            if internal_uid is not None and composition.bot_username:
+                info = await get_referral_info(
+                    internal_user_id=internal_uid,
+                    code_repo=composition.referral_code_repo,
+                    balance_repo=composition.referral_balance_repo,
+                    relationship_repo=composition.referral_relationship_repo,
+                    bot_username=composition.bot_username,
+                )
+                text = (
+                    f"👥 Реферальная программа\n\n"
+                    f"🔗 Ваша ссылка: {info.referral_link}\n"
+                    f"📊 Приглашено: {info.direct_referrals_count} чел.\n"
+                    f"💰 Реферальный баланс: {info.balance_rubles:.2f} ₽"
+                )
+            else:
+                text = (
+                    "👥 Реферальная программа\n\n"
+                    "🔗 Ваша реферальная ссылка будет доступна после настройки.\n"
+                    "💰 Реферальный баланс: 0.00 ₽"
+                )
+        else:
+            text = (
+                "👥 Реферальная программа\n\n"
+                "🔗 Ваша реферальная ссылка будет доступна после настройки.\n"
+                "💰 Реферальный баланс: 0.00 ₽"
+            )
         keyboard = back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_BALANCE:
-        text = "💰 Ваш баланс: 0.00 ₽\n\nЭтими деньгами можно оплатить подписку."
+        if uid is not None:
+            from app.application.referral_handler import get_referral_balance
+            from app.application.interfaces import UserIdentityRepository
+            id_repo: UserIdentityRepository = composition.identity
+            id_rec = await id_repo.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                bal = await get_referral_balance(
+                    internal_user_id=id_rec.internal_user_id,
+                    balance_repo=composition.referral_balance_repo,
+                )
+                text = f"💰 Ваш баланс: {bal.balance_rubles:.2f} ₽\n\nЭтими деньгами можно оплатить подписку."
+            else:
+                text = "💰 Ваш баланс: 0.00 ₽\n\nЭтими деньгами можно оплатить подписку."
+        else:
+            text = "💰 Ваш баланс: 0.00 ₽\n\nЭтими деньгами можно оплатить подписку."
         keyboard = back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_SETTINGS:

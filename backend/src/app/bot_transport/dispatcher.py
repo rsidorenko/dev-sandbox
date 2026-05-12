@@ -226,8 +226,19 @@ async def dispatch_slice1_transport(
                 correlation_id=cid,
             )
             return map_slice1_support_to_transport(TransportSupportCode.SUPPORT_CONTACT, cid)
-        case NormalizedSlice1Bootstrap(input=bootstrap_input):
+        case NormalizedSlice1Bootstrap(input=bootstrap_input, referral_code=ref_code):
             result = await composition.bootstrap.handle(bootstrap_input)
+            if (
+                ref_code is not None
+                and result.outcome is OperationOutcomeCategory.SUCCESS
+                and not result.idempotent_replay
+                and result.internal_user_id is not None
+            ):
+                await _apply_referral_on_bootstrap(
+                    composition=composition,
+                    new_user_id=result.internal_user_id,
+                    referral_code=ref_code,
+                )
             return map_bootstrap_identity_to_transport(result)
         case NormalizedSlice1Status(input=status_input):
             allowed = await composition.command_rate_limiter.allow(
@@ -288,6 +299,44 @@ async def dispatch_slice1_transport(
             )
             result = await composition.access_resend.handle(resend_input)
             return map_access_resend_to_transport(result)
+
+
+async def _apply_referral_on_bootstrap(
+    composition: Slice1Composition,
+    *,
+    new_user_id: str,
+    referral_code: str,
+) -> None:
+    """Create L1/L2 referral relationships on first bootstrap via referral link."""
+    referrer_record = await composition.referral_code_repo.find_by_code(referral_code)
+    if referrer_record is None:
+        return
+    if referrer_record.internal_user_id == new_user_id:
+        return
+    existing = await composition.referral_relationship_repo.find_referrers(new_user_id)
+    if existing:
+        return
+    referrer_of_referrer_id: str | None = None
+    referrer_referrers = await composition.referral_relationship_repo.find_referrers(
+        referrer_record.internal_user_id,
+    )
+    for rr in referrer_referrers:
+        if rr.level == 1:
+            referrer_of_referrer_id = rr.referrer_user_id
+            break
+    await composition.referral_relationship_repo.create_relationship(
+        referred_user_id=new_user_id,
+        referrer_user_id=referrer_record.internal_user_id,
+        level=1,
+        referrer_of_referrer_user_id=None,
+    )
+    if referrer_of_referrer_id is not None and referrer_of_referrer_id != new_user_id:
+        await composition.referral_relationship_repo.create_relationship(
+            referred_user_id=new_user_id,
+            referrer_user_id=referrer_of_referrer_id,
+            level=2,
+            referrer_of_referrer_user_id=referrer_record.internal_user_id,
+        )
 
 
 class Slice1Dispatcher:
