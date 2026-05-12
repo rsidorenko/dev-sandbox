@@ -433,6 +433,16 @@ async def _process_referral_commissions_best_effort(
         )
 
         for comm in commissions:
+            existing = await tx_repo.list_by_user(comm.referrer_user_id, limit=100)
+            if any(
+                t.transaction_type == "referral_credit"
+                and t.related_user_id == comm.payer_user_id
+                and t.related_plan_id == comm.plan_id
+                and t.description == f"level {comm.level} commission"
+                for t in existing
+            ):
+                continue
+
             await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
             tx_record = ReferralTransactionRecord(
                 transaction_id=f"ref-{uuid.uuid4()}",
