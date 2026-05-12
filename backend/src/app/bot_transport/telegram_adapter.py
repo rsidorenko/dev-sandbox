@@ -13,17 +13,6 @@ from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 
 _MAX_MESSAGE_TEXT_LEN = 512
 
-_BUTTON_LABEL_TO_COMMAND: dict[str, str] = {
-    "📊 тарифы": "/plans",
-    "💳 купить": "/buy",
-    "📱 подписка": "/my_subscription",
-    "🔄 продлить": "/renew",
-    "🆘 поддержка": "/support",
-    "❓ помощь": "/help",
-    "🔓 доступ": "/get_access",
-    "📞 контакты": "/support_contact",
-}
-
 # Telegram update keys that are not plain private messages for slice 1.
 _SLICE1_FORBIDDEN_UPDATE_KEYS: frozenset[str] = frozenset(
     {
@@ -150,10 +139,7 @@ def extract_slice1_envelope_from_telegram_update(
     if len(text) > _MAX_MESSAGE_TEXT_LEN:
         return _reject(TelegramAdapterRejectReason.TEXT_TOO_LONG, cid)
     if not text.startswith("/"):
-        mapped = _BUTTON_LABEL_TO_COMMAND.get(text.lower())
-        if mapped is None:
-            return _reject(TelegramAdapterRejectReason.NOT_A_COMMAND, cid)
-        text = mapped
+        return _reject(TelegramAdapterRejectReason.NOT_A_COMMAND, cid)
 
     return TransportIncomingEnvelope(
         telegram_user_id=telegram_user_id,
