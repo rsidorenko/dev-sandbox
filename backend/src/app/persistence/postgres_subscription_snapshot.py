@@ -55,12 +55,12 @@ class PostgresSubscriptionSnapshotReader:
 
     _UPSERT_STATE = """
         INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count)
-        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, $5::int)
+        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5))
         ON CONFLICT (internal_user_id) DO UPDATE
         SET state_label = EXCLUDED.state_label,
             active_until_utc = EXCLUDED.active_until_utc,
             plan_id = EXCLUDED.plan_id,
-            device_count = EXCLUDED.device_count,
+            device_count = COALESCE(EXCLUDED.device_count, subscription_snapshots.device_count),
             updated_at = now()
     """
 
