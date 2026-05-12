@@ -100,22 +100,28 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 # ─── Storefront callback detection ───────────────────────────────────
 
-_STOREFRONT_CB_CODES = frozenset({
+_ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
+
+_CALLBACK_ONLY_STOREFRONT = frozenset({
     CB_MAIN_MENU, CB_BUY_VPN, CB_MY_SUB, CB_MY_KEYS, CB_SUB_URL,
     CB_REFERRAL, CB_BALANCE, CB_SETTINGS, CB_HELP, CB_ROUTER,
-    "store_menu", "store_plans", "store_success", "store_success_active",
-    "identity_ready", "slice1_help",
+    "store_plans", "store_success", "store_success_active",
 })
 
 
-def _is_storefront_renderable(code: str) -> bool:
-    return (
-        code in _STOREFRONT_CB_CODES
-        or code.startswith(CB_PLAN)
+def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
+    if code in _ALWAYS_STOREFRONT:
+        return True
+    if is_callback and code in _CALLBACK_ONLY_STOREFRONT:
+        return True
+    if is_callback and (
+        code.startswith(CB_PLAN)
         or code.startswith(CB_DEVICES)
         or code.startswith(CB_CONFIRM_PAY)
         or code.startswith(CB_PAY_BALANCE)
-    )
+    ):
+        return True
+    return False
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -170,9 +176,11 @@ async def _render_storefront_response(
     transport: TransportSafeResponse,
     composition: Slice1Composition,
     update: Mapping[str, Any],
+    *,
+    is_callback: bool,
 ) -> RenderedMessagePackage | None:
     code = transport.code
-    if not _is_storefront_renderable(code):
+    if not _is_storefront_renderable(code, is_callback=is_callback):
         return None
 
     cid = transport.correlation_id
@@ -276,7 +284,8 @@ async def handle_slice1_telegram_update_to_rendered_message(
         correlation_id=correlation_id,
     )
 
-    storefront = await _render_storefront_response(transport, composition, update)
+    is_callback = isinstance(update.get("callback_query"), Mapping)
+    storefront = await _render_storefront_response(transport, composition, update, is_callback=is_callback)
     if storefront is not None:
         return storefront
 
