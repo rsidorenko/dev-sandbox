@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -217,7 +218,7 @@ async def _has_active_subscription(
     from app.application.handlers import GetSubscriptionStatusInput
 
     result = await composition.get_status.handle(
-        GetSubscriptionStatusInput(telegram_user_id=uid, correlation_id="00000000000000000000000000000000"),
+        GetSubscriptionStatusInput(telegram_user_id=uid, correlation_id=uuid.uuid4().hex),
     )
     return result.safe_status in (
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE,
@@ -247,7 +248,6 @@ async def _process_balance_payment(
     device_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
     import calendar
-    import uuid
     from datetime import UTC, datetime
 
     from app.application.interfaces import SubscriptionSnapshot
@@ -275,36 +275,42 @@ async def _process_balance_payment(
         return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
 
     now = datetime.now(UTC)
-    existing_snap = await composition.snapshots.get_for_user(internal_user_id)
-    base_date = now
-    if (
-        existing_snap is not None
-        and existing_snap.active_until_utc is not None
-        and existing_snap.active_until_utc > now
-    ):
-        base_date = existing_snap.active_until_utc
-    new_month = base_date.month + plan.duration_months
-    new_year = base_date.year + (new_month - 1) // 12
-    new_month = ((new_month - 1) % 12) + 1
-    max_day = calendar.monthrange(new_year, new_month)[1]
-    active_until = base_date.replace(
-        year=new_year,
-        month=new_month,
-        day=min(base_date.day, max_day),
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
-    await composition.snapshots.upsert_state(
-        SubscriptionSnapshot(
-            internal_user_id=internal_user_id,
-            state_label="active",
-            active_until_utc=active_until,
-            plan_id=plan_id,
-            device_count=device_count,
+    try:
+        existing_snap = await composition.snapshots.get_for_user(internal_user_id)
+        base_date = now
+        if (
+            existing_snap is not None
+            and existing_snap.active_until_utc is not None
+            and existing_snap.active_until_utc > now
+        ):
+            base_date = existing_snap.active_until_utc
+        new_month = base_date.month + plan.duration_months
+        new_year = base_date.year + (new_month - 1) // 12
+        new_month = ((new_month - 1) % 12) + 1
+        max_day = calendar.monthrange(new_year, new_month)[1]
+        active_until = base_date.replace(
+            year=new_year,
+            month=new_month,
+            day=min(base_date.day, max_day),
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
         )
-    )
+        await composition.snapshots.upsert_state(
+            SubscriptionSnapshot(
+                internal_user_id=internal_user_id,
+                state_label="active",
+                active_until_utc=active_until,
+                plan_id=plan_id,
+                device_count=device_count,
+            )
+        )
+    except Exception:
+        # Компенсирующая транзакция: вернуть списанные средства при ошибке активации
+        with contextlib.suppress(Exception):
+            await composition.referral_balance_repo.credit(internal_user_id, total_kopecks)
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
     if composition.vless_provider is not None:
         with contextlib.suppress(Exception):
@@ -315,7 +321,7 @@ async def _process_balance_payment(
         ReferralTransactionRecord(
             transaction_id=correlation_id,
             internal_user_id=internal_user_id,
-            amount_kopecks=total_kopecks,
+            amount_kopecks=-total_kopecks,
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=plan_id,
@@ -368,22 +374,19 @@ async def _credit_referral_commissions(
     )
     for comm in commissions:
         dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}"
-        existing = await composition.referral_transaction_repo.list_by_user(comm.referrer_user_id, limit=100)
-        if any(t.description == dedup_desc for t in existing):
-            continue
-        await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
-        await composition.referral_transaction_repo.append_transaction(
-            ReferralTransactionRecord(
-                transaction_id=f"ref-{uuid.uuid4()}",
-                internal_user_id=comm.referrer_user_id,
-                amount_kopecks=comm.amount_kopecks,
-                transaction_type="referral_credit",
-                related_user_id=comm.payer_user_id,
-                related_plan_id=comm.plan_id,
-                description=dedup_desc,
-                created_at=datetime.now(UTC),
-            )
+        tx_record = ReferralTransactionRecord(
+            transaction_id=f"ref-{uuid.uuid4()}",
+            internal_user_id=comm.referrer_user_id,
+            amount_kopecks=comm.amount_kopecks,
+            transaction_type="referral_credit",
+            related_user_id=comm.payer_user_id,
+            related_plan_id=comm.plan_id,
+            description=dedup_desc,
+            created_at=datetime.now(UTC),
         )
+        inserted = await composition.referral_transaction_repo.append_transaction_if_description_absent(tx_record)
+        if inserted:
+            await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
 
 
 # ─── Add device helpers ────────────────────────────────────────────────
@@ -448,7 +451,6 @@ async def _process_add_device_balance(
     uid: int | None,
     new_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
-    import uuid
     from datetime import UTC, datetime
 
     from app.application.interfaces import SubscriptionSnapshot
@@ -477,26 +479,32 @@ async def _process_add_device_balance(
         return text_balance_insufficient(), back_only_keyboard(CB_SETTINGS)
 
     now = datetime.now(UTC)
+    try:
+        await composition.snapshots.upsert_state(
+            SubscriptionSnapshot(
+                internal_user_id=internal_user_id,
+                state_label=snap.state_label,
+                active_until_utc=snap.active_until_utc,
+                plan_id=snap.plan_id,
+                device_count=new_count,
+            )
+        )
+    except Exception:
+        # Компенсирующая транзакция: вернуть списанные средства при ошибке обновления
+        with contextlib.suppress(Exception):
+            await composition.referral_balance_repo.credit(internal_user_id, cost_kopecks)
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
     await composition.referral_transaction_repo.append_transaction(
         ReferralTransactionRecord(
             transaction_id=f"add-dev-{uuid.uuid4()}",
             internal_user_id=internal_user_id,
-            amount_kopecks=cost_kopecks,
+            amount_kopecks=-cost_kopecks,
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=snap.plan_id,
             description=f"add device: {current} → {new_count}",
             created_at=now,
-        )
-    )
-
-    await composition.snapshots.upsert_state(
-        SubscriptionSnapshot(
-            internal_user_id=internal_user_id,
-            state_label=snap.state_label,
-            active_until_utc=snap.active_until_utc,
-            plan_id=snap.plan_id,
-            device_count=new_count,
         )
     )
 

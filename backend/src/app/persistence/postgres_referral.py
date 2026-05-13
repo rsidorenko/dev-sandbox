@@ -28,29 +28,24 @@ class PostgresReferralCodeRepository:
         self._pool = pool
 
     async def get_or_create(self, internal_user_id: str) -> ReferralCodeRecord:
+        code = _generate_referral_code()
+        now = datetime.now(UTC)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT internal_user_id, referral_code, created_at FROM referral_codes WHERE internal_user_id = $1",
-                internal_user_id,
-            )
-            if row is not None:
-                return ReferralCodeRecord(
-                    internal_user_id=row["internal_user_id"],
-                    referral_code=row["referral_code"],
-                    created_at=row["created_at"],
-                )
-            code = _generate_referral_code()
-            now = datetime.now(UTC)
-            await conn.execute(
-                "INSERT INTO referral_codes (internal_user_id, referral_code, created_at) VALUES ($1, $2, $3)",
+                """
+                INSERT INTO referral_codes (internal_user_id, referral_code, created_at)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (internal_user_id) DO UPDATE SET internal_user_id = EXCLUDED.internal_user_id
+                RETURNING internal_user_id, referral_code, created_at
+                """,
                 internal_user_id,
                 code,
                 now,
             )
             return ReferralCodeRecord(
-                internal_user_id=internal_user_id,
-                referral_code=code,
-                created_at=now,
+                internal_user_id=row["internal_user_id"],
+                referral_code=row["referral_code"],
+                created_at=row["created_at"],
             )
 
     async def find_by_code(self, referral_code: str) -> ReferralCodeRecord | None:
@@ -193,6 +188,27 @@ class PostgresReferralTransactionRepository:
                 record.description,
                 record.created_at,
             )
+
+    async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool:
+        """Atomic dedup: insert only if no row with same (internal_user_id, description) exists. Returns True if inserted."""
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "INSERT INTO referral_transactions "
+                "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, created_at) "
+                "SELECT $1, $2, $3, $4, $5, $6, $7, $8 "
+                "WHERE NOT EXISTS ("
+                "  SELECT 1 FROM referral_transactions WHERE internal_user_id = $2 AND description = $7"
+                ")",
+                record.transaction_id,
+                record.internal_user_id,
+                record.amount_kopecks,
+                record.transaction_type,
+                record.related_user_id,
+                record.related_plan_id,
+                record.description,
+                record.created_at,
+            )
+            return "INSERT 0 1" in result
 
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]:
         async with self._pool.acquire() as conn:
