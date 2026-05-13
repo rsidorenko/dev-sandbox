@@ -132,7 +132,7 @@ def test_timeout_policy_lookup_request_kinds_and_happy_path_bodies_unchanged() -
     assert spy.decisions[1].mode == INHERIT_CLIENT_TIMEOUT_MODE
     assert len(captured) == 2
     assert captured[0].url.path.endswith("/getUpdates")
-    assert _json_body(captured[0]) == {"limit": 42}
+    assert _json_body(captured[0]) == {"limit": 42, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
     assert "offset" not in _json_body(captured[0])
     assert captured[1].url.path.endswith("/sendMessage")
     assert _json_body(captured[1]) == {"chat_id": 7, "text": "hi"}

@@ -209,7 +209,7 @@ def test_override_httpx_timeout_mode_passes_through_helper_to_getupdates_post() 
         assert len(fake.post_calls) == 1
         url, body, kw = fake.post_calls[0]
         assert url.endswith("getUpdates")
-        assert body == {"limit": 100}
+        assert body == {"limit": 100, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
         assert "timeout" in kw
         assert kw["timeout"] is expected_timeout
         assert summary.fetch_failure_count == 0
@@ -244,7 +244,7 @@ def test_override_httpx_timeout_mode_direct_public_live_loop_path_reaches_getupd
         assert len(fake.post_calls) == 1
         url, body, kw = fake.post_calls[0]
         assert url.endswith("getUpdates")
-        assert body == {"limit": 100}
+        assert body == {"limit": 100, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
         assert kw["timeout"] is expected_timeout
         assert summary.fetch_failure_count == 0
         assert summary.send_failure_count == 0
@@ -278,7 +278,7 @@ def test_override_httpx_timeout_mode_public_live_loop_module_entrypoint_reaches_
         assert len(fake.post_calls) == 1
         url, body, kwargs = fake.post_calls[0]
         assert url.endswith("getUpdates")
-        assert body == {"limit": 100}
+        assert body == {"limit": 100, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
         assert kwargs["timeout"] is expected_timeout
         assert summary.fetch_failure_count == 0
         assert summary.send_failure_count == 0

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -11,6 +12,8 @@ from app.bot_transport import (
     TelegramRuntimeActionKind,
     handle_slice1_telegram_update_to_runtime_action,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +171,15 @@ class Slice1PollingRuntime:
                                 text,
                                 reply_markup=markup,
                             )
-                        except Exception:
+                            _LOGGER.info(
+                                "polling.edit_message_ok chat_id=%s msg_id=%s",
+                                origin_chat_id, origin_msg_id,
+                            )
+                        except Exception as exc:
+                            _LOGGER.warning(
+                                "polling.edit_message_failed chat_id=%s msg_id=%s error=%s -> fallback sendMessage",
+                                origin_chat_id, origin_msg_id, exc,
+                            )
                             msg_id = await self._client.send_text_message(
                                 action.chat_id,
                                 text,
@@ -176,6 +187,11 @@ class Slice1PollingRuntime:
                                 reply_markup=markup,
                             )
                     else:
+                        if first and cb_origin is None and cb_qid is not None:
+                            _LOGGER.info(
+                                "polling.callback_no_origin -> sendMessage chat_id=%s",
+                                action.chat_id,
+                            )
                         msg_id = await self._client.send_text_message(
                             action.chat_id,
                             text,

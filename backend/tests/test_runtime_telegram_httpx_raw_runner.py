@@ -99,7 +99,7 @@ def test_override_httpx_timeout_mode_reaches_getupdates_post_kwargs() -> None:
         assert len(fake.calls) == 1
         url, body, kw = fake.calls[0]
         assert url.endswith("getUpdates")
-        assert body == {"limit": 100}
+        assert body == {"limit": 100, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
         assert kw.get("timeout") is expected_to
         assert s.fetch_failure_count == 0
         assert s.send_failure_count == 0
