@@ -71,17 +71,17 @@ class FakeTelegramPollingClient:
 
 
 def _raw_batch(**overrides: int) -> RawPollingBatchResult:
-    base = dict(
-        raw_received_count=0,
-        bridge_accepted_count=0,
-        bridge_rejected_count=0,
-        bridge_exception_count=0,
-        send_count=0,
-        noop_count=0,
-        send_failure_count=0,
-        processing_failure_count=0,
-        fetch_failure_count=0,
-    )
+    base = {
+        "raw_received_count": 0,
+        "bridge_accepted_count": 0,
+        "bridge_rejected_count": 0,
+        "bridge_exception_count": 0,
+        "send_count": 0,
+        "noop_count": 0,
+        "send_failure_count": 0,
+        "processing_failure_count": 0,
+        "fetch_failure_count": 0,
+    }
     base.update(overrides)
     return RawPollingBatchResult(**base)
 
@@ -98,7 +98,7 @@ class SpyRawRuntime:
 
 
 def _spy_as_raw_runtime(spy: SpyRawRuntime) -> Slice1RawPollingRuntime:
-    return cast(Slice1RawPollingRuntime, spy)
+    return cast("Slice1RawPollingRuntime", spy)
 
 
 def test_stop_requested_before_start_no_poll_once_polling(monkeypatch) -> None:
@@ -458,4 +458,3 @@ def test_non_int_max_iterations_raises_polling() -> None:
             )
 
     _run(main())
-

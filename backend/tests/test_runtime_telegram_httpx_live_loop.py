@@ -18,10 +18,10 @@ from app.runtime.live_loop import LoopControl, Slice1LiveRawPollingLoop
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -78,7 +78,7 @@ class _FixedOverrideTimeoutPolicy:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: Literal["noop"] = "noop"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:

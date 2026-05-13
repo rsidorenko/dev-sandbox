@@ -4,27 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 
 from app.admin_support.adm01_internal_http import ADM01_INTERNAL_LOOKUP_PATH
+from app.admin_support.adm01_postgres_issuance_read_adapter import Adm01PostgresIssuanceReadAdapter
+from app.admin_support.adm01_postgres_subscription_read_adapter import Adm01PostgresSubscriptionReadAdapter
+from app.admin_support.adm01_subscription_entitlement_read_adapter import (
+    Adm01SubscriptionEntitlementReadAdapter,
+)
+from app.admin_support.adm01_subscription_policy_read_adapter import (
+    Adm01SubscriptionPolicyReadAdapter,
+)
 from app.admin_support.adm01_wiring import (
     build_adm01_entitlement_read_from_postgres_snapshots,
     build_adm01_internal_lookup_http_app,
     build_adm01_issuance_read_from_postgres_issuance_state,
     build_adm01_policy_read_from_postgres_snapshots,
     build_adm01_subscription_read_from_postgres_snapshots,
-)
-from app.admin_support.adm01_postgres_issuance_read_adapter import Adm01PostgresIssuanceReadAdapter
-from app.admin_support.adm01_postgres_subscription_read_adapter import Adm01PostgresSubscriptionReadAdapter
-from app.admin_support.adm01_subscription_policy_read_adapter import (
-    Adm01SubscriptionPolicyReadAdapter,
-)
-from app.admin_support.adm01_subscription_entitlement_read_adapter import (
-    Adm01SubscriptionEntitlementReadAdapter,
 )
 from app.admin_support.contracts import (
     AdminPolicyFlag,
@@ -46,7 +46,7 @@ from app.shared.correlation import new_correlation_id
 
 _REF_MUST_NOT_LEAK = "issuance-ref:unit-wiring:cursor-leaktest-SECRET-SUFFIX-xyz"[:64]
 _IDEM_MUST_NOT_LEAK = "idem-wiring-super-secret-key-12345"
-_TS = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_TS = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _run(coro):
@@ -293,7 +293,7 @@ def test_bundle_with_postgres_repo_uses_wiring_helper() -> None:
             identity=_IdentityEcho(),
             subscription=_Subscription("active"),
             entitlement=_Entitlement(EntitlementSummaryCategory.ACTIVE),
-            postgres_issuance_state=cast(PostgresIssuanceStateRepository, repo),
+            postgres_issuance_state=cast("PostgresIssuanceStateRepository", repo),
             policy=_Policy(AdminPolicyFlag.DEFAULT),
             redaction=None,
             adm01_allowlisted_internal_admin_principal_ids=["pg1"],

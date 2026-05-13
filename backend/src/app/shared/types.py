@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class OperationOutcomeCategory(str, Enum):
+class OperationOutcomeCategory(StrEnum):
     """Категория результата верхнего уровня для структурной телеметрии (низкая кардинальность)."""
 
     SUCCESS = "success"
@@ -17,7 +17,7 @@ class OperationOutcomeCategory(str, Enum):
     INTERNAL_FAILURE = "internal_failure"
 
 
-class SafeUserStatusCategory(str, Enum):
+class SafeUserStatusCategory(StrEnum):
     """Категории пользовательского статуса с fail-closed для UC-02 (UC-05 может добавить явный subscription active)."""
 
     NEEDS_BOOTSTRAP = "needs_bootstrap"
@@ -29,7 +29,7 @@ class SafeUserStatusCategory(str, Enum):
     SUBSCRIPTION_ACTIVE_ACCESS_READY = "subscription_active_access_ready"
 
 
-class SubscriptionSnapshotState(str, Enum):
+class SubscriptionSnapshotState(StrEnum):
     """Классификация снапшота подписки (сохранённая или выведенная) для входных данных read model."""
 
     ABSENT = "absent"

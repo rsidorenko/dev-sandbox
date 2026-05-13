@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -143,10 +144,8 @@ class Slice1PollingRuntime:
                 process_fail += 1
                 continue
             if cb_qid is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await self._client.answer_callback_query(cb_qid)
-                except Exception:
-                    pass
             if action.kind is TelegramRuntimeActionKind.NOOP:
                 noop += 1
                 continue
@@ -173,12 +172,15 @@ class Slice1PollingRuntime:
                             )
                             _LOGGER.info(
                                 "polling.edit_message_ok chat_id=%s msg_id=%s",
-                                origin_chat_id, origin_msg_id,
+                                origin_chat_id,
+                                origin_msg_id,
                             )
                         except Exception as exc:
                             _LOGGER.warning(
                                 "polling.edit_message_failed chat_id=%s msg_id=%s error=%s -> fallback sendMessage",
-                                origin_chat_id, origin_msg_id, exc,
+                                origin_chat_id,
+                                origin_msg_id,
+                                exc,
                             )
                             msg_id = await self._client.send_text_message(
                                 action.chat_id,

@@ -9,27 +9,26 @@ from collections.abc import Mapping
 from app.application.telegram_access_resend import TELEGRAM_ACCESS_RESEND_ENABLE
 from app.bot_transport.storefront_config import (
     load_storefront_public_config,
-    validate_storefront_public_https_url,
 )
 from app.runtime.payment_fulfillment_ingress import (
+    _STRICT_CHECKOUT_REFERENCE_MAX_AGE_MAX_SECONDS,
+    _STRICT_CHECKOUT_REFERENCE_MAX_AGE_MIN_SECONDS,
     ENV_PAYMENT_FULFILLMENT_HTTP_ENABLE,
     ENV_PAYMENT_FULFILLMENT_SECRET,
     ENV_SUBSCRIPTION_DEFAULT_PERIOD_DAYS,
     ENV_TELEGRAM_CHECKOUT_REFERENCE_MAX_AGE_SECONDS,
     ENV_TELEGRAM_CHECKOUT_REFERENCE_SECRET,
-    _STRICT_CHECKOUT_REFERENCE_MAX_AGE_MAX_SECONDS,
-    _STRICT_CHECKOUT_REFERENCE_MAX_AGE_MIN_SECONDS,
 )
 from app.runtime.telegram_webhook_ingress import (
     ENV_TELEGRAM_WEBHOOK_HTTP_ENABLE,
     ENV_TELEGRAM_WEBHOOK_SECRET_TOKEN,
 )
+from app.security.public_url_policy import validate_public_https_operator_url
 from app.security.safe_diagnostics import (
     has_suspicious_query_pattern,
     redact_dsn_for_diagnostics,
     redact_url_for_diagnostics,
 )
-from app.security.public_url_policy import validate_public_https_operator_url
 from app.security.telegram_webhook_policy import (
     parse_webhook_allowed_updates,
     validate_allowed_updates_for_command_bot,
@@ -359,11 +358,13 @@ def run_launch_preflight(
     )
     _check_telegram_runtime(env=effective_env, strict=strict, errors=errors, warnings=warnings)
     _check_access_delivery(env=effective_env, strict=strict, errors=errors, warnings=warnings)
-    reconcile_ack_marker, reconcile_interval_seconds, reconcile_interval_classification = _check_access_reconcile_schedule(
-        env=effective_env,
-        strict=strict,
-        errors=errors,
-        warnings=warnings,
+    reconcile_ack_marker, reconcile_interval_seconds, reconcile_interval_classification = (
+        _check_access_reconcile_schedule(
+            env=effective_env,
+            strict=strict,
+            errors=errors,
+            warnings=warnings,
+        )
     )
     database_marker = _check_database(env=effective_env, strict=strict, errors=errors, warnings=warnings)
     subscription_period_days_raw = _safe_get(effective_env, ENV_SUBSCRIPTION_DEFAULT_PERIOD_DAYS)
@@ -400,7 +401,9 @@ def run_launch_preflight(
     )
     print(f"access_reconcile_interval_classification={reconcile_interval_classification}")
     print("access_reconcile_operator_command=python scripts/reconcile_expired_access.py")
-    print(f"subscription_default_period_days={subscription_period_days if subscription_period_days is not None else '<missing>'}")
+    print(
+        f"subscription_default_period_days={subscription_period_days if subscription_period_days is not None else '<missing>'}"
+    )
     print(f"subscription_default_period_classification={_classify_subscription_period(subscription_period_days)}")
 
     for code in warnings:

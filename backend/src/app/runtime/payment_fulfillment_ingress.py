@@ -8,9 +8,9 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from collections.abc import Callable
 from typing import Any, Protocol
 
 import asyncpg
@@ -20,7 +20,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app.application.billing_ingestion import NormalizedBillingFactInput
+from app.application.interfaces import SubscriptionSnapshot
+from app.bot_transport.message_catalog import render_telegram_outbound_plan
+from app.bot_transport.outbound import build_fulfillment_success_notification_plan
 from app.persistence.billing_events_ledger_contracts import BillingEventLedgerStatus
+from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
 from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
@@ -32,10 +36,6 @@ from app.security.checkout_reference import (
 )
 from app.security.config import ConfigurationError
 from app.security.validation import ValidationError, validate_telegram_user_id
-from app.application.interfaces import SubscriptionSnapshot
-from app.bot_transport.message_catalog import render_telegram_outbound_plan
-from app.bot_transport.outbound import build_fulfillment_success_notification_plan
-from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.shared.types import OperationOutcomeCategory
 
 ENV_PAYMENT_FULFILLMENT_HTTP_ENABLE = "PAYMENT_FULFILLMENT_HTTP_ENABLE"
@@ -145,8 +145,7 @@ def _parse_signature_header(raw: str) -> str | None:
     v = raw.strip().lower()
     if not v:
         return None
-    if v.startswith("sha256="):
-        v = v[len("sha256=") :]
+    v = v.removeprefix("sha256=")
     if len(v) != 64:
         return None
     for c in v:
@@ -608,6 +607,7 @@ def create_payment_fulfillment_ingress_app(
                     and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
                 ):
                     from app.domain.plans import get_plan
+
                     ref_plan_id = _plan_id_from_period_days(period_days)
                     ref_plan = get_plan(ref_plan_id)
                     if parsed.amount_kopecks is not None:
@@ -648,4 +648,3 @@ def create_payment_fulfillment_ingress_app(
         return JSONResponse({"ok": True, "accepted": True}, status_code=200)
 
     return Starlette(routes=[Route(settings.http_path, _handler, methods=["POST"])])
-

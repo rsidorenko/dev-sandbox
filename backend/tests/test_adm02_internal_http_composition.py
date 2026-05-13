@@ -31,6 +31,7 @@ from app.admin_support.contracts import (
     InternalUserTarget,
     RedactionMarker,
 )
+from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
 from app.persistence.adm02_fact_of_access import InMemoryAdm02FactOfAccessRecordAppender
 from app.persistence.billing_events_ledger_contracts import (
     BillingEventAmountCurrency,
@@ -51,7 +52,6 @@ from app.persistence.reconciliation_runs_contracts import (
     ReconciliationRunStatus,
 )
 from app.persistence.reconciliation_runs_in_memory import InMemoryReconciliationRunsRepository
-from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
 from app.shared.correlation import new_correlation_id
 
 
@@ -661,9 +661,7 @@ def test_adm02_internal_http_composition_redaction_and_audit_disclosure_stay_low
         recorded = await persisted.recorded_for_tests()
         assert len(recorded) == 1
         disclosure_value = recorded[0].disclosure.value
-        assert disclosure_value in {
-            category.value for category in Adm02FactOfAccessDisclosureCategory
-        }
+        assert disclosure_value in {category.value for category in Adm02FactOfAccessDisclosureCategory}
         assert disclosure_value in {"unredacted", "partial", "fully_redacted"}
         disclosure_lower = disclosure_value.lower()
         for forbidden in _FORBIDDEN_BOUNDARY_FRAGMENTS:

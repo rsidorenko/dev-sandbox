@@ -6,18 +6,18 @@ from collections.abc import Sequence
 
 from starlette.applications import Starlette
 
-from app.admin_support.adm01_internal_http import create_adm01_internal_http_app
 from app.admin_support.adm01_identity_resolve_adapter import Adm01IdentityResolveAdapter
+from app.admin_support.adm01_internal_http import create_adm01_internal_http_app
 from app.admin_support.adm01_lookup import Adm01LookupHandler
 from app.admin_support.adm01_postgres_issuance_read_adapter import Adm01PostgresIssuanceReadAdapter
 from app.admin_support.adm01_postgres_subscription_read_adapter import (
     Adm01PostgresSubscriptionReadAdapter,
 )
-from app.admin_support.adm01_subscription_policy_read_adapter import (
-    Adm01SubscriptionPolicyReadAdapter,
-)
 from app.admin_support.adm01_subscription_entitlement_read_adapter import (
     Adm01SubscriptionEntitlementReadAdapter,
+)
+from app.admin_support.adm01_subscription_policy_read_adapter import (
+    Adm01SubscriptionPolicyReadAdapter,
 )
 from app.admin_support.authorization import AllowlistAdm01Authorization
 from app.admin_support.contracts import (

@@ -13,7 +13,6 @@ from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.plans import plan_display_name
 from app.issuance.vless_provider import VlessUserConfig, format_key_list
 
-
 # ─── Callback data constants ──────────────────────────────────────────
 
 CB_MAIN_MENU = "main_menu"
@@ -40,33 +39,36 @@ CB_REMOVE_DEVICE = "remove_device"
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
 
+
 def _inline_kb(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
     return {"inline_keyboard": rows}
 
 
 def main_menu_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+    return _inline_kb(
         [
-            {"text": "📋 Моя подписка", "callback_data": CB_MY_SUB},
-            {"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS},
-        ],
-        [{"text": "📎 Ссылка для приложений", "callback_data": CB_SUB_URL}],
-        [
-            {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
-            {"text": "💰 Баланс", "callback_data": CB_BALANCE},
-        ],
-        [
-            {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
-            {"text": "❓ Помощь", "callback_data": CB_HELP},
-        ],
-    ])
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+            [
+                {"text": "📋 Моя подписка", "callback_data": CB_MY_SUB},
+                {"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS},
+            ],
+            [{"text": "📎 Ссылка для приложений", "callback_data": CB_SUB_URL}],
+            [
+                {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
+                {"text": "💰 Баланс", "callback_data": CB_BALANCE},
+            ],
+            [
+                {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
+                {"text": "❓ Помощь", "callback_data": CB_HELP},
+            ],
+        ]
+    )
 
 
 def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
-    rows = []
-    for p in plans:
-        rows.append([{"text": f"{p.display_name} — {p.price_rubles} ₽", "callback_data": f"{CB_PLAN}{p.plan_id}"}])
+    rows = [
+        [{"text": f"{p.display_name} — {p.price_rubles} ₽", "callback_data": f"{CB_PLAN}{p.plan_id}"}] for p in plans
+    ]
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
 
@@ -95,7 +97,14 @@ def confirm_pay_keyboard(
         [{"text": "💳 Оплатить", "callback_data": f"{CB_DO_PAY}{plan_id}:{device_count}"}],
     ]
     if balance_kopecks >= total_kopecks and total_kopecks > 0:
-        rows.append([{"text": f"💰 С баланса ({balance_kopecks // 100} ₽)", "callback_data": f"{CB_PAY_BALANCE}{plan_id}:{device_count}"}])
+        rows.append(
+            [
+                {
+                    "text": f"💰 С баланса ({balance_kopecks // 100} ₽)",
+                    "callback_data": f"{CB_PAY_BALANCE}{plan_id}:{device_count}",
+                }
+            ]
+        )
     rows.append([{"text": "↩️ Назад", "callback_data": f"{CB_DEVICES}{plan_id}:{device_count}"}])
     return _inline_kb(rows)
 
@@ -105,10 +114,12 @@ def back_only_keyboard(callback: str = CB_MAIN_MENU) -> dict[str, Any]:
 
 
 def no_subscription_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
-        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 def settings_keyboard(has_subscription: bool, device_count: int | None = None) -> dict[str, Any]:
@@ -124,6 +135,7 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
 
 # ─── Message texts ──────────────────────────────────────────────────────
 
+
 def text_welcome() -> str:
     return "👋 Добро пожаловать в VPN-сервис!\n\nВыберите действие в меню ниже."
 
@@ -137,7 +149,8 @@ def text_buy_vpn_intro() -> str:
 
 
 def text_device_select(plan_id: str, price_rubles: int, duration_months: int, device_count: int) -> str:
-    from app.domain.devices import extra_device_count, extra_device_cost
+    from app.domain.devices import extra_device_cost, extra_device_count
+
     extra = extra_device_count(device_count)
     extra_cost = extra_device_cost(device_count, duration_months=duration_months)
     total = price_rubles + extra_cost
@@ -148,7 +161,9 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
     ]
     if extra > 0:
         per_device_per_month = 80
-        lines.append(f"  ➕ Доп. устройств: {extra} × {per_device_per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽")
+        lines.append(
+            f"  ➕ Доп. устройств: {extra} × {per_device_per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽"
+        )
     lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)
@@ -156,12 +171,15 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
 
 def text_purchase_summary(summary: PurchaseSummary) -> str:
     lines = [
-        "📋 Заказ:", "",
+        "📋 Заказ:",
+        "",
         f"  Тариф: {summary.plan_display_name}",
         f"  Устройств: {summary.device_count}",
     ]
     if summary.extra_devices > 0:
-        lines.append(f"  Доп. устройств: {summary.extra_devices} × 80 ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽")
+        lines.append(
+            f"  Доп. устройств: {summary.extra_devices} × 80 ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽"
+        )
     lines.extend(["", f"💳 К оплате: {summary.total_price_rubles} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
     return "\n".join(lines)
 
@@ -230,10 +248,12 @@ def text_balance(info: ReferralBalanceInfo) -> str:
 
 
 def balance_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
-        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 def text_settings(
@@ -282,7 +302,13 @@ def text_fulfillment_success(active_until: str | None) -> str:
     lines = ["✅ Оплата получена!", "", "Ваша подписка активирована."]
     if active_until:
         lines.extend(["", f"📅 Действует до: {active_until}"])
-    lines.extend(["", "🔐 Нажмите «Мои ключи» для получения VPN-ключей.", "📎 Или «Ссылка для приложений» для автоматической настройки."])
+    lines.extend(
+        [
+            "",
+            "🔐 Нажмите «Мои ключи» для получения VPN-ключей.",
+            "📎 Или «Ссылка для приложений» для автоматической настройки.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -315,7 +341,9 @@ def add_device_select_keyboard(current: int) -> dict[str, Any]:
         ],
     ]
     if current > 5:
-        rows.append([{"text": f"✅ Подтвердить ({current} устройств)", "callback_data": f"{CB_ADD_DEV}confirm:{current}"}])
+        rows.append(
+            [{"text": f"✅ Подтвердить ({current} устройств)", "callback_data": f"{CB_ADD_DEV}confirm:{current}"}]
+        )
     rows.append([{"text": "↩️ Назад", "callback_data": CB_SETTINGS}])
     return _inline_kb(rows)
 
@@ -323,7 +351,14 @@ def add_device_select_keyboard(current: int) -> dict[str, Any]:
 def add_device_confirm_keyboard(new_count: int, *, balance_kopecks: int = 0, cost_kopecks: int = 0) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     if balance_kopecks >= cost_kopecks and cost_kopecks > 0:
-        rows.append([{"text": f"💰 Оплатить с баланса ({cost_kopecks // 100} ₽)", "callback_data": f"{CB_ADD_DEV_BALANCE}{new_count}"}])
+        rows.append(
+            [
+                {
+                    "text": f"💰 Оплатить с баланса ({cost_kopecks // 100} ₽)",
+                    "callback_data": f"{CB_ADD_DEV_BALANCE}{new_count}",
+                }
+            ]
+        )
     else:
         rows.append([{"text": "💳 Оплатить", "callback_data": f"add_dev_pay:{new_count}"}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}])
@@ -369,7 +404,9 @@ def remove_device_keyboard(current: int) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     rows.append([{"text": f"📱 Текущее: {current} → {min_count}", "callback_data": "noop"}])
     if current > 5:
-        rows.append([{"text": f"✅ Подтвердить ({min_count} устройств)", "callback_data": f"remove_dev_confirm:{min_count}"}])
+        rows.append(
+            [{"text": f"✅ Подтвердить ({min_count} устройств)", "callback_data": f"remove_dev_confirm:{min_count}"}]
+        )
     rows.append([{"text": "↩️ Назад", "callback_data": CB_SETTINGS}])
     return _inline_kb(rows)
 

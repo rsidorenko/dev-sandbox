@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, StrEnum
+from enum import StrEnum
 from typing import Protocol
 
 from app.shared.types import SubscriptionSnapshotState
@@ -156,4 +156,3 @@ class IssuanceProviderPort(Protocol):
         issuance_ref: str,
         correlation_id: str,
     ) -> ProviderGetSafeResult: ...
-

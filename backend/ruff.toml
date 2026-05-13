@@ -1,0 +1,62 @@
+target-version = "py312"
+line-length = 120
+
+src = ["src", "tests"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (unused imports, undefined names)
+    "I",    # isort
+    "UP",   # pyupgrade (modernize syntax)
+    "B",    # flake8-bugbear (likely bugs and design problems)
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific rules
+    "PGH",  # pygrep-hooks (no eval, no logging format issues)
+    "PIE",  # flake8-pie (misc lints)
+    "PERF", # perflint (performance anti-patterns)
+    "LOG",  # flake8-logging
+    "S",    # flake8-bandit (security)
+]
+ignore = [
+    "E501",   # line too long — ruff-format handles this
+    "S101",   # assert usage in tests is fine
+    "S105",   # hardcoded-password-string — false positives on env var names / header names
+    "S311",   # random module — not security-sensitive in this project
+    "B008",   # function call in default argument — common in FastAPI/Starlette
+    "RUF001", # ambiguous cyrillic in string literals — bilingual project (RU/EN)
+    "RUF002", # ambiguous cyrillic in docstrings — bilingual project (RU/EN)
+    "RUF003", # ambiguous cyrillic in comments — bilingual project (RU/EN)
+    "RUF005", # collection literal concat — readability preference
+    "RUF006", # unsafe dct.get() in dict literal — false positives
+    "UP042",  # StrEnum upgrade — noisy, keep for separate PR
+]
+
+# TODO: enable in follow-up PRs when codebase is ready:
+# "TCH",  # flake8-type-checking — move type-only imports into TYPE_CHECKING blocks
+# "SIM",  # flake8-simplify — many style-only changes, enable later
+# "RET",  # flake8-return — return consistency
+# "FURB", # refurb — code modernization
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S",     # security checks too strict for test code
+    "LOG",   # logging checks not relevant for tests
+    "FURB",
+]
+"migrations/**" = [
+    "S",     # SQL migrations are trusted operator artifacts
+]
+"scripts/**" = [
+    "S",     # scripts are operator tools, not production code
+    "LOG",
+]
+
+[lint.isort]
+known-first-party = ["app"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true

@@ -8,9 +8,7 @@ from types import ModuleType
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "print_mvp_release_handoff_summary.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "print_mvp_release_handoff_summary.py"
 _FORBIDDEN_FRAGMENTS = (
     "DATABASE_URL=",
     "BOT_TOKEN=",

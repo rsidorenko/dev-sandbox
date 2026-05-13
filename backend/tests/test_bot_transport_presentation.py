@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 
 from app.application.handlers import BootstrapIdentityResult, GetSubscriptionStatusResult
+from app.application.telegram_access_resend import TelegramAccessResendOutcome, TelegramAccessResendResult
 from app.bot_transport.presentation import (
     TransportAccessResendCode,
     TransportBootstrapCode,
@@ -13,12 +14,11 @@ from app.bot_transport.presentation import (
     TransportResponseCategory,
     TransportSafeResponse,
     TransportStatusCode,
-    map_bootstrap_identity_to_transport,
     map_access_resend_to_transport,
+    map_bootstrap_identity_to_transport,
     map_get_subscription_status_to_transport,
     map_slice1_help_to_transport,
 )
-from app.application.telegram_access_resend import TelegramAccessResendOutcome, TelegramAccessResendResult
 from app.security.errors import UserSafeErrorCode
 from app.shared.correlation import new_correlation_id
 from app.shared.types import OperationOutcomeCategory, SafeUserStatusCategory
@@ -167,7 +167,7 @@ def test_status_subscription_active_access_ready_maps_stably() -> None:
 
 def test_transport_response_has_no_outcome_or_internal_fields() -> None:
     cid = new_correlation_id()
-    r = map_bootstrap_identity_to_transport(
+    map_bootstrap_identity_to_transport(
         BootstrapIdentityResult(
             outcome=OperationOutcomeCategory.INTERNAL_FAILURE,
             correlation_id=cid,

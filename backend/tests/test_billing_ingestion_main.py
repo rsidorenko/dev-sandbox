@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.application.billing_ingestion import IngestNormalizedBillingFactResult, NormalizedBillingFactInput
-from app.persistence.billing_events_ledger_contracts import (
-    BillingEventAmountCurrency,
-    BillingEventLedgerRecord,
-    BillingEventLedgerStatus,
-)
-from app.security.validation import ValidationError
-
 from app.application.billing_ingestion_main import (
     BILLING_NORMALIZED_INGEST_ENABLE,
     async_main,
     async_run_billing_ingest_from_parsed,
     parse_json_to_normalized_billing_input,
 )
+from app.persistence.billing_events_ledger_contracts import (
+    BillingEventAmountCurrency,
+    BillingEventLedgerRecord,
+    BillingEventLedgerStatus,
+)
+from app.security.validation import ValidationError
 
 
 def _min_json(overrides: dict | None = None) -> str:
@@ -99,7 +99,9 @@ def test_non_string_required_field() -> None:
 async def test_no_opt_in_does_not_call_ingest(monkeypatch, tmp_path: Path) -> None:
     f = tmp_path / "a.json"
     f.write_text(_min_json(), encoding="utf-8")
-    with patch("app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock) as m:
+    with patch(
+        "app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock
+    ) as m:
         monkeypatch.delenv(BILLING_NORMALIZED_INGEST_ENABLE, raising=False)
         code = await async_main(["--input-file", str(f)])
         assert code == 1
@@ -107,12 +109,12 @@ async def test_no_opt_in_does_not_call_ingest(monkeypatch, tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_success_one_summary_line(
-    monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_success_one_summary_line(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "a.json"
     f.write_text(_min_json(), encoding="utf-8")
-    with patch("app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock) as m:
+    with patch(
+        "app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock
+    ) as m:
         m.return_value = ("accepted", "fact-uuid-1", "accepted", "corr-abc")
         monkeypatch.setenv(BILLING_NORMALIZED_INGEST_ENABLE, "1")
         monkeypatch.setenv("BOT_TOKEN", "0" * 20)
@@ -133,9 +135,7 @@ async def test_success_one_summary_line(
 
 
 @pytest.mark.asyncio
-async def test_extra_field_failure_stderr_safe(
-    monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_extra_field_failure_stderr_safe(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     p = _min_json()
     data = json.loads(p)
     data["sensitive_artifact"] = "ghp_xxxxxxxx"
@@ -144,7 +144,9 @@ async def test_extra_field_failure_stderr_safe(
     monkeypatch.setenv(BILLING_NORMALIZED_INGEST_ENABLE, "1")
     monkeypatch.setenv("BOT_TOKEN", "0" * 20)
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:secrethunter@192.0.2.0:5432/secretname")
-    with patch("app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock) as m:
+    with patch(
+        "app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed", new_callable=AsyncMock
+    ) as m:
         code = await async_main(["--input-file", str(f)])
     assert code == 1
     m.assert_not_awaited()
@@ -166,9 +168,9 @@ def test_reject_unsupported_schema_string_version() -> None:
 @pytest.mark.asyncio
 async def test_async_run_billing_ingest_uses_postgres_atomic_billing_ingestion() -> None:
     """Wiring: one PostgresAtomicBillingIngestion ingest per DSN run (no split ledger+audit pool calls)."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    t = datetime(2026, 1, 18, 9, 0, 0, tzinfo=timezone.utc)
+    t = datetime(2026, 1, 18, 9, 0, 0, tzinfo=UTC)
     inp = NormalizedBillingFactInput(
         billing_provider_key="p_wiring",
         external_event_id="ext-wiring-1",

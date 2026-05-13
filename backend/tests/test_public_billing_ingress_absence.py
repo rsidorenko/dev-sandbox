@@ -53,9 +53,7 @@ _RUNTIME_AND_HTTP_ENTRY_SOURCES: dict[str, Path] = {
 
 _BILLING_OPERATOR_CLI_SOURCES: dict[str, Path] = {
     "app.application.billing_ingestion_main": _APP_SRC / "application" / "billing_ingestion_main.py",
-    "app.application.billing_subscription_apply_main": _APP_SRC
-    / "application"
-    / "billing_subscription_apply_main.py",
+    "app.application.billing_subscription_apply_main": _APP_SRC / "application" / "billing_subscription_apply_main.py",
 }
 
 
@@ -91,15 +89,15 @@ def test_billing_operator_mains_remain_cli_only_no_http_listener_signals() -> No
     _assert_paths_exist(_BILLING_OPERATOR_CLI_SOURCES)
     for module_name, path in _BILLING_OPERATOR_CLI_SOURCES.items():
         lower = _read_lower(path)
-        assert not _contains_any(
-            lower, _HTTP_LISTENER_OR_ROUTE_SIGNALS
-        ), f"{module_name}: billing operator CLI must not contain HTTP listener/route stack signals"
+        assert not _contains_any(lower, _HTTP_LISTENER_OR_ROUTE_SIGNALS), (
+            f"{module_name}: billing operator CLI must not contain HTTP listener/route stack signals"
+        )
 
 
 def test_adm01_internal_http_source_has_no_public_billing_ingress_signals() -> None:
     """ADM-01 may run uvicorn; it must not be framed as public billing webhook ingress."""
     path = _APP_SRC / "internal_admin" / "adm01_http_main.py"
     lower = _read_lower(path)
-    assert not _contains_any(
-        lower, _PUBLIC_BILLING_HTTP_SIGNALS
-    ), "adm01_http_main must not contain public billing webhook / ingress phrasing"
+    assert not _contains_any(lower, _PUBLIC_BILLING_HTTP_SIGNALS), (
+        "adm01_http_main must not contain public billing webhook / ingress phrasing"
+    )

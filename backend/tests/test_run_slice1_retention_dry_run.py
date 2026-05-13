@@ -9,8 +9,8 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-from tests.retention_boundary_assertions import assert_no_retention_secret_fragments
 
+from tests.retention_boundary_assertions import assert_no_retention_secret_fragments
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _SCRIPT_PATH = _BACKEND_DIR / "scripts" / "run_slice1_retention_dry_run.py"

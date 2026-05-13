@@ -90,9 +90,7 @@ async def run_operational_retention_cleanup(
             adm02_audit_retention_days=settings.adm02_audit_retention_days,
         )
 
-    dedup_deleted = _parse_delete_count(
-        await sql.execute(_DELETE_TELEGRAM_DEDUP_EXPIRED, now_utc.astimezone(UTC))
-    )
+    dedup_deleted = _parse_delete_count(await sql.execute(_DELETE_TELEGRAM_DEDUP_EXPIRED, now_utc.astimezone(UTC)))
     audit_deleted = _parse_delete_count(await sql.execute(_DELETE_ADM02_AUDIT_EXPIRED, cutoff))
     return OperationalRetentionResult(
         dry_run=False,

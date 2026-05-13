@@ -10,8 +10,8 @@ from app.bot_transport.normalized import (
     parse_slice1_transport,
 )
 from app.bot_transport.telegram_adapter import (
-    TelegramAdapterRejectReason,
     TelegramAdapterRejected,
+    TelegramAdapterRejectReason,
     extract_slice1_envelope_from_telegram_update,
 )
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id

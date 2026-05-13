@@ -8,5 +8,5 @@ from typing import cast
 
 def accept_mapping_runtime_update(raw_update: object) -> Mapping[str, object] | None:
     if isinstance(raw_update, Mapping):
-        return cast(Mapping[str, object], raw_update)
+        return cast("Mapping[str, object]", raw_update)
     return None

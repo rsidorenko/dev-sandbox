@@ -7,12 +7,16 @@ from unittest.mock import MagicMock
 import pytest
 from starlette.applications import Starlette
 
+from app.admin_support.adm01_internal_http import ADM01_INTERNAL_LOOKUP_PATH
 from app.admin_support.adm01_postgres_subscription_read_adapter import (
     Adm01PostgresSubscriptionReadAdapter,
 )
-from app.admin_support.adm01_internal_http import ADM01_INTERNAL_LOOKUP_PATH
-from app.admin_support.adm02_internal_http import ADM02_INTERNAL_ENSURE_ACCESS_PATH
-from app.admin_support.adm02_internal_http import ADM02_INTERNAL_AUDIT_EVENTS_PATH
+from app.admin_support.adm01_subscription_entitlement_read_adapter import (
+    Adm01SubscriptionEntitlementReadAdapter,
+)
+from app.admin_support.adm01_subscription_policy_read_adapter import (
+    Adm01SubscriptionPolicyReadAdapter,
+)
 from app.admin_support.adm02_ensure_access_audit_logging import (
     FanoutAdm02EnsureAccessAuditSink,
     StructuredLoggingAdm02EnsureAccessAuditSink,
@@ -20,12 +24,7 @@ from app.admin_support.adm02_ensure_access_audit_logging import (
 from app.admin_support.adm02_ensure_access_audit_postgres import (
     PostgresAdm02EnsureAccessAuditSink,
 )
-from app.admin_support.adm01_subscription_policy_read_adapter import (
-    Adm01SubscriptionPolicyReadAdapter,
-)
-from app.admin_support.adm01_subscription_entitlement_read_adapter import (
-    Adm01SubscriptionEntitlementReadAdapter,
-)
+from app.admin_support.adm02_internal_http import ADM02_INTERNAL_AUDIT_EVENTS_PATH, ADM02_INTERNAL_ENSURE_ACCESS_PATH
 from app.internal_admin import adm01_http_main as main_mod
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
@@ -174,7 +173,7 @@ async def test_bind_all_interfaces_without_override_config_error_no_uvicorn(monk
 
     r = await main_mod.async_run_adm01_internal_http_from_env(run_uvicorn=boom_uvicorn)
     assert r == 1
-    out, err = capsys.readouterr()
+    _out, err = capsys.readouterr()
     assert err.strip() == main_mod._STDERR_CONFIG
 
 
@@ -374,9 +373,8 @@ async def test_adm02_ensure_access_route_wired_with_env_opt_in_and_unauthorized_
     dummy_receive = {
         "type": "http.request",
         "body": (
-            f'{{"correlation_id":"{cid}",'
-            '"internal_admin_principal_id":"intruder","telegram_user_id":42}'
-        ).encode("utf-8"),
+            f'{{"correlation_id":"{cid}","internal_admin_principal_id":"intruder","telegram_user_id":42}}'
+        ).encode(),
         "more_body": False,
     }
     events: list[dict] = []
@@ -445,7 +443,7 @@ async def test_adm02_opt_in_wires_durable_postgres_with_structured_fallback(monk
 
     async def _capture_run(app: object, *, host: str, port: int) -> None:
         del app, host, port
-        return None
+        return
 
     captured: dict[str, object] = {}
 
@@ -471,7 +469,7 @@ async def test_adm02_opt_in_wires_durable_postgres_with_structured_fallback(monk
     assert "audit" in captured
     assert isinstance(captured["audit"], FanoutAdm02EnsureAccessAuditSink)
     fanout = captured["audit"]
-    sinks = getattr(fanout, "_sinks")
+    sinks = fanout._sinks
     assert len(sinks) == 2
     assert isinstance(sinks[0], PostgresAdm02EnsureAccessAuditSink)
     assert isinstance(sinks[1], StructuredLoggingAdm02EnsureAccessAuditSink)

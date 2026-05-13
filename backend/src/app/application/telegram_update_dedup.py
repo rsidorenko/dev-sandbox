@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import time
 from collections import OrderedDict
-from typing import Callable, Literal, Protocol
+from collections.abc import Callable
+from typing import Literal, Protocol
 
 TelegramUpdateDedupCommandBucket = Literal["status", "access_resend", "other"]
 TELEGRAM_UPDATE_DEDUP_TTL_SECONDS_DEFAULT = 600.0

@@ -17,10 +17,10 @@ from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -44,7 +44,7 @@ def _minimal_runtime_config(*, bot_token: str = "1234567890tok") -> RuntimeConfi
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
         self.httpx_timeout = httpx_timeout
@@ -188,7 +188,7 @@ def test_configured_override_httpx_timeout_reaches_get_updates_post_identity() -
     async def main() -> None:
         app = build_slice1_httpx_live_runtime_app_from_config(
             cfg,
-            client=cast(httpx.AsyncClient, fake),
+            client=cast("httpx.AsyncClient", fake),
             polling_policy=polling_policy,
         )
         summary = await app.run_iterations(1, correlation_id=new_correlation_id())
@@ -238,7 +238,10 @@ def test_run_iterations_one_start_one_send() -> None:
 def test_runtime_package_exports() -> None:
     assert rt.build_slice1_httpx_live_runtime_app_from_config is build_slice1_httpx_live_runtime_app_from_config
     assert "build_slice1_httpx_live_runtime_app_from_config" in rt.__all__
-    assert rt.build_slice1_httpx_live_runtime_app_from_config_async is build_slice1_httpx_live_runtime_app_from_config_async
+    assert (
+        rt.build_slice1_httpx_live_runtime_app_from_config_async
+        is build_slice1_httpx_live_runtime_app_from_config_async
+    )
     assert "build_slice1_httpx_live_runtime_app_from_config_async" in rt.__all__
 
 
@@ -307,19 +310,21 @@ def test_build_from_config_async_rejects_production_postgres_without_sslmode_bef
         transport = httpx.MockTransport(
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
-        with patch.object(
-            configured_mod,
-            "apply_slice1_postgres_migrations_from_runtime_config",
-            new=mock_apply,
-        ):
-            with patch.object(
+        with (
+            patch.object(
+                configured_mod,
+                "apply_slice1_postgres_migrations_from_runtime_config",
+                new=mock_apply,
+            ),
+            patch.object(
                 configured_mod,
                 "resolve_slice1_composition_for_runtime",
                 new=mock_resolve,
-            ):
-                async with httpx.AsyncClient(transport=transport) as ac:
-                    with pytest.raises(ConfigurationError, match="DATABASE_URL"):
-                        await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
+            ),
+        ):
+            async with httpx.AsyncClient(transport=transport) as ac:
+                with pytest.raises(ConfigurationError, match="DATABASE_URL"):
+                    await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
 
     asyncio.run(main())
     mock_apply.assert_not_called()
@@ -343,19 +348,21 @@ def test_build_from_config_async_propagates_migration_failure_before_resolve(
         transport = httpx.MockTransport(
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
-        with patch.object(
-            configured_mod,
-            "apply_slice1_postgres_migrations_from_runtime_config",
-            new=mock_apply,
-        ):
-            with patch.object(
+        with (
+            patch.object(
+                configured_mod,
+                "apply_slice1_postgres_migrations_from_runtime_config",
+                new=mock_apply,
+            ),
+            patch.object(
                 configured_mod,
                 "resolve_slice1_composition_for_runtime",
                 new=mock_resolve,
-            ):
-                async with httpx.AsyncClient(transport=transport) as ac:
-                    with pytest.raises(RuntimeError, match="migration failed"):
-                        await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
+            ),
+        ):
+            async with httpx.AsyncClient(transport=transport) as ac:
+                with pytest.raises(RuntimeError, match="migration failed"):
+                    await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
 
     asyncio.run(main())
     mock_resolve.assert_not_called()
@@ -394,18 +401,20 @@ def test_build_from_config_async_uses_resolve_and_wires_composition_pg_pool(
         transport = httpx.MockTransport(
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
-        with patch.object(
-            configured_mod,
-            "apply_slice1_postgres_migrations_from_runtime_config",
-            new=fake_apply_migrations,
-        ):
-            with patch.object(
+        with (
+            patch.object(
+                configured_mod,
+                "apply_slice1_postgres_migrations_from_runtime_config",
+                new=fake_apply_migrations,
+            ),
+            patch.object(
                 configured_mod,
                 "resolve_slice1_composition_for_runtime",
                 new=fake_resolve,
-            ):
-                async with httpx.AsyncClient(transport=transport) as ac:
-                    app = await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
+            ),
+        ):
+            async with httpx.AsyncClient(transport=transport) as ac:
+                app = await build_slice1_httpx_live_runtime_app_from_config_async(cfg, client=ac)
         assert startup_order == ["migrations", "resolve"]
         assert resolve_calls == [cfg]
         assert app.bundle.bundle.composition is sentinel_comp

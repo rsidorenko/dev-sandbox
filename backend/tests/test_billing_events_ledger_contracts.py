@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.persistence.billing_events_ledger_contracts import (
     BillingEventAmountCurrency,
@@ -24,8 +24,8 @@ def test_billing_events_ledger_record_dataclass_shape() -> None:
         billing_provider_key="provider_a",
         external_event_id="ext-evt-1",
         event_type="payment_succeeded",
-        event_effective_at=datetime.now(timezone.utc),
-        event_received_at=datetime.now(timezone.utc),
+        event_effective_at=datetime.now(UTC),
+        event_received_at=datetime.now(UTC),
         internal_user_id="user-1",
         checkout_attempt_id="chk-1",
         amount_currency=amount,
@@ -60,4 +60,3 @@ def test_billing_events_ledger_repository_protocol_surface() -> None:
         BillingEventsLedgerRepository,
         "get_user_billing_facts_summary",
     )
-

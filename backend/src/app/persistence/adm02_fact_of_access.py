@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from app.admin_support.contracts import AdminActorRef, Adm02FactOfAccessDisclosureCategory
+from app.admin_support.contracts import Adm02FactOfAccessDisclosureCategory, AdminActorRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,8 +25,7 @@ class Adm02FactOfAccessAppendRecord:
 class Adm02FactOfAccessRecordAppender(Protocol):
     """Append-only storage contract for ADM-02 fact-of-access records."""
 
-    async def append(self, record: Adm02FactOfAccessAppendRecord) -> None:
-        ...
+    async def append(self, record: Adm02FactOfAccessAppendRecord) -> None: ...
 
 
 class InMemoryAdm02FactOfAccessRecordAppender:
@@ -42,9 +41,7 @@ class InMemoryAdm02FactOfAccessRecordAppender:
                 Adm02FactOfAccessAppendRecord(
                     occurred_at=record.occurred_at,
                     correlation_id=record.correlation_id,
-                    actor_ref=AdminActorRef(
-                        internal_admin_principal_id=record.actor_ref.internal_admin_principal_id
-                    ),
+                    actor_ref=AdminActorRef(internal_admin_principal_id=record.actor_ref.internal_admin_principal_id),
                     capability_class=record.capability_class,
                     internal_user_scope_ref=record.internal_user_scope_ref,
                     disclosure=record.disclosure,

@@ -8,9 +8,7 @@ from types import ModuleType
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "run_mvp_final_static_handoff_check.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_mvp_final_static_handoff_check.py"
 _FORBIDDEN_FRAGMENTS = (
     "DATABASE_URL=",
     "BOT_TOKEN=",
@@ -165,4 +163,3 @@ def test_output_has_no_forbidden_fragments_on_failure(
     assert exit_code == 1
     for fragment in _FORBIDDEN_FRAGMENTS:
         assert fragment.lower() not in payload
-

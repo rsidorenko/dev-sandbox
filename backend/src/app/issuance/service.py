@@ -112,16 +112,12 @@ class IssuanceService:
             return IssuanceOutcomeCategory.INTERNAL_ERROR
         return None
 
-    def _get_ledger(
-        self, internal_user_id: str, issue_idempotency_key: str
-    ) -> _LedgerEntry | None:
+    def _get_ledger(self, internal_user_id: str, issue_idempotency_key: str) -> _LedgerEntry | None:
         return self._ledger.get(_issuance_ledger_key(internal_user_id, issue_idempotency_key))
 
     def _sync_issued_memory(self, lk: tuple[str, str], issuance_ref: str) -> None:
         self._ledger[lk] = _LedgerEntry(issuance_ref=issuance_ref, state=_LedgerState.ISSUED)
-        res = IssuanceServiceResult(
-            category=IssuanceOutcomeCategory.ISSUED, safe_ref=issuance_ref
-        )
+        res = IssuanceServiceResult(category=IssuanceOutcomeCategory.ISSUED, safe_ref=issuance_ref)
         self._issue_idempotent_result[lk] = res
 
     def _sync_from_durable_issued_row(self, lk: tuple[str, str], row: IssuanceStateRow) -> None:
@@ -169,17 +165,13 @@ class IssuanceService:
             cached = self._issue_idempotent_result[lk]
             return self._ok(
                 request,
-                IssuanceServiceResult(
-                    category=IssuanceOutcomeCategory.ALREADY_ISSUED, safe_ref=cached.safe_ref
-                ),
+                IssuanceServiceResult(category=IssuanceOutcomeCategory.ALREADY_ISSUED, safe_ref=cached.safe_ref),
             )
 
         store = self._operational_state
         if store is not None:
             try:
-                row = await store.fetch_by_issue_keys(
-                    internal_user_id=u, issue_idempotency_key=key
-                )
+                row = await store.fetch_by_issue_keys(internal_user_id=u, issue_idempotency_key=key)
             except (PersistenceDependencyError, ValueError):
                 return self._persist_fail(request)
             if row is not None:
@@ -203,9 +195,7 @@ class IssuanceService:
         )
         if pr.outcome is CreateAccessOutcome.SUCCESS:
             if not pr.issuance_ref:
-                return self._ok(
-                    request, IssuanceServiceResult(category=IssuanceOutcomeCategory.INTERNAL_ERROR)
-                )
+                return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.INTERNAL_ERROR))
             if store is not None:
                 try:
                     persisted = await store.issue_or_get(
@@ -219,18 +209,12 @@ class IssuanceService:
             else:
                 issuance_ref = pr.issuance_ref
             self._sync_issued_memory(lk, issuance_ref)
-            res = IssuanceServiceResult(
-                category=IssuanceOutcomeCategory.ISSUED, safe_ref=issuance_ref
-            )
+            res = IssuanceServiceResult(category=IssuanceOutcomeCategory.ISSUED, safe_ref=issuance_ref)
             return self._ok(request, res)
         if pr.outcome is CreateAccessOutcome.UNAVAILABLE:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE))
         if pr.outcome is CreateAccessOutcome.REJECTED:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED))
         return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.INTERNAL_ERROR))
 
     async def _execute_resend(self, request: IssuanceRequest) -> IssuanceServiceResult:
@@ -259,13 +243,9 @@ class IssuanceService:
                     )
                 le = _LedgerEntry(issuance_ref=row.provider_issuance_ref, state=_LedgerState.ISSUED)
         if le is None:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.UNSAFE_TO_DELIVER)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.UNSAFE_TO_DELIVER))
         if le.state is _LedgerState.REVOKED:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None))
 
         rsk = (u, request.idempotency_key)
         if rsk in self._resend_cached:
@@ -282,19 +262,14 @@ class IssuanceService:
         if g.outcome is GetSafeInstructionOutcome.READY and g.instruction_ref:
             self._resend_cached[rsk] = g.instruction_ref
             return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.DELIVERY_READY, safe_ref=g.instruction_ref)
+                request,
+                IssuanceServiceResult(category=IssuanceOutcomeCategory.DELIVERY_READY, safe_ref=g.instruction_ref),
             )
         if g.outcome is GetSafeInstructionOutcome.UNAVAILABLE:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE))
         if g.outcome is GetSafeInstructionOutcome.REJECTED:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED)
-            )
-        return self._ok(
-            request, IssuanceServiceResult(category=IssuanceOutcomeCategory.UNSAFE_TO_DELIVER)
-        )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED))
+        return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.UNSAFE_TO_DELIVER))
 
     async def _execute_revoke(self, request: IssuanceRequest) -> IssuanceServiceResult:
         u = request.internal_user_id
@@ -303,9 +278,7 @@ class IssuanceService:
         lk = _issuance_ledger_key(u, link)
         rdone = (u, request.idempotency_key)
         if rdone in self._revoke_completed:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None))
 
         le = self._get_ledger(u, link)
         store = self._operational_state
@@ -321,9 +294,7 @@ class IssuanceService:
             if row.state is IssuanceStatePersistence.REVOKED:
                 self._revoke_completed.add(rdone)
                 self._sync_revoked_memory(lk, row.provider_issuance_ref)
-                return self._ok(
-                    request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None)
-                )
+                return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None))
             le = _LedgerEntry(issuance_ref=row.provider_issuance_ref, state=_LedgerState.ISSUED)
 
         if le is None:
@@ -332,9 +303,7 @@ class IssuanceService:
             )
         if le.state is _LedgerState.REVOKED:
             self._revoke_completed.add(rdone)
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None))
 
         rr = await self._provider.revoke_access(
             internal_user_id=u,
@@ -354,17 +323,11 @@ class IssuanceService:
             else:
                 self._sync_revoked_memory(lk, le.issuance_ref)
             self._revoke_completed.add(rdone)
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.REVOKED, safe_ref=None))
         if rr.outcome is RevokeAccessOutcome.UNAVAILABLE:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_UNAVAILABLE))
         if rr.outcome is RevokeAccessOutcome.REJECTED:
-            return self._ok(
-                request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED)
-            )
+            return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.PROVIDER_REJECTED))
         return self._ok(request, IssuanceServiceResult(category=IssuanceOutcomeCategory.INTERNAL_ERROR))
 
 

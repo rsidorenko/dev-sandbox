@@ -29,7 +29,7 @@ class RenderedMessagePackage:
     reply_markup: dict[str, Any] | None = None
     replay_suppresses_outbound: bool = False
     uc01_idempotency_key: str | None = None
-    follow_up_messages: tuple["RenderedMessagePackage", ...] = ()
+    follow_up_messages: tuple[RenderedMessagePackage, ...] = ()
 
 
 def _text_service_unavailable() -> str:
@@ -55,20 +55,16 @@ _CATALOG_TEXT: dict[str, str] = {
         "Эта версия не отправляет файлы."
     ),
     OutboundMessageKey.SUBSCRIPTION_EXPIRED.value: (
-        "Ваша подписка истекла.\n"
-        "Используйте /renew для продления, затем проверьте /my_subscription."
+        "Ваша подписка истекла.\nИспользуйте /renew для продления, затем проверьте /my_subscription."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE.value: (
-        "Ваша подписка активна.\n"
-        "Используйте /my_subscription, чтобы узнать дату окончания."
+        "Ваша подписка активна.\nИспользуйте /my_subscription, чтобы узнать дату окончания."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value: (
-        "Ваша подписка активна, но инструкции по доступу ещё не готовы. "
-        "Попробуйте /get_access немного позже."
+        "Ваша подписка активна, но инструкции по доступу ещё не готовы. Попробуйте /get_access немного позже."
     ),
     OutboundMessageKey.SUBSCRIPTION_ACTIVE_ACCESS_READY.value: (
-        "Ваша подписка активна и инструкции по доступу готовы. "
-        "Используйте /get_access, чтобы получить их."
+        "Ваша подписка активна и инструкции по доступу готовы. Используйте /get_access, чтобы получить их."
     ),
     OutboundMessageKey.SLICE1_HELP.value: (
         "Доступные команды:\n"
@@ -88,24 +84,18 @@ _CATALOG_TEXT: dict[str, str] = {
         "/help - эта справка"
     ),
     OutboundMessageKey.INVALID_INPUT.value: "Ввод некорректен. Попробуйте снова.",
-    OutboundMessageKey.TRY_AGAIN_LATER.value: (
-        "Что-то пошло не так. Пожалуйста, попробуйте позже."
-    ),
+    OutboundMessageKey.TRY_AGAIN_LATER.value: ("Что-то пошло не так. Пожалуйста, попробуйте позже."),
     OutboundMessageKey.SERVICE_UNAVAILABLE.value: _text_service_unavailable(),
     OutboundMessageKey.TELEGRAM_COMMAND_RATE_LIMITED.value: "Слишком много запросов. Пожалуйста, попробуйте позже.",
     OutboundMessageKey.RESEND_ACCESS_ACCEPTED.value: (
         "Запрос на получение инструкций доступа принят. Если доставка доступна, инструкции будут отправлены повторно."
     ),
-    OutboundMessageKey.RESEND_ACCESS_NOT_ENABLED.value: (
-        "Эта функция пока недоступна."
-    ),
+    OutboundMessageKey.RESEND_ACCESS_NOT_ENABLED.value: ("Эта функция пока недоступна."),
     OutboundMessageKey.RESEND_ACCESS_NOT_ELIGIBLE.value: (
         "Инструкции доступа нельзя повторно отправить для этого аккаунта.\n"
         "Если подписка неактивна или истекла, используйте /renew."
     ),
-    OutboundMessageKey.RESEND_ACCESS_COOLDOWN.value: (
-        "Подождите немного перед повторным запросом инструкций доступа."
-    ),
+    OutboundMessageKey.RESEND_ACCESS_COOLDOWN.value: ("Подождите немного перед повторным запросом инструкций доступа."),
     OutboundMessageKey.RESEND_ACCESS_NOT_READY.value: (
         "Инструкции доступа ещё не готовы для повторной отправки. Попробуйте позже."
     ),
@@ -227,11 +217,7 @@ def _format_plans_copy() -> str:
     if cfg.plan_name and cfg.plan_price:
         return f"Тариф: {cfg.plan_name}\nСтоимость: {cfg.plan_price}\nИспользуйте /buy для оформления подписки."
     if cfg.plan_name:
-        return (
-            f"Тариф: {cfg.plan_name}\n"
-            "Стоимость указана при оформлении.\n"
-            "Используйте /buy для продолжения."
-        )
+        return f"Тариф: {cfg.plan_name}\nСтоимость указана при оформлении.\nИспользуйте /buy для продолжения."
     if cfg.plan_price:
         return f"Стоимость тарифа: {cfg.plan_price}\nИспользуйте /buy для оформления подписки."
     return "Стоимость указана при оформлении. Используйте /buy для продолжения."

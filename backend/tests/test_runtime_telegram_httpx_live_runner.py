@@ -17,10 +17,10 @@ from app.runtime.live_loop import Slice1LiveRawPollingLoop
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -72,7 +72,7 @@ class _FixedOverrideTimeoutPolicy:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: Literal["noop"] = "noop"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
@@ -166,7 +166,7 @@ def test_override_httpx_timeout_mode_passes_through_helper_to_get_updates_post()
         summary = await run_slice1_httpx_live_iterations(
             "t",
             1,
-            client=cast(httpx.AsyncClient, fake),
+            client=cast("httpx.AsyncClient", fake),
             polling_policy=polling_policy,
         )
         assert len(fake.post_calls) == 1
@@ -195,7 +195,7 @@ def test_override_httpx_timeout_mode_direct_public_runner_path_reaches_getupdate
         summary = await rt.run_slice1_httpx_live_iterations(
             "t",
             1,
-            client=cast(httpx.AsyncClient, fake),
+            client=cast("httpx.AsyncClient", fake),
             polling_policy=polling_policy,
         )
         assert len(timeout_policy.decisions) == 1

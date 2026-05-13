@@ -4,12 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _WORKFLOW_PATH = (
-    Path(__file__).resolve().parents[2]
-    / ".github"
-    / "workflows"
-    / "backend-postgres-mvp-smoke-validation.yml"
+    Path(__file__).resolve().parents[2] / ".github" / "workflows" / "backend-postgres-mvp-smoke-validation.yml"
 )
 
 

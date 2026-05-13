@@ -5,9 +5,7 @@ from __future__ import annotations
 from app.shared.types import SafeUserStatusCategory, SubscriptionSnapshotState
 
 # UC-05 v1: только явные значения enum могут отображаться как подписка активна в безопасном статусе.
-_BILLING_BACKED_ACTIVE: frozenset[SubscriptionSnapshotState] = frozenset(
-    {SubscriptionSnapshotState.ACTIVE}
-)
+_BILLING_BACKED_ACTIVE: frozenset[SubscriptionSnapshotState] = frozenset({SubscriptionSnapshotState.ACTIVE})
 
 
 def map_subscription_status_view(

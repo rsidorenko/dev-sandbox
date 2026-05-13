@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
-from typing import Callable, Protocol
+from enum import StrEnum
+from typing import Protocol
 
 from app.application.interfaces import SubscriptionSnapshotReader, UserIdentityRepository
 from app.issuance.contracts import (
@@ -29,7 +30,7 @@ def telegram_access_resend_enabled_from_env(
     return raw in ("1", "true", "yes")
 
 
-class TelegramAccessResendOutcome(str, Enum):
+class TelegramAccessResendOutcome(StrEnum):
     NOT_ENABLED = "not_enabled"
     RESEND_ACCEPTED = "resend_accepted"
     NOT_ELIGIBLE = "not_eligible"
@@ -38,7 +39,7 @@ class TelegramAccessResendOutcome(str, Enum):
     TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
 
 
-class TelegramAccessResendSourceCommand(str, Enum):
+class TelegramAccessResendSourceCommand(StrEnum):
     RESEND_ACCESS = "resend_access"
     GET_ACCESS = "get_access"
 
@@ -160,7 +161,7 @@ class TelegramAccessResendHandler:
                 self._disabled_hit_marker.record_disabled_hit(
                     TelegramAccessResendDisabledHitEvent(source_command=inp.source_command),
                 )
-            except Exception:
+            except Exception:  # noqa: S110 — telemetry marker must not alter fail-closed user behavior
                 # Маркер телеметрии не должен менять fail-closed пользовательское поведение.
                 pass
             return TelegramAccessResendResult(
@@ -198,7 +199,7 @@ class TelegramAccessResendHandler:
                             internal_user_id=identity.internal_user_id,
                             issue_idempotency_key=current.issue_idempotency_key,
                         )
-                except Exception:
+                except Exception:  # noqa: S110 — best-effort revocation must not block fail-closed NOT_ELIGIBLE
                     pass
             return TelegramAccessResendResult(
                 outcome=TelegramAccessResendOutcome.NOT_ELIGIBLE,
@@ -265,4 +266,3 @@ class TelegramAccessResendHandler:
         ):
             return TelegramAccessResendOutcome.NOT_READY
         return TelegramAccessResendOutcome.TEMPORARILY_UNAVAILABLE
-

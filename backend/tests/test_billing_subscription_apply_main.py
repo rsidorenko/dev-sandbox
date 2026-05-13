@@ -7,15 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.application.apply_billing_subscription import ApplyAcceptedBillingFactResult
-from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
-from app.persistence.postgres_billing_subscription_apply import UC05PostgresApplyResult
-from app.shared.types import OperationOutcomeCategory
-
 from app.application.billing_subscription_apply_main import (
     BILLING_SUBSCRIPTION_APPLY_ENABLE,
     async_main,
     async_run_apply,
 )
+from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
+from app.persistence.postgres_billing_subscription_apply import UC05PostgresApplyResult
+from app.shared.types import OperationOutcomeCategory
 
 
 def _ok_apply(
@@ -61,9 +60,7 @@ async def test_invalid_internal_fact_ref_no_db_call(
 
 
 @pytest.mark.asyncio
-async def test_success_one_summary_line(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_success_one_summary_line(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     with patch("app.application.billing_subscription_apply_main.async_run_apply", new_callable=AsyncMock) as m:
         m.return_value = _ok_apply()
         monkeypatch.setenv(BILLING_SUBSCRIPTION_APPLY_ENABLE, "1")
@@ -83,9 +80,7 @@ async def test_success_one_summary_line(
 
 
 @pytest.mark.asyncio
-async def test_idempotent_noop_exits_zero(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_idempotent_noop_exits_zero(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     with patch("app.application.billing_subscription_apply_main.async_run_apply", new_callable=AsyncMock) as m:
         m.return_value = _ok_apply(
             op=OperationOutcomeCategory.IDEMPOTENT_NOOP,
@@ -103,9 +98,7 @@ async def test_idempotent_noop_exits_zero(
 
 
 @pytest.mark.asyncio
-async def test_not_found_safe_stderr(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_not_found_safe_stderr(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     with patch("app.application.billing_subscription_apply_main.async_run_apply", new_callable=AsyncMock) as m:
         m.return_value = ApplyAcceptedBillingFactResult(
             operation_outcome=OperationOutcomeCategory.NOT_FOUND,
@@ -146,9 +139,7 @@ async def test_config_failure_no_dsn_in_stderr(
 
 
 @pytest.mark.asyncio
-async def test_ok_stdout_does_not_echo_dsn(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+async def test_ok_stdout_does_not_echo_dsn(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     dsn = "postgresql://sensitiveuser:sensitive@192.0.2.0:9/x"
     monkeypatch.setenv(BILLING_SUBSCRIPTION_APPLY_ENABLE, "1")
     monkeypatch.setenv("BOT_TOKEN", "0" * 20)

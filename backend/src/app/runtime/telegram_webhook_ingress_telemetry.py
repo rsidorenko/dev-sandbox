@@ -86,5 +86,5 @@ class FanoutTelegramWebhookIngressTelemetry:
         for sink in self._sinks:
             try:
                 await sink.emit_decision(event)
-            except Exception:
+            except Exception:  # noqa: S112 — best-effort fan-out, one sink failure must not block others
                 continue

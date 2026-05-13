@@ -236,7 +236,7 @@ def test_disabled_does_not_apply_trust_to_non_loopback() -> None:
 
 
 def test_invalid_bool_error_no_secret_in_message() -> None:
-    e = {f"ADM01_INTERNAL_HTTP_ENABLE": _SECRET_LIKE}
+    e = {"ADM01_INTERNAL_HTTP_ENABLE": _SECRET_LIKE}
     with pytest.raises(ConfigurationError) as exc:
         load_adm01_internal_http_config_from_env(e)
     assert _SECRET_LIKE not in str(exc.value)

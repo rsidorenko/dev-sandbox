@@ -113,7 +113,7 @@ def test_postgres_dedup_hash_not_raw_update_id() -> None:
 
 def test_postgres_dedup_storage_failure_raises_dependency_error() -> None:
     class _BrokenPool:
-        def acquire(self):  # noqa: ANN201
+        def acquire(self):
             raise OSError("transient transport issue")
 
     async def main() -> None:

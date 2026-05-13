@@ -37,9 +37,7 @@ def test_assert_no_retention_secret_fragments_rejects_mixed_case_forbidden_varia
     variant: str,
 ) -> None:
     with pytest.raises(AssertionError):
-        assert_no_retention_secret_fragments(
-            f"synthetic output contains mixed-case {variant} variant of {fragment}"
-        )
+        assert_no_retention_secret_fragments(f"synthetic output contains mixed-case {variant} variant of {fragment}")
 
 
 def test_assert_no_retention_success_summary_accepts_text_without_markers() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +25,7 @@ def _make_record(
     resolution_status: MismatchQuarantineResolutionStatus = MismatchQuarantineResolutionStatus.ACTIVE,
     updated_at: datetime | None = None,
 ) -> MismatchQuarantineRecord:
-    now = updated_at or datetime.now(timezone.utc)
+    now = updated_at or datetime.now(UTC)
     return MismatchQuarantineRecord(
         id=record_id,
         source_type=source_type,
@@ -147,8 +147,8 @@ async def test_summary_does_not_treat_resolved_as_active() -> None:
 async def test_summary_uses_reason_code_of_newest_active_record() -> None:
     repo = InMemoryMismatchQuarantineRepository()
     user_id = "user-1"
-    older = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    newer = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    older = datetime(2024, 1, 1, tzinfo=UTC)
+    newer = datetime(2024, 1, 2, tzinfo=UTC)
 
     await repo.upsert_by_source(
         _make_record(
@@ -175,4 +175,3 @@ async def test_summary_uses_reason_code_of_newest_active_record() -> None:
 
     assert summary.marker is MismatchQuarantineSummaryMarker.ACTIVE
     assert summary.reason_code is MismatchQuarantineReasonCode.NEEDS_REVIEW
-

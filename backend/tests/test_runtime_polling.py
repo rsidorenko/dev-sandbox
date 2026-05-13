@@ -7,14 +7,14 @@ import inspect
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport import handle_slice1_telegram_update_to_runtime_action as public_handle_slice1
-from app.security.idempotency import build_bootstrap_idempotency_key
-from app.shared.correlation import new_correlation_id
 from app.runtime.polling import (
     PollingBatchResult,
     PollingRuntimeConfig,
     Slice1PollingRuntime,
     TelegramPollingClient,
 )
+from app.security.idempotency import build_bootstrap_idempotency_key
+from app.shared.correlation import new_correlation_id
 
 
 def _run(coro):
@@ -114,6 +114,7 @@ def test_duplicate_start_same_update_id_one_send_one_audit() -> None:
     Telegram send failed after persistence commit but before delivery; that needs a
     send-ledger / delivery-ledger (non-goal for this slice).
     """
+
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()

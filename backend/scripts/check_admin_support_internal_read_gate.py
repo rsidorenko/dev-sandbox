@@ -17,7 +17,7 @@ _SRC = _BACKEND_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from app.admin_support.internal_read_gate_checks import run_admin_support_internal_read_gate_checks
+from app.admin_support.internal_read_gate_checks import run_admin_support_internal_read_gate_checks  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

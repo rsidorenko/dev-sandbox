@@ -10,7 +10,6 @@ from app.admin_support.adm01_postgres_subscription_read_adapter import (
 from app.application.interfaces import SubscriptionSnapshot
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
 
-
 _RAW_MARKER = "raw-billing-payload-should-not-leak"
 
 

@@ -34,7 +34,7 @@ def _valid_retention_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _classify_retention_boundary_exception_for_tests(exc: BaseException) -> str:
     if isinstance(exc, ConfigurationError):
         return "config_error"
-    if isinstance(exc, (ConnectionError, OSError)):
+    if isinstance(exc, ConnectionError | OSError):
         return "dependency_error"
     return "unexpected_error"
 
@@ -70,7 +70,6 @@ def test_scheduled_no_opt_in_forces_dry_run_true(monkeypatch: pytest.MonkeyPatch
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -82,9 +81,7 @@ def test_scheduled_no_opt_in_forces_dry_run_true(monkeypatch: pytest.MonkeyPatch
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -127,7 +124,6 @@ def test_scheduled_no_opt_in_overrides_only_dry_run(
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -139,9 +135,7 @@ def test_scheduled_no_opt_in_overrides_only_dry_run(
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -191,7 +185,6 @@ def test_scheduled_falsey_matrix_forces_dry_run_true(
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -203,9 +196,7 @@ def test_scheduled_falsey_matrix_forces_dry_run_true(
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -255,7 +246,6 @@ def test_scheduled_opt_in_respects_loaded_dry_run_false(
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -267,9 +257,7 @@ def test_scheduled_opt_in_respects_loaded_dry_run_false(
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -312,7 +300,6 @@ def test_scheduled_opt_in_truthy_preserves_loaded_settings_pass_through(
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -324,9 +311,7 @@ def test_scheduled_opt_in_truthy_preserves_loaded_settings_pass_through(
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -373,7 +358,6 @@ def test_scheduled_opt_in_with_loaded_dry_run_true(
     async def fake_open_pool(_url: str) -> object:
         class P:
             def acquire(self) -> object:
-
                 @asynccontextmanager
                 async def _cm():
                     yield object()
@@ -385,9 +369,7 @@ def test_scheduled_opt_in_with_loaded_dry_run_true(
         return P()
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 
@@ -443,9 +425,7 @@ def test_scheduled_opt_in_cleanup_failure_closes_pool_and_sanitizes_output(
     cleanup = AsyncMock(side_effect=RuntimeError("cleanup failed"))
 
     monkeypatch.setattr(scheduled_mod, "load_runtime_config", lambda: config)
-    monkeypatch.setattr(
-        scheduled_mod, "load_retention_settings_from_env", lambda: loaded
-    )
+    monkeypatch.setattr(scheduled_mod, "load_retention_settings_from_env", lambda: loaded)
     monkeypatch.setattr(scheduled_mod, "_default_open_pool", fake_open_pool)
     monkeypatch.setattr(scheduled_mod, "run_slice1_retention_cleanup", cleanup)
 

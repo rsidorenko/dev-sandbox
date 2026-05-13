@@ -6,8 +6,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast, runtime_checkable
 
-from app.application.telegram_update_dedup import TelegramUpdateDedupCommandBucket
 from app.application.bootstrap import Slice1Composition
+from app.application.telegram_update_dedup import TelegramUpdateDedupCommandBucket
 from app.runtime.binding import process_raw_updates_with_bridge
 from app.runtime.bridge import RuntimeUpdateBridge
 from app.runtime.offsets import advance_polling_offset
@@ -49,11 +49,9 @@ class TelegramRawPollingClient(Protocol):
         *,
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
-    ) -> int:
-        ...
+    ) -> int: ...
 
-    async def answer_callback_query(self, callback_query_id: str) -> None:
-        ...
+    async def answer_callback_query(self, callback_query_id: str) -> None: ...
 
     async def edit_message_text(
         self,
@@ -62,12 +60,11 @@ class TelegramRawPollingClient(Protocol):
         text: str,
         *,
         reply_markup: Mapping[str, Any] | None = None,
-    ) -> int:
-        ...
+    ) -> int: ...
 
 
 def _mappings_for_offset(raw_updates: Sequence[object]) -> Sequence[Mapping[str, object]]:
-    return tuple(cast(Mapping[str, object], u) for u in raw_updates if isinstance(u, Mapping))
+    return tuple(cast("Mapping[str, object]", u) for u in raw_updates if isinstance(u, Mapping))
 
 
 class _PollingClientFromRaw:
@@ -85,7 +82,7 @@ class _PollingClientFromRaw:
 
     async def fetch_updates(self, *, limit: int) -> Sequence[Mapping[str, Any]]:
         out = await self._raw.fetch_raw_updates(limit=limit, offset=self._get_offset())
-        return cast(Sequence[Mapping[str, Any]], tuple(out))
+        return cast("Sequence[Mapping[str, Any]]", tuple(out))
 
     async def send_text_message(
         self,
@@ -114,7 +111,10 @@ class _PollingClientFromRaw:
         reply_markup: Mapping[str, Any] | None = None,
     ) -> int:
         return await self._raw.edit_message_text(
-            chat_id, message_id, text, reply_markup=reply_markup,
+            chat_id,
+            message_id,
+            text,
+            reply_markup=reply_markup,
         )
 
 

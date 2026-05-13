@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -35,7 +35,7 @@ def _rec(
     user: str | None = "u1",
     event_type: str = UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED,
 ) -> BillingEventLedgerRecord:
-    t = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
+    t = datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC)
     return BillingEventLedgerRecord(
         internal_fact_ref=ref,
         billing_provider_key="p1",

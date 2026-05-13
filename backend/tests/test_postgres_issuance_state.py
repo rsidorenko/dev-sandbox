@@ -129,8 +129,8 @@ def test_postgres_issuance_same_idem_different_user_no_collision(pg_url: str) ->
     u1 = f"{_KEY_PREFIX}user-a"
     u2 = f"{_KEY_PREFIX}user-b"
     ikey = f"{_KEY_PREFIX}shared-ik"
-    r1s = f"issuance-ref:u1"
-    r2s = f"issuance-ref:u2"
+    r1s = "issuance-ref:u1"
+    r2s = "issuance-ref:u2"
 
     async def main() -> None:
         pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
@@ -144,12 +144,8 @@ def test_postgres_issuance_same_idem_different_user_no_collision(pg_url: str) ->
                         u,
                     )
             repo = PostgresIssuanceStateRepository(pool)
-            a = await repo.issue_or_get(
-                internal_user_id=u1, issue_idempotency_key=ikey, provider_issuance_ref=r1s
-            )
-            b = await repo.issue_or_get(
-                internal_user_id=u2, issue_idempotency_key=ikey, provider_issuance_ref=r2s
-            )
+            a = await repo.issue_or_get(internal_user_id=u1, issue_idempotency_key=ikey, provider_issuance_ref=r1s)
+            b = await repo.issue_or_get(internal_user_id=u2, issue_idempotency_key=ikey, provider_issuance_ref=r2s)
             assert a.internal_user_id == u1 and b.internal_user_id == u2
             assert a.provider_issuance_ref != b.provider_issuance_ref
         finally:

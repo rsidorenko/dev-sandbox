@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
 
-from app.application.interfaces import SubscriptionSnapshot
 from app.domain.billing_apply_rules import UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED
 from app.domain.uc05_apply_decision import first_time_decision
 from app.persistence.billing_events_ledger_contracts import (
@@ -57,7 +56,7 @@ def _ledger_row(
     user: str | None = f"{_PREFIX}user1",
     event_type: str = UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED,
 ) -> BillingEventLedgerRecord:
-    t = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
+    t = datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC)
     return BillingEventLedgerRecord(
         internal_fact_ref=fact_ref,
         billing_provider_key="prov_uc05",
@@ -140,9 +139,7 @@ def test_postgres_no_activation_when_not_accepted(pg_url: str) -> None:
             await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
             fact = _ref("f_dup")
             u = f"{_PREFIX}u_dup"
-            rec = _ledger_row(
-                fact_ref=fact, user=u, ext="e_dup_1", status=BillingEventLedgerStatus.DUPLICATE
-            )
+            rec = _ledger_row(fact_ref=fact, user=u, ext="e_dup_1", status=BillingEventLedgerStatus.DUPLICATE)
             ar = PostgresAtomicUC05SubscriptionApply(pool)
             async with pool.acquire() as conn:
                 for tbl, clause in (
@@ -196,15 +193,15 @@ def test_postgres_audit_failure_rolls_back_all_writes(pg_url: str) -> None:
 
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1", u)
-            with patch(
-                "app.persistence.postgres_billing_subscription_apply.PostgresBillingSubscriptionApplyAuditAppender"
-                ".append_in_connection",
-                new=AsyncMock(
-                    side_effect=PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT)
+            with (
+                patch(
+                    "app.persistence.postgres_billing_subscription_apply.PostgresBillingSubscriptionApplyAuditAppender"
+                    ".append_in_connection",
+                    new=AsyncMock(side_effect=PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT)),
                 ),
+                pytest.raises(PersistenceDependencyError),
             ):
-                with pytest.raises(PersistenceDependencyError):
-                    await ar.apply_by_internal_fact_ref(fact)
+                await ar.apply_by_internal_fact_ref(fact)
 
             snap = PostgresSubscriptionSnapshotReader(pool)
             assert await snap.get_for_user(u) is None

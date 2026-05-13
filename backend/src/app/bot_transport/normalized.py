@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStatusInput
 from app.application.telegram_access_resend import (
@@ -49,7 +49,7 @@ class TransportIncomingEnvelope:
     start_param: str | None = None
 
 
-class NormalizationRejectReason(str, Enum):
+class NormalizationRejectReason(StrEnum):
     """Безопасные, низкокардинальные категории отклонения для нормализации транспорта."""
 
     UNKNOWN_COMMAND = "unknown_command"
@@ -67,6 +67,7 @@ class NormalizedSlice1Bootstrap:
 @dataclass(frozen=True, slots=True)
 class NormalizedCallback:
     """Parsed inline callback button press."""
+
     action: str
     data: str | None = None
     correlation_id: str = ""

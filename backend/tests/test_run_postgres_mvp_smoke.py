@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 
-
 _SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_postgres_mvp_smoke.py"
 
 
@@ -179,7 +178,9 @@ def test_runs_seven_commands_in_order_and_sets_expected_env(monkeypatch: pytest.
     assert env_sixth["SUBSCRIPTION_DEFAULT_PERIOD_DAYS"] == "30"
     assert env_seventh["SUBSCRIPTION_DEFAULT_PERIOD_DAYS"] == "30"
     assert env_eighth["SUBSCRIPTION_DEFAULT_PERIOD_DAYS"] == "30"
-    reconcile_calls = [call for call in recorded_calls if call[0][0] == ["python", "scripts/reconcile_expired_access.py"]]
+    reconcile_calls = [
+        call for call in recorded_calls if call[0][0] == ["python", "scripts/reconcile_expired_access.py"]
+    ]
     assert len(reconcile_calls) == 1
     assert reconcile_calls[0][1]["check"] is True
 
@@ -288,10 +289,7 @@ def test_fail_fast_without_opt_in_before_subprocess(
 
     with pytest.raises(
         RuntimeError,
-        match=(
-            "SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS "
-            "must be explicitly set for isolated/dev DB smoke runs"
-        ),
+        match=("SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS must be explicitly set for isolated/dev DB smoke runs"),
     ) as exc_info:
         script.main()
 
@@ -303,9 +301,7 @@ def test_fail_fast_without_opt_in_before_subprocess(
 
 
 @pytest.mark.parametrize("falsey_value", ["", "0", "false", "no", "random"])
-def test_fail_fast_with_falsey_opt_in_values(
-    monkeypatch: pytest.MonkeyPatch, falsey_value: str
-) -> None:
+def test_fail_fast_with_falsey_opt_in_values(monkeypatch: pytest.MonkeyPatch, falsey_value: str) -> None:
     script = _load_script_module()
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:secret@localhost:5432/mvpdb")
     monkeypatch.setenv("SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS", falsey_value)
@@ -320,10 +316,7 @@ def test_fail_fast_with_falsey_opt_in_values(
 
     with pytest.raises(
         RuntimeError,
-        match=(
-            "SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS "
-            "must be explicitly set for isolated/dev DB smoke runs"
-        ),
+        match=("SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS must be explicitly set for isolated/dev DB smoke runs"),
     ):
         script.main()
 

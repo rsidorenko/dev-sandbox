@@ -37,7 +37,7 @@ def pg_url() -> str:
 
 
 def test_postgres_adm01_issuance_lifecycle_op_summary_no_leak(
-    pg_url: str,  # noqa: ARG001
+    pg_url: str,
 ) -> None:
     user = f"{_KEY_PREFIX}user-1"
     ikey = f"{_KEY_PREFIX}ik-1"

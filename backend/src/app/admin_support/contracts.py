@@ -6,7 +6,7 @@ No transport, persistence implementation, or RBAC — types and Protocols; orche
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 from app.application.interfaces import SubscriptionSnapshot
@@ -27,7 +27,7 @@ class InternalAdminPrincipalExtractionInput:
     trusted_source: bool
 
 
-class InternalAdminPrincipalExtractionOutcome(str, Enum):
+class InternalAdminPrincipalExtractionOutcome(StrEnum):
     """Fail-closed principal extraction outcome for internal admin ingress."""
 
     SUCCESS = "success"
@@ -50,8 +50,7 @@ class InternalAdminPrincipalExtractor(Protocol):
     async def extract_trusted_internal_admin_principal(
         self,
         inp: InternalAdminPrincipalExtractionInput,
-    ) -> InternalAdminPrincipalExtractionResult:
-        ...
+    ) -> InternalAdminPrincipalExtractionResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +79,7 @@ class Adm01LookupInput:
     correlation_id: str
 
 
-class EntitlementSummaryCategory(str, Enum):
+class EntitlementSummaryCategory(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     INACTIVE = "inactive"
@@ -92,7 +91,7 @@ class EntitlementSummary:
     category: EntitlementSummaryCategory
 
 
-class AdminPolicyFlag(str, Enum):
+class AdminPolicyFlag(StrEnum):
     """Low-cardinality policy hint for admin summary (no secrets)."""
 
     UNKNOWN = "unknown"
@@ -100,7 +99,7 @@ class AdminPolicyFlag(str, Enum):
     ENFORCE_MANUAL_REVIEW = "enforce_manual_review"
 
 
-class Adm01SupportSubscriptionBucket(str, Enum):
+class Adm01SupportSubscriptionBucket(StrEnum):
     UNKNOWN = "unknown"
     INACTIVE = "inactive"
     ACTIVE = "active"
@@ -108,14 +107,14 @@ class Adm01SupportSubscriptionBucket(str, Enum):
     CANCELLED = "cancelled"
 
 
-class Adm01SupportAccessReadinessBucket(str, Enum):
+class Adm01SupportAccessReadinessBucket(StrEnum):
     NOT_APPLICABLE_NO_ACTIVE_SUBSCRIPTION = "not_applicable_no_active_subscription"
     ACTIVE_ACCESS_NOT_READY = "active_access_not_ready"
     ACTIVE_ACCESS_READY = "active_access_ready"
     UNKNOWN_DUE_TO_INTERNAL_ERROR = "unknown_due_to_internal_error"
 
 
-class Adm01SupportNextAction(str, Enum):
+class Adm01SupportNextAction(StrEnum):
     ASK_USER_TO_USE_STATUS = "ask_user_to_use_status"
     ASK_USER_TO_USE_GET_ACCESS = "ask_user_to_use_get_access"
     INVESTIGATE_BILLING_APPLY = "investigate_billing_apply"
@@ -130,7 +129,7 @@ class Adm01SupportReadinessSummary:
     recommended_next_action: Adm01SupportNextAction
 
 
-class IssuanceOperationalState(str, Enum):
+class IssuanceOperationalState(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     OK = "ok"
@@ -143,7 +142,7 @@ class IssuanceOperationalSummary:
     state: IssuanceOperationalState
 
 
-class RedactionMarker(str, Enum):
+class RedactionMarker(StrEnum):
     NONE = "none"
     PARTIAL = "partial"
     FULL = "full"
@@ -174,35 +173,30 @@ class Adm01IdentityResolvePort(Protocol):
         target: AdminTargetLookup,
         *,
         correlation_id: str,
-    ) -> str | None:
-        ...
+    ) -> str | None: ...
 
 
 class Adm01SubscriptionReadPort(Protocol):
     """Read-only subscription snapshot access (aligned with SubscriptionSnapshotReader)."""
 
-    async def get_subscription_snapshot(self, internal_user_id: str) -> SubscriptionSnapshot | None:
-        ...
+    async def get_subscription_snapshot(self, internal_user_id: str) -> SubscriptionSnapshot | None: ...
 
 
 class Adm01EntitlementReadPort(Protocol):
-    async def get_entitlement_summary(self, internal_user_id: str) -> EntitlementSummary:
-        ...
+    async def get_entitlement_summary(self, internal_user_id: str) -> EntitlementSummary: ...
 
 
 class Adm01IssuanceReadPort(Protocol):
-    async def get_issuance_summary(self, internal_user_id: str) -> IssuanceOperationalSummary:
-        ...
+    async def get_issuance_summary(self, internal_user_id: str) -> IssuanceOperationalSummary: ...
 
 
 class Adm01PolicyReadPort(Protocol):
     """Read-only low-cardinality policy hint for admin summary (no RBAC or persistence details)."""
 
-    async def get_policy_flag(self, internal_user_id: str) -> AdminPolicyFlag:
-        ...
+    async def get_policy_flag(self, internal_user_id: str) -> AdminPolicyFlag: ...
 
 
-class Adm01LookupOutcome(str, Enum):
+class Adm01LookupOutcome(StrEnum):
     """Normalized ADM-01 orchestration outcome (transport maps later; no secrets)."""
 
     SUCCESS = "success"
@@ -229,15 +223,13 @@ class Adm01AuthorizationPort(Protocol):
         actor: AdminActorRef,
         *,
         correlation_id: str,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
 
 class Adm01RedactionPort(Protocol):
     """Optional boundary redaction for assembled lookup summary."""
 
-    async def redact_lookup_summary(self, summary: Adm01LookupSummary) -> Adm01LookupSummary:
-        ...
+    async def redact_lookup_summary(self, summary: Adm01LookupSummary) -> Adm01LookupSummary: ...
 
 
 # --- ADM-02: billing / quarantine / reconciliation diagnostics (read-only; higher sensitivity than ADM-01) ---
@@ -250,7 +242,7 @@ class Adm02DiagnosticsInput:
     correlation_id: str
 
 
-class Adm02BillingFactsCategory(str, Enum):
+class Adm02BillingFactsCategory(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     HAS_ACCEPTED = "has_accepted"
@@ -264,13 +256,13 @@ class Adm02BillingFactsDiagnostics:
     internal_fact_refs: tuple[str, ...]
 
 
-class Adm02QuarantineMarker(str, Enum):
+class Adm02QuarantineMarker(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     ACTIVE = "active"
 
 
-class Adm02QuarantineReasonCode(str, Enum):
+class Adm02QuarantineReasonCode(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     MISMATCH = "mismatch"
@@ -283,7 +275,7 @@ class Adm02QuarantineDiagnostics:
     reason_code: Adm02QuarantineReasonCode
 
 
-class Adm02ReconciliationRunMarker(str, Enum):
+class Adm02ReconciliationRunMarker(StrEnum):
     UNKNOWN = "unknown"
     NONE = "none"
     NO_CHANGES = "no_changes"
@@ -303,7 +295,7 @@ class Adm02DiagnosticsSummary:
     redaction: RedactionMarker
 
 
-class Adm02DiagnosticsOutcome(str, Enum):
+class Adm02DiagnosticsOutcome(StrEnum):
     SUCCESS = "success"
     DENIED = "denied"
     TARGET_NOT_RESOLVED = "target_not_resolved"
@@ -318,7 +310,7 @@ class Adm02DiagnosticsResult:
     summary: Adm02DiagnosticsSummary | None
 
 
-class Adm02FactOfAccessDisclosureCategory(str, Enum):
+class Adm02FactOfAccessDisclosureCategory(StrEnum):
     """Normalized disclosure outcome for append-only fact-of-access audit (no response payload)."""
 
     UNREDACTED = "unredacted"
@@ -341,43 +333,37 @@ class Adm02AuthorizationPort(Protocol):
         actor: AdminActorRef,
         *,
         correlation_id: str,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
 
 class Adm02BillingFactsReadPort(Protocol):
-    async def get_billing_facts_diagnostics(self, internal_user_id: str) -> Adm02BillingFactsDiagnostics:
-        ...
+    async def get_billing_facts_diagnostics(self, internal_user_id: str) -> Adm02BillingFactsDiagnostics: ...
 
 
 class Adm02QuarantineReadPort(Protocol):
-    async def get_quarantine_diagnostics(self, internal_user_id: str) -> Adm02QuarantineDiagnostics:
-        ...
+    async def get_quarantine_diagnostics(self, internal_user_id: str) -> Adm02QuarantineDiagnostics: ...
 
 
 class Adm02ReconciliationReadPort(Protocol):
-    async def get_reconciliation_diagnostics(self, internal_user_id: str) -> Adm02ReconciliationDiagnostics:
-        ...
+    async def get_reconciliation_diagnostics(self, internal_user_id: str) -> Adm02ReconciliationDiagnostics: ...
 
 
 class Adm02RedactionPort(Protocol):
-    async def redact_diagnostics_summary(self, summary: Adm02DiagnosticsSummary) -> Adm02DiagnosticsSummary:
-        ...
+    async def redact_diagnostics_summary(self, summary: Adm02DiagnosticsSummary) -> Adm02DiagnosticsSummary: ...
 
 
 class Adm02FactOfAccessAuditPort(Protocol):
-    async def append_fact_of_access(self, record: Adm02FactOfAccessAuditRecord) -> None:
-        ...
+    async def append_fact_of_access(self, record: Adm02FactOfAccessAuditRecord) -> None: ...
 
 
-class Adm02EnsureAccessOutcome(str, Enum):
+class Adm02EnsureAccessOutcome(StrEnum):
     SUCCESS = "success"
     DENIED = "denied"
     INVALID_INPUT = "invalid_input"
     DEPENDENCY_FAILURE = "dependency_failure"
 
 
-class Adm02EnsureAccessRemediationResult(str, Enum):
+class Adm02EnsureAccessRemediationResult(StrEnum):
     NOOP_IDENTITY_UNKNOWN = "noop_identity_unknown"
     NOOP_NO_ACTIVE_SUBSCRIPTION = "noop_no_active_subscription"
     NOOP_ACCESS_ALREADY_READY = "noop_access_already_ready"
@@ -414,13 +400,11 @@ class Adm02EnsureAccessAuthorizationPort(Protocol):
         actor: AdminActorRef,
         *,
         correlation_id: str,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
 
 class Adm02MutationOptInPort(Protocol):
-    async def check_adm02_mutation_opt_in_enabled(self, *, correlation_id: str) -> bool:
-        ...
+    async def check_adm02_mutation_opt_in_enabled(self, *, correlation_id: str) -> bool: ...
 
 
 class Adm02EnsureAccessMutationPort(Protocol):
@@ -429,11 +413,11 @@ class Adm02EnsureAccessMutationPort(Protocol):
         ...
 
 
-class Adm02EnsureAccessAuditEventType(str, Enum):
+class Adm02EnsureAccessAuditEventType(StrEnum):
     ENSURE_ACCESS = "ensure_access"
 
 
-class Adm02EnsureAccessAuditOutcomeBucket(str, Enum):
+class Adm02EnsureAccessAuditOutcomeBucket(StrEnum):
     DENIED_UNAUTHORIZED = "denied_unauthorized"
     DENIED_MUTATION_OPT_IN_DISABLED = "denied_mutation_opt_in_disabled"
     NOOP_IDENTITY_UNKNOWN = "noop_identity_unknown"
@@ -445,7 +429,7 @@ class Adm02EnsureAccessAuditOutcomeBucket(str, Enum):
     INVALID_INPUT = "invalid_input"
 
 
-class Adm02EnsureAccessAuditPrincipalMarker(str, Enum):
+class Adm02EnsureAccessAuditPrincipalMarker(StrEnum):
     INTERNAL_ADMIN_REDACTED = "internal_admin_redacted"
 
 
@@ -460,8 +444,7 @@ class Adm02EnsureAccessAuditEvent:
 
 
 class Adm02EnsureAccessAuditPort(Protocol):
-    async def append_ensure_access_event(self, event: Adm02EnsureAccessAuditEvent) -> None:
-        ...
+    async def append_ensure_access_event(self, event: Adm02EnsureAccessAuditEvent) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,11 +474,10 @@ class Adm02EnsureAccessAuditReadPort(Protocol):
     async def read_ensure_access_audit_evidence(
         self,
         query: Adm02EnsureAccessAuditReadQuery,
-    ) -> Adm02EnsureAccessAuditReadResult:
-        ...
+    ) -> Adm02EnsureAccessAuditReadResult: ...
 
 
-class Adm02EnsureAccessAuditLookupOutcome(str, Enum):
+class Adm02EnsureAccessAuditLookupOutcome(StrEnum):
     SUCCESS = "success"
     DENIED = "denied"
     INVALID_INPUT = "invalid_input"

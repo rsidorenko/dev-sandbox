@@ -48,19 +48,15 @@ class AuditEvent:
 
 
 class UserIdentityRepository(Protocol):
-    async def find_by_telegram_user_id(self, telegram_user_id: int) -> IdentityRecord | None:
-        ...
+    async def find_by_telegram_user_id(self, telegram_user_id: int) -> IdentityRecord | None: ...
 
-    async def create_if_absent(self, telegram_user_id: int) -> IdentityRecord:
-        ...
+    async def create_if_absent(self, telegram_user_id: int) -> IdentityRecord: ...
 
 
 class IdempotencyRepository(Protocol):
-    async def get(self, key: str) -> IdempotencyRecord | None:
-        ...
+    async def get(self, key: str) -> IdempotencyRecord | None: ...
 
-    async def begin_or_get(self, key: str) -> IdempotencyRecord:
-        ...
+    async def begin_or_get(self, key: str) -> IdempotencyRecord: ...
 
     async def complete(self, key: str) -> None:
         """Mark the idempotency key as successfully processed (UC-01 commit point)."""
@@ -68,15 +64,13 @@ class IdempotencyRepository(Protocol):
 
 
 class SubscriptionSnapshotReader(Protocol):
-    async def get_for_user(self, internal_user_id: str) -> SubscriptionSnapshot | None:
-        ...
+    async def get_for_user(self, internal_user_id: str) -> SubscriptionSnapshot | None: ...
 
 
 class SubscriptionSnapshotWriter(Protocol):
     """Insert-if-missing for UC-01; UC-05 may update state via :meth:`upsert_state`."""
 
-    async def put_if_absent(self, snapshot: SubscriptionSnapshot) -> None:
-        ...
+    async def put_if_absent(self, snapshot: SubscriptionSnapshot) -> None: ...
 
     async def upsert_state(self, snapshot: SubscriptionSnapshot) -> None:
         """Set subscription snapshot for user (insert or update ``state_label``)."""
@@ -84,8 +78,7 @@ class SubscriptionSnapshotWriter(Protocol):
 
 
 class AuditAppender(Protocol):
-    async def append(self, event: AuditEvent) -> None:
-        ...
+    async def append(self, event: AuditEvent) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

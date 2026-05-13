@@ -45,17 +45,11 @@ RESEND_ACCESS_NOT_ELIGIBLE_TEXT = (
     "Если подписка неактивна или истекла, используйте /renew."
 )
 
-RESEND_ACCESS_COOLDOWN_TEXT = (
-    "Подождите немного перед повторным запросом инструкций доступа."
-)
+RESEND_ACCESS_COOLDOWN_TEXT = "Подождите немного перед повторным запросом инструкций доступа."
 
-RESEND_ACCESS_NOT_READY_TEXT = (
-    "Инструкции доступа ещё не готовы для повторной отправки. Попробуйте позже."
-)
+RESEND_ACCESS_NOT_READY_TEXT = "Инструкции доступа ещё не готовы для повторной отправки. Попробуйте позже."
 
-RESEND_ACCESS_TEMPORARILY_UNAVAILABLE_TEXT = (
-    "Повторная отправка инструкций временно недоступна. Попробуйте позже."
-)
+RESEND_ACCESS_TEMPORARILY_UNAVAILABLE_TEXT = "Повторная отправка инструкций временно недоступна. Попробуйте позже."
 
 SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY_TEXT = "Ваша подписка активна до {date}."
 

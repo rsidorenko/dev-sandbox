@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.runtime.raw_polling import RawPollingBatchResult, Slice1RawPollingRuntime
+from app.runtime.raw_polling import Slice1RawPollingRuntime
 from app.runtime.runner import PollingRunSummary
 
 

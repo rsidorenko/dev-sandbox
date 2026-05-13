@@ -12,7 +12,6 @@ from app.admin_support.adm02_internal_http import (
     create_adm02_internal_http_app,
 )
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm02BillingFactsCategory,
     Adm02BillingFactsDiagnostics,
     Adm02DiagnosticsInput,
@@ -24,6 +23,7 @@ from app.admin_support.contracts import (
     Adm02QuarantineReasonCode,
     Adm02ReconciliationDiagnostics,
     Adm02ReconciliationRunMarker,
+    AdminActorRef,
     InternalAdminPrincipalExtractionInput,
     InternalAdminPrincipalExtractionOutcome,
     InternalAdminPrincipalExtractionResult,
@@ -400,10 +400,7 @@ def test_http_contract_locked_boundary_and_no_unexpected_fragments() -> None:
         assert success_body["summary"]["billing_category"] in allowed_billing_categories
         assert success_body["summary"]["quarantine_marker"] in allowed_quarantine_markers
         assert success_body["summary"]["quarantine_reason_code"] in allowed_quarantine_reasons
-        assert (
-            success_body["summary"]["reconciliation_last_run_marker"]
-            in allowed_reconciliation_markers
-        )
+        assert success_body["summary"]["reconciliation_last_run_marker"] in allowed_reconciliation_markers
         assert success_body["summary"]["redaction"] in allowed_redaction_markers
 
         success_payload = json.dumps(success_body, sort_keys=True).lower()

@@ -194,9 +194,7 @@ class PostgresReferralTransactionRepository:
                 record.created_at,
             )
 
-    async def list_by_user(
-        self, internal_user_id: str, limit: int = 20
-    ) -> tuple[ReferralTransactionRecord, ...]:
+    async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT transaction_id, internal_user_id, amount_kopecks, transaction_type, "

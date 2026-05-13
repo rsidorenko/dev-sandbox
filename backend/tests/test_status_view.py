@@ -5,10 +5,7 @@ from app.shared.types import SafeUserStatusCategory, SubscriptionSnapshotState
 
 
 def test_unknown_user_needs_bootstrap() -> None:
-    assert (
-        map_subscription_status_view(False, None)
-        is SafeUserStatusCategory.NEEDS_BOOTSTRAP
-    )
+    assert map_subscription_status_view(False, None) is SafeUserStatusCategory.NEEDS_BOOTSTRAP
 
 
 def test_known_user_absent_snapshot_inactive_style() -> None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _SUSPICIOUS_NEEDLES: tuple[str, ...] = (

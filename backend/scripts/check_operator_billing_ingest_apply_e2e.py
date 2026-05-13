@@ -8,13 +8,16 @@ import json
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
 import asyncpg
 
-from app.application.billing_ingestion_main import async_run_billing_ingest_from_parsed, parse_json_to_normalized_billing_input
+from app.application.billing_ingestion_main import (
+    async_run_billing_ingest_from_parsed,
+    parse_json_to_normalized_billing_input,
+)
 from app.application.billing_subscription_apply_main import async_run_apply
 from app.domain.billing_apply_rules import UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED
 from app.persistence.postgres_migrations import MigrationLedgerDriftError, apply_postgres_migrations
@@ -100,7 +103,7 @@ def _new_synthetic_ids() -> _SyntheticIds:
 
 
 def _normalized_fact_json(ids: _SyntheticIds) -> str:
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now_utc = datetime.now(UTC).replace(microsecond=0).isoformat()
     payload = {
         "schema_version": 1,
         "billing_provider_key": "operator_e2e_provider",

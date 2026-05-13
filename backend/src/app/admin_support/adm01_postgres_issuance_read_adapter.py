@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 from app.admin_support.contracts import Adm01IssuanceReadPort, IssuanceOperationalState, IssuanceOperationalSummary
 from app.persistence.issuance_state_record import IssuanceStatePersistence, IssuanceStateRow
 
+
 # get_current is ordered by `updated_at`; latest row may be `revoked`. For admin: no active issuance
 # in `IssuanceOperationalState` (no `revoked` value) -> conservative mapping to NONE, not OK.
 @runtime_checkable

@@ -348,10 +348,7 @@ class GetSubscriptionStatusHandler:
             )
 
         state: SubscriptionSnapshotState | None
-        if snap is None:
-            state = None
-        else:
-            state = _snapshot_state_from_reader_label(snap.state_label)
+        state = None if snap is None else _snapshot_state_from_reader_label(snap.state_label)
 
         safe = map_subscription_status_view(True, state)
         active_until_utc = snap.active_until_utc if snap is not None else None

@@ -8,8 +8,8 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
 
 _LOCAL_KEEP_ON_FAILURE_ENV = "SLICE1_POSTGRES_MVP_SMOKE_LOCAL_KEEP_ON_FAILURE"
 _MUTATING_TESTS_GUARD_ENV = "SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS"
@@ -90,9 +90,7 @@ def _resolve_mapped_port(
 
 def _build_smoke_env(parent_env: Mapping[str, str], *, host_port: str) -> dict[str, str]:
     child_env = dict(parent_env)
-    child_env["DATABASE_URL"] = (
-        f"postgresql://postgres:postgres@127.0.0.1:{host_port}/postgres_smoke_local"
-    )
+    child_env["DATABASE_URL"] = f"postgresql://postgres:postgres@127.0.0.1:{host_port}/postgres_smoke_local"
     child_env[_MUTATING_TESTS_GUARD_ENV] = "1"
     return child_env
 

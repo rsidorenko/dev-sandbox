@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.persistence.reconciliation_runs_contracts import (
     ReconciliationRunOutcome,
@@ -13,7 +13,7 @@ from app.persistence.reconciliation_runs_contracts import (
 
 
 def test_reconciliation_run_record_constructs() -> None:
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
 
     record = ReconciliationRunRecord(
         id="run-1",
@@ -44,11 +44,7 @@ def test_reconciliation_run_user_summary_constructs() -> None:
 
 def test_reconciliation_runs_repository_protocol_shape() -> None:
     protocol_dict = ReconciliationRunsRepository.__dict__
-    method_names = {
-        name
-        for name, value in protocol_dict.items()
-        if callable(value) and not name.startswith("_")
-    }
+    method_names = {name for name, value in protocol_dict.items() if callable(value) and not name.startswith("_")}
 
     assert method_names == {
         "append_run_record",

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from app.application.referral_handler import get_referral_balance
 from app.domain.plans import get_plan
-from app.domain.referral import rubles_from_kopecks
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
     ReferralTransactionRepository,
@@ -47,6 +46,7 @@ async def pay_subscription_from_balance(
         return ReferralPaymentResult(success=False, message="Не удалось списать средства")
 
     from app.persistence.referral_contracts import ReferralTransactionRecord
+
     tx = ReferralTransactionRecord(
         transaction_id=f"pay-{uuid.uuid4()}",
         internal_user_id=internal_user_id,

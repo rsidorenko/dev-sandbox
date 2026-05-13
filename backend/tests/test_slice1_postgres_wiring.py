@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from app.application.telegram_update_dedup import InMemoryTelegramUpdateDedupGuard
 from app.persistence.in_memory import (
     InMemoryAuditAppender,
     InMemoryIdempotencyRepository,
@@ -15,11 +16,10 @@ from app.persistence.in_memory import (
 )
 from app.persistence.postgres_audit import PostgresAuditAppender
 from app.persistence.postgres_idempotency import PostgresIdempotencyRepository
-from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_outbound_delivery import PostgresOutboundDeliveryLedger
+from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_telegram_update_dedup import PostgresTelegramUpdateDedupGuard
 from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
-from app.application.telegram_update_dedup import InMemoryTelegramUpdateDedupGuard
 from app.persistence.slice1_postgres_wiring import (
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
@@ -50,9 +50,7 @@ def test_slice1_postgres_flag_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     "raw",
     ("1", "true", "TRUE", " yes "),
 )
-def test_slice1_postgres_repos_requested_truthy_values(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
+def test_slice1_postgres_repos_requested_truthy_values(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", raw)
     assert slice1_postgres_repos_requested() is True
 
@@ -61,9 +59,7 @@ def test_slice1_postgres_repos_requested_truthy_values(
     "raw",
     ("", "0", "false", "no", "random"),
 )
-def test_slice1_postgres_repos_requested_falsey_when_env_set(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
+def test_slice1_postgres_repos_requested_falsey_when_env_set(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", raw)
     assert slice1_postgres_repos_requested() is False
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
-from typing import Callable, Protocol
+from enum import StrEnum
+from typing import Protocol
 
 
-class TelegramCommandRateLimitKey(str, Enum):
+class TelegramCommandRateLimitKey(StrEnum):
     STATUS = "status"
     ACCESS_RESEND = "access_resend"
     SUPPORT = "support"

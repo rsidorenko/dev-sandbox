@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,7 +41,7 @@ async def test_append_new_record_returns_same_object() -> None:
     record = _make_record(
         run_id="r1",
         internal_user_id="user-1",
-        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
     stored = await repo.append_run_record(record)
@@ -55,7 +55,7 @@ async def test_append_new_record_returns_same_object() -> None:
 @pytest.mark.asyncio
 async def test_append_is_append_only_order() -> None:
     repo = InMemoryReconciliationRunsRepository()
-    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
     first = _make_record(run_id="r1", internal_user_id="user-1", started_at=t0)
     second = _make_record(
         run_id="r2",
@@ -86,7 +86,7 @@ async def test_summary_for_missing_user_is_unknown() -> None:
 async def test_summary_uses_newest_started_at_outcome() -> None:
     repo = InMemoryReconciliationRunsRepository()
     user_id = "user-1"
-    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
     older = _make_record(
         run_id="older",
         internal_user_id=user_id,
@@ -111,7 +111,7 @@ async def test_summary_uses_newest_started_at_outcome() -> None:
 @pytest.mark.asyncio
 async def test_summary_ignores_other_users() -> None:
     repo = InMemoryReconciliationRunsRepository()
-    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
     for_user_a = _make_record(
         run_id="a1",
         internal_user_id="user-a",

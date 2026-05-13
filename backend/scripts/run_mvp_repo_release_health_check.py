@@ -202,9 +202,7 @@ def run_repo_release_health_check(
     runbook_text = _read_text(runbook_path) if runbook_path.exists() else ""
     decision_note_text = _read_text(decision_note_path) if decision_note_path.exists() else ""
     release_status_text = _read_text(release_status_path) if release_status_path.exists() else ""
-    lightweight_workflow_text = (
-        _read_text(lightweight_workflow_path) if lightweight_workflow_path.exists() else ""
-    )
+    lightweight_workflow_text = _read_text(lightweight_workflow_path) if lightweight_workflow_path.exists() else ""
 
     if "backend/RELEASE_STATUS.md" not in manifest_text:
         _append_issue("missing_manifest_release_status_reference")

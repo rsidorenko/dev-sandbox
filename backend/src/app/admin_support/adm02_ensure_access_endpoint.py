@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm02EnsureAccessInput,
     Adm02EnsureAccessOutcome,
     Adm02EnsureAccessResult,
+    AdminActorRef,
     InternalAdminPrincipalExtractionInput,
     InternalAdminPrincipalExtractionOutcome,
     InternalAdminPrincipalExtractor,
@@ -112,9 +112,7 @@ async def execute_adm02_ensure_access_endpoint(
     request: Adm02EnsureAccessInboundRequest,
 ) -> Adm02EnsureAccessEndpointResponse:
     principal_id_candidate = (
-        request.internal_admin_principal_id
-        if isinstance(request.internal_admin_principal_id, str)
-        else None
+        request.internal_admin_principal_id if isinstance(request.internal_admin_principal_id, str) else None
     )
     try:
         extraction = await principal_extractor.extract_trusted_internal_admin_principal(

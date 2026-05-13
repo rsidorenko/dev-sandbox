@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 
@@ -24,7 +24,7 @@ class BillingEventAmountCurrency:
     currency_code: str | None
 
 
-class BillingEventLedgerStatus(str, Enum):
+class BillingEventLedgerStatus(StrEnum):
     """Minimal status of a ledger record from ingestion point of view.
 
     Append-only semantics: once accepted, a record is not updated or deleted.
@@ -64,7 +64,7 @@ class BillingEventLedgerRecord:
     ingestion_correlation_id: str
 
 
-class BillingFactsPresenceCategory(str, Enum):
+class BillingFactsPresenceCategory(StrEnum):
     """Presence category for per-user billing facts diagnostics summary."""
 
     UNKNOWN = "unknown"
@@ -114,4 +114,3 @@ class BillingEventsLedgerRepository(Protocol):
         internal_fact_ref: str,
     ) -> BillingEventLedgerRecord | None:
         """Return the ledger row for the primary key, or None if not found."""
-

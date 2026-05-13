@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
 import pytest
 
+from app.application.billing_subscription_apply_main import BILLING_SUBSCRIPTION_APPLY_ENABLE, async_main
 from app.domain.billing_apply_rules import UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED
 from app.domain.uc05_apply_decision import first_time_decision
 from app.persistence.billing_events_ledger_contracts import (
@@ -21,8 +22,6 @@ from app.persistence.postgres_billing_events_ledger import PostgresBillingEvents
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.shared.types import SubscriptionSnapshotState
-
-from app.application.billing_subscription_apply_main import BILLING_SUBSCRIPTION_APPLY_ENABLE, async_main
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = BACKEND_ROOT / "migrations"
@@ -53,7 +52,7 @@ def _row(
     user: str | None = None,
 ) -> BillingEventLedgerRecord:
     u = user or _ref("u1")
-    t = datetime(2026, 4, 10, 8, 0, 0, tzinfo=timezone.utc)
+    t = datetime(2026, 4, 10, 8, 0, 0, tzinfo=UTC)
     return BillingEventLedgerRecord(
         internal_fact_ref=fact_ref,
         billing_provider_key="pbapply_prov",
@@ -93,7 +92,9 @@ def test_postgres_apply_main_ledger_then_apply_idempotent(
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM billing_events_ledger WHERE internal_fact_ref = $1", fact)
                 await conn.execute("DELETE FROM billing_subscription_apply_records WHERE internal_fact_ref = $1", fact)
-                await conn.execute("DELETE FROM billing_subscription_apply_audit_events WHERE internal_fact_ref = $1", fact)
+                await conn.execute(
+                    "DELETE FROM billing_subscription_apply_audit_events WHERE internal_fact_ref = $1", fact
+                )
                 await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1", user)
             rec = _row(fact_ref=fact, ext=ext, user=user)
             await le.append_or_get_by_provider_and_external_id(rec)

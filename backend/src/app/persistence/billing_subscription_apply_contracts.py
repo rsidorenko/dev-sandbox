@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class BillingSubscriptionApplyOutcome(str, Enum):
+class BillingSubscriptionApplyOutcome(StrEnum):
     """Outcome stored in billing_subscription_apply_records (durable idempotency)."""
 
     ACTIVE_APPLIED = "active_applied"
@@ -14,7 +14,7 @@ class BillingSubscriptionApplyOutcome(str, Enum):
     NEEDS_REVIEW = "needs_review"
 
 
-class BillingSubscriptionApplyReason(str, Enum):
+class BillingSubscriptionApplyReason(StrEnum):
     """Allowlisted reason codes for apply audit (low-cardinality, no free text)."""
 
     OK = "ok"

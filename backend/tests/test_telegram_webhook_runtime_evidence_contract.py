@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from starlette.testclient import TestClient
-from unittest.mock import AsyncMock, patch
 
 import app.runtime.polling as polling_mod
 from app.runtime.telegram_webhook_ingress import load_telegram_webhook_ingress_settings_from_env
@@ -96,9 +96,7 @@ def test_enabled_readyz_dependency_semantics_and_no_dispatch(monkeypatch: pytest
     async def _not_ready_checker() -> bool:
         return False
 
-    app = build_slice1_telegram_webhook_asgi_application_from_env(
-        dependency_readiness_check=_not_ready_checker
-    )
+    app = build_slice1_telegram_webhook_asgi_application_from_env(dependency_readiness_check=_not_ready_checker)
     mock_handle = AsyncMock()
     with TestClient(app) as client:
         with patch.object(polling_mod, "handle_slice1_telegram_update_to_runtime_action", mock_handle):
@@ -119,13 +117,15 @@ def test_unauthorized_path_emits_redacted_telemetry_and_no_dispatch(monkeypatch:
 
     app = build_slice1_telegram_webhook_asgi_application_from_env()
     mock_handle = AsyncMock()
-    with patch.object(polling_mod, "handle_slice1_telegram_update_to_runtime_action", mock_handle):
-        with patch(
+    with (
+        patch.object(polling_mod, "handle_slice1_telegram_update_to_runtime_action", mock_handle),
+        patch(
             "app.runtime.telegram_webhook_ingress_telemetry.StructuredLoggingTelegramWebhookIngressTelemetry.emit_decision",
             new_callable=AsyncMock,
-        ) as emit:
-            with TestClient(app) as client:
-                response = client.post("/telegram/webhook", headers={"content-type": "application/json"})
+        ) as emit,
+        TestClient(app) as client,
+    ):
+        response = client.post("/telegram/webhook", headers={"content-type": "application/json"})
 
     assert response.status_code == 401
     mock_handle.assert_not_called()

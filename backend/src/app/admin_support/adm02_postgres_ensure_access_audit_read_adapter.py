@@ -6,8 +6,8 @@ import asyncpg
 
 from app.admin_support.contracts import (
     Adm01SupportAccessReadinessBucket,
-    Adm02EnsureAccessAuditEvidenceItem,
     Adm02EnsureAccessAuditEventType,
+    Adm02EnsureAccessAuditEvidenceItem,
     Adm02EnsureAccessAuditOutcomeBucket,
     Adm02EnsureAccessAuditPrincipalMarker,
     Adm02EnsureAccessAuditReadPort,
@@ -82,17 +82,12 @@ class Adm02PostgresEnsureAccessAuditReadAdapter(Adm02EnsureAccessAuditReadPort):
             event_type=Adm02EnsureAccessAuditEventType(str(row["event_type"])),
             outcome_bucket=Adm02EnsureAccessAuditOutcomeBucket(str(row["outcome_bucket"])),
             remediation_result=(
-                Adm02EnsureAccessRemediationResult(str(remediation_raw))
-                if remediation_raw is not None
-                else None
+                Adm02EnsureAccessRemediationResult(str(remediation_raw)) if remediation_raw is not None else None
             ),
             readiness_bucket=(
-                Adm01SupportAccessReadinessBucket(str(readiness_raw))
-                if readiness_raw is not None
-                else None
+                Adm01SupportAccessReadinessBucket(str(readiness_raw)) if readiness_raw is not None else None
             ),
             principal_marker=Adm02EnsureAccessAuditPrincipalMarker(str(row["principal_marker"])),
             correlation_id=str(row["correlation_id"]),
             source_marker=None if source_raw is None else str(source_raw),
         )
-

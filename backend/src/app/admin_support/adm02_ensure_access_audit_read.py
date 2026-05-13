@@ -94,4 +94,3 @@ class Adm02EnsureAccessAuditLookupHandler:
             correlation_id=cid,
             result=result,
         )
-

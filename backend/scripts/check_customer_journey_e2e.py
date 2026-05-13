@@ -22,7 +22,10 @@ import httpx
 from app.admin_support.adm01_identity_resolve_adapter import Adm01IdentityResolveAdapter
 from app.admin_support.adm01_postgres_issuance_read_adapter import Adm01PostgresIssuanceReadAdapter
 from app.admin_support.adm01_postgres_subscription_read_adapter import Adm01PostgresSubscriptionReadAdapter
-from app.admin_support.adm02_ensure_access_endpoint import Adm02EnsureAccessInboundRequest, execute_adm02_ensure_access_endpoint
+from app.admin_support.adm02_ensure_access_endpoint import (
+    Adm02EnsureAccessInboundRequest,
+    execute_adm02_ensure_access_endpoint,
+)
 from app.admin_support.adm02_ensure_access_mutation import Adm02EnsureAccessIssuanceMutationAdapter
 from app.admin_support.adm02_wiring import build_adm02_ensure_access_handler
 from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
@@ -31,17 +34,16 @@ from app.application.telegram_command_rate_limit import NoopAllowAllTelegramComm
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
-from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
-from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.persistence.postgres_issuance_state import IssuanceStatePersistence, PostgresIssuanceStateRepository
+from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
 from app.persistence.slice1_postgres_wiring import resolve_slice1_composition_for_runtime
 from app.runtime.payment_fulfillment_ingress import (
     DEFAULT_CHECKOUT_REFERENCE_MAX_AGE_SECONDS,
-    FulfillmentIngressSettings,
     PAYMENT_SIGNATURE_HEADER,
     PAYMENT_TIMESTAMP_HEADER,
+    FulfillmentIngressSettings,
     create_payment_fulfillment_ingress_app,
 )
 from app.security.config import load_runtime_config
@@ -289,6 +291,7 @@ async def _resolve_postgres_composition(pool: asyncpg.Pool):
         # ACCESS_RESEND calls than the default dispatcher rate limit allows in one window.
         # Rate limiting is tested separately; disable it here to keep the journey assertions clean.
         from dataclasses import replace as _dc_replace
+
         composition = _dc_replace(composition, command_rate_limiter=NoopAllowAllTelegramCommandRateLimiter())
         return composition
     finally:
@@ -347,7 +350,9 @@ async def run_customer_journey_e2e() -> None:
         # Before fulfillment (pending/inactive customer-facing state)
         start = await _render_command(command="/start", ids=ids, composition=composition, update_id=1)
         _assert_contains(start.message_text, "Добро пожаловать")
-        if not isinstance(start.reply_markup, dict) or ("keyboard" not in start.reply_markup and "inline_keyboard" not in start.reply_markup):
+        if not isinstance(start.reply_markup, dict) or (
+            "keyboard" not in start.reply_markup and "inline_keyboard" not in start.reply_markup
+        ):
             raise RuntimeError("start must provide reply keyboard")
 
         plans = await _render_command(command="/plans", ids=ids, composition=composition, update_id=2)
@@ -365,7 +370,9 @@ async def run_customer_journey_e2e() -> None:
         pending_success = await _render_command(command="/success", ids=ids, composition=composition, update_id=5)
         _assert_contains(pending_success.message_text, "Активация может занять")
 
-        pending_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=6)
+        pending_status = await _render_command(
+            command="/my_subscription", ids=ids, composition=composition, update_id=6
+        )
         if "активн" in pending_status.message_text.lower():
             raise RuntimeError("pending status must not claim active")
 
@@ -454,7 +461,9 @@ async def run_customer_journey_e2e() -> None:
 
         active_success = await _render_command(command="/success", ids=ids, composition=composition, update_id=9)
         _assert_contains(active_success.message_text, "Подписка активна")
-        active_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=10)
+        active_status = await _render_command(
+            command="/my_subscription", ids=ids, composition=composition, update_id=10
+        )
         _assert_contains(active_status.message_text.lower(), "активн")
 
         # Existing safe operator fixture path: ensure access via ADM-02 internal handler.
@@ -490,7 +499,9 @@ async def run_customer_journey_e2e() -> None:
                 active_until_utc=datetime(2020, 1, 1, tzinfo=UTC),
             )
         )
-        expired_status = await _render_command(command="/my_subscription", ids=ids, composition=composition, update_id=122)
+        expired_status = await _render_command(
+            command="/my_subscription", ids=ids, composition=composition, update_id=122
+        )
         _assert_contains(expired_status.message_text.lower(), "истекл")
         _assert_contains(expired_status.message_text, "/renew")
 
@@ -504,15 +515,14 @@ async def run_customer_journey_e2e() -> None:
         if reconciled_rows_second != 0:
             raise RuntimeError("expired access reconcile must be idempotent on repeat run")
         current_after_reconcile = await PostgresIssuanceStateRepository(pool).get_current_for_user(ids.internal_user_id)
-        if (
-            current_after_reconcile is None
-            or current_after_reconcile.state is not IssuanceStatePersistence.REVOKED
-        ):
+        if current_after_reconcile is None or current_after_reconcile.state is not IssuanceStatePersistence.REVOKED:
             raise RuntimeError("expired access reconcile did not mark issuance as revoked")
 
         expired_access = await _render_command(command="/get_access", ids=ids, composition=composition, update_id=123)
         _assert_contains(expired_access.message_text, "/renew")
-        expired_resend = await _render_command(command="/resend_access", ids=ids, composition=composition, update_id=124)
+        expired_resend = await _render_command(
+            command="/resend_access", ids=ids, composition=composition, update_id=124
+        )
         _assert_contains(expired_resend.message_text, "/renew")
 
         support = await _render_command(command="/support", ids=ids, composition=composition, update_id=13)
@@ -562,4 +572,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

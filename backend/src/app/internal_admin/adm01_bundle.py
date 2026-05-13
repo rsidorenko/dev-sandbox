@@ -14,10 +14,10 @@ from app.admin_support.adm01_wiring import (
 from app.admin_support.contracts import (
     Adm01EntitlementReadPort,
     Adm01IdentityResolvePort,
+    Adm01IssuanceReadPort,
     Adm01PolicyReadPort,
     Adm01RedactionPort,
     Adm01SubscriptionReadPort,
-    Adm01IssuanceReadPort,
 )
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
 

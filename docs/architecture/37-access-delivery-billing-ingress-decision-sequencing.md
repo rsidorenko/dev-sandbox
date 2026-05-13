@@ -119,4 +119,3 @@ Any future implementation PR in this area should:
 - reference the relevant hard stop in this document and state whether it is resolved or intentionally out of scope;
 - demonstrate tests that no secret/config material is output to user-facing surfaces;
 - keep feature flags explicit opt-in until a recorded approval changes defaults.
-

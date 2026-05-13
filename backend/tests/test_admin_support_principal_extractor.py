@@ -65,10 +65,7 @@ def test_default_extractor_malformed_blank_or_whitespace_principal() -> None:
 
         assert blank.outcome is InternalAdminPrincipalExtractionOutcome.MALFORMED_PRINCIPAL
         assert blank.principal is None
-        assert (
-            whitespace.outcome
-            is InternalAdminPrincipalExtractionOutcome.MALFORMED_PRINCIPAL
-        )
+        assert whitespace.outcome is InternalAdminPrincipalExtractionOutcome.MALFORMED_PRINCIPAL
         assert whitespace.principal is None
 
     _run(main())

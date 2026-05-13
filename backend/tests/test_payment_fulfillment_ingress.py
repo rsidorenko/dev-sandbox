@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock
 import pytest
 from starlette.testclient import TestClient
 
-from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
-from app.bot_transport.outbound import build_fulfillment_success_notification_plan
 from app.bot_transport.message_catalog import render_telegram_outbound_plan
+from app.bot_transport.outbound import build_fulfillment_success_notification_plan
+from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.runtime import payment_fulfillment_ingress as ingress_mod
 from app.runtime.payment_fulfillment_ingress import (
     ENV_PAYMENT_FULFILLMENT_HTTP_ENABLE,
@@ -188,7 +188,9 @@ def test_malformed_payload_rejects_and_does_not_mutate() -> None:
 
 def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(
+        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+    )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
     ts = "1777248000"
@@ -212,7 +214,12 @@ def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
     ):
         create_if_absent = AsyncMock()
         ingest = AsyncMock(return_value=_IngestResult())
-        apply = AsyncMock(side_effect=[_ApplyResult(OperationOutcomeCategory.SUCCESS), _ApplyResult(OperationOutcomeCategory.IDEMPOTENT_NOOP)])
+        apply = AsyncMock(
+            side_effect=[
+                _ApplyResult(OperationOutcomeCategory.SUCCESS),
+                _ApplyResult(OperationOutcomeCategory.IDEMPOTENT_NOOP),
+            ]
+        )
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
         m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
         m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
@@ -243,7 +250,9 @@ def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
 
 def test_valid_paid_event_persists_active_until_from_period_days() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(
+        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+    )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["period_days"] = 10
     payload["paid_at"] = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC).isoformat()
@@ -295,7 +304,9 @@ def test_valid_paid_event_persists_active_until_from_period_days() -> None:
 
 def test_missing_payload_period_uses_default_period_without_rejection() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now)  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(
+        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+    )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload.pop("period_days")
     body = json.dumps(payload).encode("utf-8")
@@ -759,4 +770,3 @@ def test_strict_mode_rejects_telegram_user_mismatch_without_mutation() -> None:
     create_if_absent.assert_not_called()
     ingest.assert_not_called()
     apply.assert_not_called()
-

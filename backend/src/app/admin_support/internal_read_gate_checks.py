@@ -13,13 +13,12 @@ import httpx
 from app.admin_support.adm01_internal_http import ADM01_INTERNAL_LOOKUP_PATH, create_adm01_internal_http_app
 from app.admin_support.adm01_lookup import Adm01LookupHandler
 from app.admin_support.adm02_billing_facts_ledger_adapter import Adm02BillingFactsLedgerReadAdapter
-from app.admin_support.adm02_diagnostics import Adm02DiagnosticsHandler
 from app.admin_support.adm02_fact_of_access_audit_adapter import Adm02FactOfAccessPersistenceAuditAdapter
 from app.admin_support.adm02_internal_http import ADM02_INTERNAL_DIAGNOSTICS_PATH
 from app.admin_support.adm02_quarantine_mismatch_adapter import Adm02QuarantineMismatchReadAdapter
 from app.admin_support.adm02_reconciliation_runs_adapter import Adm02ReconciliationRunsReadAdapter
 from app.admin_support.adm02_wiring import build_adm02_internal_diagnostics_http_app
-from app.admin_support.authorization import AllowlistAdm01Authorization, AllowlistAdm02Authorization
+from app.admin_support.authorization import AllowlistAdm01Authorization
 from app.admin_support.contracts import (
     AdminPolicyFlag,
     EntitlementSummary,

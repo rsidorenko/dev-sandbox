@@ -46,5 +46,5 @@ class Adm02EnsureAccessIssuanceMutationAdapter:
 
 
 def _deterministic_ensure_access_idempotency_key(internal_user_id: str) -> str:
-    digest = hashlib.sha256(f"adm02-ensure-access:{internal_user_id}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"adm02-ensure-access:{internal_user_id}".encode()).hexdigest()
     return f"adm02-ensure-access:{digest[:32]}"

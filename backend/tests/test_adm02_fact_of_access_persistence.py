@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from app.admin_support.contracts import AdminActorRef, Adm02FactOfAccessDisclosureCategory
+from app.admin_support.contracts import Adm02FactOfAccessDisclosureCategory, AdminActorRef
 from app.persistence.adm02_fact_of_access import (
     Adm02FactOfAccessAppendRecord,
     InMemoryAdm02FactOfAccessRecordAppender,

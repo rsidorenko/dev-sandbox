@@ -123,18 +123,20 @@ def test_async_process_builder_does_not_use_sync_guard_when_postgres_repos_flag_
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=_cfg()):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=_cfg()),
+                patch.object(
                     configured_mod,
                     "apply_slice1_postgres_migrations_from_runtime_config",
                     new=_noop_apply_slice1_postgres_migrations,
-                ):
-                    with patch.object(
-                        configured_mod,
-                        "resolve_slice1_composition_for_runtime",
-                        new=_fake_resolve_slice1_composition,
-                    ):
-                        proc = await build_slice1_httpx_live_process_from_env_async(client=ac)
+                ),
+                patch.object(
+                    configured_mod,
+                    "resolve_slice1_composition_for_runtime",
+                    new=_fake_resolve_slice1_composition,
+                ),
+            ):
+                proc = await build_slice1_httpx_live_process_from_env_async(client=ac)
             assert isinstance(proc, Slice1HttpxLiveProcess)
             await proc.aclose()
 

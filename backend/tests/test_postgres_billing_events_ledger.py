@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
@@ -51,8 +51,8 @@ def _make_record(
     internal_user_id: str | None = "user-1",
     status: BillingEventLedgerStatus = BillingEventLedgerStatus.ACCEPTED,
 ) -> BillingEventLedgerRecord:
-    t_eff = event_effective_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    t_rec = event_received_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    t_eff = event_effective_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    t_rec = event_received_at or datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     return BillingEventLedgerRecord(
         internal_fact_ref=internal_fact_ref,
         billing_provider_key="provider_a",
@@ -121,7 +121,9 @@ def test_postgres_append_new_record_and_read_round_trip(pg_url: str) -> None:
             stored = await repo.append_or_get_by_provider_and_external_id(record)
             assert stored == record
             async with pool.acquire() as conn:
-                n = await conn.fetchval("SELECT count(*)::bigint FROM billing_events_ledger WHERE internal_fact_ref = $1", ref)
+                n = await conn.fetchval(
+                    "SELECT count(*)::bigint FROM billing_events_ledger WHERE internal_fact_ref = $1", ref
+                )
             assert n == 1
         finally:
             await pool.close()
@@ -184,9 +186,9 @@ def test_postgres_summary_user_with_accepted_records_has_accepted(pg_url: str) -
             repo = PostgresBillingEventsLedgerRepository(pool)
             user_id = f"{_PREFIX}user-1"
             other = f"{_PREFIX}user-2"
-            t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-            t1 = datetime(2026, 1, 1, 12, 0, 1, tzinfo=timezone.utc)
-            t2 = datetime(2026, 1, 1, 12, 0, 2, tzinfo=timezone.utc)
+            t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+            t1 = datetime(2026, 1, 1, 12, 0, 1, tzinfo=UTC)
+            t2 = datetime(2026, 1, 1, 12, 0, 2, tzinfo=UTC)
             await repo.append_or_get_by_provider_and_external_id(
                 _make_record(
                     internal_fact_ref=f"{_PREFIX}be-1",
@@ -260,8 +262,8 @@ def test_postgres_append_preserves_order_in_summary_deterministic(pg_url: str) -
         try:
             await _cleanup_and_migrate(pool)
             repo = PostgresBillingEventsLedgerRepository(pool)
-            t0 = datetime(2026, 2, 1, 10, 0, 0, tzinfo=timezone.utc)
-            t1 = datetime(2026, 2, 1, 10, 0, 1, tzinfo=timezone.utc)
+            t0 = datetime(2026, 2, 1, 10, 0, 0, tzinfo=UTC)
+            t1 = datetime(2026, 2, 1, 10, 0, 1, tzinfo=UTC)
             base = f"{_PREFIX}ord_"
             await repo.append_or_get_by_provider_and_external_id(
                 _make_record(

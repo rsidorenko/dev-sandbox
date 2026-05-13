@@ -26,8 +26,7 @@ class BillingIngestionAuditRecord:
 
 
 class BillingIngestionAuditAppender(Protocol):
-    async def append(self, record: BillingIngestionAuditRecord) -> None:
-        ...
+    async def append(self, record: BillingIngestionAuditRecord) -> None: ...
 
 
 class InMemoryBillingIngestionAuditAppender:

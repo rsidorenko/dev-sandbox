@@ -5,10 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from app.domain.devices import extra_device_count, extra_device_cost, validate_device_count
+from app.domain.devices import extra_device_cost, extra_device_count, validate_device_count
 from app.domain.plans import (
-    PlanId,
-    SubscriptionPlan,
     calculate_total_price,
     get_all_plans,
     get_plan,

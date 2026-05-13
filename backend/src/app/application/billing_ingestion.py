@@ -21,8 +21,8 @@ from app.persistence.billing_ingestion_audit_contracts import (
     BILLING_INGESTION_AUDIT_OPERATION,
     BILLING_INGESTION_OUTCOME_ACCEPTED,
     BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY,
-    BillingIngestionAuditRecord,
     BillingIngestionAuditAppender,
+    BillingIngestionAuditRecord,
 )
 from app.security.validation import ValidationError
 
@@ -134,12 +134,8 @@ def build_ledger_record_for_ingest(input_: NormalizedBillingFactInput) -> Billin
     pkey = _require_non_empty_trimmed(
         name="billing_provider_key", value=input_.billing_provider_key, max_len=_MAX_ID_LEN
     )
-    ext = _require_non_empty_trimmed(
-        name="external_event_id", value=input_.external_event_id, max_len=_MAX_ID_LEN
-    )
-    ev_type = _require_non_empty_trimmed(
-        name="event_type", value=input_.event_type, max_len=_MAX_EVENT_TYPE_LEN
-    )
+    ext = _require_non_empty_trimmed(name="external_event_id", value=input_.external_event_id, max_len=_MAX_ID_LEN)
+    ev_type = _require_non_empty_trimmed(name="event_type", value=input_.event_type, max_len=_MAX_EVENT_TYPE_LEN)
     corr = _require_non_empty_trimmed(
         name="ingestion_correlation_id", value=input_.ingestion_correlation_id, max_len=_MAX_CORR_LEN
     )
@@ -186,11 +182,7 @@ class IngestNormalizedBillingFactHandler:
         # Попадание идемпотентности: тот же (provider, external_id) уже сохранён с другим internal ref
         # (типично, когда internal_fact_ref генерируется автоматически для каждого запроса).
         is_replay = stored.internal_fact_ref != constructed.internal_fact_ref
-        audit_outcome = (
-            BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY
-            if is_replay
-            else BILLING_INGESTION_OUTCOME_ACCEPTED
-        )
+        audit_outcome = BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
         # Fail-closed: :class:`PersistenceDependencyError` от аппендера аудита (напр. Postgres)
         # пробрасывается вызывающему. Неатомарная сборка репозитория: ledger может быть уже закоммичен
         # до записи аудита; операторский Postgres entrypoint использует одну транзакцию БД

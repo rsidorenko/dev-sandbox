@@ -88,17 +88,9 @@ class FakeIssuanceProvider:
         m = self._mode
         if m is FakeProviderMode.SUCCESS:
             handle = f"{_FAKE_INSTR_PREFIX}:{internal_user_id[:8]}"
-            return ProviderGetSafeResult(
-                outcome=GetSafeInstructionOutcome.READY, instruction_ref=handle
-            )
+            return ProviderGetSafeResult(outcome=GetSafeInstructionOutcome.READY, instruction_ref=handle)
         if m is FakeProviderMode.UNAVAILABLE:
-            return ProviderGetSafeResult(
-                outcome=GetSafeInstructionOutcome.UNAVAILABLE, instruction_ref=None
-            )
+            return ProviderGetSafeResult(outcome=GetSafeInstructionOutcome.UNAVAILABLE, instruction_ref=None)
         if m is FakeProviderMode.REJECTED:
-            return ProviderGetSafeResult(
-                outcome=GetSafeInstructionOutcome.REJECTED, instruction_ref=None
-            )
-        return ProviderGetSafeResult(
-            outcome=GetSafeInstructionOutcome.UNKNOWN, instruction_ref=None
-        )
+            return ProviderGetSafeResult(outcome=GetSafeInstructionOutcome.REJECTED, instruction_ref=None)
+        return ProviderGetSafeResult(outcome=GetSafeInstructionOutcome.UNKNOWN, instruction_ref=None)

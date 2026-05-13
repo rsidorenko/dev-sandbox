@@ -193,8 +193,12 @@ def run_configure_telegram_webhook(
             configured_url = result.get("url")
             has_url = bool(str(configured_url).strip()) if isinstance(configured_url, str) else False
             print(f"configured_webhook_present={'yes' if has_url else 'no'}")
-            print(f"configured_webhook_url={redact_url_for_diagnostics(configured_url if isinstance(configured_url, str) else None)}")
-            print(f"configured_webhook_host_class={classify_public_https_url_host(configured_url if isinstance(configured_url, str) else None)}")
+            print(
+                f"configured_webhook_url={redact_url_for_diagnostics(configured_url if isinstance(configured_url, str) else None)}"
+            )
+            print(
+                f"configured_webhook_host_class={classify_public_https_url_host(configured_url if isinstance(configured_url, str) else None)}"
+            )
             _verify_webhook_semantics(
                 result=result,
                 expected_public_url=public_url,

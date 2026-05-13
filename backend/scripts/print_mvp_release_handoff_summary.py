@@ -27,15 +27,12 @@ def _repo_root(backend_dir: Path) -> Path:
 def generate_handoff_summary(*, backend_dir: Path | None = None) -> tuple[bool, tuple[str, ...], str]:
     root = _backend_dir() if backend_dir is None else backend_dir
     repo_root = _repo_root(root)
-    issues: list[str] = []
-
-    for rel_path in _REQUIRED_BACKEND_FILES:
-        if not (root / rel_path).exists():
-            issues.append("missing_release_handoff_source_doc")
-
-    for rel_path in _REQUIRED_REPO_FILES:
-        if not (repo_root / rel_path).exists():
-            issues.append("missing_release_handoff_workflow")
+    issues: list[str] = [
+        "missing_release_handoff_source_doc" for rel_path in _REQUIRED_BACKEND_FILES if not (root / rel_path).exists()
+    ]
+    issues.extend(
+        "missing_release_handoff_workflow" for rel_path in _REQUIRED_REPO_FILES if not (repo_root / rel_path).exists()
+    )
 
     if issues:
         # Keep issue list deterministic and bounded.

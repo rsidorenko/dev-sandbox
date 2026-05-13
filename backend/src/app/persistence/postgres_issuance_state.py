@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import asyncpg
 from datetime import datetime
+
+import asyncpg
 
 from app.persistence.issuance_state_record import IssuanceStatePersistence, IssuanceStateRow
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
@@ -236,14 +237,10 @@ class PostgresIssuanceStateRepository:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_INVARIANT)
         return _row_to_domain(cur)
 
-    async def mark_revoked(
-        self, *, internal_user_id: str, issue_idempotency_key: str
-    ) -> IssuanceStateRow | None:
+    async def mark_revoked(self, *, internal_user_id: str, issue_idempotency_key: str) -> IssuanceStateRow | None:
         try:
             async with self._pool.acquire() as conn:
-                upd = await conn.fetchrow(
-                    self._UPDATE_REVOKE, internal_user_id, issue_idempotency_key
-                )
+                upd = await conn.fetchrow(self._UPDATE_REVOKE, internal_user_id, issue_idempotency_key)
                 if upd is not None:
                     return _row_to_domain(upd)
                 cur = await conn.fetchrow(
@@ -257,9 +254,7 @@ class PostgresIssuanceStateRepository:
             return None
         return _row_to_domain(cur)
 
-    async def get_current_for_user(
-        self, internal_user_id: str
-    ) -> IssuanceStateRow | None:
+    async def get_current_for_user(self, internal_user_id: str) -> IssuanceStateRow | None:
         try:
             async with self._pool.acquire() as conn:
                 row = await conn.fetchrow(self._SELECT_CURRENT, internal_user_id)

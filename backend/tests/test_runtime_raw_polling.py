@@ -46,8 +46,8 @@ class FakeTelegramRawPollingClient:
     __slots__ = (
         "_fetch_queue",
         "_fetch_raises",
-        "_fetch_rounds",
         "_fetch_round_idx",
+        "_fetch_rounds",
         "fetch_calls",
         "fetch_offset_history",
         "last_fetch_limit",
@@ -188,7 +188,9 @@ def test_mixed_batch_accepted_rejected_bridge_exception() -> None:
             async def fetch_raw_updates(self, *, limit: int, offset: int | None = None):
                 return await fetch_raw_updates(limit=limit, offset=offset)
 
-            async def send_text_message(self, chat_id: int, text: str, *, correlation_id: str, reply_markup: object | None = None) -> int:
+            async def send_text_message(
+                self, chat_id: int, text: str, *, correlation_id: str, reply_markup: object | None = None
+            ) -> int:
                 return await client.send_text_message(chat_id, text, correlation_id=correlation_id)
 
         rt = Slice1RawPollingRuntime(c, C(), bridge)

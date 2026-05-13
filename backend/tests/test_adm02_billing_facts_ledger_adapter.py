@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -28,7 +28,7 @@ def _make_record(
     internal_user_id: str | None = "user-1",
     status: BillingEventLedgerStatus = BillingEventLedgerStatus.ACCEPTED,
 ) -> BillingEventLedgerRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return BillingEventLedgerRecord(
         internal_fact_ref=internal_fact_ref,
         billing_provider_key=billing_provider_key,
@@ -123,4 +123,3 @@ async def test_adapter_does_not_swallow_repository_exceptions() -> None:
 
     with pytest.raises(RuntimeError):
         await adapter.get_billing_facts_diagnostics("user-error")
-

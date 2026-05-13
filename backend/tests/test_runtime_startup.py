@@ -6,16 +6,14 @@ import asyncio
 import inspect
 
 import app.runtime.startup as startup_mod
-
 from app.bot_transport.storefront_ui import text_welcome
-from tests.slice1_expected_user_copy import INACTIVE_OR_NOT_ELIGIBLE_TEXT
-
 from app.runtime import (
     PollingRuntimeConfig,
     Slice1InMemoryRuntimeBundle,
     build_slice1_in_memory_runtime_bundle,
 )
 from app.shared.correlation import new_correlation_id
+from tests.slice1_expected_user_copy import INACTIVE_OR_NOT_ELIGIBLE_TEXT
 
 
 def _run(coro):
@@ -117,7 +115,7 @@ def test_bundle_custom_config_used_by_runtime() -> None:
 def test_runner_uses_same_runtime_instance() -> None:
     client = FakeTelegramPollingClient()
     b = build_slice1_in_memory_runtime_bundle(client)
-    assert b.runner._runtime is b.runtime  # noqa: SLF001
+    assert b.runner._runtime is b.runtime
 
 
 def test_bundle_e2e_start_send_then_status_fail_closed() -> None:

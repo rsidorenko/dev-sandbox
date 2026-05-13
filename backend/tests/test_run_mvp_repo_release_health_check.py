@@ -8,9 +8,7 @@ from types import ModuleType
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "run_mvp_repo_release_health_check.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_mvp_repo_release_health_check.py"
 _FORBIDDEN_FRAGMENTS = (
     "DATABASE_URL=",
     "BOT_TOKEN=",
@@ -160,9 +158,7 @@ def _write_valid_fixture(base_dir: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    (
-        base_dir / ".github" / "workflows" / "backend-postgres-mvp-smoke-validation.yml"
-    ).write_text(
+    (base_dir / ".github" / "workflows" / "backend-postgres-mvp-smoke-validation.yml").write_text(
         "name: backend-postgres-mvp-smoke-validation\n",
         encoding="utf-8",
     )

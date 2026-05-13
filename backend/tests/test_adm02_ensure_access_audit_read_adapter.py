@@ -78,9 +78,7 @@ def test_read_by_correlation_id_uses_bounded_query_and_maps_safe_fields() -> Non
     conn = _Conn()
     adapter = Adm02PostgresEnsureAccessAuditReadAdapter(_Pool(conn))
     result = _run(
-        adapter.read_ensure_access_audit_evidence(
-            Adm02EnsureAccessAuditReadQuery(correlation_id="a" * 32, limit=7)
-        )
+        adapter.read_ensure_access_audit_evidence(Adm02EnsureAccessAuditReadQuery(correlation_id="a" * 32, limit=7))
     )
     assert len(result.items) == 1
     item = result.items[0]
@@ -104,11 +102,7 @@ def test_recent_query_uses_default_limit_when_non_positive() -> None:
 
     conn = _Conn()
     adapter = Adm02PostgresEnsureAccessAuditReadAdapter(_Pool(conn))
-    _run(
-        adapter.read_ensure_access_audit_evidence(
-            Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=0)
-        )
-    )
+    _run(adapter.read_ensure_access_audit_evidence(Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=0)))
     assert conn.calls[0][1] == (20,)
 
 
@@ -123,11 +117,7 @@ def test_recent_query_clamps_to_hard_max_limit() -> None:
 
     conn = _Conn()
     adapter = Adm02PostgresEnsureAccessAuditReadAdapter(_Pool(conn))
-    _run(
-        adapter.read_ensure_access_audit_evidence(
-            Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=500)
-        )
-    )
+    _run(adapter.read_ensure_access_audit_evidence(Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=500)))
     assert conn.calls[0][1] == (100,)
 
 
@@ -139,12 +129,7 @@ def test_database_failure_wrapped_without_sensitive_leak() -> None:
 
     adapter = Adm02PostgresEnsureAccessAuditReadAdapter(_Pool(_Conn()))
     with pytest.raises(PersistenceDependencyError) as exc:
-        _run(
-            adapter.read_ensure_access_audit_evidence(
-                Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=5)
-            )
-        )
+        _run(adapter.read_ensure_access_audit_evidence(Adm02EnsureAccessAuditReadQuery(correlation_id=None, limit=5)))
     lowered = str(exc.value).lower()
     for forbidden in _FORBIDDEN:
         assert forbidden not in lowered
-

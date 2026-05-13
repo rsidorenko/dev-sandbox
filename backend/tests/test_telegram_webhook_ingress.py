@@ -52,7 +52,7 @@ class _StubRawClient:
 
 
 def _build_runtime():
-    client = cast(TelegramRawPollingClient, _StubRawClient())
+    client = cast("TelegramRawPollingClient", _StubRawClient())
     bundle = build_slice1_in_memory_raw_runtime_bundle_with_default_bridge(
         client,
         composition=build_slice1_composition(),
@@ -209,7 +209,7 @@ async def test_rejected_does_not_touch_dedup_guard() -> None:
     secret = _secret_for_tests()
     settings = TelegramWebhookIngressSettings(expected_secret=secret)
     runtime = _build_runtime()
-    composition = runtime._inner._composition  # noqa: SLF001
+    composition = runtime._inner._composition
     app = create_slice1_telegram_webhook_starlette_app(runtime, settings=settings)
 
     spy = AsyncMock(wraps=composition.telegram_update_dedup.mark_if_first_seen)
@@ -422,7 +422,7 @@ async def test_first_mutating_update_dispatches_once_and_writes_dedup() -> None:
     settings = TelegramWebhookIngressSettings(expected_secret=secret)
     runtime = _build_runtime()
     app = create_slice1_telegram_webhook_starlette_app(runtime, settings=settings)
-    composition = runtime._composition  # noqa: SLF001
+    composition = runtime._composition
     dedup_spy = AsyncMock(wraps=composition.telegram_update_dedup.mark_if_first_seen)
     composition.telegram_update_dedup.mark_if_first_seen = dedup_spy  # type: ignore[method-assign]
     dispatch_spy = AsyncMock()
@@ -475,7 +475,7 @@ async def test_missing_or_malformed_update_id_rejects_without_dedup_or_dispatch(
     settings = TelegramWebhookIngressSettings(expected_secret=secret)
     runtime = _build_runtime()
     app = create_slice1_telegram_webhook_starlette_app(runtime, settings=settings)
-    composition = runtime._composition  # noqa: SLF001
+    composition = runtime._composition
     dedup_spy = AsyncMock(wraps=composition.telegram_update_dedup.mark_if_first_seen)
     composition.telegram_update_dedup.mark_if_first_seen = dedup_spy  # type: ignore[method-assign]
     dispatch_spy = AsyncMock()

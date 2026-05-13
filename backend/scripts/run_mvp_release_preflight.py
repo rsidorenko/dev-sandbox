@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 _FORBIDDEN_OUTPUT_FRAGMENTS = (
     "database_url",

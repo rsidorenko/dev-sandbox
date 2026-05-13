@@ -127,13 +127,15 @@ def _literal_fragments_from_expr(node: ast.AST) -> list[str]:
     fragments: list[str] = []
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         fragments.append(node.value)
-    elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+    elif isinstance(node, ast.List | ast.Tuple | ast.Set):
         for elt in node.elts:
             fragments.extend(_literal_fragments_from_expr(elt))
     elif isinstance(node, ast.JoinedStr):
-        for value in node.values:
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                fragments.append(value.value)
+        fragments.extend(
+            value.value  # type: ignore[union-attr]
+            for value in node.values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        )
     return fragments
 
 
@@ -171,9 +173,7 @@ def test_release_helper_scripts_have_no_forbidden_secret_like_assignment_fragmen
     for rel_path in _SCRIPT_RELATIVE_PATHS:
         body = _read_script(rel_path)
         lowered_runtime_fragments = " ".join(_runtime_emission_fragments(body)).lower()
-        non_safe_literal_blob = " ".join(
-            node.value for node in _string_nodes_outside_safe_containers(body)
-        ).lower()
+        non_safe_literal_blob = " ".join(node.value for node in _string_nodes_outside_safe_containers(body)).lower()
         for forbidden in _FORBIDDEN_FRAGMENTS:
             normalized = forbidden.lower()
             assert normalized not in lowered_runtime_fragments

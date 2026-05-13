@@ -19,9 +19,7 @@ def _run_stage(command: Sequence[str]) -> None:
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run local MVP release readiness checks (safe default path)."
-    )
+    parser = argparse.ArgumentParser(description="Run local MVP release readiness checks (safe default path).")
     parser.add_argument(
         "--config-profile",
         choices=_ALLOWED_CONFIG_PROFILES,

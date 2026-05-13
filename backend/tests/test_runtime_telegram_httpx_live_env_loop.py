@@ -18,10 +18,10 @@ from app.runtime.live_loop import LoopControl, Slice1LiveRawPollingLoop
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -89,7 +89,7 @@ class _FixedOverrideTimeoutPolicy:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: Literal["noop"] = "noop"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
@@ -216,17 +216,19 @@ def test_uses_build_from_env() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_loop_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     side_effect=spy,
-                ):
-                    await env_loop_mod.run_slice1_httpx_live_until_stopped_from_env(
-                        LoopControl(),
-                        client=ac,
-                        max_iterations=0,
-                    )
+                ),
+            ):
+                await env_loop_mod.run_slice1_httpx_live_until_stopped_from_env(
+                    LoopControl(),
+                    client=ac,
+                    max_iterations=0,
+                )
             assert len(calls) == 1
             assert calls[0]["client"] is ac
             assert calls[0]["polling_policy"] is DEFAULT_POLLING_POLICY
@@ -253,18 +255,20 @@ def test_custom_polling_policy_identity_on_app_client() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_loop_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     side_effect=spy,
-                ):
-                    await env_loop_mod.run_slice1_httpx_live_until_stopped_from_env(
-                        LoopControl(),
-                        client=ac,
-                        max_iterations=0,
-                        polling_policy=custom,
-                    )
+                ),
+            ):
+                await env_loop_mod.run_slice1_httpx_live_until_stopped_from_env(
+                    LoopControl(),
+                    client=ac,
+                    max_iterations=0,
+                    polling_policy=custom,
+                )
             assert len(captured) == 1
             assert captured[0] is custom
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -20,9 +21,9 @@ from app.bot_transport.outbound import (
 from app.bot_transport.presentation import TransportSafeResponse
 from app.bot_transport.service import handle_slice1_telegram_update
 from app.bot_transport.storefront_ui import (
-    CB_ADD_DEVICE,
     CB_ADD_DEV,
     CB_ADD_DEV_BALANCE,
+    CB_ADD_DEVICE,
     CB_BALANCE,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
@@ -54,6 +55,7 @@ from app.bot_transport.storefront_ui import (
     text_add_device_intro,
     text_add_device_success,
     text_add_device_unavailable,
+    text_balance,
     text_balance_insufficient,
     text_balance_payment_success,
     text_buy_vpn_intro,
@@ -67,7 +69,6 @@ from app.bot_transport.storefront_ui import (
     text_payment_unavailable,
     text_purchase_summary,
     text_referral_program,
-    text_balance,
     text_remove_device_confirm,
     text_remove_device_success,
     text_router_soon,
@@ -80,7 +81,6 @@ from app.bot_transport.storefront_ui import (
 from app.domain.plans import get_plan, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
-
 
 # ─── User ID extraction ──────────────────────────────────────────────
 
@@ -124,12 +124,27 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 
-_CALLBACK_ONLY_STOREFRONT = frozenset({
-    CB_MAIN_MENU, CB_BUY_VPN, CB_MY_SUB, CB_MY_KEYS, CB_SUB_URL,
-    CB_REFERRAL, CB_BALANCE, CB_SETTINGS, CB_HELP, CB_ROUTER,
-    CB_ADD_DEVICE, CB_REMOVE_DEVICE, "add_device", "remove_device",
-    "store_plans", "store_success", "store_success_active",
-})
+_CALLBACK_ONLY_STOREFRONT = frozenset(
+    {
+        CB_MAIN_MENU,
+        CB_BUY_VPN,
+        CB_MY_SUB,
+        CB_MY_KEYS,
+        CB_SUB_URL,
+        CB_REFERRAL,
+        CB_BALANCE,
+        CB_SETTINGS,
+        CB_HELP,
+        CB_ROUTER,
+        CB_ADD_DEVICE,
+        CB_REMOVE_DEVICE,
+        "add_device",
+        "remove_device",
+        "store_plans",
+        "store_success",
+        "store_success_active",
+    }
+)
 
 
 def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
@@ -137,19 +152,24 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
         return True
     if is_callback and code in _CALLBACK_ONLY_STOREFRONT:
         return True
-    if is_callback and (
-        code.startswith(CB_PLAN)
-        or code.startswith(CB_DEVICES)
-        or code.startswith(CB_CONFIRM_PAY)
-        or code.startswith(CB_PAY_BALANCE)
-        or code.startswith(CB_DO_PAY)
-        or code.startswith(CB_ADD_DEV_BALANCE)
-        or code.startswith(CB_ADD_DEV)
-        or code.startswith("add_dev_pay:")
-        or code.startswith("remove_dev")
-    ):
-        return True
-    return False
+    return bool(
+        is_callback
+        and (
+            code.startswith(
+                (
+                    CB_PLAN,
+                    CB_DEVICES,
+                    CB_CONFIRM_PAY,
+                    CB_PAY_BALANCE,
+                    CB_DO_PAY,
+                    CB_ADD_DEV_BALANCE,
+                    CB_ADD_DEV,
+                    "add_dev_pay:",
+                    "remove_dev",
+                )
+            )
+        )
+    )
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -232,7 +252,6 @@ async def _process_balance_payment(
 
     from app.application.interfaces import SubscriptionSnapshot
     from app.domain.plans import calculate_total_price_kopecks
-    from app.domain.referral import build_commissions_for_payment
     from app.persistence.referral_contracts import ReferralTransactionRecord
 
     plan = get_plan(plan_id)
@@ -269,9 +288,13 @@ async def _process_balance_payment(
     new_month = ((new_month - 1) % 12) + 1
     max_day = calendar.monthrange(new_year, new_month)[1]
     active_until = base_date.replace(
-        year=new_year, month=new_month,
+        year=new_year,
+        month=new_month,
         day=min(base_date.day, max_day),
-        hour=0, minute=0, second=0, microsecond=0,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
     )
     await composition.snapshots.upsert_state(
         SubscriptionSnapshot(
@@ -284,10 +307,8 @@ async def _process_balance_payment(
     )
 
     if composition.vless_provider is not None:
-        try:
+        with contextlib.suppress(Exception):
             await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-        except Exception:
-            pass
 
     correlation_id = f"bal-pay-{uuid.uuid4()}"
     await composition.referral_transaction_repo.append_transaction(
@@ -444,7 +465,7 @@ async def _process_add_device_balance(
     if snap is None:
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
-    current = snap.device_count if snap.device_count else 5
+    current = snap.device_count or 5
     if new_count <= current:
         return text_add_device_intro(current), add_device_select_keyboard(current)
 
@@ -506,7 +527,9 @@ async def _render_remove_device(
     if current <= 5:
         plan_name = plan_display_name(snap.plan_id) if snap and snap.plan_id else None
         active_until = snap.active_until_utc.date().isoformat() if snap and snap.active_until_utc else None
-        return text_settings(True, plan_name=plan_name, device_count=current, active_until=active_until), settings_keyboard(True, current)
+        return text_settings(
+            True, plan_name=plan_name, device_count=current, active_until=active_until
+        ), settings_keyboard(True, current)
 
     new_count = max(5, current - 1)
     text = text_remove_device_confirm(current, new_count)
@@ -531,11 +554,13 @@ async def _process_remove_device(
     if snap is None:
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
-    current = snap.device_count if snap.device_count else 5
+    current = snap.device_count or 5
     if new_count >= current or new_count < 5:
         plan_name = plan_display_name(snap.plan_id) if snap.plan_id else None
         active_until = snap.active_until_utc.date().isoformat() if snap.active_until_utc else None
-        return text_settings(True, plan_name=plan_name, device_count=current, active_until=active_until), settings_keyboard(True, current)
+        return text_settings(
+            True, plan_name=plan_name, device_count=current, active_until=active_until
+        ), settings_keyboard(True, current)
 
     await composition.snapshots.upsert_state(
         SubscriptionSnapshot(
@@ -593,6 +618,7 @@ async def _render_storefront_response(
         has_sub = await _has_active_subscription(composition, uid)
         if has_sub and uid is not None and composition.vless_provider is not None:
             from app.issuance.vless_provider import VlessProviderOutcome
+
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
                 vless_result = await composition.vless_provider.get_user_config(
@@ -612,7 +638,8 @@ async def _render_storefront_response(
 
     elif code == CB_REFERRAL:
         if uid is not None and composition.bot_username:
-            from app.application.referral_handler import get_referral_info, ReferralInfo
+            from app.application.referral_handler import ReferralInfo, get_referral_info
+
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
                 info = await get_referral_info(
@@ -624,18 +651,26 @@ async def _render_storefront_response(
                 )
                 text, keyboard = text_referral_program(info), back_only_keyboard(CB_MAIN_MENU)
             else:
-                text, keyboard = text_referral_program(
-                    ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
-                ), back_only_keyboard(CB_MAIN_MENU)
+                text, keyboard = (
+                    text_referral_program(
+                        ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                    ),
+                    back_only_keyboard(CB_MAIN_MENU),
+                )
         else:
             from app.application.referral_handler import ReferralInfo
-            text, keyboard = text_referral_program(
-                ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
-            ), back_only_keyboard(CB_MAIN_MENU)
+
+            text, keyboard = (
+                text_referral_program(
+                    ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                ),
+                back_only_keyboard(CB_MAIN_MENU),
+            )
 
     elif code == CB_BALANCE:
         if uid is not None:
-            from app.application.referral_handler import get_referral_balance, ReferralBalanceInfo
+            from app.application.referral_handler import ReferralBalanceInfo, get_referral_balance
+
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
                 bal = await get_referral_balance(
@@ -644,10 +679,17 @@ async def _render_storefront_response(
                 )
                 text, keyboard = text_balance(bal), balance_keyboard()
             else:
-                text, keyboard = text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)), balance_keyboard()
+                text, keyboard = (
+                    text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)),
+                    balance_keyboard(),
+                )
         else:
             from app.application.referral_handler import ReferralBalanceInfo
-            text, keyboard = text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)), balance_keyboard()
+
+            text, keyboard = (
+                text_balance(ReferralBalanceInfo(balance_rubles=0.0, balance_kopecks=0)),
+                balance_keyboard(),
+            )
 
     elif code == CB_SETTINGS:
         has_sub = await _has_active_subscription(composition, uid)
@@ -664,22 +706,25 @@ async def _render_storefront_response(
                         plan_name = plan_display_name(snap.plan_id)
                     if snap.active_until_utc is not None:
                         active_until = snap.active_until_utc.date().isoformat()
-        text, keyboard = text_settings(
-            has_sub,
-            plan_name=plan_name,
-            device_count=device_count,
-            active_until=active_until,
-        ), settings_keyboard(has_sub, device_count)
+        text, keyboard = (
+            text_settings(
+                has_sub,
+                plan_name=plan_name,
+                device_count=device_count,
+                active_until=active_until,
+            ),
+            settings_keyboard(has_sub, device_count),
+        )
 
     elif code.startswith(CB_PLAN):
-        plan_id = code[len(CB_PLAN):]
+        plan_id = code[len(CB_PLAN) :]
         plan = get_plan(plan_id)
         if plan is not None:
             text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, 5)
             keyboard = device_select_keyboard(plan_id, 5)
 
     elif code.startswith(CB_DEVICES):
-        parts = code[len(CB_DEVICES):].split(":")
+        parts = code[len(CB_DEVICES) :].split(":")
         plan_id = parts[0] if parts else ""
         device_count = int(parts[1]) if len(parts) > 1 else 5
         plan = get_plan(plan_id)
@@ -688,7 +733,7 @@ async def _render_storefront_response(
             keyboard = device_select_keyboard(plan_id, device_count)
 
     elif code.startswith(CB_CONFIRM_PAY):
-        parts = code[len(CB_CONFIRM_PAY):].split(":")
+        parts = code[len(CB_CONFIRM_PAY) :].split(":")
         plan_id = parts[0] if parts else ""
         device_count = int(parts[1]) if len(parts) > 1 else 5
         summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
@@ -698,6 +743,7 @@ async def _render_storefront_response(
                 id_rec = await composition.identity.find_by_telegram_user_id(uid)
                 if id_rec is not None:
                     from app.application.referral_handler import get_referral_balance
+
                     bal = await get_referral_balance(
                         internal_user_id=id_rec.internal_user_id,
                         balance_repo=composition.referral_balance_repo,
@@ -705,7 +751,8 @@ async def _render_storefront_response(
                     user_balance_kopecks = bal.balance_kopecks
             text = text_purchase_summary(summary)
             keyboard = confirm_pay_keyboard(
-                plan_id, device_count,
+                plan_id,
+                device_count,
                 balance_kopecks=user_balance_kopecks,
                 total_kopecks=summary.total_price_rubles * 100,
             )
@@ -718,18 +765,21 @@ async def _render_storefront_response(
         keyboard = back_only_keyboard(CB_BUY_VPN)
 
     elif code.startswith(CB_PAY_BALANCE):
-        parts = code[len(CB_PAY_BALANCE):].split(":")
+        parts = code[len(CB_PAY_BALANCE) :].split(":")
         plan_id = parts[0] if parts else ""
         device_count = int(parts[1]) if len(parts) > 1 else 5
         text, keyboard = await _process_balance_payment(
-            composition, uid, plan_id=plan_id, device_count=device_count,
+            composition,
+            uid,
+            plan_id=plan_id,
+            device_count=device_count,
         )
 
     elif code in (CB_ADD_DEVICE, "add_device"):
         text, keyboard = await _render_add_device_intro(composition, uid)
 
     elif code.startswith(CB_ADD_DEV_BALANCE):
-        new_count_str = code[len(CB_ADD_DEV_BALANCE):]
+        new_count_str = code[len(CB_ADD_DEV_BALANCE) :]
         try:
             new_count = int(new_count_str)
             text, keyboard = await _process_add_device_balance(composition, uid, new_count)
@@ -738,7 +788,7 @@ async def _render_storefront_response(
             keyboard = back_only_keyboard(CB_SETTINGS)
 
     elif code.startswith(CB_ADD_DEV):
-        remainder = code[len(CB_ADD_DEV):]
+        remainder = code[len(CB_ADD_DEV) :]
         if remainder.startswith("confirm:"):
             new_count = int(remainder.split(":")[1])
             text, keyboard = await _render_add_device_confirm(composition, uid, new_count)
@@ -762,7 +812,7 @@ async def _render_storefront_response(
         text, keyboard = await _render_remove_device(composition, uid)
 
     elif code.startswith("remove_dev_confirm:"):
-        new_count_str = code[len("remove_dev_confirm:"):]
+        new_count_str = code[len("remove_dev_confirm:") :]
         try:
             new_count = int(new_count_str)
             text, keyboard = await _process_remove_device(composition, uid, new_count)

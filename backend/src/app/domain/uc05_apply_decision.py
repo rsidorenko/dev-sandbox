@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from app.domain.billing_apply_rules import (
     UC05_ALLOWLISTED_EVENT_TYPES,
@@ -20,7 +20,7 @@ from app.persistence.billing_subscription_apply_contracts import (
 from app.shared.types import SubscriptionSnapshotState
 
 
-class UC05ApplyPath(str, Enum):
+class UC05ApplyPath(StrEnum):
     """Результирующий путь перед персистентной записью (обработчик маппит на исходы операций)."""
 
     FACT_NOT_FOUND = "fact_not_found"
@@ -58,9 +58,7 @@ def first_time_decision(
     if st is not BillingEventLedgerStatus.ACCEPTED:
         return UC05PersistInstruction(
             internal_fact_ref=fact.internal_fact_ref,
-            record_internal_user_id=UC05_NO_USER_SENTINEL
-            if fact.internal_user_id is None
-            else fact.internal_user_id,
+            record_internal_user_id=UC05_NO_USER_SENTINEL if fact.internal_user_id is None else fact.internal_user_id,
             apply_outcome=BillingSubscriptionApplyOutcome.NO_ACTIVATION,
             reason=BillingSubscriptionApplyReason.LEDGER_STATUS_NOT_ACCEPTED,
             snapshot_state_label=None,
