@@ -52,12 +52,24 @@ def extract_eligible_private_chat_id_from_telegram_like_update(
     """
     Извлечение исходящего chat id с fail-closed для slice 1.
 
-    Валидирует только структурную идентичность приватного чата (приватный ``message.chat``, стабильные id,
-    ``from.id`` совпадает с ``chat.id``). Не интерпретирует команды и не дублирует
-    разрешённый список команд slice 1; некорректные или неприватные формы возвращают ``None``.
+    Поддерживает message (текстовые команды) и callback_query (inline-кнопки).
+    Валидирует только структурную идентичность приватного чата.
     """
     if not isinstance(update, Mapping):
         return None
+
+    # Handle callback_query (inline button presses)
+    cq = update.get("callback_query")
+    if isinstance(cq, Mapping):
+        from_user = cq.get("from")
+        if not isinstance(from_user, Mapping):
+            return None
+        try:
+            return validate_telegram_user_id(from_user.get("id"))
+        except (ValidationError, TypeError):
+            return None
+
+    # Handle regular message
     message = update.get("message")
     if not isinstance(message, Mapping):
         return None
