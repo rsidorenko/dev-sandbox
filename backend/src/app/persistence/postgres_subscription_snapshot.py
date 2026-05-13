@@ -42,13 +42,15 @@ class PostgresSubscriptionSnapshotReader:
             async with self._pool.acquire() as conn:
                 await conn.execute(
                     """
-                    INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc)
-                    VALUES ($1::text, $2::text, $3::timestamptz)
+                    INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count)
+                    VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5))
                     ON CONFLICT (internal_user_id) DO NOTHING
                     """,
                     snapshot.internal_user_id,
                     snapshot.state_label,
                     snapshot.active_until_utc,
+                    snapshot.plan_id,
+                    snapshot.device_count,
                 )
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc

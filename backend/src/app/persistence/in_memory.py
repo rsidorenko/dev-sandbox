@@ -299,6 +299,16 @@ class InMemoryReferralTransactionRepository:
         async with self._lock:
             self._transactions.append(record)
 
+    async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool:
+        async with self._lock:
+            if any(
+                t.internal_user_id == record.internal_user_id and t.description == record.description
+                for t in self._transactions
+            ):
+                return False
+            self._transactions.append(record)
+            return True
+
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]:
         async with self._lock:
             user_tx = [t for t in self._transactions if t.internal_user_id == internal_user_id]

@@ -81,7 +81,7 @@ def test_balance_payment_records_debit_transaction():
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=10))
     debit_txs = [t for t in txs if t.transaction_type == "subscription_payment"]
     assert len(debit_txs) == 1
-    assert debit_txs[0].amount_kopecks == 300_00
+    assert debit_txs[0].amount_kopecks == -300_00  # дебет (списание) = отрицательное значение
     assert debit_txs[0].related_plan_id == "1m"
 
 

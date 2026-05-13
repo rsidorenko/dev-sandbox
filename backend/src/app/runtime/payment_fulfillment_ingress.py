@@ -23,6 +23,7 @@ from app.application.billing_ingestion import NormalizedBillingFactInput
 from app.application.interfaces import SubscriptionSnapshot
 from app.bot_transport.message_catalog import render_telegram_outbound_plan
 from app.bot_transport.outbound import build_fulfillment_success_notification_plan
+from app.domain.plans import DEFAULT_DEVICE_LIMIT, get_plan
 from app.persistence.billing_events_ledger_contracts import BillingEventLedgerStatus
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
@@ -392,9 +393,9 @@ async def _send_activation_notice_best_effort(
 
 
 def _plan_id_from_period_days(period_days: int) -> str:
-    if period_days <= 31:
+    if period_days <= 30:
         return "1m"
-    if period_days <= 93:
+    if period_days <= 90:
         return "3m"
     return "6m"
 
@@ -444,11 +445,6 @@ async def _process_referral_commissions_best_effort(
 
         for comm in commissions:
             dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}"
-            existing = await tx_repo.list_by_user(comm.referrer_user_id, limit=100)
-            if any(t.description == dedup_desc for t in existing):
-                continue
-
-            await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
             tx_record = ReferralTransactionRecord(
                 transaction_id=f"ref-{uuid.uuid4()}",
                 internal_user_id=comm.referrer_user_id,
@@ -459,7 +455,9 @@ async def _process_referral_commissions_best_effort(
                 description=dedup_desc,
                 created_at=datetime.now(UTC),
             )
-            await tx_repo.append_transaction(tx_record)
+            inserted = await tx_repo.append_transaction_if_description_absent(tx_record)
+            if inserted:
+                await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
     except Exception:
         return
 
@@ -579,7 +577,7 @@ def create_payment_fulfillment_ingress_app(
                         state_label="active",
                         active_until_utc=active_until_utc,
                         plan_id=snapshot_plan_id,
-                        device_count=5,
+                        device_count=DEFAULT_DEVICE_LIMIT,
                     )
                 )
                 if (
@@ -606,8 +604,6 @@ def create_payment_fulfillment_ingress_app(
                     and not apply_result.idempotent_replay
                     and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
                 ):
-                    from app.domain.plans import get_plan
-
                     ref_plan_id = _plan_id_from_period_days(period_days)
                     ref_plan = get_plan(ref_plan_id)
                     if parsed.amount_kopecks is not None:
