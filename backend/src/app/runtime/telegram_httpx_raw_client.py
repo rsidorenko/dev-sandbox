@@ -17,7 +17,7 @@ from app.runtime.polling_policy import (
     PollingTimeoutDecision,
 )
 
-_DEFAULT_OWNED_ASYNC_CLIENT_TIMEOUT = httpx.Timeout(30.0)
+_DEFAULT_OWNED_ASYNC_CLIENT_TIMEOUT = httpx.Timeout(35.0)
 
 
 def _default_base_url(bot_token: str) -> str:
@@ -100,7 +100,7 @@ class HttpxTelegramRawPollingClient:
     ) -> Sequence[object]:
         td = self._polling_policy.timeout.timeout_for_request(LONG_POLL_FETCH_REQUEST)
         post_kw = _httpx_post_timeout_kwargs(td)
-        body: dict[str, Any] = {"limit": limit}
+        body: dict[str, Any] = {"limit": limit, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
         if offset is not None:
             body["offset"] = offset
         response = await self._client.post(f"{self._base}getUpdates", json=body, **post_kw)
