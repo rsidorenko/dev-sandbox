@@ -69,6 +69,7 @@ _ALLOWED_FIELDS = frozenset(
         "metadata",
         "period_days",
         "paid_at",
+        "amount_kopecks",
     }
 )
 
@@ -193,6 +194,7 @@ class FulfillmentEventPayload:
     client_reference_proof: str | None
     period_days: int | None
     paid_at: datetime
+    amount_kopecks: int | None = None
 
 
 def load_fulfillment_ingress_settings_from_env() -> FulfillmentIngressSettings | None:
@@ -299,6 +301,14 @@ def _parse_event_payload(raw_body: bytes) -> FulfillmentEventPayload:
     if period_days is not None:
         period_days = _parse_period_days(period_days)
     paid_at = _parse_iso_timestamp(payload.get("paid_at"), field_name="paid_at")
+    raw_amount = payload.get("amount_kopecks")
+    amount_kopecks = None
+    if raw_amount is not None:
+        if isinstance(raw_amount, bool) or not isinstance(raw_amount, int):
+            raise ValidationError("amount_kopecks must be an integer")
+        if raw_amount <= 0:
+            raise ValidationError("amount_kopecks must be positive")
+        amount_kopecks = raw_amount
     return FulfillmentEventPayload(
         external_event_id=external_event_id,
         external_payment_id=external_payment_id,
@@ -307,6 +317,7 @@ def _parse_event_payload(raw_body: bytes) -> FulfillmentEventPayload:
         client_reference_proof=client_reference_proof.strip() if isinstance(client_reference_proof, str) else None,
         period_days=period_days,
         paid_at=paid_at,
+        amount_kopecks=amount_kopecks,
     )
 
 
@@ -433,14 +444,9 @@ async def _process_referral_commissions_best_effort(
         )
 
         for comm in commissions:
+            dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}"
             existing = await tx_repo.list_by_user(comm.referrer_user_id, limit=100)
-            if any(
-                t.transaction_type == "referral_credit"
-                and t.related_user_id == comm.payer_user_id
-                and t.related_plan_id == comm.plan_id
-                and t.description == f"level {comm.level} commission"
-                for t in existing
-            ):
+            if any(t.description == dedup_desc for t in existing):
                 continue
 
             await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
@@ -451,7 +457,7 @@ async def _process_referral_commissions_best_effort(
                 transaction_type="referral_credit",
                 related_user_id=comm.payer_user_id,
                 related_plan_id=comm.plan_id,
-                description=f"level {comm.level} commission",
+                description=dedup_desc,
                 created_at=datetime.now(UTC),
             )
             await tx_repo.append_transaction(tx_record)
@@ -604,7 +610,10 @@ def create_payment_fulfillment_ingress_app(
                     from app.domain.plans import get_plan
                     ref_plan_id = _plan_id_from_period_days(period_days)
                     ref_plan = get_plan(ref_plan_id)
-                    ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
+                    if parsed.amount_kopecks is not None:
+                        ref_amount_kopecks = parsed.amount_kopecks
+                    else:
+                        ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
                     await _process_referral_commissions_best_effort(
                         pool=pool,
                         payer_internal_user_id=internal_user_id,

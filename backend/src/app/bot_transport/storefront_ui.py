@@ -35,6 +35,7 @@ CB_DO_PAY = "do_pay:"
 CB_ADD_DEVICE = "add_device"
 CB_ADD_DEV = "add_dev:"
 CB_ADD_DEV_BALANCE = "add_dev_bal:"
+CB_REMOVE_DEVICE = "remove_device"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -103,23 +104,13 @@ def back_only_keyboard(callback: str = CB_MAIN_MENU) -> dict[str, Any]:
     return _inline_kb([[{"text": "↩️ Назад", "callback_data": callback}]])
 
 
-def settings_keyboard(has_subscription: bool) -> dict[str, Any]:
+def settings_keyboard(has_subscription: bool, device_count: int | None = None) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     if has_subscription:
-        rows.append([{"text": "➕ Добавить устройство (+80 ₽)", "callback_data": "add_device"}])
+        rows.append([{"text": "➕ Добавить устройство (+80 ₽)", "callback_data": CB_ADD_DEVICE}])
+        if device_count is not None and device_count > 5:
+            rows.append([{"text": "➖ Убрать устройство (до 5)", "callback_data": CB_REMOVE_DEVICE}])
     rows.append([{"text": "📶 Конфиг для роутера (Скоро)", "callback_data": CB_ROUTER}])
-    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
-    return _inline_kb(rows)
-
-
-def balance_pay_keyboard(balance_kopecks: int, plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
-    for p in plans:
-        price_k = p.price_rubles * 100
-        if balance_kopecks >= price_k:
-            rows.append([{"text": f"{p.display_name} ({p.price_rubles} ₽)", "callback_data": f"{CB_PAY_BALANCE}{p.plan_id}"}])
-    if not rows:
-        rows.append([{"text": "Недостаточно средств", "callback_data": "noop"}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
 
@@ -228,7 +219,14 @@ def text_referral_program(info: ReferralInfo) -> str:
 
 
 def text_balance(info: ReferralBalanceInfo) -> str:
-    return f"💰 Ваш баланс: {info.balance_rubles:.2f} ₽\n\nЭтими деньгами можно оплатить подписку."
+    return f"💰 Ваш баланс: {info.balance_rubles:.2f} ₽"
+
+
+def balance_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+    ])
 
 
 def text_settings(has_subscription: bool) -> str:
@@ -288,10 +286,6 @@ def text_balance_insufficient() -> str:
     return "❌ Недостаточно средств на балансе.\n\nПриглашайте друзей по реферальной ссылке, чтобы пополнить баланс."
 
 
-def text_balance_payment_error() -> str:
-    return "⚠️ Не удалось оплатить с баланса. Попробуйте позже."
-
-
 def add_device_select_keyboard(current: int) -> dict[str, Any]:
     rows = [
         [
@@ -348,3 +342,26 @@ def text_add_device_success(new_count: int) -> str:
 
 def text_add_device_unavailable() -> str:
     return "❌ У вас нет активной подписки.\n\nНажмите «🔑 Купить VPN» для оформления."
+
+
+def remove_device_keyboard(current: int) -> dict[str, Any]:
+    min_count = max(5, current - 1)
+    rows: list[list[dict[str, str]]] = []
+    rows.append([{"text": f"📱 Текущее: {current} → {min_count}", "callback_data": "noop"}])
+    if current > 5:
+        rows.append([{"text": f"✅ Подтвердить ({min_count} устройств)", "callback_data": f"remove_dev_confirm:{min_count}"}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_SETTINGS}])
+    return _inline_kb(rows)
+
+
+def text_remove_device_confirm(current: int, new_count: int) -> str:
+    return (
+        f"📱 Снижение устройств\n\n"
+        f"Текущее: {current}\n"
+        f"Новое: {new_count}\n\n"
+        f"Новое количество будет учтено при следующем продлении."
+    )
+
+
+def text_remove_device_success(new_count: int) -> str:
+    return f"✅ Готово! Теперь у вас {new_count} устройств."
