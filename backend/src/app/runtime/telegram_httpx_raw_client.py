@@ -154,3 +154,13 @@ class HttpxTelegramRawPollingClient:
         if type(mid) is not int:
             raise RuntimeError("telegram API sendMessage result missing message_id")
         return mid
+
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        """Call Telegram ``answerCallbackQuery`` to dismiss the inline button loading indicator."""
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        body: dict[str, Any] = {"callback_query_id": callback_query_id}
+        response = await self._client.post(f"{self._base}answerCallbackQuery", json=body, **post_kw)
+        response.raise_for_status()
+        data = _parse_json_object(response)
+        _raise_if_not_ok(data)

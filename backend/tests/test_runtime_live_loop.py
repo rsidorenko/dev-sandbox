@@ -56,6 +56,9 @@ class FakeTelegramPollingClient:
     ) -> int:
         return 1
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        pass
+
 
 def _raw_batch(**overrides: int) -> RawPollingBatchResult:
     base = dict(

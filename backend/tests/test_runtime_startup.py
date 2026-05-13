@@ -72,6 +72,9 @@ class FakeTelegramPollingClient:
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        pass
+
 
 def test_bundle_builds_with_fake_client() -> None:
     client = FakeTelegramPollingClient()

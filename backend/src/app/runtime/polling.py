@@ -52,6 +52,20 @@ class TelegramPollingClient(Protocol):
         """
         ...
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        """Dismiss the inline button loading indicator via Telegram ``answerCallbackQuery``."""
+        ...
+
+
+def _extract_callback_query_id(update: Mapping[str, Any]) -> str | None:
+    """Extract callback_query.id from a raw Telegram update (transport-level only)."""
+    cq = update.get("callback_query")
+    if isinstance(cq, Mapping):
+        cb_id = cq.get("id")
+        if isinstance(cb_id, str) and cb_id:
+            return cb_id
+    return None
+
 
 class Slice1PollingRuntime:
     """Thin batch/single-update runner over :func:`handle_slice1_telegram_update_to_runtime_action`."""
@@ -82,6 +96,7 @@ class Slice1PollingRuntime:
         send_fail = 0
         process_fail = 0
         for u in capped:
+            cb_qid = _extract_callback_query_id(u)
             try:
                 action = await handle_slice1_telegram_update_to_runtime_action(
                     u,
@@ -91,6 +106,11 @@ class Slice1PollingRuntime:
             except Exception:
                 process_fail += 1
                 continue
+            if cb_qid is not None:
+                try:
+                    await self._client.answer_callback_query(cb_qid)
+                except Exception:
+                    pass
             if action.kind is TelegramRuntimeActionKind.NOOP:
                 noop += 1
                 continue

@@ -105,6 +105,9 @@ class FakeTelegramRawPollingClient:
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        pass
+
 
 def test_one_raw_start_fetch_bridge_send_count_one() -> None:
     async def main() -> None:
