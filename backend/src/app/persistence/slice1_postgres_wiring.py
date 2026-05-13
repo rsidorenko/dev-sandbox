@@ -11,6 +11,7 @@ from app.application.bootstrap import Slice1Composition, build_slice1_compositio
 from app.application.telegram_access_resend import IssuanceCurrentStateRef
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
+from app.issuance.vless_provider import StubVlessProvider
 from app.persistence.postgres_audit import PostgresAuditAppender
 from app.persistence.postgres_idempotency import PostgresIdempotencyRepository
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
@@ -65,7 +66,10 @@ async def resolve_slice1_composition_for_runtime(
     When enabled, requires a non-empty postgres config.database_url; pool open failures propagate.
     """
     if not slice1_postgres_repos_requested():
-        return build_slice1_composition(), None
+        return build_slice1_composition(
+            bot_username=os.environ.get("BOT_USERNAME", ""),
+            vless_provider=StubVlessProvider(),
+        ), None
 
     dsn = (config.database_url or "").strip()
     if not dsn:
@@ -92,5 +96,7 @@ async def resolve_slice1_composition_for_runtime(
         referral_relationship_repo=PostgresReferralRelationshipRepository(pool),
         referral_balance_repo=PostgresReferralBalanceRepository(pool),
         referral_transaction_repo=PostgresReferralTransactionRepository(pool),
+        bot_username=os.environ.get("BOT_USERNAME", ""),
+        vless_provider=StubVlessProvider(),
     )
     return composition, pool
