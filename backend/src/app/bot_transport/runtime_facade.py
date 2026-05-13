@@ -47,6 +47,7 @@ from app.bot_transport.storefront_ui import (
     confirm_pay_keyboard,
     device_select_keyboard,
     main_menu_keyboard,
+    no_subscription_keyboard,
     remove_device_keyboard,
     settings_keyboard,
     text_add_device_confirm,
@@ -160,7 +161,7 @@ async def _render_subscription_status(
     cid: str,
 ) -> tuple[str, dict[str, Any] | None]:
     if uid is None:
-        return text_no_subscription(), back_only_keyboard(CB_BUY_VPN)
+        return text_no_subscription(), no_subscription_keyboard()
     from app.application.handlers import GetSubscriptionStatusInput
 
     result = await composition.get_status.handle(
@@ -183,8 +184,8 @@ async def _render_subscription_status(
                 device_count = snap.device_count
         return text_subscription_active(active_until, plan_name, device_count), main_menu_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
-        return text_subscription_expired(), back_only_keyboard(CB_BUY_VPN)
-    return text_no_subscription(), back_only_keyboard(CB_BUY_VPN)
+        return text_subscription_expired(), no_subscription_keyboard()
+    return text_no_subscription(), no_subscription_keyboard()
 
 
 async def _has_active_subscription(

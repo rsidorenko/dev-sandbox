@@ -104,6 +104,13 @@ def back_only_keyboard(callback: str = CB_MAIN_MENU) -> dict[str, Any]:
     return _inline_kb([[{"text": "↩️ Назад", "callback_data": callback}]])
 
 
+def no_subscription_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+    ])
+
+
 def settings_keyboard(has_subscription: bool, device_count: int | None = None) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     if has_subscription:
