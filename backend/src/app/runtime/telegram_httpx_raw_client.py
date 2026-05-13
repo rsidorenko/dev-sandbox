@@ -164,3 +164,23 @@ class HttpxTelegramRawPollingClient:
         response.raise_for_status()
         data = _parse_json_object(response)
         _raise_if_not_ok(data)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Call Telegram ``editMessageText`` to update an existing message in-place."""
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        body: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if reply_markup is not None:
+            body["reply_markup"] = dict(reply_markup)
+        response = await self._client.post(f"{self._base}editMessageText", json=body, **post_kw)
+        response.raise_for_status()
+        data = _parse_json_object(response)
+        _raise_if_not_ok(data)
+        return message_id
