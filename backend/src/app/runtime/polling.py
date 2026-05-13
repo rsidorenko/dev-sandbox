@@ -56,6 +56,20 @@ class TelegramPollingClient(Protocol):
         """Dismiss the inline button loading indicator via Telegram ``answerCallbackQuery``."""
         ...
 
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Update an existing message in-place via Telegram ``editMessageText``.
+
+        Returns the ``message_id`` of the edited message.
+        """
+        ...
+
 
 def _extract_callback_query_id(update: Mapping[str, Any]) -> str | None:
     """Extract callback_query.id from a raw Telegram update (transport-level only)."""
@@ -65,6 +79,24 @@ def _extract_callback_query_id(update: Mapping[str, Any]) -> str | None:
         if isinstance(cb_id, str) and cb_id:
             return cb_id
     return None
+
+
+def _extract_callback_origin_message(update: Mapping[str, Any]) -> tuple[int, int] | None:
+    """Extract (chat_id, message_id) of the original message a callback_query belongs to."""
+    cq = update.get("callback_query")
+    if not isinstance(cq, Mapping):
+        return None
+    msg = cq.get("message")
+    if not isinstance(msg, Mapping):
+        return None
+    chat = msg.get("chat")
+    if not isinstance(chat, Mapping):
+        return None
+    chat_id = chat.get("id")
+    message_id = msg.get("message_id")
+    if not isinstance(chat_id, int) or not isinstance(message_id, int):
+        return None
+    return chat_id, message_id
 
 
 class Slice1PollingRuntime:
@@ -97,6 +129,7 @@ class Slice1PollingRuntime:
         process_fail = 0
         for u in capped:
             cb_qid = _extract_callback_query_id(u)
+            cb_origin = _extract_callback_origin_message(u)
             try:
                 action = await handle_slice1_telegram_update_to_runtime_action(
                     u,
@@ -126,12 +159,29 @@ class Slice1PollingRuntime:
                 for text, markup in sends:
                     if not text.strip():
                         continue
-                    msg_id = await self._client.send_text_message(
-                        action.chat_id,
-                        text,
-                        correlation_id=action.correlation_id,
-                        reply_markup=markup,
-                    )
+                    if first and cb_origin is not None:
+                        origin_chat_id, origin_msg_id = cb_origin
+                        try:
+                            msg_id = await self._client.edit_message_text(
+                                origin_chat_id,
+                                origin_msg_id,
+                                text,
+                                reply_markup=markup,
+                            )
+                        except Exception:
+                            msg_id = await self._client.send_text_message(
+                                action.chat_id,
+                                text,
+                                correlation_id=action.correlation_id,
+                                reply_markup=markup,
+                            )
+                    else:
+                        msg_id = await self._client.send_text_message(
+                            action.chat_id,
+                            text,
+                            correlation_id=action.correlation_id,
+                            reply_markup=markup,
+                        )
                     if first and idem_key is not None:
                         await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)
                     first = False

@@ -55,6 +55,16 @@ class TelegramRawPollingClient(Protocol):
     async def answer_callback_query(self, callback_query_id: str) -> None:
         ...
 
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        ...
+
 
 def _mappings_for_offset(raw_updates: Sequence[object]) -> Sequence[Mapping[str, object]]:
     return tuple(cast(Mapping[str, object], u) for u in raw_updates if isinstance(u, Mapping))
@@ -94,6 +104,18 @@ class _PollingClientFromRaw:
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
         await self._raw.answer_callback_query(callback_query_id)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        return await self._raw.edit_message_text(
+            chat_id, message_id, text, reply_markup=reply_markup,
+        )
 
 
 class Slice1RawPollingRuntime:

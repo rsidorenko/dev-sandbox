@@ -67,6 +67,16 @@ class FakeTelegramPollingClient:
     async def answer_callback_query(self, callback_query_id: str) -> None:
         pass
 
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup=None,
+    ) -> int:
+        return message_id
+
 
 def test_two_valid_raw_updates_identity_bridge_aggregates_counters() -> None:
     async def main() -> None:
