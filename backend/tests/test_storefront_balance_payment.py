@@ -224,3 +224,95 @@ def test_remove_device_at_5_shows_settings():
     update = _callback_update(user_id=303, callback_data="remove_device")
     pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
     assert "Настройки подписки" in pkg.message_text
+
+
+# ─── Renewal and settings enrichment tests ────────────────────────────
+
+
+def test_balance_payment_extends_active_subscription():
+    """Renewal should extend from current active_until, not from now."""
+    c, uid = _make_composition_with_balance(user_id=400, balance_kopecks=2000_00)
+    from app.application.interfaces import SubscriptionSnapshot
+
+    # Set subscription active until 2026-06-15 (still in the future relative to test runtime)
+    existing_until = datetime(2026, 6, 15, 0, 0, 0, tzinfo=UTC)
+    _run(c.snapshots.upsert_state(SubscriptionSnapshot(
+        internal_user_id=uid, state_label="active",
+        active_until_utc=existing_until, plan_id="1m", device_count=5,
+    )))
+
+    update = _callback_update(user_id=400, callback_data="pay_balance:1m:5")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "реферального баланса" in pkg.message_text
+
+    snap = _run(c.snapshots.get_for_user(uid))
+    assert snap is not None
+    # Should extend from 2026-06-15 by 1 month → 2026-07-15
+    assert snap.active_until_utc is not None
+    assert snap.active_until_utc.year == 2026
+    assert snap.active_until_utc.month == 7
+    assert snap.active_until_utc.day == 15
+
+
+def test_balance_payment_new_subscription_starts_from_now():
+    """If no active subscription, active_until should be now + duration."""
+    c, uid = _make_composition_with_balance(user_id=401, balance_kopecks=500_00)
+    # No existing subscription
+    update = _callback_update(user_id=401, callback_data="pay_balance:1m:5")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "реферального баланса" in pkg.message_text
+
+    snap = _run(c.snapshots.get_for_user(uid))
+    assert snap is not None
+    assert snap.active_until_utc is not None
+    # Should be approximately 1 month from now
+    now = datetime.now(UTC)
+    delta = snap.active_until_utc - now
+    assert 25 * 86400 < delta.total_seconds() < 32 * 86400
+
+
+def test_balance_payment_extends_3m():
+    """3-month renewal extends from current active_until."""
+    c, uid = _make_composition_with_balance(user_id=402, balance_kopecks=2000_00)
+    from app.application.interfaces import SubscriptionSnapshot
+
+    existing_until = datetime(2026, 6, 15, 0, 0, 0, tzinfo=UTC)
+    _run(c.snapshots.upsert_state(SubscriptionSnapshot(
+        internal_user_id=uid, state_label="active",
+        active_until_utc=existing_until, plan_id="1m", device_count=5,
+    )))
+
+    update = _callback_update(user_id=402, callback_data="pay_balance:3m:5")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "реферального баланса" in pkg.message_text
+
+    snap = _run(c.snapshots.get_for_user(uid))
+    assert snap.active_until_utc.year == 2026
+    assert snap.active_until_utc.month == 9
+    assert snap.active_until_utc.day == 15
+
+
+def test_settings_shows_tariff_devices_expiry():
+    """Settings page should display tariff name, device count, and expiry date."""
+    c, uid = _make_composition_with_balance(user_id=500, balance_kopecks=0)
+    from app.application.interfaces import SubscriptionSnapshot
+
+    _run(c.snapshots.upsert_state(SubscriptionSnapshot(
+        internal_user_id=uid, state_label="active",
+        active_until_utc=_FUTURE_DATE, plan_id="3m", device_count=7,
+    )))
+
+    update = _callback_update(user_id=500, callback_data="subscription_settings")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "3 месяца" in pkg.message_text
+    assert "7" in pkg.message_text
+    assert "2099" in pkg.message_text
+    assert "Настройки подписки" in pkg.message_text
+
+
+def test_settings_no_subscription():
+    """Settings page without active subscription."""
+    c, _ = _make_composition_with_balance(user_id=501, balance_kopecks=0)
+    update = _callback_update(user_id=501, callback_data="subscription_settings")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "нет активной подписки" in pkg.message_text

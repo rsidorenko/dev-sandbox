@@ -229,9 +229,22 @@ def balance_keyboard() -> dict[str, Any]:
     ])
 
 
-def text_settings(has_subscription: bool) -> str:
+def text_settings(
+    has_subscription: bool,
+    *,
+    plan_name: str | None = None,
+    device_count: int | None = None,
+    active_until: str | None = None,
+) -> str:
     lines = ["⚙️ Настройки подписки\n"]
     if has_subscription:
+        if plan_name:
+            lines.append(f"📦 Тариф: {plan_name}")
+        if device_count is not None:
+            lines.append(f"📱 Устройств: {device_count}")
+        if active_until:
+            lines.append(f"📅 Действует до: {active_until}")
+        lines.append("")
         lines.append("Здесь можно изменить параметры подписки.")
     else:
         lines.append("У вас нет активной подписки.")

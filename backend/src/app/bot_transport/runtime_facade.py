@@ -255,13 +255,21 @@ async def _process_balance_payment(
         return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
 
     now = datetime.now(UTC)
-    new_month = now.month + plan.duration_months
-    new_year = now.year + (new_month - 1) // 12
+    existing_snap = await composition.snapshots.get_for_user(internal_user_id)
+    base_date = now
+    if (
+        existing_snap is not None
+        and existing_snap.active_until_utc is not None
+        and existing_snap.active_until_utc > now
+    ):
+        base_date = existing_snap.active_until_utc
+    new_month = base_date.month + plan.duration_months
+    new_year = base_date.year + (new_month - 1) // 12
     new_month = ((new_month - 1) % 12) + 1
     max_day = calendar.monthrange(new_year, new_month)[1]
-    active_until = now.replace(
+    active_until = base_date.replace(
         year=new_year, month=new_month,
-        day=min(now.day, max_day),
+        day=min(base_date.day, max_day),
         hour=0, minute=0, second=0, microsecond=0,
     )
     await composition.snapshots.upsert_state(
@@ -495,7 +503,9 @@ async def _render_remove_device(
     current = snap.device_count if snap and snap.device_count else 5
 
     if current <= 5:
-        return text_settings(True), settings_keyboard(True, current)
+        plan_name = plan_display_name(snap.plan_id) if snap and snap.plan_id else None
+        active_until = snap.active_until_utc.date().isoformat() if snap and snap.active_until_utc else None
+        return text_settings(True, plan_name=plan_name, device_count=current, active_until=active_until), settings_keyboard(True, current)
 
     new_count = max(5, current - 1)
     text = text_remove_device_confirm(current, new_count)
@@ -522,7 +532,9 @@ async def _process_remove_device(
 
     current = snap.device_count if snap.device_count else 5
     if new_count >= current or new_count < 5:
-        return text_settings(True), settings_keyboard(True, current)
+        plan_name = plan_display_name(snap.plan_id) if snap.plan_id else None
+        active_until = snap.active_until_utc.date().isoformat() if snap.active_until_utc else None
+        return text_settings(True, plan_name=plan_name, device_count=current, active_until=active_until), settings_keyboard(True, current)
 
     await composition.snapshots.upsert_state(
         SubscriptionSnapshot(
@@ -639,13 +651,24 @@ async def _render_storefront_response(
     elif code == CB_SETTINGS:
         has_sub = await _has_active_subscription(composition, uid)
         device_count = None
+        plan_name = None
+        active_until = None
         if has_sub and uid is not None:
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
                 snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
                 if snap is not None:
                     device_count = snap.device_count
-        text, keyboard = text_settings(has_sub), settings_keyboard(has_sub, device_count)
+                    if snap.plan_id:
+                        plan_name = plan_display_name(snap.plan_id)
+                    if snap.active_until_utc is not None:
+                        active_until = snap.active_until_utc.date().isoformat()
+        text, keyboard = text_settings(
+            has_sub,
+            plan_name=plan_name,
+            device_count=device_count,
+            active_until=active_until,
+        ), settings_keyboard(has_sub, device_count)
 
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN):]
