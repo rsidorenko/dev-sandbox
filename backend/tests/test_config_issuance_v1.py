@@ -193,12 +193,8 @@ async def test_issue_idempotency_no_duplicate_provider() -> None:
     p = FakeIssuanceProvider(FakeProviderMode.SUCCESS)
     svc = IssuanceService(p)
     ikey = "idem-issue-same"
-    a = await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
-    b = await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    a = await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
+    b = await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     assert a.category is IssuanceOutcomeCategory.ISSUED
     assert b.category is IssuanceOutcomeCategory.ALREADY_ISSUED
     assert a.safe_ref == b.safe_ref
@@ -295,9 +291,7 @@ async def test_revoke_second_idempotency_key_ledger_only() -> None:
     p = FakeIssuanceProvider(FakeProviderMode.SUCCESS)
     svc = IssuanceService(p)
     ikey = "k-rev-2"
-    await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     await svc.execute(
         _req(
             op=IssuanceOperationType.REVOKE,
@@ -328,9 +322,7 @@ async def test_resend_fails_if_revoked() -> None:
     p = FakeIssuanceProvider(FakeProviderMode.SUCCESS)
     svc = IssuanceService(p)
     ikey = "k-rev-deny-resend"
-    await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     await svc.execute(
         _req(
             op=IssuanceOperationType.REVOKE,

@@ -8,7 +8,7 @@ from app.admin_support.adm01_subscription_state_mapping import (
     Adm01SnapshotStateKind,
     classify_adm01_subscription_snapshot,
 )
-from app.admin_support.contracts import AdminPolicyFlag, Adm01PolicyReadPort
+from app.admin_support.contracts import Adm01PolicyReadPort, AdminPolicyFlag
 from app.application.interfaces import SubscriptionSnapshot
 
 

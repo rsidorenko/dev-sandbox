@@ -7,14 +7,14 @@ from dataclasses import replace
 
 from app.admin_support.adm01_lookup import Adm01LookupHandler
 from app.admin_support.contracts import (
-    AdminActorRef,
-    AdminPolicyFlag,
     Adm01LookupInput,
     Adm01LookupOutcome,
     Adm01LookupSummary,
+    Adm01SubscriptionStatusSummary,
     Adm01SupportAccessReadinessBucket,
     Adm01SupportNextAction,
-    Adm01SubscriptionStatusSummary,
+    AdminActorRef,
+    AdminPolicyFlag,
     EntitlementSummary,
     EntitlementSummaryCategory,
     InternalUserTarget,
@@ -171,10 +171,7 @@ def test_adm01_lookup_success() -> None:
             r.summary.support_readiness.access_readiness_bucket
             is Adm01SupportAccessReadinessBucket.NOT_APPLICABLE_NO_ACTIVE_SUBSCRIPTION
         )
-        assert (
-            r.summary.support_readiness.recommended_next_action
-            is Adm01SupportNextAction.INVESTIGATE_BILLING_APPLY
-        )
+        assert r.summary.support_readiness.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_BILLING_APPLY
         assert reads.calls == ["sub", "ent", "iss"]
         assert policy.calls == ["policy"]
 
@@ -360,10 +357,7 @@ def test_adm01_lookup_policy_exception_dependency_failure_redaction_skipped() ->
             r.summary.support_readiness.access_readiness_bucket
             is Adm01SupportAccessReadinessBucket.UNKNOWN_DUE_TO_INTERNAL_ERROR
         )
-        assert (
-            r.summary.support_readiness.recommended_next_action
-            is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
-        )
+        assert r.summary.support_readiness.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
         assert reads.calls == ["sub", "ent", "iss"]
         assert redaction.calls == 0
 
@@ -391,10 +385,7 @@ def test_adm01_lookup_known_user_without_active_subscription_not_applicable() ->
             r.summary.support_readiness.access_readiness_bucket
             is Adm01SupportAccessReadinessBucket.NOT_APPLICABLE_NO_ACTIVE_SUBSCRIPTION
         )
-        assert (
-            r.summary.support_readiness.recommended_next_action
-            is Adm01SupportNextAction.INVESTIGATE_BILLING_APPLY
-        )
+        assert r.summary.support_readiness.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_BILLING_APPLY
 
     _run(main())
 
@@ -428,10 +419,7 @@ def test_adm01_lookup_active_subscription_without_issuance_access_not_ready() ->
             r.summary.support_readiness.access_readiness_bucket
             is Adm01SupportAccessReadinessBucket.ACTIVE_ACCESS_NOT_READY
         )
-        assert (
-            r.summary.support_readiness.recommended_next_action
-            is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
-        )
+        assert r.summary.support_readiness.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
 
     _run(main())
 
@@ -456,9 +444,6 @@ def test_adm01_lookup_issuance_failure_maps_to_safe_internal_error_bucket() -> N
             r.summary.support_readiness.access_readiness_bucket
             is Adm01SupportAccessReadinessBucket.UNKNOWN_DUE_TO_INTERNAL_ERROR
         )
-        assert (
-            r.summary.support_readiness.recommended_next_action
-            is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
-        )
+        assert r.summary.support_readiness.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_ISSUANCE
 
     _run(main())

@@ -54,8 +54,8 @@ def test_build_commissions_both_levels():
         payment_amount_kopecks=75000,
     )
     assert len(result) == 2
-    l1 = [c for c in result if c.level == 1][0]
-    l2 = [c for c in result if c.level == 2][0]
+    l1 = next(c for c in result if c.level == 1)
+    l2 = next(c for c in result if c.level == 2)
     assert l1.amount_kopecks == 75000 * 30 // 100  # 22500
     assert l2.amount_kopecks == 75000 * 3 // 100  # 2250
 
@@ -86,7 +86,7 @@ def test_six_months_commissions():
         payment_amount_kopecks=135000,
     )
     assert len(result) == 2
-    l1 = [c for c in result if c.level == 1][0]
-    l2 = [c for c in result if c.level == 2][0]
+    l1 = next(c for c in result if c.level == 1)
+    l2 = next(c for c in result if c.level == 2)
     assert l1.amount_kopecks == 135000 * 25 // 100  # 33750
     assert l2.amount_kopecks == 135000 * 2 // 100  # 2700

@@ -32,4 +32,3 @@ class Adm02BillingFactsLedgerReadAdapter(Adm02BillingFactsReadPort):
             category=category,
             internal_fact_refs=summary.internal_fact_refs,
         )
-

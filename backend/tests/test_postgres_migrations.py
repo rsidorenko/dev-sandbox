@@ -272,11 +272,9 @@ def test_sorted_migration_sql_paths_rejects_non_directory(tmp_path: Path) -> Non
 
 
 def test_telegram_update_dedup_migration_uses_only_safe_bounded_columns() -> None:
-    migration = (
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "013_telegram_update_dedup.sql"
-    ).read_text(encoding="utf-8")
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "013_telegram_update_dedup.sql").read_text(
+        encoding="utf-8"
+    )
     lowered = migration.lower()
     for required in (
         "dedup_key_hash",
@@ -306,11 +304,9 @@ def test_telegram_update_dedup_migration_uses_only_safe_bounded_columns() -> Non
 
 
 def test_subscription_lifecycle_migration_contract_safe_additive_columns() -> None:
-    migration = (
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "014_subscription_lifecycle_v1.sql"
-    ).read_text(encoding="utf-8")
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "014_subscription_lifecycle_v1.sql").read_text(
+        encoding="utf-8"
+    )
     lowered = migration.lower()
 
     assert "alter table subscription_snapshots" in lowered
@@ -328,11 +324,9 @@ def test_subscription_lifecycle_migration_contract_safe_additive_columns() -> No
 
 
 def test_access_reconcile_runs_migration_contract_safe_additive_table() -> None:
-    migration = (
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "015_access_reconcile_runs.sql"
-    ).read_text(encoding="utf-8")
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "015_access_reconcile_runs.sql").read_text(
+        encoding="utf-8"
+    )
     lowered = migration.lower()
 
     assert "create table if not exists access_reconcile_runs" in lowered

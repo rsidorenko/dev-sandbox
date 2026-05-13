@@ -210,9 +210,7 @@ def test_get_status_active_subscription_without_readiness_lookup_is_fail_closed_
     async def main() -> None:
         ident = _FakeIdentityRepo()
         await ident.create_if_absent(52)
-        snap = SubscriptionSnapshot(
-            internal_user_id="u52", state_label=SubscriptionSnapshotState.ACTIVE.value
-        )
+        snap = SubscriptionSnapshot(internal_user_id="u52", state_label=SubscriptionSnapshotState.ACTIVE.value)
         h = GetSubscriptionStatusHandler(ident, _FakeSnapshots({"u52": snap}))
         cid = new_correlation_id()
         r = await h.handle(GetSubscriptionStatusInput(telegram_user_id=52, correlation_id=cid))

@@ -1,12 +1,12 @@
 """Tests for domain.plans: tariffs, price calculation."""
 
 from app.domain.plans import (
+    DEFAULT_DEVICE_LIMIT,
     PlanId,
     calculate_total_price,
     get_all_plans,
     get_plan,
     plan_display_name,
-    DEFAULT_DEVICE_LIMIT,
 )
 
 

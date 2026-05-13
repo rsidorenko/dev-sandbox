@@ -6,13 +6,15 @@ import asyncio
 import inspect
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.application.bootstrap import build_slice1_composition
+from app.application.interfaces import SubscriptionSnapshot
 from app.application.telegram_command_rate_limit import InMemoryTelegramCommandRateLimiter
 from app.application.telegram_command_rate_limit_telemetry import (
-    TelegramCommandRateLimitDecisionEvent,
     NoopTelegramCommandRateLimitTelemetry,
+    TelegramCommandRateLimitDecisionEvent,
 )
-from app.application.interfaces import SubscriptionSnapshot
 from app.bot_transport.dispatcher import Slice1Dispatcher, dispatch_slice1_transport
 from app.bot_transport.message_catalog import render_telegram_outbound_plan
 from app.bot_transport.normalized import TransportIncomingEnvelope
@@ -28,8 +30,8 @@ from app.bot_transport.presentation import (
     TransportNextActionHint,
     TransportResponseCategory,
     TransportSafeResponse,
-    TransportStorefrontCode,
     TransportStatusCode,
+    TransportStorefrontCode,
     TransportSupportCode,
 )
 from app.persistence.in_memory import (

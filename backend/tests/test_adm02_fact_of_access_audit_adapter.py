@@ -9,9 +9,9 @@ from app.admin_support.adm02_fact_of_access_audit_adapter import (
     Adm02FactOfAccessPersistenceAuditAdapter,
 )
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm02FactOfAccessAuditRecord,
     Adm02FactOfAccessDisclosureCategory,
+    AdminActorRef,
 )
 from app.persistence.adm02_fact_of_access import InMemoryAdm02FactOfAccessRecordAppender
 

@@ -6,7 +6,7 @@ RESEND eligibility hydrates from durable state; resend call-dedup remains proces
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -48,7 +48,7 @@ def _now_row(
     state: IssuanceStatePersistence,
     revoked_at: datetime | None = None,
 ) -> IssuanceStateRow:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return IssuanceStateRow(
         internal_user_id=uid,
         issue_idempotency_key=ikey,
@@ -102,9 +102,7 @@ class FakeIssuanceOperationalState:
         self.rows[k] = row
         return row
 
-    async def mark_revoked(
-        self, *, internal_user_id: str, issue_idempotency_key: str
-    ) -> IssuanceStateRow | None:
+    async def mark_revoked(self, *, internal_user_id: str, issue_idempotency_key: str) -> IssuanceStateRow | None:
         self.mark_revoked_calls += 1
         if self.fail_on_mark_revoked:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT)
@@ -114,7 +112,7 @@ class FakeIssuanceOperationalState:
             return None
         if cur.state is IssuanceStatePersistence.REVOKED:
             return cur
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         updated = IssuanceStateRow(
             internal_user_id=cur.internal_user_id,
             issue_idempotency_key=cur.issue_idempotency_key,
@@ -160,14 +158,10 @@ async def test_duplicate_issue_skips_provider_when_store_has_issued_row() -> Non
     st = FakeIssuanceOperationalState()
     svc = IssuanceService(p, operational_state=st)
     ikey = "ik-dup-store"
-    a = await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    a = await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     assert a.category is IssuanceOutcomeCategory.ISSUED
     assert p.create_or_ensure_calls == 1
-    b = await svc.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    b = await svc.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     assert b.category is IssuanceOutcomeCategory.ALREADY_ISSUED
     assert a.safe_ref == b.safe_ref
     assert p.create_or_ensure_calls == 1
@@ -231,9 +225,7 @@ async def test_revoke_from_store_only_row_no_provider_second_time() -> None:
     st = FakeIssuanceOperationalState()
     ikey = "ik-cold-rev"
     ref = "issuance-ref:fake:preseed"
-    st.rows[("user-1", ikey)] = _now_row(
-        uid="user-1", ikey=ikey, ref=ref, state=IssuanceStatePersistence.ISSUED
-    )
+    st.rows[("user-1", ikey)] = _now_row(uid="user-1", ikey=ikey, ref=ref, state=IssuanceStatePersistence.ISSUED)
     svc = IssuanceService(p, operational_state=st)
     await svc.execute(
         _req(
@@ -253,7 +245,7 @@ async def test_revoke_idempotent_when_store_already_revoked() -> None:
     st = FakeIssuanceOperationalState()
     ikey = "ik-already-rev"
     ref = "issuance-ref:fake:revoked-at-rest"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     st.rows[("user-1", ikey)] = IssuanceStateRow(
         internal_user_id="user-1",
         issue_idempotency_key=ikey,
@@ -284,9 +276,7 @@ async def test_resend_hydrates_from_durable_store_delivery_ready() -> None:
     st = FakeIssuanceOperationalState()
     svc1 = IssuanceService(p, operational_state=st)
     ikey = "ik-resend-boundary"
-    await svc1.execute(
-        _req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey)
-    )
+    await svc1.execute(_req(op=IssuanceOperationType.ISSUE, sub=SubscriptionSnapshotState.ACTIVE, idem=ikey))
     p2 = FakeIssuanceProvider(FakeProviderMode.SUCCESS)
     svc2 = IssuanceService(p2, operational_state=st)
     r = await svc2.execute(
@@ -306,7 +296,7 @@ async def test_resend_hydrates_revoked_from_store() -> None:
     st = FakeIssuanceOperationalState()
     ikey = "ik-resend-revoked"
     ref = "issuance-ref:fake:revoked-preseed"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     st.rows[("user-1", ikey)] = IssuanceStateRow(
         internal_user_id="user-1",
         issue_idempotency_key=ikey,

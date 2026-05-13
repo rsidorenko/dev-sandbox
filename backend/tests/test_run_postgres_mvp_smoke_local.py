@@ -299,9 +299,7 @@ def test_fallback_to_docker_compose_when_docker_compose_subcommand_unavailable(
 
 
 @pytest.mark.parametrize("port_output", ["", "not-a-valid-endpoint\n"])
-def test_invalid_mapped_port_output_fails_fast_and_cleans_up(
-    monkeypatch: pytest.MonkeyPatch, port_output: str
-) -> None:
+def test_invalid_mapped_port_output_fails_fast_and_cleans_up(monkeypatch: pytest.MonkeyPatch, port_output: str) -> None:
     script = _load_script_module()
     monkeypatch.setattr(script.uuid, "uuid4", lambda: type("U", (), {"hex": "deadc0debeef"})())
     recorded_commands: list[list[str]] = []

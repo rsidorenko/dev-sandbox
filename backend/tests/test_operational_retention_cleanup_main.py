@@ -26,9 +26,7 @@ def test_load_settings_defaults_to_dry_run_and_conservative_days(monkeypatch: py
 
 
 @pytest.mark.parametrize("raw", ("1", "true", "yes", " True "))
-def test_load_settings_truthy_delete_opt_in_disables_dry_run(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
+def test_load_settings_truthy_delete_opt_in_disables_dry_run(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv(ENV_OPERATIONAL_RETENTION_DELETE_ENABLE, raw)
     monkeypatch.setenv(ENV_ADM02_AUDIT_RETENTION_DAYS, "180")
     settings = main_mod.load_operational_retention_settings_from_env()
@@ -37,18 +35,14 @@ def test_load_settings_truthy_delete_opt_in_disables_dry_run(
 
 
 @pytest.mark.parametrize("raw", ("", "0", "false", "no", "random"))
-def test_load_settings_falsey_delete_opt_in_keeps_dry_run(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
+def test_load_settings_falsey_delete_opt_in_keeps_dry_run(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv(ENV_OPERATIONAL_RETENTION_DELETE_ENABLE, raw)
     settings = main_mod.load_operational_retention_settings_from_env()
     assert settings.dry_run is True
 
 
 @pytest.mark.parametrize("raw", ("abc", "0", "-1"))
-def test_invalid_retention_days_fails_safe(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
+def test_invalid_retention_days_fails_safe(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
     monkeypatch.setenv(ENV_ADM02_AUDIT_RETENTION_DAYS, raw)
     with pytest.raises(ConfigurationError, match=ENV_ADM02_AUDIT_RETENTION_DAYS):
         main_mod.load_operational_retention_settings_from_env()

@@ -115,7 +115,7 @@ def test_polling_policy_import_and_default_construction_smoke() -> None:
     assert isinstance(default_policy.timeout, module.PollingTimeoutPolicy)
     assert isinstance(default_policy.backoff, module.PollingBackoffPolicy)
     assert isinstance(default_policy.retry, module.PollingRetryPolicy)
-    assert module.DEFAULT_POLLING_POLICY == default_policy
+    assert default_policy == module.DEFAULT_POLLING_POLICY
 
 
 def test_noop_timeout_decision_is_inherit_client_semantics() -> None:
@@ -132,7 +132,7 @@ def test_noop_timeout_decision_is_inherit_client_semantics() -> None:
 def test_polling_policy_module_public_names_are_stable() -> None:
     module = importlib.import_module("app.runtime.polling_policy")
 
-    assert module.__all__ == (
+    assert set(module.__all__) == {
         "PollingPolicy",
         "PollingTimeoutPolicy",
         "PollingTimeoutDecision",
@@ -151,7 +151,7 @@ def test_polling_policy_module_public_names_are_stable() -> None:
         "ORDINARY_OUTBOUND_REQUEST",
         "create_default_polling_policy",
         "DEFAULT_POLLING_POLICY",
-    )
+    }
 
 
 def test_polling_policy_default_surface_has_no_env_or_httpx_dependency() -> None:

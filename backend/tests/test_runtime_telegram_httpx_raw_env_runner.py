@@ -15,10 +15,10 @@ import app.runtime.telegram_httpx_raw_env_runner as env_runner_mod
 from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -101,13 +101,15 @@ def test_build_from_env_called() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_runner_mod,
                     "build_slice1_httpx_raw_runtime_app_from_env",
                     wraps=build_slice1_httpx_raw_runtime_app_from_env,
-                ) as spy:
-                    await run_slice1_httpx_raw_iterations_from_env(0, client=ac)
+                ) as spy,
+            ):
+                await run_slice1_httpx_raw_iterations_from_env(0, client=ac)
             spy.assert_called_once_with(
                 polling_config=None,
                 base_url=None,
@@ -235,13 +237,15 @@ def test_optional_polling_config_passed_to_build() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_runner_mod,
                     "build_slice1_httpx_raw_runtime_app_from_env",
                     wraps=build_slice1_httpx_raw_runtime_app_from_env,
-                ) as spy:
-                    await run_slice1_httpx_raw_iterations_from_env(0, polling_config=custom, client=ac)
+                ) as spy,
+            ):
+                await run_slice1_httpx_raw_iterations_from_env(0, polling_config=custom, client=ac)
             spy.assert_called_once_with(
                 polling_config=custom,
                 base_url=None,
@@ -265,17 +269,19 @@ def test_custom_polling_policy_passed_to_build_by_identity() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_runner_mod,
                     "build_slice1_httpx_raw_runtime_app_from_env",
                     wraps=build_slice1_httpx_raw_runtime_app_from_env,
-                ) as spy:
-                    await run_slice1_httpx_raw_iterations_from_env(
-                        0,
-                        client=ac,
-                        polling_policy=custom_policy,
-                    )
+                ) as spy,
+            ):
+                await run_slice1_httpx_raw_iterations_from_env(
+                    0,
+                    client=ac,
+                    polling_policy=custom_policy,
+                )
             assert spy.call_args.kwargs["polling_policy"] is custom_policy
 
     asyncio.run(main())

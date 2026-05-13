@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+
 import pytest
 
 from app.application.apply_billing_subscription import ApplyAcceptedBillingFactResult
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.shared.types import OperationOutcomeCategory
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "check_operator_billing_ingest_apply_e2e.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_operator_billing_ingest_apply_e2e.py"
 _FORBIDDEN = (
     "DATABASE_URL",
     "postgres://",
@@ -136,9 +133,7 @@ def test_falsey_billing_opt_ins_fail_closed_without_opening_db_pool(
         assert frag not in out.err
 
 
-def test_success_path_fixed_ok_line(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_success_path_fixed_ok_line(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     script = _load_script_module()
 
     async def ok_run() -> None:
@@ -242,7 +237,7 @@ async def test_cleanup_called_on_partial_failure(monkeypatch: pytest.MonkeyPatch
 
     async def fake_apply_migrations(*args, **kwargs) -> None:
         _ = (args, kwargs)
-        return None
+        return
 
     async def fail_ingest(*args, **kwargs):
         _ = (args, kwargs)
@@ -296,7 +291,7 @@ async def test_cleanup_called_on_partial_failure_after_second_ingest(
 
     async def fake_apply_migrations(*args, **kwargs) -> None:
         _ = (args, kwargs)
-        return None
+        return
 
     async def ingest_twice_then_fail(input_, *, dsn):
         _ = dsn
@@ -357,7 +352,7 @@ async def test_duplicate_ingest_invokes_ingest_twice_same_parsed_then_applies_tw
 
     async def fake_apply_migrations(*args, **kwargs) -> None:
         _ = (args, kwargs)
-        return None
+        return
 
     async def fake_ingest(input_, *, dsn):
         _ = dsn

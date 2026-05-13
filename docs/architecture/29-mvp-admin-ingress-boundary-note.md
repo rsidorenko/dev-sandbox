@@ -36,4 +36,3 @@ For MVP, the only admin ingress is `internal admin endpoint`.
 It may be revisited after MVP as a separate boundary decision with dedicated controls and explicit risk acceptance.
 
 **Related:** Standalone ADM-01 internal HTTP entrypoint exists (`python -m app.internal_admin`) but is disabled by default; production exposure remains governed by [34 - ADM-01 internal HTTP production boundary ADR](34-adm01-internal-http-production-boundary-adr.md), including private-network/trusted-proxy/mTLS and allowlist constraints.
-

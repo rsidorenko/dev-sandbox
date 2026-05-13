@@ -63,7 +63,7 @@ def load_runtime_config() -> RuntimeConfig:
 
     app_env = os.environ.get("APP_ENV", "development").strip() or "development"
     database_raw = os.environ.get("DATABASE_URL", "").strip()
-    database_url: str | None = database_raw if database_raw else None
+    database_url: str | None = database_raw or None
 
     debug_raw = os.environ.get("DEBUG", "").strip().lower()
     debug_safe = debug_raw in ("1", "true", "yes")

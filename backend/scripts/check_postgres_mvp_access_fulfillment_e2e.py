@@ -7,7 +7,7 @@ import asyncio
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -22,14 +22,14 @@ from app.admin_support.adm01_subscription_entitlement_read_adapter import (
 )
 from app.admin_support.adm01_subscription_policy_read_adapter import Adm01SubscriptionPolicyReadAdapter
 from app.admin_support.adm01_wiring import build_adm01_lookup_handler
-from app.admin_support.adm02_ensure_access_endpoint import (
-    Adm02EnsureAccessInboundRequest,
-    execute_adm02_ensure_access_endpoint,
-)
 from app.admin_support.adm02_ensure_access_audit_postgres import PostgresAdm02EnsureAccessAuditSink
 from app.admin_support.adm02_ensure_access_audit_read_endpoint import (
     Adm02EnsureAccessAuditLookupInboundRequest,
     execute_adm02_ensure_access_audit_lookup_endpoint,
+)
+from app.admin_support.adm02_ensure_access_endpoint import (
+    Adm02EnsureAccessInboundRequest,
+    execute_adm02_ensure_access_endpoint,
 )
 from app.admin_support.adm02_ensure_access_mutation import Adm02EnsureAccessIssuanceMutationAdapter
 from app.admin_support.adm02_postgres_ensure_access_audit_read_adapter import (
@@ -51,7 +51,10 @@ from app.admin_support.contracts import (
     Adm02EnsureAccessRemediationResult,
 )
 from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
-from app.application.billing_ingestion_main import async_run_billing_ingest_from_parsed, parse_json_to_normalized_billing_input
+from app.application.billing_ingestion_main import (
+    async_run_billing_ingest_from_parsed,
+    parse_json_to_normalized_billing_input,
+)
 from app.application.billing_subscription_apply_main import async_run_apply
 from app.bot_transport.dispatcher import dispatch_slice1_transport
 from app.bot_transport.normalized import TransportIncomingEnvelope
@@ -234,19 +237,19 @@ async def _cleanup_synthetic_rows(conn: asyncpg.Connection, ids: _SyntheticIds) 
 
 
 def _normalized_fact_json(ids: _SyntheticIds) -> str:
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now_utc = datetime.now(UTC).replace(microsecond=0).isoformat()
     return (
         "{"
-        f"\"schema_version\":1,"
-        f"\"billing_provider_key\":\"operator_access_fulfillment_e2e_provider\","
-        f"\"external_event_id\":\"{ids.billing_external_event_id}\","
-        f"\"event_type\":\"{UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED}\","
-        f"\"event_effective_at\":\"{now_utc}\","
-        f"\"event_received_at\":\"{now_utc}\","
-        "\"status\":\"accepted\","
-        f"\"ingestion_correlation_id\":\"{ids.correlation_id}\","
-        f"\"internal_fact_ref\":\"{ids.internal_fact_ref}\","
-        f"\"internal_user_id\":\"{ids.internal_user_id}\""
+        f'"schema_version":1,'
+        f'"billing_provider_key":"operator_access_fulfillment_e2e_provider",'
+        f'"external_event_id":"{ids.billing_external_event_id}",'
+        f'"event_type":"{UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED}",'
+        f'"event_effective_at":"{now_utc}",'
+        f'"event_received_at":"{now_utc}",'
+        '"status":"accepted",'
+        f'"ingestion_correlation_id":"{ids.correlation_id}",'
+        f'"internal_fact_ref":"{ids.internal_fact_ref}",'
+        f'"internal_user_id":"{ids.internal_user_id}"'
         "}"
     )
 

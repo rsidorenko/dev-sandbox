@@ -57,8 +57,7 @@ class InMemoryBillingEventsLedgerRepository(BillingEventsLedgerRepository):
             accepted_for_user: tuple[BillingEventLedgerRecord, ...] = tuple(
                 r
                 for r in self._iter_records_locked()
-                if r.internal_user_id == internal_user_id
-                and r.status is BillingEventLedgerStatus.ACCEPTED
+                if r.internal_user_id == internal_user_id and r.status is BillingEventLedgerStatus.ACCEPTED
             )
 
         if not accepted_for_user:
@@ -80,4 +79,3 @@ class InMemoryBillingEventsLedgerRepository(BillingEventsLedgerRepository):
     def _iter_records_locked(self) -> Iterable[BillingEventLedgerRecord]:
         # Internal helper: assumes caller holds _lock.
         return tuple(self._records)
-

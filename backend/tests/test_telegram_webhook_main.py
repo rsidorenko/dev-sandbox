@@ -235,20 +235,22 @@ def test_enabled_app_dispatches_with_valid_secret(monkeypatch: pytest.MonkeyPatc
         called.append(1)
         return await _orig(*args, **kwargs)
 
-    with TestClient(app) as client:
-        with patch.object(
+    with (
+        TestClient(app) as client,
+        patch.object(
             polling_mod,
             "handle_slice1_telegram_update_to_runtime_action",
             side_effect=_track,
-        ):
-            r = client.post(
-                "/telegram/webhook",
-                content=json.dumps(_synthetic_update_mapping()).encode("utf-8"),
-                headers={
-                    "content-type": "application/json",
-                    "x-telegram-bot-api-secret-token": secret,
-                },
-            )
+        ),
+    ):
+        r = client.post(
+            "/telegram/webhook",
+            content=json.dumps(_synthetic_update_mapping()).encode("utf-8"),
+            headers={
+                "content-type": "application/json",
+                "x-telegram-bot-api-secret-token": secret,
+            },
+        )
     assert r.status_code == 200
     assert r.json() == {"ok": True}
     assert len(called) == 1

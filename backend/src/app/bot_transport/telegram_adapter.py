@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from app.bot_transport.normalized import TransportIncomingEnvelope
@@ -32,7 +32,7 @@ _SLICE1_FORBIDDEN_UPDATE_KEYS: frozenset[str] = frozenset(
 )
 
 
-class TelegramAdapterRejectReason(str, Enum):
+class TelegramAdapterRejectReason(StrEnum):
     """Safe, low-cardinality reasons for adapter-level rejection (Telegram shape only)."""
 
     INVALID_UPDATE_CONTAINER = "invalid_update_container"
@@ -72,7 +72,7 @@ def _non_empty_str(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     s = value.strip()
-    return s if s else None
+    return s or None
 
 
 def extract_slice1_envelope_from_telegram_update(

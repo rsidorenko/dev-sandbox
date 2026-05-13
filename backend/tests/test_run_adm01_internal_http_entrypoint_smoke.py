@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
-import subprocess
 from pathlib import Path
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "check_adm01_internal_http_entrypoint_smoke.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_adm01_internal_http_entrypoint_smoke.py"
 _FORBIDDEN = (
     "DATABASE_URL",
     "postgres://",

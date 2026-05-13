@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-
 from unittest.mock import AsyncMock
 
 from app.application.bootstrap import build_slice1_composition

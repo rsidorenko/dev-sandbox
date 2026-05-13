@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.persistence import slice1_retention_manual_cleanup_main as main_mod
 from app.persistence.slice1_retention_manual_cleanup import (
     ENV_BATCH,
     ENV_DRY_RUN,
@@ -15,15 +16,11 @@ from app.persistence.slice1_retention_manual_cleanup import (
     RetentionCleanupResult,
     RetentionSettings,
 )
-from app.persistence import slice1_retention_manual_cleanup_main as main_mod
 from app.security.config import ConfigurationError, RuntimeConfig
 from tests.retention_boundary_assertions import assert_retention_failure_output_safe
 
-
 _SYNTHETIC_DSN_SECRET = "TOP_SECRET_XYZabc123"
-_SYNTHETIC_DSN = (
-    f"postgresql://user:{_SYNTHETIC_DSN_SECRET}@127.0.0.1:5432/slice1_retention_testdb"
-)
+_SYNTHETIC_DSN = f"postgresql://user:{_SYNTHETIC_DSN_SECRET}@127.0.0.1:5432/slice1_retention_testdb"
 
 
 def _valid_retention_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,7 +33,7 @@ def _valid_retention_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _classify_retention_boundary_exception_for_tests(exc: BaseException) -> str:
     if isinstance(exc, ConfigurationError):
         return "config_error"
-    if isinstance(exc, (ConnectionError, OSError)):
+    if isinstance(exc, ConnectionError | OSError):
         return "dependency_error"
     return "unexpected_error"
 

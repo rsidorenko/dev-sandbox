@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from dataclasses import dataclass
 from typing import Literal, cast
 from unittest.mock import MagicMock, patch
 
@@ -17,10 +16,10 @@ import app.runtime.telegram_httpx_live_process as process_mod
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -81,7 +80,7 @@ def _empty_summary() -> PollingRunSummary:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: Literal["noop"] = "noop"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
@@ -166,13 +165,15 @@ def test_factory_uses_build_from_env() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     process_mod,
                     "build_slice1_httpx_live_runtime_app_from_env",
                     side_effect=spy,
-                ):
-                    build_slice1_httpx_live_process_from_env(client=ac)
+                ),
+            ):
+                build_slice1_httpx_live_process_from_env(client=ac)
             assert len(calls) == 1
             assert calls[0]["client"] is ac
             assert calls[0]["polling_policy"] is DEFAULT_POLLING_POLICY
@@ -271,13 +272,15 @@ def test_factory_uses_build_from_env_async() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     process_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     side_effect=spy,
-                ):
-                    await build_slice1_httpx_live_process_from_env_async(client=ac)
+                ),
+            ):
+                await build_slice1_httpx_live_process_from_env_async(client=ac)
             assert len(calls) == 1
             assert calls[0]["client"] is ac
             assert calls[0]["polling_policy"] is DEFAULT_POLLING_POLICY
@@ -339,15 +342,17 @@ def test_build_process_from_env_async_fail_fast_when_runtime_app_builder_raises(
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     process_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     side_effect=failing_builder,
-                ):
-                    with patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls):
-                        with pytest.raises(RuntimeError, match="migration failed"):
-                            await build_slice1_httpx_live_process_from_env_async(client=ac)
+                ),
+                patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls),
+            ):
+                with pytest.raises(RuntimeError, match="migration failed"):
+                    await build_slice1_httpx_live_process_from_env_async(client=ac)
             assert builder_calls == 1
 
     _run(main())
@@ -370,15 +375,17 @@ def test_build_process_from_env_fail_fast_when_runtime_app_builder_raises() -> N
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     process_mod,
                     "build_slice1_httpx_live_runtime_app_from_env",
                     side_effect=failing_builder,
-                ):
-                    with patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls):
-                        with pytest.raises(RuntimeError, match="sync env app build failed"):
-                            build_slice1_httpx_live_process_from_env(client=ac)
+                ),
+                patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls),
+            ):
+                with pytest.raises(RuntimeError, match="sync env app build failed"):
+                    build_slice1_httpx_live_process_from_env(client=ac)
             assert builder_calls == 1
 
     _run(main())
@@ -401,17 +408,19 @@ def test_build_process_from_config_async_fail_fast_when_runtime_app_builder_rais
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(
-                process_mod,
-                "build_slice1_httpx_live_runtime_app_from_config_async",
-                side_effect=failing_builder,
+            with (
+                patch.object(
+                    process_mod,
+                    "build_slice1_httpx_live_runtime_app_from_config_async",
+                    side_effect=failing_builder,
+                ),
+                patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls),
             ):
-                with patch.object(process_mod, "Slice1HttpxLiveProcess", mock_process_cls):
-                    with pytest.raises(RuntimeError, match="config app build failed"):
-                        await build_slice1_httpx_live_process_from_config_async(
-                            cfg,
-                            client=ac,
-                        )
+                with pytest.raises(RuntimeError, match="config app build failed"):
+                    await build_slice1_httpx_live_process_from_config_async(
+                        cfg,
+                        client=ac,
+                    )
             assert builder_calls == 1
 
     _run(main())
@@ -494,7 +503,7 @@ def test_override_httpx_timeout_mode_passes_through_public_process_path_to_get_u
     async def main() -> None:
         with patch.object(env_mod, "load_runtime_config", return_value=cfg):
             proc = build_slice1_httpx_live_process_from_env(
-                client=cast(httpx.AsyncClient, fake),
+                client=cast("httpx.AsyncClient", fake),
                 polling_policy=polling_policy,
             )
         summary = await proc.run_until_stopped(max_iterations=1)
@@ -544,8 +553,14 @@ def test_aclose_delegates_to_app(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_app_runtime_exports() -> None:
     from app.runtime import (
         Slice1HttpxLiveProcess as rt_proc,
+    )
+    from app.runtime import (
         build_slice1_httpx_live_process_from_config_async as rt_build_cfg_async,
+    )
+    from app.runtime import (
         build_slice1_httpx_live_process_from_env as rt_build,
+    )
+    from app.runtime import (
         build_slice1_httpx_live_process_from_env_async as rt_build_async,
     )
 

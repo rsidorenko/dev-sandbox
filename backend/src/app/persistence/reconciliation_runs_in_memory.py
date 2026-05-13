@@ -32,9 +32,7 @@ class InMemoryReconciliationRunsRepository(ReconciliationRunsRepository):
         internal_user_id: str,
     ) -> ReconciliationRunUserSummary:
         async with self._lock:
-            for_user = tuple(
-                r for r in self._records if r.internal_user_id == internal_user_id
-            )
+            for_user = tuple(r for r in self._records if r.internal_user_id == internal_user_id)
 
         if not for_user:
             return ReconciliationRunUserSummary(

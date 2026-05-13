@@ -19,10 +19,10 @@ from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -65,7 +65,7 @@ def _mock_transport_start_ok() -> httpx.MockTransport:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: Literal["noop"] = "noop"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
@@ -184,7 +184,7 @@ def test_override_httpx_timeout_mode_public_startup_path_reaches_get_updates_pos
     async def main() -> None:
         b = build_slice1_httpx_live_runtime_bundle(
             "t",
-            client=cast(httpx.AsyncClient, fake),
+            client=cast("httpx.AsyncClient", fake),
             polling_policy=polling_policy,
         )
         summary = await b.bundle.live_loop.run_until_stopped(

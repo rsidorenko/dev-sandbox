@@ -7,11 +7,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "check_issuance_operator_entrypoint_smoke.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_issuance_operator_entrypoint_smoke.py"
 _FORBIDDEN = (
     "DATABASE_URL",
     "postgres://",

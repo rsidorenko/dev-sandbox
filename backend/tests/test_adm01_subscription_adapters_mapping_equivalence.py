@@ -62,11 +62,7 @@ async def test_adapters_mapping_equivalence_matrix(
     expected_entitlement: EntitlementSummaryCategory,
     expected_policy: AdminPolicyFlag,
 ) -> None:
-    snapshot = (
-        None
-        if state_label is None
-        else SubscriptionSnapshot(internal_user_id="u-1", state_label=state_label)
-    )
+    snapshot = None if state_label is None else SubscriptionSnapshot(internal_user_id="u-1", state_label=state_label)
     fake_snapshots = _FakeSnapshots(snapshot)
     entitlement_adapter = Adm01SubscriptionEntitlementReadAdapter(fake_snapshots)
     policy_adapter = Adm01SubscriptionPolicyReadAdapter(fake_snapshots)

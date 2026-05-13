@@ -48,13 +48,14 @@ def test_stub_revoke():
 
 def test_build_subscription_url_valid_base64():
     from app.issuance.vless_provider import VlessServerConfig
+
     servers = (
         VlessServerConfig("NL-1", "NL", "\U0001f1f3\U0001f1f1", "vless://abc@nl:443#test"),
         VlessServerConfig("DE-1", "DE", "\U0001f1e9\U0001f1ea", "vless://def@de:443#test2"),
     )
     url = build_subscription_url(servers)
     assert url.startswith("data:text/plain;base64,")
-    encoded = url[len("data:text/plain;base64,"):]
+    encoded = url[len("data:text/plain;base64,") :]
     decoded = base64.b64decode(encoded).decode("utf-8")
     assert "vless://abc@nl:443#test" in decoded
     assert "vless://def@de:443#test2" in decoded
@@ -62,9 +63,8 @@ def test_build_subscription_url_valid_base64():
 
 def test_format_key_list():
     from app.issuance.vless_provider import VlessServerConfig
-    servers = (
-        VlessServerConfig("NL-1", "NL", "\U0001f1f3\U0001f1f1", "vless://abc@nl:443#test"),
-    )
+
+    servers = (VlessServerConfig("NL-1", "NL", "\U0001f1f3\U0001f1f1", "vless://abc@nl:443#test"),)
     text = format_key_list(servers)
     assert "NL-1" in text
     assert "vless://abc@nl:443#test" in text

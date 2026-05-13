@@ -9,15 +9,11 @@ from pathlib import Path
 import asyncpg
 import pytest
 
+from app.application.interfaces import SubscriptionSnapshot
 from app.application.telegram_access_resend import (
     TelegramAccessResendInput,
     TelegramAccessResendOutcome,
 )
-from app.application.interfaces import SubscriptionSnapshot
-from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
-from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
-from app.persistence.slice1_postgres_wiring import resolve_slice1_composition_for_runtime
 from app.issuance.contracts import (
     CreateAccessOutcome,
     IssuanceOperationType,
@@ -29,6 +25,10 @@ from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
 from app.persistence.issuance_state_record import IssuanceStatePersistence
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
+from app.persistence.postgres_migrations import apply_postgres_migrations
+from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
+from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
+from app.persistence.slice1_postgres_wiring import resolve_slice1_composition_for_runtime
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
 from app.shared.types import SubscriptionSnapshotState
@@ -195,7 +195,7 @@ def test_postgres_issuance_service_idempotent_issue_does_not_overwrite_ref(pg_ur
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM issuance_state WHERE internal_user_id = $1::text", uid)
             repo = PostgresIssuanceStateRepository(pool)
-            p = FakeIssuanceProvider(FakeProviderMode.SUCCESS)
+            FakeIssuanceProvider(FakeProviderMode.SUCCESS)
 
             class _FixedRefProvider(FakeIssuanceProvider):
                 def __init__(self, ref: str) -> None:
@@ -210,9 +210,7 @@ def test_postgres_issuance_service_idempotent_issue_does_not_overwrite_ref(pg_ur
                     correlation_id: str,
                 ) -> ProviderCreateResult:
                     self.create_or_ensure_calls += 1
-                    return ProviderCreateResult(
-                        outcome=CreateAccessOutcome.SUCCESS, issuance_ref=self._fixed_ref
-                    )
+                    return ProviderCreateResult(outcome=CreateAccessOutcome.SUCCESS, issuance_ref=self._fixed_ref)
 
             p_a = _FixedRefProvider(first_ref)
             svc_a = IssuanceService(p_a, operational_state=repo)
@@ -302,7 +300,9 @@ def test_postgres_composition_access_resend_enabled_uses_durable_state_happy_pat
             await _apply_all_migrations(pool)
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM issuance_state WHERE internal_user_id = $1::text", internal_user_id)
-                await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id)
+                await conn.execute(
+                    "DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id
+                )
                 await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1::bigint", telegram_user_id)
 
             identity_repo = PostgresUserIdentityRepository(pool)
@@ -376,7 +376,9 @@ def test_postgres_composition_access_resend_enabled_without_durable_state_not_re
             await _apply_all_migrations(pool)
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM issuance_state WHERE internal_user_id = $1::text", internal_user_id)
-                await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id)
+                await conn.execute(
+                    "DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id
+                )
                 await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1::bigint", telegram_user_id)
 
             identity_repo = PostgresUserIdentityRepository(pool)
@@ -444,7 +446,9 @@ def test_postgres_telegram_access_resend_revoked_issuance_state_not_ready(
             await _apply_all_migrations(pool)
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM issuance_state WHERE internal_user_id = $1::text", internal_user_id)
-                await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id)
+                await conn.execute(
+                    "DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id
+                )
                 await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1::bigint", telegram_user_id)
 
             identity_repo = PostgresUserIdentityRepository(pool)
@@ -525,7 +529,9 @@ def test_postgres_telegram_access_resend_inactive_subscription_not_eligible(
             await _apply_all_migrations(pool)
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM issuance_state WHERE internal_user_id = $1::text", internal_user_id)
-                await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id)
+                await conn.execute(
+                    "DELETE FROM subscription_snapshots WHERE internal_user_id = $1::text", internal_user_id
+                )
                 await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1::bigint", telegram_user_id)
 
             identity_repo = PostgresUserIdentityRepository(pool)

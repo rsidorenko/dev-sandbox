@@ -119,13 +119,15 @@ def test_factory_uses_build_from_env() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     process_mod,
                     "build_slice1_httpx_raw_runtime_app_from_env",
                     side_effect=spy,
-                ):
-                    build_slice1_httpx_raw_process_from_env(client=ac)
+                ),
+            ):
+                build_slice1_httpx_raw_process_from_env(client=ac)
             assert len(calls) == 1
             assert calls[0]["client"] is ac
             assert calls[0]["polling_policy"] is DEFAULT_POLLING_POLICY
@@ -283,6 +285,8 @@ def test_aclose_delegates_to_app(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_app_runtime_exports() -> None:
     from app.runtime import (
         Slice1HttpxRawProcess as rt_proc,
+    )
+    from app.runtime import (
         build_slice1_httpx_raw_process_from_env as rt_build,
     )
 

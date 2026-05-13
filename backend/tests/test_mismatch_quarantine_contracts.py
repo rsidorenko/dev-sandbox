@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.persistence.mismatch_quarantine_contracts import (
     MismatchQuarantineReasonCode,
@@ -14,7 +14,7 @@ from app.persistence.mismatch_quarantine_contracts import (
 
 
 def test_mismatch_quarantine_record_constructs() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     record = MismatchQuarantineRecord(
         id="q-1",
@@ -47,14 +47,9 @@ def test_mismatch_quarantine_user_summary_constructs() -> None:
 
 def test_mismatch_quarantine_repository_protocol_shape() -> None:
     protocol_dict = MismatchQuarantineRepository.__dict__
-    method_names = {
-        name
-        for name, value in protocol_dict.items()
-        if callable(value) and not name.startswith("_")
-    }
+    method_names = {name for name, value in protocol_dict.items() if callable(value) and not name.startswith("_")}
 
     assert method_names == {
         "upsert_by_source",
         "get_user_quarantine_summary",
     }
-

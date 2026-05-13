@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from app.bot_transport.presentation import (
     TransportAccessResendCode,
@@ -16,13 +16,13 @@ from app.bot_transport.presentation import (
     TransportNextActionHint,
     TransportResponseCategory,
     TransportSafeResponse,
+    TransportStatusCode,
     TransportStorefrontCode,
     TransportSupportCode,
-    TransportStatusCode,
 )
 
 
-class OutboundPlanCategory(str, Enum):
+class OutboundPlanCategory(StrEnum):
     """Тип плана верхнего уровня, согласованный с транспортными категориями (только маршрутизация каталога)."""
 
     SUCCESS = "success"
@@ -30,7 +30,7 @@ class OutboundPlanCategory(str, Enum):
     ERROR = "error"
 
 
-class OutboundMessageKey(str, Enum):
+class OutboundMessageKey(StrEnum):
     """Стабильные ключи каталога сообщений; значения — идентификаторы поиска (без текста)."""
 
     IDENTITY_READY = "identity_ready"
@@ -64,11 +64,11 @@ class OutboundMessageKey(str, Enum):
     SUBSCRIPTION_ACTIVE_CONFIRMATION = "subscription_active_confirmation"
 
 
-class OutboundNextActionKey(str, Enum):
+class OutboundNextActionKey(StrEnum):
     COMPLETE_BOOTSTRAP = "complete_bootstrap"
 
 
-class OutboundKeyboardMarker(str, Enum):
+class OutboundKeyboardMarker(StrEnum):
     """Нетекстовая подсказка, какую клавиатуру ответа / форму строки действий использовать (если есть)."""
 
     NONE = "none"

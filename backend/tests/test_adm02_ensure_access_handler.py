@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 import json
+from dataclasses import asdict
 
 from app.admin_support.adm02_ensure_access import Adm02EnsureAccessHandler
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm01SupportAccessReadinessBucket,
     Adm01SupportNextAction,
     Adm01SupportSubscriptionBucket,
-    Adm02EnsureAccessInput,
     Adm02EnsureAccessAuditEvent,
     Adm02EnsureAccessAuditOutcomeBucket,
     Adm02EnsureAccessAuditPrincipalMarker,
+    Adm02EnsureAccessInput,
     Adm02EnsureAccessOutcome,
     Adm02EnsureAccessRemediationResult,
+    AdminActorRef,
     InternalUserTarget,
     IssuanceOperationalState,
     IssuanceOperationalSummary,
@@ -126,7 +126,17 @@ def _inp() -> Adm02EnsureAccessInput:
     )
 
 
-def _handler(*, allowed: bool = True, opt_in: bool = True, uid: str | None = "u-1", sub: str | None = "active", issuance_before=IssuanceOperationalState.NONE, issuance_after: IssuanceOperationalState | None = IssuanceOperationalState.OK, mutation: _Mutation | None = None, audit: _Audit | None = None):
+def _handler(
+    *,
+    allowed: bool = True,
+    opt_in: bool = True,
+    uid: str | None = "u-1",
+    sub: str | None = "active",
+    issuance_before=IssuanceOperationalState.NONE,
+    issuance_after: IssuanceOperationalState | None = IssuanceOperationalState.OK,
+    mutation: _Mutation | None = None,
+    audit: _Audit | None = None,
+):
     mut = mutation or _Mutation(True, False)
     audit_sink = audit or _Audit()
     h = Adm02EnsureAccessHandler(
@@ -162,10 +172,7 @@ def test_denied_when_mutation_opt_in_disabled() -> None:
         assert r.summary is None
         assert mut.calls == 0
         assert len(audit.events) == 1
-        assert (
-            audit.events[0].outcome_bucket
-            is Adm02EnsureAccessAuditOutcomeBucket.DENIED_MUTATION_OPT_IN_DISABLED
-        )
+        assert audit.events[0].outcome_bucket is Adm02EnsureAccessAuditOutcomeBucket.DENIED_MUTATION_OPT_IN_DISABLED
 
     _run(main())
 
@@ -193,14 +200,13 @@ def test_no_active_subscription_safe_noop_no_mutation() -> None:
         assert r.summary is not None
         assert r.summary.subscription_bucket is Adm01SupportSubscriptionBucket.INACTIVE
         assert r.summary.remediation_result is Adm02EnsureAccessRemediationResult.NOOP_NO_ACTIVE_SUBSCRIPTION
-        assert r.summary.access_readiness_bucket is Adm01SupportAccessReadinessBucket.NOT_APPLICABLE_NO_ACTIVE_SUBSCRIPTION
+        assert (
+            r.summary.access_readiness_bucket is Adm01SupportAccessReadinessBucket.NOT_APPLICABLE_NO_ACTIVE_SUBSCRIPTION
+        )
         assert r.summary.recommended_next_action is Adm01SupportNextAction.INVESTIGATE_BILLING_APPLY
         assert mut.calls == 0
         assert len(audit.events) == 1
-        assert (
-            audit.events[0].outcome_bucket
-            is Adm02EnsureAccessAuditOutcomeBucket.NOOP_NO_ACTIVE_SUBSCRIPTION
-        )
+        assert audit.events[0].outcome_bucket is Adm02EnsureAccessAuditOutcomeBucket.NOOP_NO_ACTIVE_SUBSCRIPTION
 
     _run(main())
 

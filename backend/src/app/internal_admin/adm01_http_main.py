@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import sys
 from collections.abc import Awaitable, Callable
@@ -12,12 +13,19 @@ import asyncpg
 import uvicorn
 from starlette.applications import Starlette
 
-from app.admin_support.adm02_ensure_access_mutation import Adm02EnsureAccessIssuanceMutationAdapter
+from app.admin_support.adm01_wiring import (
+    build_adm01_entitlement_read_from_postgres_snapshots,
+    build_adm01_identity_resolve_from_postgres_user_identities,
+    build_adm01_issuance_read_from_postgres_issuance_state,
+    build_adm01_policy_read_from_postgres_snapshots,
+    build_adm01_subscription_read_from_postgres_snapshots,
+)
 from app.admin_support.adm02_ensure_access_audit_logging import (
     FanoutAdm02EnsureAccessAuditSink,
     StructuredLoggingAdm02EnsureAccessAuditSink,
 )
 from app.admin_support.adm02_ensure_access_audit_postgres import PostgresAdm02EnsureAccessAuditSink
+from app.admin_support.adm02_ensure_access_mutation import Adm02EnsureAccessIssuanceMutationAdapter
 from app.admin_support.adm02_internal_http import (
     ADM02_INTERNAL_AUDIT_EVENTS_PATH,
     ADM02_INTERNAL_ENSURE_ACCESS_PATH,
@@ -29,31 +37,24 @@ from app.admin_support.adm02_wiring import (
     build_adm02_ensure_access_audit_lookup_handler,
     build_adm02_ensure_access_handler,
 )
-from app.admin_support.adm01_wiring import (
-    build_adm01_entitlement_read_from_postgres_snapshots,
-    build_adm01_identity_resolve_from_postgres_user_identities,
-    build_adm01_issuance_read_from_postgres_issuance_state,
-    build_adm01_policy_read_from_postgres_snapshots,
-    build_adm01_subscription_read_from_postgres_snapshots,
-)
-from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
-from app.issuance.service import IssuanceService
 from app.internal_admin.adm01_bundle import (
     Adm01InternalLookupWithPostgresIssuanceStateDependencies,
     build_adm01_internal_lookup_starlette_app_with_postgres_issuance_state,
-)
-from app.internal_admin.adm02_mutation_opt_in_config import (
-    load_adm02_ensure_access_opt_in_from_env,
 )
 from app.internal_admin.adm01_http_config import (
     Adm01InternalHttpConfig,
     load_adm01_internal_http_config_from_env,
 )
+from app.internal_admin.adm02_mutation_opt_in_config import (
+    load_adm02_ensure_access_opt_in_from_env,
+)
+from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
+from app.issuance.service import IssuanceService
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
-from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_migrations_runtime import apply_slice1_postgres_migrations_from_runtime_config
-from app.security.config import ConfigurationError, RuntimeConfig, load_runtime_config
+from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
+from app.security.config import ConfigurationError, RuntimeConfig, load_runtime_config
 
 _ENV_ALLOWLIST = "ADM01_INTERNAL_HTTP_ALLOWLIST"
 
@@ -126,7 +127,6 @@ def _wire_adm02_ensure_access_route(
         adm02_allowlisted_internal_admin_principal_ids=allowlist,
     )
     from app.admin_support.adm02_internal_http import create_adm02_internal_http_app
-    from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
     from app.admin_support.contracts import (
         Adm02BillingFactsCategory,
         Adm02BillingFactsDiagnostics,
@@ -141,6 +141,7 @@ def _wire_adm02_ensure_access_route(
         Adm02ReconciliationRunMarker,
         RedactionMarker,
     )
+    from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
 
     class _NoopDiagnosticsHandler:
         async def handle(self, inp: Adm02DiagnosticsInput) -> Adm02DiagnosticsResult:
@@ -281,10 +282,8 @@ async def async_run_adm01_internal_http_from_env(
         return 1
     finally:
         if pool is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await pool.close()
-            except Exception:
-                pass
 
     return 0
 

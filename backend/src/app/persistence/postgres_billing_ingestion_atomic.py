@@ -38,31 +38,28 @@ class PostgresAtomicBillingIngestion:
         """
         constructed = build_ledger_record_for_ingest(input_)
         try:
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    stored, inserted_new = await PostgresBillingEventsLedgerRepository.append_or_get_in_connection(
-                        conn,
-                        constructed,
-                    )
-                    is_replay = not inserted_new
-                    audit_outcome = (
-                        BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY
-                        if is_replay
-                        else BILLING_INGESTION_OUTCOME_ACCEPTED
-                    )
-                    await PostgresBillingIngestionAuditAppender.append_in_connection(
-                        conn,
-                        BillingIngestionAuditRecord(
-                            internal_fact_ref=stored.internal_fact_ref,
-                            billing_provider_key=stored.billing_provider_key,
-                            external_event_id=stored.external_event_id,
-                            ingestion_correlation_id=stored.ingestion_correlation_id,
-                            operation=BILLING_INGESTION_AUDIT_OPERATION,
-                            outcome=audit_outcome,
-                            billing_event_status=stored.status.value,
-                            is_idempotent_replay=is_replay,
-                        ),
-                    )
+            async with self._pool.acquire() as conn, conn.transaction():
+                stored, inserted_new = await PostgresBillingEventsLedgerRepository.append_or_get_in_connection(
+                    conn,
+                    constructed,
+                )
+                is_replay = not inserted_new
+                audit_outcome = (
+                    BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
+                )
+                await PostgresBillingIngestionAuditAppender.append_in_connection(
+                    conn,
+                    BillingIngestionAuditRecord(
+                        internal_fact_ref=stored.internal_fact_ref,
+                        billing_provider_key=stored.billing_provider_key,
+                        external_event_id=stored.external_event_id,
+                        ingestion_correlation_id=stored.ingestion_correlation_id,
+                        operation=BILLING_INGESTION_AUDIT_OPERATION,
+                        outcome=audit_outcome,
+                        billing_event_status=stored.status.value,
+                        is_idempotent_replay=is_replay,
+                    ),
+                )
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
         return IngestNormalizedBillingFactResult(

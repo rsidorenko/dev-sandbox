@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from app.domain.referral import rubles_from_kopecks
 from app.persistence.referral_contracts import (
-    ReferralBalanceRecord,
+    ReferralBalanceRepository,
     ReferralCodeRepository,
     ReferralRelationshipRepository,
-    ReferralTransactionRepository,
 )
 
 

@@ -18,7 +18,7 @@ _SRC = _BACKEND_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from app.admin_support.adm01_postgres_issuance_composition_check import (
+from app.admin_support.adm01_postgres_issuance_composition_check import (  # noqa: E402
     run_adm01_postgres_issuance_composition_check,
 )
 

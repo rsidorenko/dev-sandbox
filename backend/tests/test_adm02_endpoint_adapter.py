@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 import json
+from dataclasses import asdict
 
 from app.admin_support.adm02_endpoint import Adm02InboundRequest, execute_adm02_endpoint
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm02BillingFactsCategory,
     Adm02BillingFactsDiagnostics,
     Adm02DiagnosticsInput,
@@ -20,6 +19,7 @@ from app.admin_support.contracts import (
     Adm02QuarantineReasonCode,
     Adm02ReconciliationDiagnostics,
     Adm02ReconciliationRunMarker,
+    AdminActorRef,
     InternalAdminPrincipalExtractionInput,
     InternalAdminPrincipalExtractionOutcome,
     InternalAdminPrincipalExtractionResult,
@@ -328,10 +328,7 @@ def test_adm02_endpoint_contract_locked_boundary_and_no_unexpected_fragments() -
         assert success_dict["summary"]["billing_category"] in allowed_billing_categories
         assert success_dict["summary"]["quarantine_marker"] in allowed_quarantine_markers
         assert success_dict["summary"]["quarantine_reason_code"] in allowed_quarantine_reasons
-        assert (
-            success_dict["summary"]["reconciliation_last_run_marker"]
-            in allowed_reconciliation_markers
-        )
+        assert success_dict["summary"]["reconciliation_last_run_marker"] in allowed_reconciliation_markers
         assert success_dict["summary"]["redaction"] in allowed_redaction_markers
 
         for forbidden in _FORBIDDEN_FRAGMENTS:

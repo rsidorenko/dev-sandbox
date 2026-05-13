@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from app.runtime import advance_polling_offset, extract_next_offset_from_raw_updates
 import app.runtime as runtime_pkg
 import app.runtime.offsets as offsets_mod
+from app.runtime import advance_polling_offset, extract_next_offset_from_raw_updates
 from app.runtime.offsets import advance_polling_offset as advance_direct
 from app.runtime.offsets import extract_next_offset_from_raw_updates as extract_direct
 

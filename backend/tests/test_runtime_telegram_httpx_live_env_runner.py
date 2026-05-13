@@ -16,10 +16,10 @@ from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
     LONG_POLL_FETCH_REQUEST,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
     RequestKind,
@@ -27,7 +27,6 @@ from app.runtime.polling_policy import (
 from app.runtime.runner import PollingRunSummary
 from app.runtime.telegram_httpx_live_app import Slice1HttpxLiveRuntimeApp
 from app.runtime.telegram_httpx_live_env import (
-    build_slice1_httpx_live_runtime_app_from_env,
     build_slice1_httpx_live_runtime_app_from_env_async,
 )
 from app.runtime.telegram_httpx_live_env_runner import run_slice1_httpx_live_iterations_from_env
@@ -79,13 +78,15 @@ def test_build_from_env_called() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_runner_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     wraps=build_slice1_httpx_live_runtime_app_from_env_async,
-                ) as spy:
-                    await run_slice1_httpx_live_iterations_from_env(0, client=ac)
+                ) as spy,
+            ):
+                await run_slice1_httpx_live_iterations_from_env(0, client=ac)
             spy.assert_called_once_with(
                 polling_config=None,
                 base_url=None,
@@ -173,7 +174,7 @@ class _OverrideAllTimeoutPolicy:
 
 
 class _RecordingOverrideTimeoutPolicy:
-    __slots__ = ("httpx_timeout", "decisions")
+    __slots__ = ("decisions", "httpx_timeout")
     kind: str = "test_override"
 
     def __init__(self, httpx_timeout: httpx.Timeout) -> None:
@@ -376,13 +377,15 @@ def test_optional_polling_config_passed_to_build() -> None:
             lambda r: httpx.Response(200, json={"ok": True, "result": []}),
         )
         async with httpx.AsyncClient(transport=transport) as ac:
-            with patch.object(env_mod, "load_runtime_config", return_value=cfg):
-                with patch.object(
+            with (
+                patch.object(env_mod, "load_runtime_config", return_value=cfg),
+                patch.object(
                     env_runner_mod,
                     "build_slice1_httpx_live_runtime_app_from_env_async",
                     wraps=build_slice1_httpx_live_runtime_app_from_env_async,
-                ) as spy:
-                    await run_slice1_httpx_live_iterations_from_env(0, polling_config=custom, client=ac)
+                ) as spy,
+            ):
+                await run_slice1_httpx_live_iterations_from_env(0, polling_config=custom, client=ac)
             spy.assert_called_once_with(
                 polling_config=custom,
                 base_url=None,

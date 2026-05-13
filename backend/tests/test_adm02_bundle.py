@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
-import json
 
 import httpx
 from starlette.applications import Starlette
@@ -741,7 +741,9 @@ def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing
     _run(main())
 
 
-def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_redaction_failure_is_fail_closed() -> None:
+def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_redaction_failure_is_fail_closed() -> (
+    None
+):
     correlation_id = new_correlation_id()
     expected_now = datetime(2026, 4, 16, 12, 34, 56, tzinfo=UTC)
     persisted = InMemoryAdm02FactOfAccessRecordAppender()
@@ -908,7 +910,9 @@ def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing
     _run(main())
 
 
-def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_redaction_denied_short_circuits() -> None:
+def test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_redaction_denied_short_circuits() -> (
+    None
+):
     correlation_id = new_correlation_id()
     expected_now = datetime(2026, 4, 16, 12, 34, 56, tzinfo=UTC)
     persisted = InMemoryAdm02FactOfAccessRecordAppender()

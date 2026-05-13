@@ -6,7 +6,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 _MUTATING_TESTS_GUARD_ENV = "SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes"}
 
@@ -24,9 +23,7 @@ def _is_env_truthy(value: str | None) -> bool:
 def _require_mutating_tests_opt_in() -> None:
     if _is_env_truthy(os.environ.get(_MUTATING_TESTS_GUARD_ENV)):
         return
-    raise RuntimeError(
-        f"{_MUTATING_TESTS_GUARD_ENV} must be explicitly set for isolated/dev DB smoke runs"
-    )
+    raise RuntimeError(f"{_MUTATING_TESTS_GUARD_ENV} must be explicitly set for isolated/dev DB smoke runs")
 
 
 def _build_child_env() -> dict[str, str]:

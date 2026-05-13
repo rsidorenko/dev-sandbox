@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.admin_support.contracts import (
-    AdminActorRef,
     Adm02DiagnosticsInput,
     Adm02DiagnosticsOutcome,
     Adm02DiagnosticsResult,
     Adm02DiagnosticsSummary,
+    AdminActorRef,
     InternalAdminPrincipalExtractionInput,
     InternalAdminPrincipalExtractionOutcome,
     InternalAdminPrincipalExtractor,
@@ -123,9 +123,7 @@ async def execute_adm02_endpoint(
 ) -> Adm02EndpointResponse:
     """Map allowlisted inbound request → handler input; return safe outbound shape."""
     principal_id_candidate = (
-        request.internal_admin_principal_id
-        if isinstance(request.internal_admin_principal_id, str)
-        else None
+        request.internal_admin_principal_id if isinstance(request.internal_admin_principal_id, str) else None
     )
     try:
         extraction = await principal_extractor.extract_trusted_internal_admin_principal(
@@ -140,10 +138,7 @@ async def execute_adm02_endpoint(
             correlation_id=request.correlation_id,
             summary=None,
         )
-    if (
-        extraction.outcome is not InternalAdminPrincipalExtractionOutcome.SUCCESS
-        or extraction.principal is None
-    ):
+    if extraction.outcome is not InternalAdminPrincipalExtractionOutcome.SUCCESS or extraction.principal is None:
         return Adm02EndpointResponse(
             outcome=Adm02DiagnosticsOutcome.INVALID_INPUT.value,
             correlation_id=request.correlation_id,

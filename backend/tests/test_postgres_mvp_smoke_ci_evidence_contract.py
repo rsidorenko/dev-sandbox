@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "backend-postgres-mvp-smoke-validation.yml"
 _SMOKE_HELPER_PATH = _REPO_ROOT / "backend" / "scripts" / "run_postgres_mvp_smoke.py"
-_ACCESS_FULFILLMENT_SMOKE_PATH = (
-    _REPO_ROOT / "backend" / "scripts" / "check_postgres_mvp_access_fulfillment_e2e.py"
-)
+_ACCESS_FULFILLMENT_SMOKE_PATH = _REPO_ROOT / "backend" / "scripts" / "check_postgres_mvp_access_fulfillment_e2e.py"
 _RELEASE_RUNBOOK_PATH = _REPO_ROOT / "backend" / "docs" / "mvp_release_readiness_runbook.md"
 
 
@@ -90,11 +87,7 @@ def test_canonical_smoke_helper_child_env_opt_ins_contract_locked() -> None:
     assert function_end != -1
     build_child_env_block = helper[function_start:function_end]
 
-    one_flag_assignments = {
-        line.strip()
-        for line in build_child_env_block.splitlines()
-        if '= "1"' in line
-    }
+    one_flag_assignments = {line.strip() for line in build_child_env_block.splitlines() if '= "1"' in line}
     assert one_flag_assignments == {
         'child_env["ADM02_ENSURE_ACCESS_ENABLE"] = "1"',
         'child_env["BILLING_NORMALIZED_INGEST_ENABLE"] = "1"',

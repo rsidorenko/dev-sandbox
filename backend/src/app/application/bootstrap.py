@@ -8,6 +8,15 @@ from dataclasses import dataclass
 from typing import cast
 
 from app.application.handlers import BootstrapIdentityHandler, GetSubscriptionStatusHandler
+from app.application.interfaces import (
+    AuditAppender,
+    IdempotencyRepository,
+    OutboundDeliveryLedger,
+    SubscriptionSnapshot,
+    SubscriptionSnapshotReader,
+    SubscriptionSnapshotWriter,
+    UserIdentityRepository,
+)
 from app.application.telegram_access_resend import (
     AccessResendCooldownStore,
     InMemoryAccessResendCooldownStore,
@@ -29,15 +38,8 @@ from app.application.telegram_update_dedup import (
     InMemoryTelegramUpdateDedupGuard,
     TelegramUpdateDedupGuard,
 )
-from app.application.interfaces import (
-    AuditAppender,
-    IdempotencyRepository,
-    OutboundDeliveryLedger,
-    SubscriptionSnapshot,
-    SubscriptionSnapshotReader,
-    SubscriptionSnapshotWriter,
-    UserIdentityRepository,
-)
+from app.issuance.service import IssuanceService
+from app.issuance.vless_provider import VlessProviderPort
 from app.persistence.in_memory import (
     InMemoryAuditAppender,
     InMemoryIdempotencyRepository,
@@ -49,8 +51,6 @@ from app.persistence.in_memory import (
     InMemorySubscriptionSnapshotReader,
     InMemoryUserIdentityRepository,
 )
-from app.issuance.service import IssuanceService
-from app.issuance.vless_provider import VlessProviderPort
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
     ReferralCodeRepository,
@@ -121,7 +121,7 @@ def build_slice1_composition(
         audit = InMemoryAuditAppender()
     if snapshots is None:
         snapshots = InMemorySubscriptionSnapshotReader(initial_snapshots)
-    snapshot_writer = cast(SubscriptionSnapshotWriter, snapshots)
+    snapshot_writer = cast("SubscriptionSnapshotWriter", snapshots)
     delivery = outbound_delivery or InMemoryOutboundDeliveryLedger()
     cooldown = resend_cooldown or InMemoryAccessResendCooldownStore()
     dedup = telegram_update_dedup or InMemoryTelegramUpdateDedupGuard()

@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 
-class ReconciliationRunStatus(str, Enum):
+class ReconciliationRunStatus(StrEnum):
     """Lifecycle state of a reconciliation run from persistence point of view."""
 
     UNKNOWN = "unknown"
@@ -20,7 +20,7 @@ class ReconciliationRunStatus(str, Enum):
     FAILED = "failed"
 
 
-class ReconciliationRunOutcome(str, Enum):
+class ReconciliationRunOutcome(StrEnum):
     """Normalized outcome marker for a completed reconciliation run."""
 
     UNKNOWN = "unknown"

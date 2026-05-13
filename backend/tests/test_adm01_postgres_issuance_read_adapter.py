@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +13,7 @@ from app.admin_support.contracts import IssuanceOperationalState, IssuanceOperat
 from app.persistence.issuance_state_record import IssuanceStatePersistence, IssuanceStateRow
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
 
-_TS = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_TS = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 _REF_SHOULD_NEVER_LEAK = "issuance-ref:fake:super-secret-suffix-abc12345"
 
@@ -84,7 +84,7 @@ class _UnknownStateRepo:
     def __init__(self) -> None:
         self.last = ""
 
-    async def get_current_for_user(self, internal_user_id: str) -> object:  # noqa: D401, ANN201
+    async def get_current_for_user(self, internal_user_id: str) -> object:
         self.last = internal_user_id
         return SimpleNamespace(
             state=_StrangeState(),

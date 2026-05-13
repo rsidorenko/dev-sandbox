@@ -211,7 +211,7 @@ async def test_result_summary_has_no_dsn_or_key_lists() -> None:
 
 
 def test_retention_cleanup_result_is_low_cardinality_fields_only() -> None:
-    r = RetentionCleanupResult(
+    RetentionCleanupResult(
         dry_run=False,
         cutoff_iso="2026-04-24T00:00:00+00:00",
         audit_rows=1,

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from app.domain.plans import PlanId
 
-
 # Level 1 (direct referral) commission rates by plan
 _LEVEL1_RATES: dict[str, float] = {
     PlanId.ONE_MONTH: 0.35,

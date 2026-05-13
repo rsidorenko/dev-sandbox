@@ -31,9 +31,7 @@ class IssuanceOperationalStatePort(Protocol):
         """Persist issued state after provider success; never overwrites an existing ref."""
         ...
 
-    async def mark_revoked(
-        self, *, internal_user_id: str, issue_idempotency_key: str
-    ) -> IssuanceStateRow | None:
+    async def mark_revoked(self, *, internal_user_id: str, issue_idempotency_key: str) -> IssuanceStateRow | None:
         """Mark revoked at rest; ``None`` if no row exists."""
         ...
 

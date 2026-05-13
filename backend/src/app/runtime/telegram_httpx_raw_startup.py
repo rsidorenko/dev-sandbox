@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.application.bootstrap import Slice1Composition
 from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import DEFAULT_POLLING_POLICY, PollingPolicy
-from app.application.bootstrap import Slice1Composition
 from app.runtime.raw_startup import (
     Slice1InMemoryRawRuntimeBundle,
     build_slice1_in_memory_raw_runtime_bundle_with_default_bridge,

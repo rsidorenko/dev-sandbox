@@ -142,4 +142,3 @@ def test_fanout_sink_swallows_child_failures_and_keeps_other_sinks() -> None:
     sink = FanoutAdm02EnsureAccessAuditSink(_FailingSink(), _OkSink())
     _run(sink.append_ensure_access_event(event))
     assert recorded == ["ok"]
-

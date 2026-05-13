@@ -9,8 +9,8 @@ import argparse
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_OUTPUT_FRAGMENTS = (

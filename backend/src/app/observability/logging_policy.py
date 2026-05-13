@@ -58,7 +58,7 @@ def sanitize_structured_fields(record: dict[str, Any]) -> dict[str, Any]:
             else:
                 out[key] = value
             continue
-        if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str | int | float | bool) or value is None:
             out[key] = value
         else:
             out[key] = "[REDACTED]"

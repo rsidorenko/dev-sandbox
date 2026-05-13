@@ -7,11 +7,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "check_postgres_mvp_access_fulfillment_e2e.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_postgres_mvp_access_fulfillment_e2e.py"
 _FORBIDDEN = (
     "DATABASE_URL",
     "postgres://",
@@ -330,12 +326,7 @@ async def test_access_smoke_uses_billing_path_and_adm02_remediation_not_direct_i
     async def fake_assert_adm01(*, handler, ids, expected_access_readiness_bucket, expected_next_action):
         assert handler is not None
         assert ids is not None
-        calls.append(
-            "adm01:"
-            + expected_access_readiness_bucket.value
-            + ":"
-            + expected_next_action.value
-        )
+        calls.append("adm01:" + expected_access_readiness_bucket.value + ":" + expected_next_action.value)
 
     dispatched_commands: list[str] = []
 
@@ -385,7 +376,9 @@ async def test_access_smoke_uses_billing_path_and_adm02_remediation_not_direct_i
         fake_build_adm02_audit_lookup_handler,
     )
     monkeypatch.setattr(script, "_assert_adm02_safe_successful_remediation", fake_assert_adm02_once)
-    monkeypatch.setattr(script, "_assert_adm02_idempotent_repeat_with_stable_current_issued_state", fake_assert_adm02_repeat)
+    monkeypatch.setattr(
+        script, "_assert_adm02_idempotent_repeat_with_stable_current_issued_state", fake_assert_adm02_repeat
+    )
     monkeypatch.setattr(script, "_assert_adm02_durable_audit_readback", fake_assert_adm02_durable_audit_readback)
     monkeypatch.setattr(script, "_resolve_postgres_composition_with_existing_pool", fake_resolve)
     monkeypatch.setattr(script, "_build_adm01_lookup_handler_with_existing_pool", fake_build_adm01_handler)
@@ -512,9 +505,7 @@ async def test_adm01_support_surface_blob_stays_leak_free(monkeypatch: pytest.Mo
         expected_next_action=script.Adm01SupportNextAction.INVESTIGATE_ISSUANCE,
     )
 
-    assert leaked["ok"] == (
-        "adm01|True|active|active_access_not_ready|investigate_issuance|none|cid-adm01|success"
-    )
+    assert leaked["ok"] == ("adm01|True|active|active_access_not_ready|investigate_issuance|none|cid-adm01|success")
 
 
 def test_adm02_audit_evidence_requires_issued_then_already_ready_and_stays_leak_free() -> None:

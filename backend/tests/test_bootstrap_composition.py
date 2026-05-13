@@ -8,12 +8,12 @@ from dataclasses import fields
 import pytest
 
 from app.application.bootstrap import Slice1Composition, build_slice1_composition
+from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStatusInput
+from app.application.interfaces import SubscriptionSnapshot
+from app.application.telegram_access_resend import TelegramAccessResendInput, TelegramAccessResendOutcome
 from app.application.telegram_update_dedup import (
     InMemoryTelegramUpdateDedupGuard,
 )
-from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStatusInput
-from app.application.telegram_access_resend import TelegramAccessResendInput, TelegramAccessResendOutcome
-from app.application.interfaces import SubscriptionSnapshot
 from app.persistence.in_memory import (
     InMemoryAuditAppender,
     InMemoryIdempotencyRepository,
@@ -33,7 +33,7 @@ class _CompositionDisabledHitMarkerSpy:
     def __init__(self) -> None:
         self.calls = 0
 
-    def record_disabled_hit(self, event) -> None:  # noqa: ANN001
+    def record_disabled_hit(self, event) -> None:
         self.calls += 1
 
 

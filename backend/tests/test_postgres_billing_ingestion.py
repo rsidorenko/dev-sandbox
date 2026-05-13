@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,10 +13,10 @@ import pytest
 
 from app.application.billing_ingestion import IngestNormalizedBillingFactHandler, NormalizedBillingFactInput
 from app.persistence import (
-    BillingEventAmountCurrency,
-    BillingEventLedgerStatus,
     BILLING_INGESTION_OUTCOME_ACCEPTED,
     BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY,
+    BillingEventAmountCurrency,
+    BillingEventLedgerStatus,
     PostgresBillingEventsLedgerRepository,
     PostgresBillingIngestionAuditAppender,
 )
@@ -63,8 +63,8 @@ def test_postgres_ingest_handler_persists_and_idempotent_replay(pg_url: str) -> 
             repo = PostgresBillingEventsLedgerRepository(pool)
             audit = PostgresBillingIngestionAuditAppender(pool)
             handler = IngestNormalizedBillingFactHandler(repo, audit)
-            t0 = datetime(2026, 1, 10, 8, 0, 0, tzinfo=timezone.utc)
-            t1 = datetime(2026, 1, 10, 8, 0, 1, tzinfo=timezone.utc)
+            t0 = datetime(2026, 1, 10, 8, 0, 0, tzinfo=UTC)
+            t1 = datetime(2026, 1, 10, 8, 0, 1, tzinfo=UTC)
             ext = f"{_PREFIX}ext-1"
             in1 = NormalizedBillingFactInput(
                 billing_provider_key="provider_ingest_ci",
@@ -98,7 +98,9 @@ def test_postgres_ingest_handler_persists_and_idempotent_replay(pg_url: str) -> 
             assert r2.is_idempotent_replay is True
             assert r2.record.internal_fact_ref == ref1
             async with pool.acquire() as conn:
-                n = await conn.fetchval("SELECT count(*)::bigint FROM billing_events_ledger WHERE external_event_id = $1", ext)
+                n = await conn.fetchval(
+                    "SELECT count(*)::bigint FROM billing_events_ledger WHERE external_event_id = $1", ext
+                )
             assert n == 1
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
@@ -132,8 +134,8 @@ def test_postgres_atomic_ingest_new_fact_and_idempotent_replay(pg_url: str) -> N
         try:
             await _cleanup_and_migrate(pool)
             atomic = PostgresAtomicBillingIngestion(pool)
-            t0 = datetime(2026, 1, 12, 8, 0, 0, tzinfo=timezone.utc)
-            t1 = datetime(2026, 1, 12, 8, 0, 1, tzinfo=timezone.utc)
+            t0 = datetime(2026, 1, 12, 8, 0, 0, tzinfo=UTC)
+            t1 = datetime(2026, 1, 12, 8, 0, 1, tzinfo=UTC)
             in1 = NormalizedBillingFactInput(
                 billing_provider_key="provider_atomic_ci",
                 external_event_id=ext,
@@ -183,7 +185,7 @@ def test_postgres_atomic_audit_check_failure_rolls_back_new_ledger_row(pg_url: s
         try:
             await _cleanup_and_migrate(pool)
             atomic = PostgresAtomicBillingIngestion(pool)
-            t0 = datetime(2026, 1, 13, 8, 0, 0, tzinfo=timezone.utc)
+            t0 = datetime(2026, 1, 13, 8, 0, 0, tzinfo=UTC)
             in1 = NormalizedBillingFactInput(
                 billing_provider_key="provider_atomic_ci",
                 external_event_id=ext,
@@ -225,7 +227,7 @@ def test_postgres_atomic_replay_audit_failure_leaves_prior_commits_unchanged(pg_
         try:
             await _cleanup_and_migrate(pool)
             atomic = PostgresAtomicBillingIngestion(pool)
-            t0 = datetime(2026, 1, 14, 8, 0, 0, tzinfo=timezone.utc)
+            t0 = datetime(2026, 1, 14, 8, 0, 0, tzinfo=UTC)
             in1 = NormalizedBillingFactInput(
                 billing_provider_key="provider_atomic_ci",
                 external_event_id=ext,

@@ -41,17 +41,13 @@ def _database_url() -> str | None:
 def pg_url() -> str:
     url = _database_url()
     if url is None:
-        pytest.skip(
-            "DATABASE_URL not set; skipping PostgreSQL migration ledger integration test"
-        )
+        pytest.skip("DATABASE_URL not set; skipping PostgreSQL migration ledger integration test")
     return url
 
 
 def _assert_ledger_checksum_rows(rows: list[asyncpg.Record]) -> dict[str, str]:
     expected_n = len(_EXPECTED_LEDGER_FILENAMES)
-    assert len(rows) == expected_n, (
-        f"expected {expected_n} ledger rows for known filenames, got {len(rows)}"
-    )
+    assert len(rows) == expected_n, f"expected {expected_n} ledger rows for known filenames, got {len(rows)}"
     mapping: dict[str, str] = {}
     for row in rows:
         filename = str(row["filename"])

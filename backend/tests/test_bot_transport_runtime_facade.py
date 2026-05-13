@@ -12,29 +12,28 @@ from app.bot_transport.runtime_facade import (
     handle_slice1_telegram_update_to_rendered_message,
 )
 from app.bot_transport.storefront_ui import (
-    text_help,
-    text_welcome,
-    text_main_menu,
-    text_buy_vpn_intro,
-    text_keys_not_available,
-    text_device_select,
-    text_purchase_summary,
-    text_no_subscription,
-    text_router_soon,
-    text_settings,
-    CB_MAIN_MENU,
+    CB_BALANCE,
     CB_BUY_VPN,
-    CB_PLAN,
-    CB_DEVICES,
     CB_CONFIRM_PAY,
-    CB_MY_SUB,
-    CB_MY_KEYS,
-    CB_SUB_URL,
+    CB_DEVICES,
     CB_HELP,
+    CB_MAIN_MENU,
+    CB_MY_KEYS,
+    CB_MY_SUB,
+    CB_PLAN,
+    CB_REFERRAL,
     CB_ROUTER,
     CB_SETTINGS,
-    CB_REFERRAL,
-    CB_BALANCE,
+    CB_SUB_URL,
+    text_buy_vpn_intro,
+    text_help,
+    text_keys_not_available,
+    text_main_menu,
+    text_no_subscription,
+    text_purchase_summary,
+    text_router_soon,
+    text_settings,
+    text_welcome,
 )
 from app.security.idempotency import build_bootstrap_idempotency_key
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
@@ -317,6 +316,7 @@ def test_facade_callback_devices_changes_count() -> None:
 def test_facade_callback_confirm_pay_renders_summary() -> None:
     async def main() -> None:
         from app.application.purchase_handler import build_purchase_summary
+
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _callback_update(callback_data=f"{CB_CONFIRM_PAY}1m:5")

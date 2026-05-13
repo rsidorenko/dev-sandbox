@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class UserSafeErrorCode(str, Enum):
+class UserSafeErrorCode(StrEnum):
     """Стабильные категории, безопасные для отображения конечным пользователям (без внутренних деталей)."""
 
     INVALID_INPUT = "invalid_input"
@@ -14,7 +14,7 @@ class UserSafeErrorCode(str, Enum):
     SERVICE_UNAVAILABLE = "service_unavailable"
 
 
-class InternalErrorCategory(str, Enum):
+class InternalErrorCategory(StrEnum):
     """Операционная классификация ошибок (не для конечных пользователей)."""
 
     VALIDATION = "validation"

@@ -6,12 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.issuance.contracts import IssuanceOutcomeCategory, IssuanceServiceResult
-
 from app.application.issuance_operator_main import (
     ISSUANCE_OPERATOR_ENABLE,
     async_main,
 )
+from app.issuance.contracts import IssuanceOutcomeCategory, IssuanceServiceResult
 
 _FORBIDDEN = (
     "DATABASE_URL",

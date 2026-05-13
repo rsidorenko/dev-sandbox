@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from app.admin_support.contracts import (
     Adm01IdentityResolvePort,
+    Adm01IssuanceReadPort,
     Adm01SubscriptionReadPort,
     Adm01SupportAccessReadinessBucket,
     Adm01SupportNextAction,
     Adm01SupportSubscriptionBucket,
-    Adm02EnsureAccessAuthorizationPort,
     Adm02EnsureAccessAuditEvent,
     Adm02EnsureAccessAuditEventType,
     Adm02EnsureAccessAuditOutcomeBucket,
     Adm02EnsureAccessAuditPort,
     Adm02EnsureAccessAuditPrincipalMarker,
+    Adm02EnsureAccessAuthorizationPort,
     Adm02EnsureAccessInput,
     Adm02EnsureAccessMutationPort,
     Adm02EnsureAccessOutcome,
@@ -22,7 +23,6 @@ from app.admin_support.contracts import (
     Adm02EnsureAccessSummary,
     Adm02MutationOptInPort,
     IssuanceOperationalState,
-    Adm01IssuanceReadPort,
 )
 from app.application.interfaces import SubscriptionSnapshot
 from app.shared.correlation import require_correlation_id
@@ -89,9 +89,7 @@ class Adm02EnsureAccessHandler:
             return result
 
         try:
-            mutation_enabled = await self._mutation_opt_in.check_adm02_mutation_opt_in_enabled(
-                correlation_id=cid
-            )
+            mutation_enabled = await self._mutation_opt_in.check_adm02_mutation_opt_in_enabled(correlation_id=cid)
         except Exception:
             result = Adm02EnsureAccessResult(
                 outcome=Adm02EnsureAccessOutcome.DEPENDENCY_FAILURE,

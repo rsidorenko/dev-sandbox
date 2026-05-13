@@ -14,8 +14,8 @@ from app.bot_transport.runtime_wrapper import (
     extract_eligible_private_chat_id_from_telegram_like_update,
     handle_slice1_telegram_update_to_runtime_action,
 )
-from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 from app.bot_transport.storefront_ui import text_help, text_welcome
+from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 from tests.slice1_expected_user_copy import (
     INACTIVE_OR_NOT_ELIGIBLE_TEXT,
     NEEDS_ONBOARDING_TEXT,
@@ -68,6 +68,7 @@ def test_runtime_wrapper_duplicate_private_start_first_send_second_noop_one_audi
 
     Suppress-send does not address first send failing after commit without a delivery ledger.
     """
+
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -215,7 +216,15 @@ def test_runtime_action_shape_no_raw_payload_or_internal_enums() -> None:
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert isinstance(action, TelegramRuntimeAction)
         assert isinstance(action.kind, TelegramRuntimeActionKind)
-        for name in ("chat_id", "message_text", "correlation_id", "action_keys", "reply_markup", "kind", "uc01_idempotency_key"):
+        for name in (
+            "chat_id",
+            "message_text",
+            "correlation_id",
+            "action_keys",
+            "reply_markup",
+            "kind",
+            "uc01_idempotency_key",
+        ):
             assert hasattr(action, name)
         assert isinstance(action.reply_markup, dict) or action.reply_markup is None
         assert TransportResponseCategory not in type(action).__mro__

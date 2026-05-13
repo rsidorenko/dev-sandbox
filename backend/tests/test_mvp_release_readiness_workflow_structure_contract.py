@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_WORKFLOW_PATH = (
-    Path(__file__).resolve().parents[2]
-    / ".github"
-    / "workflows"
-    / "backend-mvp-release-readiness.yml"
-)
+_WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "backend-mvp-release-readiness.yml"
 _REQUIRED_TRIGGER_PATHS = (
     "PROJECT_HANDOFF.md",
     "backend/RELEASE_STATUS.md",

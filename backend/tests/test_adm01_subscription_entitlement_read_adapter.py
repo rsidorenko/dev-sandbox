@@ -11,7 +11,6 @@ from app.admin_support.contracts import EntitlementSummaryCategory
 from app.application.interfaces import SubscriptionSnapshot
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
 
-
 _FORBIDDEN_MARKERS = (
     "provider_issuance_ref",
     "issue_idempotency_key",

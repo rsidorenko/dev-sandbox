@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from app.runtime.raw_polling import TelegramRawPollingClient
 from app.runtime import telegram_httpx_raw_client
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
@@ -23,6 +22,7 @@ from app.runtime.polling_policy import (
     PollingTimeoutDecision,
     create_default_polling_policy,
 )
+from app.runtime.raw_polling import TelegramRawPollingClient
 from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
 
 
@@ -236,7 +236,7 @@ def test_override_httpx_timeout_mode_invalid_payload_raises_before_http() -> Non
             return PollingTimeoutDecision(
                 request_kind=request_kind,
                 mode=OVERRIDE_HTTPX_TIMEOUT_MODE,
-                httpx_timeout=cast(Any, 3.14),
+                httpx_timeout=cast("Any", 3.14),
             )
 
     calls = 0
@@ -251,7 +251,7 @@ def test_override_httpx_timeout_mode_invalid_payload_raises_before_http() -> Non
         async with httpx.AsyncClient(transport=transport) as ac:
             policy = replace(create_default_polling_policy(), timeout=BadPayload())
             c = HttpxTelegramRawPollingClient("x", base_url="https://e/b/", client=ac, polling_policy=policy)
-            with pytest.raises(RuntimeError, match="polling timeout override must be httpx.Timeout"):
+            with pytest.raises(RuntimeError, match=r"polling timeout override must be httpx\.Timeout"):
                 await c.fetch_raw_updates(limit=1)
 
     asyncio.run(main())
@@ -263,7 +263,7 @@ def test_unsupported_polling_timeout_mode_raises_before_http() -> None:
         kind = "bad"
 
         def timeout_for_request(self, request_kind: str) -> PollingTimeoutDecision:
-            return PollingTimeoutDecision(request_kind=request_kind, mode=cast(Any, "not_supported"))
+            return PollingTimeoutDecision(request_kind=request_kind, mode=cast("Any", "not_supported"))
 
     calls = 0
 

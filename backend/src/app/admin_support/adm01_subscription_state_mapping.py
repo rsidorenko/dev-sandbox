@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from app.application.interfaces import SubscriptionSnapshot
 from app.shared.types import SubscriptionSnapshotState
 
 
-class Adm01SnapshotStateKind(str, Enum):
+class Adm01SnapshotStateKind(StrEnum):
     """Internal classification for ADM-01 adapter mapping only."""
 
     MISSING_OR_UNKNOWN = "missing_or_unknown"

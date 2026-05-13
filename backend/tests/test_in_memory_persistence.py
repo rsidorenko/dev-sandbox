@@ -13,8 +13,8 @@ from app.persistence.in_memory import (
     InMemorySubscriptionSnapshotReader,
     InMemoryUserIdentityRepository,
 )
-from app.shared.types import OperationOutcomeCategory
 from app.security.errors import InternalErrorCategory
+from app.shared.types import OperationOutcomeCategory
 
 
 def test_identity_creates_once_and_reuses() -> None:

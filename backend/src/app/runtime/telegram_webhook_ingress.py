@@ -88,11 +88,12 @@ def load_telegram_webhook_ingress_settings_from_env(*, app_env: str) -> Telegram
     secret_raw = os.environ.get(ENV_TELEGRAM_WEBHOOK_SECRET_TOKEN, "").strip()
     if _is_local_app_env(app_env):
         if not secret_raw and not _truthy_env(os.environ.get(ENV_TELEGRAM_WEBHOOK_ALLOW_INSECURE_LOCAL)):
-            raise ConfigurationError(
-                "invalid configuration: "
-                f"{ENV_TELEGRAM_WEBHOOK_ALLOW_INSECURE_LOCAL}"
-            )
-        if secret_raw and _truthy_env(os.environ.get(ENV_LAUNCH_PREFLIGHT_STRICT)) and not _min_secret_strength_ok(secret_raw):
+            raise ConfigurationError(f"invalid configuration: {ENV_TELEGRAM_WEBHOOK_ALLOW_INSECURE_LOCAL}")
+        if (
+            secret_raw
+            and _truthy_env(os.environ.get(ENV_LAUNCH_PREFLIGHT_STRICT))
+            and not _min_secret_strength_ok(secret_raw)
+        ):
             raise ConfigurationError(f"weak configuration: {ENV_TELEGRAM_WEBHOOK_SECRET_TOKEN}")
         return TelegramWebhookIngressSettings(expected_secret=secret_raw or None)
     if not secret_raw:

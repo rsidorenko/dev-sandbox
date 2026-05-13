@@ -6,5 +6,7 @@ Requires-Python: >=3.12
 Requires-Dist: asyncpg<1,>=0.29
 Requires-Dist: httpx<1,>=0.27
 Requires-Dist: starlette<1,>=0.38
+Requires-Dist: uvicorn<1,>=0.30
 Provides-Extra: test
 Requires-Dist: pytest<9,>=8.3; extra == "test"
+Requires-Dist: pytest-asyncio<2,>=0.23; extra == "test"

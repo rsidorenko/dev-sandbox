@@ -23,8 +23,8 @@ from tests.slice1_expected_user_copy import (
     NEEDS_ONBOARDING_TEXT,
     RESEND_ACCESS_ACCEPTED_TEXT,
     RESEND_ACCESS_COOLDOWN_TEXT,
-    RESEND_ACCESS_NOT_ENABLED_TEXT,
     RESEND_ACCESS_NOT_ELIGIBLE_TEXT,
+    RESEND_ACCESS_NOT_ENABLED_TEXT,
     RESEND_ACCESS_NOT_READY_TEXT,
     RESEND_ACCESS_TEMPORARILY_UNAVAILABLE_TEXT,
     SLICE1_HELP_TEXT,
@@ -293,9 +293,7 @@ def test_unknown_message_key_fail_closed_outage() -> None:
         message_key="totally_unknown_catalog_key",
     )
     out = render_telegram_outbound_plan(plan)
-    assert out.message_text == (
-        "Сервис временно недоступен. Пожалуйста, попробуйте позже."
-    )
+    assert out.message_text == ("Сервис временно недоступен. Пожалуйста, попробуйте позже.")
     assert out.action_keys == ()
 
 

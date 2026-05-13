@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from app.application.handlers import BootstrapIdentityResult, GetSubscriptionStatusResult
 from app.application.telegram_access_resend import (
@@ -14,19 +14,19 @@ from app.security.errors import UserSafeErrorCode
 from app.shared.types import OperationOutcomeCategory, SafeUserStatusCategory
 
 
-class TransportResponseCategory(str, Enum):
+class TransportResponseCategory(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
     GUIDANCE = "guidance"
 
 
-class TransportBootstrapCode(str, Enum):
+class TransportBootstrapCode(StrEnum):
     """Стабильные коды исхода bootstrap для транспорта (успешные пути объединены)."""
 
     IDENTITY_READY = "identity_ready"
 
 
-class TransportStatusCode(str, Enum):
+class TransportStatusCode(StrEnum):
     """Стабильные сводные коды UC-02 (fail-closed; без заявлений о биллинге или провайдере)."""
 
     NEEDS_ONBOARDING = "needs_onboarding"
@@ -38,7 +38,7 @@ class TransportStatusCode(str, Enum):
     SUBSCRIPTION_ACTIVE_ACCESS_READY = "subscription_active_access_ready"
 
 
-class TransportErrorCode(str, Enum):
+class TransportErrorCode(StrEnum):
     """Стабильные коды классов ошибок, согласованные с пользовательской таксономией (без внутренних деталей)."""
 
     INVALID_INPUT = "invalid_input"
@@ -47,13 +47,13 @@ class TransportErrorCode(str, Enum):
     TELEGRAM_COMMAND_RATE_LIMITED = "telegram_command_rate_limited"
 
 
-class TransportHelpCode(str, Enum):
+class TransportHelpCode(StrEnum):
     """Справка slice 1 только для чтения; без обработчика приложения, без изменения состояния."""
 
     SLICE1_HELP = "slice1_help"
 
 
-class TransportStorefrontCode(str, Enum):
+class TransportStorefrontCode(StrEnum):
     STORE_MENU = "store_menu"
     STORE_PLANS = "store_plans"
     STORE_BUY = "store_buy"
@@ -62,14 +62,14 @@ class TransportStorefrontCode(str, Enum):
     STORE_RENEW = "store_renew"
 
 
-class TransportSupportCode(str, Enum):
+class TransportSupportCode(StrEnum):
     """Поверхности поддержки только для чтения; без биллинга или выдачи."""
 
     SUPPORT_MENU = "support_menu"
     SUPPORT_CONTACT = "support_contact"
 
 
-class TransportAccessResendCode(str, Enum):
+class TransportAccessResendCode(StrEnum):
     NOT_ENABLED = "resend_access_not_enabled"
     RESEND_ACCEPTED = "resend_access_accepted"
     NOT_ELIGIBLE = "resend_access_not_eligible"
@@ -78,7 +78,7 @@ class TransportAccessResendCode(str, Enum):
     TEMPORARILY_UNAVAILABLE = "resend_access_temporarily_unavailable"
 
 
-class TransportNextActionHint(str, Enum):
+class TransportNextActionHint(StrEnum):
     COMPLETE_BOOTSTRAP = "complete_bootstrap"
 
 

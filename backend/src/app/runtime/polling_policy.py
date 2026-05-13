@@ -34,7 +34,7 @@ class PollingTimeoutDecision:
 
     request_kind: RequestKind
     mode: TimeoutDecisionMode = INHERIT_CLIENT_TIMEOUT_MODE
-    httpx_timeout: "Timeout | None" = None
+    httpx_timeout: Timeout | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,24 +54,24 @@ class PollingRetryDecision:
 
 
 __all__ = (
-    "PollingPolicy",
-    "PollingTimeoutPolicy",
-    "PollingTimeoutDecision",
-    "TimeoutDecisionMode",
+    "DEFAULT_POLLING_POLICY",
     "INHERIT_CLIENT_TIMEOUT_MODE",
-    "OVERRIDE_HTTPX_TIMEOUT_MODE",
-    "PollingBackoffDecision",
-    "PollingBackoffPolicy",
-    "PollingRetryDecision",
-    "PollingRetryPolicy",
-    "NoopTimeoutPolicy",
-    "NoopBackoffPolicy",
-    "NoopRetryPolicy",
-    "RequestKind",
     "LONG_POLL_FETCH_REQUEST",
     "ORDINARY_OUTBOUND_REQUEST",
+    "OVERRIDE_HTTPX_TIMEOUT_MODE",
+    "NoopBackoffPolicy",
+    "NoopRetryPolicy",
+    "NoopTimeoutPolicy",
+    "PollingBackoffDecision",
+    "PollingBackoffPolicy",
+    "PollingPolicy",
+    "PollingRetryDecision",
+    "PollingRetryPolicy",
+    "PollingTimeoutDecision",
+    "PollingTimeoutPolicy",
+    "RequestKind",
+    "TimeoutDecisionMode",
     "create_default_polling_policy",
-    "DEFAULT_POLLING_POLICY",
 )
 
 

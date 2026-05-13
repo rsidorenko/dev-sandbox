@@ -180,7 +180,7 @@ class InMemoryOutboundDeliveryLedger:
                 return None
             mid = self._message_id.get(idempotency_key) if st == "sent" else None
             return OutboundDeliveryRecord(
-                status=cast(Literal["pending", "sent"], st),
+                status=cast("Literal['pending', 'sent']", st),
                 telegram_message_id=mid,
             )
 
@@ -299,9 +299,7 @@ class InMemoryReferralTransactionRepository:
         async with self._lock:
             self._transactions.append(record)
 
-    async def list_by_user(
-        self, internal_user_id: str, limit: int = 20
-    ) -> tuple[ReferralTransactionRecord, ...]:
+    async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]:
         async with self._lock:
             user_tx = [t for t in self._transactions if t.internal_user_id == internal_user_id]
             user_tx.sort(key=lambda t: t.created_at, reverse=True)

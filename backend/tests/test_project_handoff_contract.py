@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _BACKEND_DIR.parent
 _HANDOFF_PATH = _REPO_ROOT / "PROJECT_HANDOFF.md"

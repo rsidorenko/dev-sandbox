@@ -13,10 +13,10 @@ import app.runtime as rt
 import app.runtime.telegram_httpx_raw_runner as httpx_raw_runner_mod
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
+    OVERRIDE_HTTPX_TIMEOUT_MODE,
     NoopBackoffPolicy,
     NoopRetryPolicy,
     NoopTimeoutPolicy,
-    OVERRIDE_HTTPX_TIMEOUT_MODE,
     PollingPolicy,
     PollingTimeoutDecision,
 )
@@ -289,13 +289,15 @@ def test_aclose_runs_when_run_iterations_raises() -> None:
     mock_bundle.aclose = AsyncMock()
 
     async def main() -> None:
-        with patch.object(
-            httpx_raw_runner_mod,
-            "build_slice1_httpx_raw_runtime_bundle",
-            return_value=mock_bundle,
+        with (
+            patch.object(
+                httpx_raw_runner_mod,
+                "build_slice1_httpx_raw_runtime_bundle",
+                return_value=mock_bundle,
+            ),
+            pytest.raises(RuntimeError, match="boom"),
         ):
-            with pytest.raises(RuntimeError, match="boom"):
-                await run_slice1_httpx_raw_iterations("tok", 1)
+            await run_slice1_httpx_raw_iterations("tok", 1)
         mock_bundle.aclose.assert_awaited_once()
 
     _run(main())

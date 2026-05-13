@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 from collections.abc import Mapping, Sequence
-import os
 from pathlib import Path
-import re
 
 _MUTATING_TESTS_GUARD_ENV = "SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS"
 _FORBIDDEN_OUTPUT_FRAGMENTS = (
@@ -100,9 +100,7 @@ def _redact_line(line: str) -> str:
 
 
 def _safe_tail(stdout: str, stderr: str, *, max_lines: int = 60) -> tuple[str, ...]:
-    combined = []
-    for raw in (stdout or "").splitlines() + (stderr or "").splitlines():
-        combined.append(_redact_line(raw))
+    combined = [_redact_line(raw) for raw in (stdout or "").splitlines() + (stderr or "").splitlines()]
     tail = combined[-max_lines:]
     # Drop empty tails to avoid noisy output.
     pruned = tuple(line for line in tail if line and line != "<redacted_line>")

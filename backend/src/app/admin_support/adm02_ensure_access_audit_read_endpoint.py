@@ -45,9 +45,7 @@ class Adm02EnsureAccessAuditLookupEndpointResponse:
 
 
 class Adm02EnsureAccessAuditLookupHandlerLike(Protocol):
-    async def handle(
-        self, inp: Adm02EnsureAccessAuditLookupInput
-    ) -> Adm02EnsureAccessAuditLookupResponse: ...
+    async def handle(self, inp: Adm02EnsureAccessAuditLookupInput) -> Adm02EnsureAccessAuditLookupResponse: ...
 
 
 def _to_response(
@@ -85,9 +83,7 @@ async def execute_adm02_ensure_access_audit_lookup_endpoint(
     request: Adm02EnsureAccessAuditLookupInboundRequest,
 ) -> Adm02EnsureAccessAuditLookupEndpointResponse:
     principal_id_candidate = (
-        request.internal_admin_principal_id
-        if isinstance(request.internal_admin_principal_id, str)
-        else None
+        request.internal_admin_principal_id if isinstance(request.internal_admin_principal_id, str) else None
     )
     try:
         extraction = await principal_extractor.extract_trusted_internal_admin_principal(
@@ -102,10 +98,7 @@ async def execute_adm02_ensure_access_audit_lookup_endpoint(
             correlation_id=request.correlation_id,
             items=(),
         )
-    if (
-        extraction.outcome is not InternalAdminPrincipalExtractionOutcome.SUCCESS
-        or extraction.principal is None
-    ):
+    if extraction.outcome is not InternalAdminPrincipalExtractionOutcome.SUCCESS or extraction.principal is None:
         return Adm02EnsureAccessAuditLookupEndpointResponse(
             outcome=Adm02EnsureAccessAuditLookupOutcome.INVALID_INPUT.value,
             correlation_id=request.correlation_id,
@@ -127,4 +120,3 @@ async def execute_adm02_ensure_access_audit_lookup_endpoint(
             items=(),
         )
     return _to_response(result)
-

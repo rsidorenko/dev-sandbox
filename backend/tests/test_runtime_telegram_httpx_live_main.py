@@ -66,11 +66,7 @@ def test_run_from_env_always_closes_on_run_exception(
     build.assert_awaited_once_with()
     fake_process.run_until_stopped.assert_awaited_once_with()
     fake_process.aclose.assert_awaited_once_with()
-    error_records = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "runtime.live.entrypoint.failed"
-    ]
+    error_records = [record for record in caplog.records if record.getMessage() == "runtime.live.entrypoint.failed"]
     assert len(error_records) == 1
     assert error_records[0].structured_fields == {
         "intent": "runtime_loop",
@@ -86,9 +82,7 @@ def test_run_from_env_logs_startup_failure_and_reraises_without_close(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    startup_error = RuntimeError(
-        "startup failed token=999:SECRET database=postgres://user:pass@host/db"
-    )
+    startup_error = RuntimeError("startup failed token=999:SECRET database=postgres://user:pass@host/db")
     build = AsyncMock(side_effect=startup_error)
     register_handlers = Mock()
     monkeypatch.setattr(main_mod, "build_slice1_httpx_live_process_from_env_async", build)
@@ -101,11 +95,7 @@ def test_run_from_env_logs_startup_failure_and_reraises_without_close(
     assert exc_info.value is startup_error
     build.assert_awaited_once_with()
     register_handlers.assert_not_called()
-    error_records = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "runtime.live.entrypoint.failed"
-    ]
+    error_records = [record for record in caplog.records if record.getMessage() == "runtime.live.entrypoint.failed"]
     assert len(error_records) == 1
     assert error_records[0].structured_fields == {
         "intent": "startup",
@@ -114,9 +104,7 @@ def test_run_from_env_logs_startup_failure_and_reraises_without_close(
         "internal_category": "startup_exception",
     }
     lifecycle_records = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "runtime.live.entrypoint.lifecycle"
+        record for record in caplog.records if record.getMessage() == "runtime.live.entrypoint.lifecycle"
     ]
     assert len(lifecycle_records) == 1
     assert lifecycle_records[0].structured_fields == {
@@ -221,9 +209,7 @@ def test_run_from_env_logs_start_and_normal_completion(
 
     assert result is expected
     lifecycle_records = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "runtime.live.entrypoint.lifecycle"
+        record for record in caplog.records if record.getMessage() == "runtime.live.entrypoint.lifecycle"
     ]
     assert len(lifecycle_records) == 3
     assert lifecycle_records[0].structured_fields == {
@@ -265,9 +251,7 @@ def test_signal_callback_logs_shutdown_request(
 
     fake_process.request_stop.assert_called_once_with()
     lifecycle_records = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "runtime.live.entrypoint.lifecycle"
+        record for record in caplog.records if record.getMessage() == "runtime.live.entrypoint.lifecycle"
     ]
     assert len(lifecycle_records) == 1
     assert lifecycle_records[0].structured_fields == {

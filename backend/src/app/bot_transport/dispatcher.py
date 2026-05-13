@@ -19,17 +19,17 @@ from app.application.telegram_command_rate_limit_telemetry import (
 from app.bot_transport.normalized import (
     NormalizedCallback,
     NormalizedSlice1Bootstrap,
+    NormalizedSlice1Buy,
     NormalizedSlice1Help,
     NormalizedSlice1Menu,
-    NormalizedSlice1Buy,
     NormalizedSlice1Plans,
     NormalizedSlice1Rejected,
-    NormalizedSlice1ResendAccess,
     NormalizedSlice1Renew,
+    NormalizedSlice1ResendAccess,
+    NormalizedSlice1Status,
     NormalizedSlice1Success,
     NormalizedSlice1SupportContact,
     NormalizedSlice1SupportMenu,
-    NormalizedSlice1Status,
     TransportIncomingEnvelope,
     parse_slice1_transport,
 )
@@ -37,14 +37,14 @@ from app.bot_transport.presentation import (
     TransportErrorCode,
     TransportResponseCategory,
     TransportSafeResponse,
-    map_bootstrap_identity_to_transport,
+    TransportStorefrontCode,
+    TransportSupportCode,
     map_access_resend_to_transport,
+    map_bootstrap_identity_to_transport,
     map_get_subscription_status_to_transport,
     map_slice1_help_to_transport,
     map_slice1_storefront_to_transport,
     map_slice1_support_to_transport,
-    TransportStorefrontCode,
-    TransportSupportCode,
 )
 from app.shared.types import OperationOutcomeCategory, SafeUserStatusCategory
 
@@ -110,19 +110,11 @@ def _dispatch_callback(
     """Route inline callback to storefront UI actions. Returns a transport response with storefront code."""
     from app.bot_transport.storefront_ui import (
         CB_BUY_VPN,
-        CB_MAIN_MENU,
         CB_HELP,
-        CB_REFERRAL,
-        CB_BALANCE,
-        CB_SETTINGS,
+        CB_MAIN_MENU,
         CB_MY_SUB,
-        CB_MY_KEYS,
-        CB_SUB_URL,
-        CB_ROUTER,
-        CB_PLAN,
-        CB_DEVICES,
-        CB_CONFIRM_PAY,
     )
+
     action = cb.action
     # Map callback actions to existing transport storefront codes
     if action in (CB_MAIN_MENU,):

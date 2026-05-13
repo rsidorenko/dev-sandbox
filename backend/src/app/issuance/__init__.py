@@ -17,8 +17,8 @@ __all__ = [
     "IssuanceOutcomeCategory",
     "IssuanceProviderPort",
     "IssuanceRequest",
-    "IssuanceServiceResult",
     "IssuanceService",
+    "IssuanceServiceResult",
     "issue_resend_denial_category",
     "subscription_allows_issue_resend",
 ]

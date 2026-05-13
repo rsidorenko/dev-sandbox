@@ -43,7 +43,7 @@ def _update(
 
 
 class FakeRawClient:
-    __slots__ = ("_rounds", "_ri", "fetch_calls", "last_fetch_limit", "send_calls")
+    __slots__ = ("_ri", "_rounds", "fetch_calls", "last_fetch_limit", "send_calls")
 
     def __init__(self, rounds: list[list[dict[str, object]]] | None = None) -> None:
         self._rounds = [list(x) for x in (rounds or [])]

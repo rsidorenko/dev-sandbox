@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from app.application.bootstrap import Slice1Composition
@@ -17,7 +17,7 @@ from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_re
 from app.security.validation import ValidationError, validate_telegram_user_id
 
 
-class TelegramRuntimeActionKind(str, Enum):
+class TelegramRuntimeActionKind(StrEnum):
     """Минимальный исходящий интент runtime для slice 1 (транспорт-агностичный, без SDK)."""
 
     SEND_MESSAGE = "send_message"

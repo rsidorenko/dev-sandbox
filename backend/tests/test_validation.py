@@ -6,7 +6,6 @@ from app.security.validation import (
     NormalizedIntent,
     ValidationError,
     parse_allowlisted_intent,
-    validate_telegram_update_id,
     validate_telegram_user_id,
 )
 

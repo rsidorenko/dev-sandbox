@@ -1,8 +1,8 @@
 """Tests for domain.devices: device limit validation and cost."""
 
 from app.domain.devices import (
-    extra_device_count,
     extra_device_cost,
+    extra_device_count,
     validate_device_count,
 )
 

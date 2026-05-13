@@ -7,18 +7,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 
-class MismatchQuarantineSourceType(str, Enum):
+class MismatchQuarantineSourceType(StrEnum):
     """Origin of a mismatch_quarantine record (coarse-grained, low-cardinality)."""
 
     UNKNOWN = "unknown"
     RECONCILIATION_RUN = "reconciliation_run"
 
 
-class MismatchQuarantineReasonCode(str, Enum):
+class MismatchQuarantineReasonCode(StrEnum):
     """Normalized reason for putting a record into quarantine (aligned with ADM-02 docs)."""
 
     UNKNOWN = "unknown"
@@ -27,7 +27,7 @@ class MismatchQuarantineReasonCode(str, Enum):
     NEEDS_REVIEW = "needs_review"
 
 
-class MismatchQuarantineResolutionStatus(str, Enum):
+class MismatchQuarantineResolutionStatus(StrEnum):
     """Minimal lifecycle state of a quarantine record from persistence point of view."""
 
     UNKNOWN = "unknown"
@@ -35,7 +35,7 @@ class MismatchQuarantineResolutionStatus(str, Enum):
     RESOLVED = "resolved"
 
 
-class MismatchQuarantineSummaryMarker(str, Enum):
+class MismatchQuarantineSummaryMarker(StrEnum):
     """Per-user aggregate marker for quarantine presence."""
 
     UNKNOWN = "unknown"
@@ -90,4 +90,3 @@ class MismatchQuarantineRepository(Protocol):
         internal_user_id: str,
     ) -> MismatchQuarantineUserSummary:
         """Return minimal per-user quarantine diagnostics summary."""
-

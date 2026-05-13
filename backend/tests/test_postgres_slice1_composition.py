@@ -81,7 +81,9 @@ def test_postgres_slice1_composition_bootstrap_status_audit_idempotent_replay(pg
         try:
             await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
             async with pool.acquire() as conn:
-                await _cleanup_test_rows(conn, telegram_user_id=_TG_USER, idempotency_key=idem_key, correlation_ids=corr_pair)
+                await _cleanup_test_rows(
+                    conn, telegram_user_id=_TG_USER, idempotency_key=idem_key, correlation_ids=corr_pair
+                )
 
             composition = build_slice1_composition(
                 identity=PostgresUserIdentityRepository(pool),
@@ -151,7 +153,9 @@ def test_postgres_slice1_composition_bootstrap_status_audit_idempotent_replay(pg
             assert replay_audit is None
         finally:
             async with pool.acquire() as conn:
-                await _cleanup_test_rows(conn, telegram_user_id=_TG_USER, idempotency_key=idem_key, correlation_ids=corr_pair)
+                await _cleanup_test_rows(
+                    conn, telegram_user_id=_TG_USER, idempotency_key=idem_key, correlation_ids=corr_pair
+                )
             await pool.close()
 
     asyncio.run(main())
@@ -159,9 +163,9 @@ def test_postgres_slice1_composition_bootstrap_status_audit_idempotent_replay(pg
 
 def _transport_public_blob(r: object) -> str:
     """Narrow getattr to avoid importing TransportSafeResponse in a circular way."""
-    cat = getattr(r, "category")
-    code = getattr(r, "code")
-    cid = getattr(r, "correlation_id")
+    cat = r.category
+    code = r.code
+    cid = r.correlation_id
     hint = getattr(r, "next_action_hint", None) or ""
     return f"{getattr(cat, 'value', cat)!s}{code!s}{cid!s}{hint!s}"
 
@@ -180,6 +184,7 @@ def _assert_uc02_postgres_transport_blob_has_no_sensitive_leaks(blob_lower: str,
 
 def test_postgres_uc02_dispatch_status_transport_and_missing_snapshot_fail_closed(pg_url: str) -> None:
     """Postgres-backed snapshot: /status transport codes + missing row stays fail-closed; no internal id leak."""
+
     async def main() -> None:
         pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
         idem_key = build_bootstrap_idempotency_key(_TG_UC02_TRANSPORT, _UPDATE_UC02_TRANSPORT)

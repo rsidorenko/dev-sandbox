@@ -24,7 +24,7 @@ def build_bootstrap_idempotency_key(telegram_user_id: int, update_id: int) -> st
     u = validate_telegram_update_id(update_id)
     if u == 0:
         raise ValidationError("update_id must be positive for idempotency key")
-    material = f"{_UC01_SCOPE}|{uid}|{u}".encode("utf-8")
+    material = f"{_UC01_SCOPE}|{uid}|{u}".encode()
     digest = hashlib.sha256(material).hexdigest()
     if len(digest) > _MAX_KEY_HEX_LEN:
         raise ValidationError("idempotency key material exceeds bounds")

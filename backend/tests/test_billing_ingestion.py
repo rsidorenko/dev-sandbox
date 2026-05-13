@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -13,11 +13,11 @@ from app.application.billing_ingestion import (
     NormalizedBillingFactInput,
 )
 from app.persistence import (
-    BillingEventAmountCurrency,
-    BillingEventLedgerStatus,
+    BILLING_INGESTION_AUDIT_OPERATION,
     BILLING_INGESTION_OUTCOME_ACCEPTED,
     BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY,
-    BILLING_INGESTION_AUDIT_OPERATION,
+    BillingEventAmountCurrency,
+    BillingEventLedgerStatus,
     InMemoryBillingEventsLedgerRepository,
     InMemoryBillingIngestionAuditAppender,
 )
@@ -25,8 +25,8 @@ from app.persistence.billing_ingestion_audit_contracts import BillingIngestionAu
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
 from app.security.validation import ValidationError
 
-_NOW = datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
-_LATER = datetime(2026, 1, 15, 10, 31, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
+_LATER = datetime(2026, 1, 15, 10, 31, 0, tzinfo=UTC)
 
 
 def _base_input(**overrides) -> NormalizedBillingFactInput:

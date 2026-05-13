@@ -14,6 +14,7 @@ import sys
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from pathlib import Path
+
 import asyncpg
 
 from app.application.billing_ingestion import NormalizedBillingFactInput
@@ -74,7 +75,7 @@ def _parse_timestamptz(*, name: str, raw: object) -> datetime:
     if not s:
         raise ValidationError(f"{name} is required")
     iso = s
-    if iso.endswith("Z") or iso.endswith("z"):
+    if iso.endswith(("Z", "z")):
         iso = iso[:-1] + "+00:00"
     try:
         dt = datetime.fromisoformat(iso)
@@ -190,7 +191,7 @@ def _err_category(exc: BaseException) -> str:
         return "config"
     if isinstance(exc, PersistenceDependencyError):
         return "persistence"
-    if isinstance(exc, (OSError, asyncpg.PostgresError, TimeoutError)):
+    if isinstance(exc, OSError | asyncpg.PostgresError | TimeoutError):
         return "persistence"
     return "internal_error"
 

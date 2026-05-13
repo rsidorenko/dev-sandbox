@@ -68,11 +68,9 @@ def _is_loopback_host(host: str) -> bool:
 
 def _is_all_interfaces_host(host: str) -> bool:
     s = host.strip()
-    if s == "0.0.0.0":
+    if s == "0.0.0.0":  # noqa: S104 — intentional check for all-interfaces binding
         return True
-    if s in {"::", "[::]"}:
-        return True
-    return False
+    return s in {"::", "[::]"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,13 +104,12 @@ def validate_adm01_internal_http_config(config: Adm01InternalHttpConfig) -> Adm0
     if _is_all_interfaces_host(host) and not config.bind_insecure_all_interfaces:
         msg = f"insecure bind blocked without opt-in: {_ENV_INSECURE_ALL}"
         raise ConfigurationError(msg)
-    if not _is_loopback_host(host):
-        if not (config.trust_reverse_proxy or config.require_mtls):
-            msg = (
-                "non-loopback internal HTTP bind requires transport trust: "
-                f"{_ENV_TRUST_REVERSE_PROXY} and/or {_ENV_REQUIRE_MTLS}"
-            )
-            raise ConfigurationError(msg)
+    if not _is_loopback_host(host) and not (config.trust_reverse_proxy or config.require_mtls):
+        msg = (
+            "non-loopback internal HTTP bind requires transport trust: "
+            f"{_ENV_TRUST_REVERSE_PROXY} and/or {_ENV_REQUIRE_MTLS}"
+        )
+        raise ConfigurationError(msg)
     return config
 
 
@@ -140,10 +137,7 @@ def load_adm01_internal_http_config_from_env(
             bind_host = host_st
 
     port_raw = _lookup(m, _ENV_BIND_PORT)
-    if port_raw is None:
-        bind_port = _DEFAULT_BIND_PORT
-    else:
-        bind_port = _parse_port(name=_ENV_BIND_PORT, raw=port_raw)
+    bind_port = _DEFAULT_BIND_PORT if port_raw is None else _parse_port(name=_ENV_BIND_PORT, raw=port_raw)
 
     cfg = Adm01InternalHttpConfig(
         enabled=enabled,

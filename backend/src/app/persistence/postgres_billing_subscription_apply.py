@@ -62,9 +62,8 @@ class PostgresAtomicUC05SubscriptionApply:
             )
 
         try:
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    return await self._apply_in_transaction(conn, internal_fact_ref)
+            async with self._pool.acquire() as conn, conn.transaction():
+                return await self._apply_in_transaction(conn, internal_fact_ref)
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
 

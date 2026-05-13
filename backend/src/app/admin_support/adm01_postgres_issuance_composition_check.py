@@ -55,7 +55,7 @@ def _dsn_from_env() -> str:
 
 def _allowlist_principal() -> str:
     raw = os.environ.get(_ENV_PRINCIPAL, "").strip()
-    return raw if raw else _DEFAULT_ALLOW_PRINCIPAL
+    return raw or _DEFAULT_ALLOW_PRINCIPAL
 
 
 def assert_adm01_composition_http_text_safe(

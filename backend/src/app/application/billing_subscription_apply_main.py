@@ -46,7 +46,7 @@ def _err_category(exc: BaseException) -> str:
         return "config"
     if isinstance(exc, PersistenceDependencyError):
         return "persistence"
-    if isinstance(exc, (OSError, asyncpg.PostgresError, TimeoutError)):
+    if isinstance(exc, OSError | asyncpg.PostgresError | TimeoutError):
         return "persistence"
     return "domain"
 
@@ -62,10 +62,7 @@ def _stderr_fail(category: str) -> None:
 def _outcome_state_labels(res: ApplyAcceptedBillingFactResult) -> tuple[str, str]:
     """(значение категории операции, исход apply или литерал none)."""
     out = res.operation_outcome.value
-    if res.apply_outcome is not None:
-        st = res.apply_outcome.value
-    else:
-        st = "none"
+    st = res.apply_outcome.value if res.apply_outcome is not None else "none"
     return (out, st)
 
 
@@ -76,10 +73,7 @@ def _print_ok_summary(
     state_label: str,
 ) -> None:
     print(
-        f"{_STDOUT_OK_PREFIX}"
-        f" internal_fact_ref={internal_fact_ref}"
-        f" outcome={operation_outcome}"
-        f" state={state_label}",
+        f"{_STDOUT_OK_PREFIX} internal_fact_ref={internal_fact_ref} outcome={operation_outcome} state={state_label}",
         flush=True,
     )
 
@@ -195,6 +189,4 @@ def _safety_deny_zero_exit(res: ApplyAcceptedBillingFactResult) -> bool:
     """Если исход заявляет успех, но нагрузка apply отсутствует где требуется, не завершать с кодом 0."""
     if res.operation_outcome is OperationOutcomeCategory.IDEMPOTENT_NOOP and res.apply_outcome is None:
         return True
-    if res.operation_outcome is OperationOutcomeCategory.SUCCESS and res.apply_outcome is None:
-        return True
-    return False
+    return bool(res.operation_outcome is OperationOutcomeCategory.SUCCESS and res.apply_outcome is None)

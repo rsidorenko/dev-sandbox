@@ -63,4 +63,3 @@ class InMemoryMismatchQuarantineRepository(MismatchQuarantineRepository):
     def _iter_records_locked(self) -> Iterable[MismatchQuarantineRecord]:
         # Internal helper: assumes caller holds _lock.
         return tuple(self._records_by_source.values())
-

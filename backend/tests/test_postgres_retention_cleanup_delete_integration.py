@@ -55,9 +55,7 @@ def _database_url() -> str | None:
 def pg_url() -> str:
     url = _database_url()
     if url is None:
-        pytest.skip(
-            "DATABASE_URL not set; skipping PostgreSQL retention cleanup delete integration test"
-        )
+        pytest.skip("DATABASE_URL not set; skipping PostgreSQL retention cleanup delete integration test")
     return url
 
 

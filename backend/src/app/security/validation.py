@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 _MAX_INTENT_STRING_LEN = 64
 _MAX_INTERNAL_FACT_REF_LEN = 256
 _UC05_REF_SAFE = re.compile(r"^[\w.\-:]{1,256}$")
 
 
-class NormalizedIntent(str, Enum):
+class NormalizedIntent(StrEnum):
     """Только интенты, разрешённые для нормализации транспорта slice 1."""
 
     BOOTSTRAP_IDENTITY = "bootstrap_identity"

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Protocol
 
 
 class AsyncSqlExecutor(Protocol):
@@ -63,9 +64,7 @@ async def apply_postgres_migrations(
         )
         """.strip()
     )
-    await executor.execute(
-        "ALTER TABLE schema_migration_ledger ADD COLUMN IF NOT EXISTS checksum TEXT"
-    )
+    await executor.execute("ALTER TABLE schema_migration_ledger ADD COLUMN IF NOT EXISTS checksum TEXT")
     applied_rows = await executor.fetch("SELECT filename, checksum FROM schema_migration_ledger")
     ledger_checksums: dict[str, str | None] = {}
     for row in applied_rows:
@@ -96,9 +95,7 @@ async def apply_postgres_migrations(
             if stored_checksum == expected_checksum:
                 continue
             msg = (
-                f"Migration ledger drift for {filename!r}: "
-                f"checksum mismatch (ledger vs filesystem). "
-                f"Refusing to apply."
+                f"Migration ledger drift for {filename!r}: checksum mismatch (ledger vs filesystem). Refusing to apply."
             )
             raise MigrationLedgerDriftError(msg)
         await executor.execute(sql_text)

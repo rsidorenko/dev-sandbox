@@ -8,8 +8,8 @@ import signal
 
 from app.observability.logging_policy import sanitize_structured_fields
 from app.runtime.runner import PollingRunSummary
-from app.runtime.telegram_httpx_live_process import Slice1HttpxLiveProcess
 from app.runtime.telegram_httpx_live_process import (
+    Slice1HttpxLiveProcess,
     build_slice1_httpx_live_process_from_env_async,
 )
 

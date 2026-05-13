@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import asyncpg
 import uuid
+
+import asyncpg
 
 from app.persistence.billing_ingestion_audit_contracts import BillingIngestionAuditRecord
 from app.security.errors import InternalErrorCategory, PersistenceDependencyError
@@ -52,9 +53,7 @@ class PostgresBillingIngestionAuditAppender:
         )
 
     def _params(self, record: BillingIngestionAuditRecord) -> tuple[object, ...]:
-        return PostgresBillingIngestionAuditAppender._params_for_insert(
-            self._new_audit_event_id(), record
-        )
+        return PostgresBillingIngestionAuditAppender._params_for_insert(self._new_audit_event_id(), record)
 
     @staticmethod
     async def append_in_connection(

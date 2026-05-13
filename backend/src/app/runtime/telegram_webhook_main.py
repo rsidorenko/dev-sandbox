@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
+from typing import Any
 
 import asyncpg
 from starlette.applications import Starlette
@@ -20,16 +20,16 @@ from app.persistence.slice1_postgres_wiring import (
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
 )
-from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle
-from app.runtime.telegram_webhook_ingress import (
-    create_slice1_telegram_webhook_starlette_app,
-    load_telegram_webhook_ingress_settings_from_env,
-)
 from app.runtime.payment_fulfillment_ingress import (
     create_payment_fulfillment_ingress_app,
     load_fulfillment_ingress_settings_from_env,
 )
 from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
+from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle
+from app.runtime.telegram_webhook_ingress import (
+    create_slice1_telegram_webhook_starlette_app,
+    load_telegram_webhook_ingress_settings_from_env,
+)
 from app.runtime.telegram_webhook_ingress_telemetry import (
     StructuredLoggingTelegramWebhookIngressTelemetry,
     TelegramWebhookIngressDecisionEvent,
@@ -149,10 +149,8 @@ async def _default_postgres_readiness_check(*, database_url: str) -> bool:
         return False
     finally:
         if conn is not None:
-            try:
+            with suppress(Exception):
                 await conn.close()
-            except Exception:
-                pass
     return True
 
 
