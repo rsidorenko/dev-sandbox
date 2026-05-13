@@ -189,10 +189,18 @@ git branch --merged main | grep -v '^\* main$'
 
 For each: ask the user before running `git branch -d <branch>`.
 
-**Report unmerged remote branches:**
+**Prune stale remote-tracking references:**
 
 ```bash
-git branch -r --no-merged origin/main | grep -v 'origin/main' | grep -v 'origin/HEAD'
+git remote prune origin
+```
+
+This removes local cache entries for remote branches that no longer exist on GitHub (e.g., branches auto-deleted after PR merge).
+
+**Report unmerged remote branches (still alive on GitHub):**
+
+```bash
+git fetch origin && git branch -r --no-merged origin/main | grep -v 'origin/main' | grep -v 'origin/HEAD'
 ```
 
 List these for the user — do NOT delete them, just report. The user decides if they should be PR'd, rebased, or abandoned.
