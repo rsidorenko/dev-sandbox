@@ -52,6 +52,9 @@ class TelegramRawPollingClient(Protocol):
     ) -> int:
         ...
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        ...
+
 
 def _mappings_for_offset(raw_updates: Sequence[object]) -> Sequence[Mapping[str, object]]:
     return tuple(cast(Mapping[str, object], u) for u in raw_updates if isinstance(u, Mapping))
@@ -88,6 +91,9 @@ class _PollingClientFromRaw:
             correlation_id=correlation_id,
             reply_markup=reply_markup,
         )
+
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        await self._raw.answer_callback_query(callback_query_id)
 
 
 class Slice1RawPollingRuntime:

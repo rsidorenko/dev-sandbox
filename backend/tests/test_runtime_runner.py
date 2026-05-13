@@ -40,6 +40,9 @@ class FakeTelegramPollingClient:
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
 
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        pass
+
 
 def _run(coro):
     return asyncio.run(coro)
