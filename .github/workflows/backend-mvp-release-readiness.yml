@@ -82,6 +82,9 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -e .[test]
 
+      - name: Verify all source modules compile
+        run: python -m compileall src/ -q
+
       - name: Run static MVP repo release health check
         run: python scripts/run_mvp_repo_release_health_check.py
 

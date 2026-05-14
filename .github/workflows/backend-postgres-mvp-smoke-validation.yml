@@ -99,12 +99,14 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -e .[test]
 
+      - name: Verify all source modules compile
+        run: python -m compileall src/ -q
+
       - name: Prepare validation reports directory
         run: mkdir -p "$REPORT_DIR"
 
-      - name: Run admin support internal read gate (advisory evidence)
+      - name: Run admin support internal read gate (blocking)
         id: admin_support_internal_read_gate
-        continue-on-error: true
         run: python scripts/check_admin_support_internal_read_gate.py
 
       - name: Run ADM-01 internal HTTP entrypoint smoke (blocking gate)
@@ -172,9 +174,8 @@ jobs:
           summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
           PY
 
-      - name: Run full backend regression tests (advisory evidence, non-blocking)
+      - name: Run full backend regression tests (blocking gate)
         id: full_backend_regression
-        continue-on-error: true
         run: python -m pytest -q --junitxml="$REPORT_DIR/backend-full-regression.xml"
 
       - name: Write full regression advisory summary marker
@@ -316,12 +317,14 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -e .[test]
 
+      - name: Verify all source modules compile
+        run: python -m compileall src/ -q
+
       - name: Prepare test reports directory
         run: mkdir -p "$REPORT_DIR"
 
-      - name: Run ADM-01 Postgres issuance composition check (advisory)
+      - name: Run ADM-01 Postgres issuance composition check (blocking)
         id: adm01_postgres_issuance_composition
-        continue-on-error: true
         env:
           DATABASE_URL: postgresql://slice1ret_ci:slice1retCILocal0nly@127.0.0.1:5432/slice1retention_ci
           ADM01_POSTGRES_ISSUANCE_COMPOSITION_CHECK_ENABLE: "1"
@@ -351,9 +354,8 @@ jobs:
             tests/test_postgres_adm01_issuance_read_adapter.py \
             --junitxml="$REPORT_DIR/backend-postgres-retention-integration.xml"
 
-      - name: Run operator billing ingest/apply e2e smoke (advisory evidence)
+      - name: Run operator billing ingest/apply e2e smoke (blocking gate)
         id: operator_billing_ingest_apply_e2e
-        continue-on-error: true
         env:
           DATABASE_URL: postgresql://slice1ret_ci:slice1retCILocal0nly@127.0.0.1:5432/slice1retention_ci
           BILLING_NORMALIZED_INGEST_ENABLE: "1"
