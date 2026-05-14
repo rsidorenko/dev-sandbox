@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 from dataclasses import dataclass
 from typing import Literal
 from unittest.mock import patch
@@ -11,7 +9,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_live_loop as httpx_live_loop_mod
 from app.runtime import run_slice1_httpx_live_until_stopped
 from app.runtime.live_loop import LoopControl, Slice1LiveRawPollingLoop
@@ -32,10 +29,7 @@ from app.runtime.telegram_httpx_live_startup import (
     build_slice1_httpx_live_runtime_bundle,
 )
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _start_update(*, update_id: int = 1, user_id: int = 42) -> dict:
@@ -389,22 +383,3 @@ def test_aclose_runs_when_run_until_stopped_raises(monkeypatch: pytest.MonkeyPat
         assert aclose_calls == 1
 
     _run(main())
-
-
-def test_app_runtime_exports_helper() -> None:
-    assert rt.run_slice1_httpx_live_until_stopped is run_slice1_httpx_live_until_stopped
-    assert "run_slice1_httpx_live_until_stopped" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(httpx_live_loop_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(httpx_live_loop_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

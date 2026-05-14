@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from app.admin_support.adm02_ensure_access_audit_logging import (
@@ -17,6 +16,7 @@ from app.admin_support.contracts import (
     Adm02EnsureAccessAuditPrincipalMarker,
     Adm02EnsureAccessRemediationResult,
 )
+from app.shared.test_helpers import run_async as _run
 
 _FORBIDDEN = (
     "database_url",
@@ -35,10 +35,6 @@ _FORBIDDEN = (
     "checkout_attempt_id",
     "internal_user_id",
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def test_sink_emits_only_bounded_safe_fields(monkeypatch) -> None:

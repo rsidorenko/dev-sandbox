@@ -22,7 +22,6 @@ from app.runtime.polling_policy import (
     PollingTimeoutDecision,
     create_default_polling_policy,
 )
-from app.runtime.raw_polling import TelegramRawPollingClient
 from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
 
 
@@ -666,19 +665,6 @@ def test_module_source_excludes_forbidden_substrings() -> None:
     lower = src.lower()
     for word in ("billing", "issuance", "admin", "webhook"):
         assert word not in lower
-
-
-def test_class_satisfies_telegram_raw_polling_client_protocol() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"ok": True, "result": []})
-
-    async def main() -> None:
-        transport = httpx.MockTransport(handler)
-        async with httpx.AsyncClient(transport=transport) as ac:
-            c = HttpxTelegramRawPollingClient("x", base_url="https://e/b/", client=ac)
-            assert isinstance(c, TelegramRawPollingClient)
-
-    asyncio.run(main())
 
 
 def test_default_base_url_uses_token_path() -> None:

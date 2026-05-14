@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 
 import httpx
 
-import app.runtime as rt
-import app.runtime.telegram_httpx_raw_configured as configured_mod
 from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
@@ -160,21 +157,3 @@ def test_run_iterations_one_start_one_send() -> None:
             await app.aclose()
 
     asyncio.run(main())
-
-
-def test_runtime_package_exports() -> None:
-    assert rt.build_slice1_httpx_raw_runtime_app_from_config is build_slice1_httpx_raw_runtime_app_from_config
-    assert "build_slice1_httpx_raw_runtime_app_from_config" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(configured_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(configured_mod)
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in src

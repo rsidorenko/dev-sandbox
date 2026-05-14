@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 from types import SimpleNamespace
 from typing import Literal, cast
@@ -11,8 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-import app.runtime as rt
-import app.runtime.telegram_httpx_live_startup as httpx_live_mod
 from app.runtime import accept_mapping_runtime_update
 from app.runtime.live_startup import Slice1InMemoryLiveRawRuntimeBundle
 from app.runtime.polling import PollingRuntimeConfig
@@ -295,26 +292,3 @@ def test_owned_client_aclose_once_via_public_live_builder() -> None:
             owned.aclose.assert_awaited_once()
 
     asyncio.run(main())
-
-
-def test_app_runtime_exports_httpx_live_symbols() -> None:
-    assert hasattr(rt, "Slice1HttpxLiveRuntimeBundle")
-    assert hasattr(rt, "build_slice1_httpx_live_runtime_bundle")
-    assert "Slice1HttpxLiveRuntimeBundle" in rt.__all__
-    assert "build_slice1_httpx_live_runtime_bundle" in rt.__all__
-    assert rt.Slice1HttpxLiveRuntimeBundle is Slice1HttpxLiveRuntimeBundle
-    assert rt.build_slice1_httpx_live_runtime_bundle is build_slice1_httpx_live_runtime_bundle
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(httpx_live_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(httpx_live_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

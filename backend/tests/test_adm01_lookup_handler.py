@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 
 from app.admin_support.adm01_lookup import Adm01LookupHandler
@@ -25,10 +24,7 @@ from app.admin_support.contracts import (
 )
 from app.application.interfaces import SubscriptionSnapshot
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 class _AuthAllow:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from app.application.handlers import (
     BootstrapIdentityHandler,
     BootstrapIdentityInput,
@@ -23,6 +21,7 @@ from app.security.errors import (
     UserSafeErrorCode,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 from app.shared.types import OperationOutcomeCategory, SafeUserStatusCategory, SubscriptionSnapshotState
 
 
@@ -97,10 +96,6 @@ class _FakeIssuanceStateLookup:
 
     async def get_current_for_user(self, internal_user_id: str) -> IssuanceCurrentStateRef | None:
         return self._by_user.get(internal_user_id)
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def test_bootstrap_creates_identity_once() -> None:

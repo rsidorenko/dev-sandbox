@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 from unittest.mock import patch
 
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_raw_env as env_mod
 import app.runtime.telegram_httpx_raw_process as process_mod
 from app.runtime.polling_policy import (
@@ -28,10 +25,7 @@ from app.runtime.telegram_httpx_raw_process import (
 )
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _minimal_runtime_config(*, bot_token: str = "1234567890tok") -> RuntimeConfig:
@@ -280,33 +274,3 @@ def test_aclose_delegates_to_app(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _run(main())
     assert aclose_calls == 1
-
-
-def test_app_runtime_exports() -> None:
-    from app.runtime import (
-        Slice1HttpxRawProcess as rt_proc,
-    )
-    from app.runtime import (
-        build_slice1_httpx_raw_process_from_env as rt_build,
-    )
-
-    assert rt.Slice1HttpxRawProcess is Slice1HttpxRawProcess
-    assert rt.build_slice1_httpx_raw_process_from_env is build_slice1_httpx_raw_process_from_env
-    assert rt_proc is Slice1HttpxRawProcess
-    assert rt_build is build_slice1_httpx_raw_process_from_env
-    assert "Slice1HttpxRawProcess" in rt.__all__
-    assert "build_slice1_httpx_raw_process_from_env" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(process_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_manual_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(process_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

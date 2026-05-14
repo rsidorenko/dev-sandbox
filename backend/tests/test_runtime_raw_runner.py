@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from typing import cast
 
@@ -11,10 +10,7 @@ import pytest
 from app.runtime.raw_polling import RawPollingBatchResult, Slice1RawPollingRuntime
 from app.runtime.raw_runner import Slice1RawPollingRunner, run_raw_polling_iterations
 from app.runtime.runner import PollingRunSummary
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _raw_batch(**overrides: int) -> RawPollingBatchResult:

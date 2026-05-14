@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import asyncpg
 import pytest
 
@@ -17,6 +15,7 @@ from app.admin_support.contracts import (
     Adm02EnsureAccessRemediationResult,
 )
 from app.security.errors import PersistenceDependencyError
+from app.shared.test_helpers import run_async as _run
 
 _FORBIDDEN = (
     "database_url",
@@ -54,10 +53,6 @@ class _Pool:
 
     def acquire(self):
         return _AcquireCtx(self._conn)
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _event() -> Adm02EnsureAccessAuditEvent:

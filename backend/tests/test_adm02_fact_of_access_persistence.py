@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 from app.admin_support.contracts import Adm02FactOfAccessDisclosureCategory, AdminActorRef
@@ -8,10 +7,7 @@ from app.persistence.adm02_fact_of_access import (
     Adm02FactOfAccessAppendRecord,
     InMemoryAdm02FactOfAccessRecordAppender,
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_adm02_append_record_construction_shape() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 
 from app.application.bootstrap import build_slice1_composition
@@ -17,10 +16,7 @@ from app.bot_transport.presentation import (
 )
 from app.bot_transport.service import Slice1TelegramService, handle_slice1_telegram_update
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

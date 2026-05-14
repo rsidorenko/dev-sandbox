@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from datetime import UTC, datetime, timedelta
 
@@ -41,6 +40,7 @@ from app.persistence.in_memory import (
     InMemoryUserIdentityRepository,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 
 
 def _uc02_status_outbound_texts(r: TransportSafeResponse) -> list[str]:
@@ -55,10 +55,6 @@ def _uc02_status_outbound_texts(r: TransportSafeResponse) -> list[str]:
             ).message_text,
         )
     return texts
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _env(

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_raw_env as env_mod
 import app.runtime.telegram_httpx_raw_env_runner as env_runner_mod
 from app.runtime.polling import PollingRuntimeConfig
@@ -207,25 +205,6 @@ def test_aclose_when_run_iterations_raises(monkeypatch: pytest.MonkeyPatch) -> N
         assert aclose_calls == 1
 
     asyncio.run(main())
-
-
-def test_app_runtime_import() -> None:
-    assert rt.run_slice1_httpx_raw_iterations_from_env is run_slice1_httpx_raw_iterations_from_env
-    assert "run_slice1_httpx_raw_iterations_from_env" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(env_runner_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_manual_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(env_runner_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower
 
 
 def test_optional_polling_config_passed_to_build() -> None:

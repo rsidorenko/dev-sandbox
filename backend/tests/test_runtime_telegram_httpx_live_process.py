@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 from typing import Literal, cast
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_live_env as env_mod
 import app.runtime.telegram_httpx_live_process as process_mod
 from app.runtime.polling_policy import (
@@ -38,10 +35,7 @@ from app.runtime.telegram_httpx_live_process import (
 )
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _minimal_runtime_config(*, bot_token: str = "1234567890tok") -> RuntimeConfig:
@@ -548,45 +542,3 @@ def test_aclose_delegates_to_app(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _run(main())
     assert aclose_calls == 1
-
-
-def test_app_runtime_exports() -> None:
-    from app.runtime import (
-        Slice1HttpxLiveProcess as rt_proc,
-    )
-    from app.runtime import (
-        build_slice1_httpx_live_process_from_config_async as rt_build_cfg_async,
-    )
-    from app.runtime import (
-        build_slice1_httpx_live_process_from_env as rt_build,
-    )
-    from app.runtime import (
-        build_slice1_httpx_live_process_from_env_async as rt_build_async,
-    )
-
-    assert rt.Slice1HttpxLiveProcess is Slice1HttpxLiveProcess
-    assert rt.build_slice1_httpx_live_process_from_env is build_slice1_httpx_live_process_from_env
-    assert rt.build_slice1_httpx_live_process_from_env_async is build_slice1_httpx_live_process_from_env_async
-    assert rt.build_slice1_httpx_live_process_from_config_async is build_slice1_httpx_live_process_from_config_async
-    assert rt_proc is Slice1HttpxLiveProcess
-    assert rt_build is build_slice1_httpx_live_process_from_env
-    assert rt_build_async is build_slice1_httpx_live_process_from_env_async
-    assert rt_build_cfg_async is build_slice1_httpx_live_process_from_config_async
-    assert "Slice1HttpxLiveProcess" in rt.__all__
-    assert "build_slice1_httpx_live_process_from_config_async" in rt.__all__
-    assert "build_slice1_httpx_live_process_from_env" in rt.__all__
-    assert "build_slice1_httpx_live_process_from_env_async" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(process_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_manual_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(process_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

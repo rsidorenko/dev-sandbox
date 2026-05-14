@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 from app.admin_support.adm02_ensure_access_audit_read import Adm02EnsureAccessAuditLookupHandler
@@ -24,6 +23,7 @@ from app.admin_support.contracts import (
     InternalAdminPrincipalExtractionResult,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 
 _FORBIDDEN = (
     "database_url",
@@ -42,10 +42,6 @@ _FORBIDDEN = (
     "checkout_attempt_id",
     "internal_user_id",
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 class _Extractor:

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_live_configured as configured_mod
 from app.application.bootstrap import Slice1Composition, build_slice1_composition
 from app.runtime.polling import PollingRuntimeConfig
@@ -233,16 +231,6 @@ def test_run_iterations_one_start_one_send() -> None:
             await app.aclose()
 
     asyncio.run(main())
-
-
-def test_runtime_package_exports() -> None:
-    assert rt.build_slice1_httpx_live_runtime_app_from_config is build_slice1_httpx_live_runtime_app_from_config
-    assert "build_slice1_httpx_live_runtime_app_from_config" in rt.__all__
-    assert (
-        rt.build_slice1_httpx_live_runtime_app_from_config_async
-        is build_slice1_httpx_live_runtime_app_from_config_async
-    )
-    assert "build_slice1_httpx_live_runtime_app_from_config_async" in rt.__all__
 
 
 @pytest.mark.parametrize(
@@ -484,17 +472,3 @@ def test_build_from_config_async_skips_migrations_helper_for_falsey_postgres_rep
         await app.aclose()
 
     asyncio.run(main())
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(configured_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(configured_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

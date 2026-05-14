@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from app.admin_support.adm01_identity_resolve_adapter import Adm01IdentityResolveAdapter
 from app.admin_support.contracts import InternalUserTarget, TelegramUserTarget
 from app.application.interfaces import IdentityRecord
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 class _IdentityRepo:
