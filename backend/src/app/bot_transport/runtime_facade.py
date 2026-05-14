@@ -367,8 +367,9 @@ async def _handle_email_linking(
         return text_link_email_error("email_belongs_to_other_account"), link_email_keyboard()
 
     # Send verification code
+    from datetime import UTC, datetime, timedelta
+
     from app.web_api.email_link import _generate_code, _hash_code as _hash, _MAX_SEND_PER_EMAIL_PER_HOUR
-    from datetime import timedelta
 
     recent = await pool.fetchval(
         """SELECT COUNT(*) FROM email_verification_codes
