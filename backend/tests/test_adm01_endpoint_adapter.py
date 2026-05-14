@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import asdict
 
@@ -33,10 +32,7 @@ from app.admin_support.contracts import (
 from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
 from app.application.interfaces import SubscriptionSnapshot
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _req(

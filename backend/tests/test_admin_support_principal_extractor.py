@@ -1,14 +1,9 @@
-import asyncio
-
 from app.admin_support.contracts import (
     InternalAdminPrincipalExtractionInput,
     InternalAdminPrincipalExtractionOutcome,
 )
 from app.admin_support.principal_extraction import DefaultInternalAdminPrincipalExtractor
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_default_extractor_success_trims_principal() -> None:

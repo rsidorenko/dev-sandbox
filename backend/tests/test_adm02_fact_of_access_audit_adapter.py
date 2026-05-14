@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -14,10 +13,7 @@ from app.admin_support.contracts import (
     AdminActorRef,
 )
 from app.persistence.adm02_fact_of_access import InMemoryAdm02FactOfAccessRecordAppender
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _audit_record() -> Adm02FactOfAccessAuditRecord:

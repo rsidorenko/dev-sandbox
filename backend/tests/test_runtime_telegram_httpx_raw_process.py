@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from unittest.mock import patch
 
@@ -28,10 +27,7 @@ from app.runtime.telegram_httpx_raw_process import (
 )
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _minimal_runtime_config(*, bot_token: str = "1234567890tok") -> RuntimeConfig:

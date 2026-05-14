@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from unittest.mock import AsyncMock
 
 from app.application.bootstrap import build_slice1_composition
 from app.runtime.polling import PollingBatchResult, Slice1PollingRuntime
 from app.runtime.runner import PollingRunSummary, Slice1PollingRunner, run_polling_iterations
+from app.shared.test_helpers import run_async as _run
 
 
 class FakeTelegramPollingClient:
@@ -51,10 +51,6 @@ class FakeTelegramPollingClient:
         reply_markup=None,
     ) -> int:
         return message_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _zero_batch() -> PollingBatchResult:

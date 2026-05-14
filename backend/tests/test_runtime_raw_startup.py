@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 
 import app.runtime as rt
@@ -15,11 +14,8 @@ from app.runtime.raw_startup import (
     build_slice1_in_memory_raw_runtime_bundle_with_default_bridge,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 from tests.slice1_expected_user_copy import INACTIVE_OR_NOT_ELIGIBLE_TEXT
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

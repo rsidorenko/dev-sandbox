@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import patch
 
@@ -14,10 +13,7 @@ from app.runtime.telegram_httpx_raw_app import Slice1HttpxRawRuntimeApp, build_s
 from app.runtime.telegram_httpx_raw_process import Slice1HttpxRawProcess, build_slice1_httpx_raw_process_from_env
 from app.security.config import RuntimeConfig
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _json_body(request: httpx.Request) -> dict:

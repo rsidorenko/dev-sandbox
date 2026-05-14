@@ -1,6 +1,5 @@
 """Tests for issuance.vless_provider: stub provider, subscription URL, key list."""
 
-import asyncio
 import base64
 
 from app.issuance.vless_provider import (
@@ -9,10 +8,7 @@ from app.issuance.vless_provider import (
     build_subscription_url,
     format_key_list,
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_stub_create_user():

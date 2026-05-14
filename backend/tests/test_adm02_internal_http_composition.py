@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -53,11 +52,7 @@ from app.persistence.reconciliation_runs_contracts import (
 )
 from app.persistence.reconciliation_runs_in_memory import InMemoryReconciliationRunsRepository
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
-
+from app.shared.test_helpers import run_async as _run
 
 _FORBIDDEN_BOUNDARY_FRAGMENTS = (
     "external_event_id",

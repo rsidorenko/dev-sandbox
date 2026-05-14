@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from app.admin_support.internal_read_gate_checks import run_admin_support_internal_read_gate_checks
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_internal_read_gate_checks_passes() -> None:

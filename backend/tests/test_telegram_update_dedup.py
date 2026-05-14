@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-
 from app.application.telegram_update_dedup import (
     InMemoryTelegramUpdateDedupGuard,
     dedup_key_hash_for_update,
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_dedup_key_hash_is_stable_and_non_raw() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 from types import SimpleNamespace
@@ -27,10 +26,7 @@ from app.runtime.telegram_httpx_raw_startup import (
     build_slice1_httpx_raw_runtime_bundle,
 )
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _json_body(request: httpx.Request) -> dict:

@@ -1,11 +1,6 @@
-import asyncio
-
 from app.admin_support.authorization import AllowlistAdm01Authorization, AllowlistAdm02Authorization
 from app.admin_support.contracts import AdminActorRef
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_allowlisted_principal_allowed() -> None:

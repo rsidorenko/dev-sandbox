@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 
 from app.application.bootstrap import build_slice1_composition
 from app.runtime.binding import BoundRuntimeBatchResult, process_raw_updates_with_bridge
 from app.runtime.polling import Slice1PollingRuntime, TelegramPollingClient
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

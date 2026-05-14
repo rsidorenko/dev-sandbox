@@ -1,10 +1,12 @@
 """Tests for domain.referral: commission rates and calculations."""
 
 from app.domain.referral import (
+    ReferralCommission,
     build_commissions_for_payment,
     calculate_commission_kopecks,
     level1_commission_rate,
     level2_commission_rate,
+    resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
 
@@ -90,3 +92,30 @@ def test_six_months_commissions():
     l2 = next(c for c in result if c.level == 2)
     assert l1.amount_kopecks == 135000 * 25 // 100  # 33750
     assert l2.amount_kopecks == 135000 * 2 // 100  # 2700
+
+
+def test_resolve_referrers_empty():
+    direct, indirect = resolve_direct_and_indirect_referrers(())
+    assert direct is None
+    assert indirect is None
+
+
+def test_resolve_referrers_direct_only():
+    rels = (ReferralCommission("a", 100, 1, "1m", "b"),)
+    direct, indirect = resolve_direct_and_indirect_referrers(rels)
+    assert direct == "a"
+    assert indirect is None
+
+
+def test_resolve_referrers_both_levels():
+    rels = (
+        ReferralCommission("a", 100, 1, "1m", "c"),
+        ReferralCommission("b", 50, 2, "1m", "c"),
+    )
+    direct, indirect = resolve_direct_and_indirect_referrers(rels)
+    assert direct == "a"
+    assert indirect == "b"
+
+
+def test_calculate_commission_zero_rate():
+    assert calculate_commission_kopecks(30000, 0.0) == 0

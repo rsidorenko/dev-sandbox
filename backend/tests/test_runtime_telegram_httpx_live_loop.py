@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from dataclasses import dataclass
 from typing import Literal
@@ -32,10 +31,7 @@ from app.runtime.telegram_httpx_live_startup import (
     build_slice1_httpx_live_runtime_bundle,
 )
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _start_update(*, update_id: int = 1, user_id: int = 42) -> dict:

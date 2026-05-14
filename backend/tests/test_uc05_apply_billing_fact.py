@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -25,6 +24,7 @@ from app.persistence.billing_events_ledger_contracts import (
 from app.persistence.billing_events_ledger_in_memory import InMemoryBillingEventsLedgerRepository
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.in_memory import InMemorySubscriptionSnapshotReader
+from app.shared.test_helpers import run_async as _run
 from app.shared.types import OperationOutcomeCategory, SubscriptionSnapshotState
 
 
@@ -77,10 +77,6 @@ def test_first_time_unknown_event_needs_review_snapshot() -> None:
     ins = first_time_decision(_rec(event_type="weird_type"))
     assert ins.apply_outcome is BillingSubscriptionApplyOutcome.NEEDS_REVIEW
     assert ins.snapshot_state_label == SubscriptionSnapshotState.NEEDS_REVIEW.value
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 class InMemoryUc05Engine:

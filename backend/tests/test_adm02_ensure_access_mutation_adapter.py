@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from app.admin_support.adm02_ensure_access_mutation import (
     Adm02EnsureAccessIssuanceMutationAdapter,
     _deterministic_ensure_access_idempotency_key,
 )
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_ensure_access_mutation_adapter_idempotent_issue_then_noop() -> None:

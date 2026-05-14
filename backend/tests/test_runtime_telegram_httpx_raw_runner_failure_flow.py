@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import patch
 
@@ -13,10 +12,7 @@ import app.runtime.telegram_httpx_raw_runner as httpx_raw_runner_mod
 from app.runtime.runner import PollingRunSummary
 from app.runtime.telegram_httpx_raw_runner import run_slice1_httpx_raw_iterations
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

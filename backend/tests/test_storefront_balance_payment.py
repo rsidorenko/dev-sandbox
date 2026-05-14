@@ -2,25 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
 from app.issuance.vless_provider import StubVlessProvider
-
-
-def _run(coro):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    if loop is not None and loop.is_running():
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            return pool.submit(asyncio.run, coro).result()
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _callback_update(*, user_id: int, callback_data: str):

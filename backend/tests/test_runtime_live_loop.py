@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from typing import cast
 from unittest.mock import AsyncMock
@@ -20,10 +19,7 @@ from app.runtime.live_loop import (
 from app.runtime.polling import PollingBatchResult, Slice1PollingRuntime
 from app.runtime.raw_polling import RawPollingBatchResult, Slice1RawPollingRuntime
 from app.runtime.runner import PollingRunSummary
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 def _zero_batch() -> PollingBatchResult:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import asdict, replace
 
@@ -26,6 +25,7 @@ from app.admin_support.contracts import (
     TelegramUserTarget,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 
 _FORBIDDEN_FRAGMENTS = (
     "external_event_id",
@@ -40,10 +40,6 @@ _FORBIDDEN_FRAGMENTS = (
     "traceback",
     "runtimeerror",
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 class _AuthAllow:

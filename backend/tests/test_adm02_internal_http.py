@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 import httpx
@@ -30,6 +29,7 @@ from app.admin_support.contracts import (
     RedactionMarker,
 )
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 
 _TOP_LEVEL_KEYS = frozenset({"outcome", "correlation_id", "summary"})
 _SUMMARY_KEYS = frozenset(
@@ -54,10 +54,6 @@ _FORBIDDEN_FRAGMENTS = (
     "raw_payload",
     "raw_webhook",
 )
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _full_summary() -> Adm02DiagnosticsSummary:

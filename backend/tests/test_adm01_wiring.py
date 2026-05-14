@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import UTC, datetime
 from typing import cast
@@ -43,14 +42,11 @@ from app.persistence.issuance_state_record import IssuanceStatePersistence, Issu
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 
 _REF_MUST_NOT_LEAK = "issuance-ref:unit-wiring:cursor-leaktest-SECRET-SUFFIX-xyz"[:64]
 _IDEM_MUST_NOT_LEAK = "idem-wiring-super-secret-key-12345"
 _TS = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _row_issued() -> IssuanceStateRow:

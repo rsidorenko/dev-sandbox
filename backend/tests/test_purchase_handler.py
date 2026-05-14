@@ -1,6 +1,7 @@
 """Tests for application.purchase_handler: purchase flow."""
 
 from app.application.purchase_handler import (
+    PurchaseSummary,
     build_purchase_summary,
     get_available_plans,
 )
@@ -15,7 +16,7 @@ def test_get_available_plans():
 
 def test_build_purchase_summary_default():
     result = build_purchase_summary("1m", 5)
-    assert isinstance(result, type(result))  # it's a PurchaseSummary
+    assert isinstance(result, PurchaseSummary)
     assert result.plan_id == "1m"
     assert result.device_count == 5
     assert result.total_price_rubles == 300

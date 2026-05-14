@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import fields
 
 import pytest
@@ -22,6 +21,7 @@ from app.persistence.in_memory import (
 )
 from app.security.idempotency import build_bootstrap_idempotency_key
 from app.shared.correlation import new_correlation_id
+from app.shared.test_helpers import run_async as _run
 from app.shared.types import (
     OperationOutcomeCategory,
     SafeUserStatusCategory,
@@ -35,10 +35,6 @@ class _CompositionDisabledHitMarkerSpy:
 
     def record_disabled_hit(self, event) -> None:
         self.calls += 1
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _allowed_composition_attrs() -> frozenset[str]:

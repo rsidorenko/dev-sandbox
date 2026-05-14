@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 import httpx
@@ -39,10 +38,7 @@ from app.admin_support.contracts import (
     RedactionMarker,
 )
 from app.shared.correlation import new_correlation_id
-
-
-def _run(coro):
-    return asyncio.run(coro)
+from app.shared.test_helpers import run_async as _run
 
 
 class _DiagHandler:
