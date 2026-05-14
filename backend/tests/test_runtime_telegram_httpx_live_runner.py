@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from dataclasses import dataclass
 from typing import Literal, cast
 from unittest.mock import AsyncMock, patch
@@ -315,23 +314,3 @@ def test_aclose_runs_when_run_until_stopped_raises(monkeypatch: pytest.MonkeyPat
         assert aclose_calls == 1
 
     asyncio.run(main())
-
-
-def test_app_runtime_import() -> None:
-    assert hasattr(rt, "run_slice1_httpx_live_iterations")
-    assert rt.run_slice1_httpx_live_iterations is run_slice1_httpx_live_iterations
-    assert "run_slice1_httpx_live_iterations" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(runner_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(runner_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

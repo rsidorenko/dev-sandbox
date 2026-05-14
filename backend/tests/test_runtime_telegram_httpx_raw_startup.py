@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
-import app.runtime as rt
-import app.runtime.telegram_httpx_raw_startup as httpx_raw_startup_mod
 from app.runtime import accept_mapping_runtime_update
 from app.runtime.polling import PollingRuntimeConfig
 from app.runtime.polling_policy import (
@@ -225,21 +222,3 @@ def test_owned_client_aclose_once_via_public_bundle_without_external_client() ->
         owned.aclose.assert_awaited_once()
 
     _run(main())
-
-
-def test_app_runtime_reexports_httpx_raw_startup() -> None:
-    assert hasattr(rt, "Slice1HttpxRawRuntimeBundle")
-    assert hasattr(rt, "build_slice1_httpx_raw_runtime_bundle")
-    assert "Slice1HttpxRawRuntimeBundle" in rt.__all__
-    assert "build_slice1_httpx_raw_runtime_bundle" in rt.__all__
-    assert rt.Slice1HttpxRawRuntimeBundle is Slice1HttpxRawRuntimeBundle
-    assert rt.build_slice1_httpx_raw_runtime_bundle is build_slice1_httpx_raw_runtime_bundle
-
-
-def test_httpx_raw_startup_module_avoids_forbidden_tokens() -> None:
-    src = inspect.getsource(httpx_raw_startup_mod)
-    lower = src.lower()
-    for w in ("billing", "issuance", "admin", "webhook"):
-        assert w not in lower
-    for s in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert s not in src

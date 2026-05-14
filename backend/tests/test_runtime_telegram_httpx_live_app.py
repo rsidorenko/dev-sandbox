@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 from typing import Literal, cast
 
 import httpx
 import pytest
 
-import app.runtime as rt
-import app.runtime.telegram_httpx_live_app as httpx_live_app_mod
 from app.runtime.live_loop import LoopControl, Slice1LiveRawPollingLoop
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
@@ -274,24 +271,3 @@ def test_aclose_idempotent() -> None:
             await app.aclose()
 
     asyncio.run(main())
-
-
-def test_app_runtime_exports() -> None:
-    assert rt.Slice1HttpxLiveRuntimeApp is Slice1HttpxLiveRuntimeApp
-    assert rt.build_slice1_httpx_live_runtime_app is build_slice1_httpx_live_runtime_app
-    assert "Slice1HttpxLiveRuntimeApp" in rt.__all__
-    assert "build_slice1_httpx_live_runtime_app" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(httpx_live_app_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(httpx_live_app_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

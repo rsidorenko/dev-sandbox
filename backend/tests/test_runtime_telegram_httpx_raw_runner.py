@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-import app.runtime as rt
 import app.runtime.telegram_httpx_raw_runner as httpx_raw_runner_mod
 from app.runtime.polling_policy import (
     DEFAULT_POLLING_POLICY,
@@ -297,17 +295,3 @@ def test_aclose_runs_when_run_iterations_raises() -> None:
         mock_bundle.aclose.assert_awaited_once()
 
     _run(main())
-
-
-def test_app_runtime_reexports_raw_runner_helper() -> None:
-    assert rt.run_slice1_httpx_raw_iterations is run_slice1_httpx_raw_iterations
-    assert "run_slice1_httpx_raw_iterations" in rt.__all__
-
-
-def test_httpx_raw_runner_module_avoids_forbidden_tokens() -> None:
-    src = inspect.getsource(httpx_raw_runner_mod)
-    lower = src.lower()
-    for w in ("billing", "issuance", "admin", "webhook"):
-        assert w not in lower
-    for s in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert s not in src

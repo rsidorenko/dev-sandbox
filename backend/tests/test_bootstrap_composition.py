@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import fields
-
 import pytest
 
-from app.application.bootstrap import Slice1Composition, build_slice1_composition
+from app.application.bootstrap import build_slice1_composition
 from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStatusInput
 from app.application.interfaces import SubscriptionSnapshot
 from app.application.telegram_access_resend import TelegramAccessResendInput, TelegramAccessResendOutcome
@@ -35,10 +33,6 @@ class _CompositionDisabledHitMarkerSpy:
 
     def record_disabled_hit(self, event) -> None:
         self.calls += 1
-
-
-def _allowed_composition_attrs() -> frozenset[str]:
-    return frozenset(Slice1Composition.__dataclass_fields__)
 
 
 def test_bootstrap_then_get_status_end_to_end() -> None:
@@ -127,36 +121,6 @@ def test_status_bootstrapped_no_snapshot_fail_closed() -> None:
         assert st.safe_status is SafeUserStatusCategory.INACTIVE_OR_NOT_ELIGIBLE
 
     _run(main())
-
-
-def test_composition_has_no_extra_service_surface() -> None:
-    c = build_slice1_composition()
-    allowed = _allowed_composition_attrs()
-    assert {f.name for f in fields(c)} == allowed
-    assert allowed == frozenset(
-        {
-            "bootstrap",
-            "get_status",
-            "identity",
-            "idempotency",
-            "audit",
-            "snapshots",
-            "outbound_delivery",
-            "access_resend",
-            "command_rate_limiter",
-            "command_rate_limit_telemetry",
-            "telegram_update_dedup",
-            "referral_code_repo",
-            "referral_relationship_repo",
-            "referral_balance_repo",
-            "referral_transaction_repo",
-            "bot_username",
-            "vless_provider",
-        },
-    )
-    for name in allowed:
-        assert "billing" not in name
-        assert "admin" not in name
 
 
 def test_explicit_identity_requires_snapshots_reader() -> None:

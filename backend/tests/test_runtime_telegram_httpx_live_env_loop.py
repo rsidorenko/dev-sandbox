@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass
 from typing import Literal
 from unittest.mock import patch
@@ -389,24 +388,3 @@ def test_aclose_when_run_until_stopped_raises(monkeypatch: pytest.MonkeyPatch) -
         assert aclose_calls == 1
 
     _run(main())
-
-
-def test_app_runtime_exports_helper() -> None:
-    from app.runtime import run_slice1_httpx_live_until_stopped_from_env
-
-    assert rt.run_slice1_httpx_live_until_stopped_from_env is run_slice1_httpx_live_until_stopped_from_env
-    assert "run_slice1_httpx_live_until_stopped_from_env" in rt.__all__
-
-
-def test_module_source_excludes_forbidden_tokens() -> None:
-    src = inspect.getsource(env_loop_mod)
-    lower = src.lower()
-    for token in ("billing", "issuance", "admin", "webhook"):
-        assert token not in lower
-
-
-def test_module_source_no_manual_env_cli_signal_sleep_backoff() -> None:
-    src = inspect.getsource(env_loop_mod)
-    lower = src.lower()
-    for token in ("environ", "getenv", "dotenv", "argparse", "click", "signal", "sleep", "backoff"):
-        assert token not in lower

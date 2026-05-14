@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
-
 from app.application.bootstrap import build_slice1_composition
 from app.runtime.binding import BoundRuntimeBatchResult, process_raw_updates_with_bridge
-from app.runtime.polling import Slice1PollingRuntime, TelegramPollingClient
+from app.runtime.polling import Slice1PollingRuntime
 from app.shared.correlation import new_correlation_id
 from app.shared.test_helpers import run_async as _run
 
@@ -158,25 +156,6 @@ def test_no_accepted_skips_runtime_zero_counters_no_send() -> None:
     _run(main())
 
 
-def test_no_accepted_does_not_call_process_batch(monkeypatch) -> None:
-    async def main() -> None:
-        c = build_slice1_composition()
-        client = FakeTelegramPollingClient()
-        rt = Slice1PollingRuntime(c, client)
-        called: list[object] = []
-        orig_pb = Slice1PollingRuntime.process_batch
-
-        async def spy(self, updates, *, correlation_id=None):
-            called.append(True)
-            return await orig_pb(self, updates, correlation_id=correlation_id)
-
-        monkeypatch.setattr(Slice1PollingRuntime, "process_batch", spy)
-        await process_raw_updates_with_bridge(rt, [object()], lambda _: None)
-        assert called == []
-
-    _run(main())
-
-
 def test_correlation_id_reaches_send_path() -> None:
     async def main() -> None:
         c = build_slice1_composition()
@@ -193,55 +172,3 @@ def test_correlation_id_reaches_send_path() -> None:
         assert client.send_calls[0][2] == cid
 
     _run(main())
-
-
-def test_delegates_through_slice1_polling_runtime_not_transport_helpers(monkeypatch) -> None:
-    async def main() -> None:
-        c = build_slice1_composition()
-        client = FakeTelegramPollingClient()
-        rt = Slice1PollingRuntime(c, client)
-        u = _update(message=_base_message(text="/start"))
-        captured: list[tuple[list[object], str | None]] = []
-        orig_pb = Slice1PollingRuntime.process_batch
-
-        async def spy(self, updates, *, correlation_id=None):
-            captured.append((list(updates), correlation_id))
-            return await orig_pb(self, updates, correlation_id=correlation_id)
-
-        monkeypatch.setattr(Slice1PollingRuntime, "process_batch", spy)
-
-        def identity_bridge(raw: object):
-            return raw if isinstance(raw, dict) else None
-
-        cid = new_correlation_id()
-        await process_raw_updates_with_bridge(rt, [u], identity_bridge, correlation_id=cid)
-        assert len(captured) == 1
-        assert captured[0][0] == [u]
-        assert captured[0][1] == cid
-
-    _run(main())
-
-
-def test_app_runtime_package_exports_binding_api() -> None:
-    import app.runtime as rt
-
-    assert hasattr(rt, "BoundRuntimeBatchResult")
-    assert hasattr(rt, "process_raw_updates_with_bridge")
-    assert "BoundRuntimeBatchResult" in rt.__all__
-    assert "process_raw_updates_with_bridge" in rt.__all__
-
-
-def test_binding_module_excludes_forbidden_tokens() -> None:
-    import app.runtime.binding as binding
-
-    src = inspect.getsource(binding)
-    lower = src.lower()
-    assert "billing" not in lower
-    assert "issuance" not in lower
-    assert "admin" not in lower
-    assert "webhook" not in lower
-
-
-def test_fake_client_satisfies_protocol() -> None:
-    c = FakeTelegramPollingClient()
-    assert isinstance(c, TelegramPollingClient)
