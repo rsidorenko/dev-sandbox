@@ -36,6 +36,8 @@ CB_ADD_DEVICE = "add_device"
 CB_ADD_DEV = "add_dev:"
 CB_ADD_DEV_BALANCE = "add_dev_bal:"
 CB_REMOVE_DEVICE = "remove_device"
+CB_LINK_EMAIL = "link_email"
+CB_LINK_EMAIL_CONFIRM = "link_email_confirm:"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -58,6 +60,7 @@ def main_menu_keyboard() -> dict[str, Any]:
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
             ],
+            [{"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL}],
             [
                 {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
                 {"text": "❓ Помощь", "callback_data": CB_HELP},
@@ -424,3 +427,67 @@ def text_remove_device_confirm(current: int, new_count: int) -> str:
 
 def text_remove_device_success(new_count: int) -> str:
     return f"✅ Готово! Теперь у вас {new_count} устройств."
+
+
+# ─── Email linking ──────────────────────────────────────────────────
+
+
+def link_email_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}]])
+
+
+def link_email_code_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "📧 Отправить код повторно", "callback_data": CB_LINK_EMAIL}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+
+
+def text_link_email_intro(email: str | None = None) -> str:
+    if email:
+        return (
+            "📧 Привязка email\n\n"
+            f"Текущий email: {email}\n\n"
+            "Если хотите заменить, введите новый email.\n"
+            "Для подтверждения на почту будет отправлен код."
+        )
+    return (
+        "📧 Привязка email\n\n"
+        "Введите ваш email-адрес.\n"
+        "На него будет отправлен код подтверждения."
+    )
+
+
+def text_link_email_code_sent(email: str) -> str:
+    return (
+        f"📧 Код отправлен на {email}\n\n"
+        "Введите 6-значный код из письма.\n"
+        "Код действителен 10 минут."
+    )
+
+
+def text_link_email_success(email: str) -> str:
+    return (
+        f"✅ Email {email} успешно привязан!\n\n"
+        "Теперь вы можете входить на сайт используя этот email."
+    )
+
+
+def text_link_email_already_linked(email: str) -> str:
+    return f"ℹ️ К вашему аккаунту уже привязан email: {email}"
+
+
+def text_link_email_error(error: str) -> str:
+    messages = {
+        "invalid_email": "❌ Некорректный email. Попробуйте снова.",
+        "email_already_linked": "ℹ️ Этот email уже привязан к вашему аккаунту.",
+        "email_belongs_to_other_account": "❌ Этот email привязан к другому аккаунту.",
+        "rate_limited": "⏳ Слишком много попыток. Попробуйте позже.",
+        "invalid_code": "❌ Неверный код. Попробуйте снова.",
+        "code_expired": "❌ Код истёк. Запросите новый.",
+        "too_many_attempts": "❌ Слишком много неверных попыток. Запросите новый код.",
+        "smtp_not_configured": "⚠️ Отправка писем временно недоступна. Попробуйте позже.",
+    }
+    return messages.get(error, "⚠️ Что-то пошло не так. Попробуйте позже.")

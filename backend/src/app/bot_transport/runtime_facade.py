@@ -31,6 +31,7 @@ from app.bot_transport.storefront_ui import (
     CB_DEVICES,
     CB_DO_PAY,
     CB_HELP,
+    CB_LINK_EMAIL,
     CB_MAIN_MENU,
     CB_MY_KEYS,
     CB_MY_SUB,
@@ -64,6 +65,13 @@ from app.bot_transport.storefront_ui import (
     text_error_generic,
     text_help,
     text_keys_not_available,
+    text_link_email_already_linked,
+    link_email_code_keyboard,
+    text_link_email_code_sent,
+    text_link_email_error,
+    text_link_email_intro,
+    link_email_keyboard,
+    text_link_email_success,
     text_main_menu,
     text_my_keys,
     text_no_subscription,
@@ -140,6 +148,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_ROUTER,
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
+        CB_LINK_EMAIL,
         "add_device",
         "remove_device",
         "store_plans",
@@ -229,6 +238,166 @@ async def _has_active_subscription(
 
 
 # ─── Balance payment helpers ──────────────────────────────────────────
+
+
+def _get_pool_from_composition(composition: Slice1Composition):
+    """Extract asyncpg pool from composition's postgres identity repository."""
+    repo = composition.identity
+    pool = getattr(repo, "_pool", None)
+    if pool is not None:
+        return pool
+    return None
+
+
+async def _get_linked_email(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> str | None:
+    """Return verified email for a telegram user, if any."""
+    if uid is None:
+        return None
+
+    pool = _get_pool_from_composition(composition)
+    if pool is None:
+        return None
+    row = await pool.fetchrow(
+        "SELECT email FROM user_emails WHERE telegram_user_id = $1 AND is_verified = TRUE LIMIT 1",
+        uid,
+    )
+    return row["email"] if row else None
+
+
+async def _handle_email_linking(
+    composition: Slice1Composition,
+    uid: int | None,
+    user_text: str,
+) -> tuple[str, dict[str, Any] | None] | None:
+    """Handle email input or verification code during email linking flow.
+
+    Returns (text, keyboard) if handled, None otherwise.
+    """
+    if uid is None:
+        return None
+
+    pool = _get_pool_from_composition(composition)
+    if pool is None:
+        return None
+
+    text = user_text.strip()
+
+    # Check if there's a pending email verification for this user
+    pending = await pool.fetchrow(
+        """SELECT v.email, v.expires_at
+           FROM email_verification_codes v
+           WHERE v.telegram_user_id = $1 AND v.purpose = 'link_email' AND v.used_at IS NULL
+           ORDER BY v.created_at DESC LIMIT 1""",
+        uid,
+    )
+
+    if pending is not None:
+        # User is in code verification phase — treat text as code
+        from datetime import UTC, datetime
+
+        if pending["expires_at"] < datetime.now(UTC):
+            return text_link_email_error("code_expired"), link_email_keyboard()
+
+        # Try to verify via internal API logic
+        from app.web_api.email_link import _hash_code
+
+        code_hash = _hash_code(text)
+        row = await pool.fetchrow(
+            """SELECT id, code_hash, attempts, max_attempts
+               FROM email_verification_codes
+               WHERE email = $1 AND purpose = 'link_email' AND telegram_user_id = $2 AND used_at IS NULL
+               ORDER BY created_at DESC LIMIT 1""",
+            pending["email"],
+            uid,
+        )
+        if row is None:
+            return text_link_email_error("invalid_code"), link_email_keyboard()
+
+        await pool.execute(
+            "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = $1",
+            row["id"],
+        )
+
+        import hmac as hmac_mod
+
+        if row["attempts"] >= row["max_attempts"]:
+            return text_link_email_error("too_many_attempts"), link_email_keyboard()
+
+        if not hmac_mod.compare_digest(row["code_hash"], code_hash):
+            return text_link_email_error("invalid_code"), link_email_code_keyboard()
+
+        # Code is correct — link email
+        now = datetime.now(UTC)
+        await pool.execute(
+            "UPDATE email_verification_codes SET used_at = $1 WHERE id = $2",
+            now,
+            row["id"],
+        )
+        await pool.execute(
+            "UPDATE user_emails SET is_verified = FALSE WHERE telegram_user_id = $1 AND is_verified = TRUE",
+            uid,
+        )
+        await pool.execute(
+            """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
+               VALUES ($1, $2, TRUE, $3)
+               ON CONFLICT (telegram_user_id, email) DO UPDATE SET is_verified = TRUE, verified_at = $3""",
+            uid,
+            pending["email"],
+            now,
+        )
+        return text_link_email_success(pending["email"]), main_menu_keyboard()
+
+    # No pending verification — treat text as email
+    if "@" not in text or "." not in text.split("@")[-1]:
+        return None  # Not an email, let normal processing handle it
+
+    email = text.lower().strip()
+
+    # Check if already linked
+    existing = await pool.fetchrow(
+        "SELECT telegram_user_id FROM user_emails WHERE email = $1 AND is_verified = TRUE",
+        email,
+    )
+    if existing and existing["telegram_user_id"] == uid:
+        return text_link_email_already_linked(email), main_menu_keyboard()
+    if existing:
+        return text_link_email_error("email_belongs_to_other_account"), link_email_keyboard()
+
+    # Send verification code
+    from app.web_api.email_link import _generate_code, _hash_code as _hash, _MAX_SEND_PER_EMAIL_PER_HOUR
+    from datetime import timedelta
+
+    recent = await pool.fetchval(
+        """SELECT COUNT(*) FROM email_verification_codes
+           WHERE email = $1 AND created_at > NOW() - INTERVAL '1 hour'""",
+        email,
+    )
+    if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
+        return text_link_email_error("rate_limited"), link_email_keyboard()
+
+    code = _generate_code()
+    code_hash = _hash(code)
+    expires_at = datetime.now(UTC) + timedelta(minutes=10)
+
+    await pool.execute(
+        """INSERT INTO email_verification_codes (email, code_hash, purpose, telegram_user_id, expires_at)
+           VALUES ($1, $2, 'link_email', $3, $4)""",
+        email,
+        code_hash,
+        uid,
+        expires_at,
+    )
+
+    from app.email.sender import send_verification_code
+
+    sent = await send_verification_code(email, code)
+    if not sent:
+        return text_link_email_error("smtp_not_configured"), link_email_keyboard()
+
+    return text_link_email_code_sent(email), link_email_code_keyboard()
 
 
 async def _get_internal_user_id(
@@ -626,6 +795,12 @@ async def _render_storefront_response(
     elif code == CB_ROUTER:
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
 
+    elif code == CB_LINK_EMAIL:
+        # Check if email already linked
+        existing_email = await _get_linked_email(composition, uid)
+        text = text_link_email_intro(existing_email)
+        keyboard = link_email_keyboard()
+
     elif code == "identity_ready":
         text, keyboard = text_welcome(), main_menu_keyboard()
 
@@ -857,6 +1032,25 @@ async def handle_slice1_telegram_update_to_rendered_message(
     *,
     correlation_id: str | None = None,
 ) -> RenderedMessagePackage:
+    # Check for email linking text input (email address or verification code)
+    uid = _extract_private_telegram_user_id(update)
+    if uid is not None and not isinstance(update.get("callback_query"), Mapping):
+        msg = update.get("message")
+        if isinstance(msg, Mapping):
+            user_text = msg.get("text", "")
+            if isinstance(user_text, str) and user_text.strip() and not user_text.startswith("/"):
+                email_result = await _handle_email_linking(composition, uid, user_text.strip())
+                if email_result is not None:
+                    email_text, email_keyboard = email_result
+                    return RenderedMessagePackage(
+                        message_text=email_text,
+                        action_keys=(),
+                        correlation_id=correlation_id or uuid.uuid4().hex,
+                        reply_markup=email_keyboard,
+                        replay_suppresses_outbound=False,
+                        uc01_idempotency_key=None,
+                    )
+
     transport = await handle_slice1_telegram_update(
         update,
         composition,
