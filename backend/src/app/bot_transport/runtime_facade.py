@@ -79,6 +79,7 @@ from app.bot_transport.storefront_ui import (
     text_subscription_url,
     text_welcome,
 )
+from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
@@ -353,17 +354,11 @@ async def _credit_referral_commissions(
     import uuid
     from datetime import UTC, datetime
 
-    from app.domain.referral import build_commissions_for_payment
+    from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
     from app.persistence.referral_contracts import ReferralTransactionRecord
 
     referrers = await composition.referral_relationship_repo.find_referrers(payer_internal_user_id)
-    direct_referrer = None
-    indirect_referrer = None
-    for r in referrers:
-        if r.level == 1:
-            direct_referrer = r.referrer_user_id
-        if r.level == 2:
-            indirect_referrer = r.referrer_user_id
+    direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
 
     commissions = build_commissions_for_payment(
         payer_user_id=payer_internal_user_id,
@@ -373,7 +368,7 @@ async def _credit_referral_commissions(
         payment_amount_kopecks=payment_amount_kopecks,
     )
     for comm in commissions:
-        dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}"
+        dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}"
         tx_record = ReferralTransactionRecord(
             transaction_id=f"ref-{uuid.uuid4()}",
             internal_user_id=comm.referrer_user_id,
@@ -408,7 +403,7 @@ async def _render_add_device_intro(
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
     snap = await composition.snapshots.get_for_user(internal_user_id)
-    current = snap.device_count if snap and snap.device_count else 5
+    current = snap.device_count if snap and snap.device_count else DEVICES_DEFAULT
 
     text = text_add_device_intro(current)
     return text, add_device_select_keyboard(current)
@@ -419,6 +414,8 @@ async def _render_add_device_confirm(
     uid: int | None,
     new_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
+    from app.domain.devices import extra_device_cost
+
     if uid is None:
         return text_add_device_unavailable(), back_only_keyboard(CB_SETTINGS)
 
@@ -427,13 +424,18 @@ async def _render_add_device_confirm(
         return text_add_device_unavailable(), back_only_keyboard(CB_SETTINGS)
 
     snap = await composition.snapshots.get_for_user(internal_user_id)
-    current = snap.device_count if snap and snap.device_count else 5
+    current = snap.device_count if snap and snap.device_count else DEVICES_DEFAULT
 
     if new_count <= current:
         return text_add_device_intro(current), add_device_select_keyboard(current)
 
-    extra = new_count - current
-    cost = extra * 80
+    duration_months = 1
+    if snap and snap.plan_id:
+        plan = get_plan(snap.plan_id)
+        if plan is not None:
+            duration_months = plan.duration_months
+
+    cost = extra_device_cost(new_count, current, duration_months)
 
     balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
     balance_kopecks = balance_record.balance_kopecks if balance_record else 0
@@ -467,12 +469,20 @@ async def _process_add_device_balance(
     if snap is None:
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
-    current = snap.device_count or 5
+    current = snap.device_count or DEVICES_DEFAULT
     if new_count <= current:
         return text_add_device_intro(current), add_device_select_keyboard(current)
 
-    extra = new_count - current
-    cost_kopecks = extra * 80 * 100
+    from app.domain.devices import extra_device_cost as _extra_device_cost
+
+    duration_months = 1
+    if snap.plan_id:
+        plan = get_plan(snap.plan_id)
+        if plan is not None:
+            duration_months = plan.duration_months
+
+    cost_rubles = _extra_device_cost(new_count, current, duration_months)
+    cost_kopecks = cost_rubles * 100
 
     debit_result = await composition.referral_balance_repo.debit(internal_user_id, cost_kopecks)
     if debit_result is None:
@@ -530,16 +540,16 @@ async def _render_remove_device(
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
     snap = await composition.snapshots.get_for_user(internal_user_id)
-    current = snap.device_count if snap and snap.device_count else 5
+    current = snap.device_count if snap and snap.device_count else DEVICES_DEFAULT
 
-    if current <= 5:
+    if current <= DEVICES_DEFAULT:
         plan_name = plan_display_name(snap.plan_id) if snap and snap.plan_id else None
         active_until = snap.active_until_utc.date().isoformat() if snap and snap.active_until_utc else None
         return text_settings(
             True, plan_name=plan_name, device_count=current, active_until=active_until
         ), settings_keyboard(True, current)
 
-    new_count = max(5, current - 1)
+    new_count = max(DEVICES_DEFAULT, current - 1)
     text = text_remove_device_confirm(current, new_count)
     return text, remove_device_keyboard(current)
 
@@ -562,8 +572,8 @@ async def _process_remove_device(
     if snap is None:
         return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
 
-    current = snap.device_count or 5
-    if new_count >= current or new_count < 5:
+    current = snap.device_count or DEVICES_DEFAULT
+    if new_count >= current or new_count < DEVICES_DEFAULT:
         plan_name = plan_display_name(snap.plan_id) if snap.plan_id else None
         active_until = snap.active_until_utc.date().isoformat() if snap.active_until_utc else None
         return text_settings(
@@ -728,13 +738,13 @@ async def _render_storefront_response(
         plan_id = code[len(CB_PLAN) :]
         plan = get_plan(plan_id)
         if plan is not None:
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, 5)
-            keyboard = device_select_keyboard(plan_id, 5)
+            text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, DEVICES_DEFAULT)
+            keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
 
     elif code.startswith(CB_DEVICES):
         parts = code[len(CB_DEVICES) :].split(":")
         plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else 5
+        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
         plan = get_plan(plan_id)
         if plan is not None:
             text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, device_count)
@@ -743,7 +753,7 @@ async def _render_storefront_response(
     elif code.startswith(CB_CONFIRM_PAY):
         parts = code[len(CB_CONFIRM_PAY) :].split(":")
         plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else 5
+        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
         summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
         if summary is not None:
             user_balance_kopecks = 0
@@ -775,7 +785,7 @@ async def _render_storefront_response(
     elif code.startswith(CB_PAY_BALANCE):
         parts = code[len(CB_PAY_BALANCE) :].split(":")
         plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else 5
+        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
         text, keyboard = await _process_balance_payment(
             composition,
             uid,
