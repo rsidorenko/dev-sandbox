@@ -22,6 +22,7 @@ from app.runtime.telegram_webhook_ingress_telemetry import (
 )
 from app.security.config import ConfigurationError
 from app.security.validation import ValidationError, validate_telegram_update_id
+from app.security.webhook_rate_limit import WebhookRateLimiter
 
 # Telegram Bot API: https://core.telegram.org/bots/api#setwebhook
 TELEGRAM_WEBHOOK_SECRET_HEADER = "x-telegram-bot-api-secret-token"
@@ -122,9 +123,11 @@ def create_slice1_telegram_webhook_starlette_app(
     *,
     settings: TelegramWebhookIngressSettings,
     telemetry: TelegramWebhookIngressTelemetry | None = None,
+    rate_limiter: WebhookRateLimiter | None = None,
 ) -> Starlette:
     """Starlette app with a single POST webhook route wired to ``runtime``."""
     ingress_telemetry = telemetry or NoopTelegramWebhookIngressTelemetry()
+    limiter = rate_limiter or WebhookRateLimiter()
 
     def _extract_valid_update_id(data: dict[str, Any]) -> int | None:
         raw_update_id = data.get("update_id")
@@ -147,6 +150,10 @@ def create_slice1_telegram_webhook_starlette_app(
         return None
 
     async def telegram_webhook(request: Request) -> JSONResponse:
+        client_ip = request.client.host if request.client else "unknown"
+        if not limiter.is_allowed(client_ip):
+            return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
+
         expected = settings.expected_secret
         if expected is not None:
             incoming = request.headers.get(TELEGRAM_WEBHOOK_SECRET_HEADER, "").strip()
