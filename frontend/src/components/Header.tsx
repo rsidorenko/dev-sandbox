@@ -32,10 +32,10 @@ export function Header() {
             </Link>
           ))}
           <Link
-            href="/#tariffs"
+            href="/dashboard"
             className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
           >
-            Подключиться
+            Личный кабинет
           </Link>
         </nav>
 
@@ -71,11 +71,11 @@ export function Header() {
             </Link>
           ))}
           <Link
-            href="/#tariffs"
+            href="/dashboard"
             onClick={() => setOpen(false)}
             className="mt-2 block rounded-lg bg-brand-600 px-4 py-2 text-center text-sm font-semibold text-white transition hover:bg-brand-700"
           >
-            Подключиться
+            Личный кабинет
           </Link>
         </nav>
       )}

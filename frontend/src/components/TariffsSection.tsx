@@ -1,18 +1,11 @@
 import { siteConfig } from "@/config/site";
+import Link from "next/link";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
 
 type Props = {
   tariffs: readonly Tariff[];
 };
-
-// Кнопка ведёт в Telegram-бота.
-// Бот обрабатывает /buy — пользователь выбирает тариф внутри бота.
-// Формат ссылки: https://t.me/{botUsername}?start=buy
-// Проверьте в README, совпадает ли формат с ожиданиями вашего бота.
-function getBotPayUrl(): string {
-  return `https://t.me/${siteConfig.botUsername}?start=buy`;
-}
 
 export function TariffsSection({ tariffs }: Props) {
   return (
@@ -65,18 +58,16 @@ export function TariffsSection({ tariffs }: Props) {
                   <Check /> Техническая поддержка в Telegram
                 </li>
               </ul>
-              <a
-                href={getBotPayUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href={`/payment/${t.id}`}
                 className={`mt-8 block w-full rounded-xl py-3 text-center text-sm font-bold transition ${
                   t.popular
                     ? "bg-brand-600 text-white hover:bg-brand-700"
                     : "bg-gray-900 text-white hover:bg-gray-800"
                 }`}
               >
-                Оплатить
-              </a>
+                Оформить подписку
+              </Link>
             </div>
           ))}
         </div>
