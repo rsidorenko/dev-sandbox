@@ -410,7 +410,7 @@ async def _process_referral_commissions_best_effort(
 ) -> None:
     """Look up referrers and credit commissions. Best-effort: never fails the payment."""
     try:
-        from app.domain.referral import build_commissions_for_payment
+        from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
         from app.persistence.postgres_referral import (
             PostgresReferralBalanceRepository,
             PostgresReferralRelationshipRepository,
@@ -426,13 +426,7 @@ async def _process_referral_commissions_best_effort(
         if not referrers:
             return
 
-        direct_referrer = None
-        indirect_referrer = None
-        for r in referrers:
-            if r.level == 1:
-                direct_referrer = r.referrer_user_id
-            if r.level == 2:
-                indirect_referrer = r.referrer_user_id
+        direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
 
         plan_id = _plan_id_from_period_days(period_days)
         commissions = build_commissions_for_payment(
@@ -444,7 +438,7 @@ async def _process_referral_commissions_best_effort(
         )
 
         for comm in commissions:
-            dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}"
+            dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}"
             tx_record = ReferralTransactionRecord(
                 transaction_id=f"ref-{uuid.uuid4()}",
                 internal_user_id=comm.referrer_user_id,

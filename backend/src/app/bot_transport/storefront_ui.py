@@ -10,6 +10,7 @@ from typing import Any
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
+from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import plan_display_name
 from app.issuance.vless_provider import VlessUserConfig, format_key_list
 
@@ -73,12 +74,12 @@ def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
     return _inline_kb(rows)
 
 
-def device_select_keyboard(plan_id: str, current: int = 5) -> dict[str, Any]:
+def device_select_keyboard(plan_id: str, current: int = DEFAULT_DEVICE_LIMIT) -> dict[str, Any]:
     rows = [
         [
             {"text": "➖", "callback_data": f"{CB_DEVICES}{plan_id}:{max(1, current - 1)}"},
             {"text": f"Устройств: {current}", "callback_data": "noop"},
-            {"text": "➕", "callback_data": f"{CB_DEVICES}{plan_id}:{min(20, current + 1)}"},
+            {"text": "➕", "callback_data": f"{CB_DEVICES}{plan_id}:{min(MAX_DEVICE_COUNT, current + 1)}"},
         ],
         [{"text": f"✅ Продолжить ({current} устройств)", "callback_data": f"{CB_CONFIRM_PAY}{plan_id}:{current}"}],
         [{"text": "↩️ Назад к тарифам", "callback_data": CB_BUY_VPN}],
@@ -125,8 +126,10 @@ def no_subscription_keyboard() -> dict[str, Any]:
 def settings_keyboard(has_subscription: bool, device_count: int | None = None) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     if has_subscription:
-        rows.append([{"text": "➕ Добавить устройство (+80 ₽)", "callback_data": CB_ADD_DEVICE}])
-        if device_count is not None and device_count > 5:
+        rows.append(
+            [{"text": f"➕ Добавить устройство (+{EXTRA_DEVICE_PRICE_RUBLES} ₽)", "callback_data": CB_ADD_DEVICE}]
+        )
+        if device_count is not None and device_count > DEFAULT_DEVICE_LIMIT:
             rows.append([{"text": "➖ Убрать устройство (до 5)", "callback_data": CB_REMOVE_DEVICE}])
     rows.append([{"text": "📶 Конфиг для роутера (Скоро)", "callback_data": CB_ROUTER}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
@@ -160,9 +163,8 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
         f"📱 Устройств: {device_count}",
     ]
     if extra > 0:
-        per_device_per_month = 80
         lines.append(
-            f"  ➕ Доп. устройств: {extra} × {per_device_per_month} ₽/мес × {duration_months} мес = {extra_cost} ₽"
+            f"  ➕ Доп. устройств: {extra} × {EXTRA_DEVICE_PRICE_RUBLES} ₽/мес × {duration_months} мес = {extra_cost} ₽"
         )
     lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
@@ -178,7 +180,7 @@ def text_purchase_summary(summary: PurchaseSummary) -> str:
     ]
     if summary.extra_devices > 0:
         lines.append(
-            f"  Доп. устройств: {summary.extra_devices} × 80 ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽"
+            f"  Доп. устройств: {summary.extra_devices} × {EXTRA_DEVICE_PRICE_RUBLES} ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽"
         )
     lines.extend(["", f"💳 К оплате: {summary.total_price_rubles} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
     return "\n".join(lines)
@@ -293,8 +295,8 @@ def text_help() -> str:
         "💰 Баланс — реферальные начисления\n"
         "⚙️ Настройки подписки — управление подпиской\n\n"
         "Все суммы указаны в рублях.\n"
-        "Подписка включает 5 устройств по умолчанию.\n"
-        "Дополнительное устройство — 80 ₽ за каждый месяц подписки."
+        f"Подписка включает {DEFAULT_DEVICE_LIMIT} устройств по умолчанию.\n"
+        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждый месяц подписки."
     )
 
 
@@ -335,12 +337,12 @@ def text_balance_insufficient() -> str:
 def add_device_select_keyboard(current: int) -> dict[str, Any]:
     rows = [
         [
-            {"text": "➖", "callback_data": f"{CB_ADD_DEV}{max(5, current - 1)}"},
+            {"text": "➖", "callback_data": f"{CB_ADD_DEV}{max(DEFAULT_DEVICE_LIMIT, current - 1)}"},
             {"text": f"Устройств: {current}", "callback_data": "noop"},
-            {"text": "➕", "callback_data": f"{CB_ADD_DEV}{min(20, current + 1)}"},
+            {"text": "➕", "callback_data": f"{CB_ADD_DEV}{min(MAX_DEVICE_COUNT, current + 1)}"},
         ],
     ]
-    if current > 5:
+    if current > DEFAULT_DEVICE_LIMIT:
         rows.append(
             [{"text": f"✅ Подтвердить ({current} устройств)", "callback_data": f"{CB_ADD_DEV}confirm:{current}"}]
         )
@@ -370,7 +372,7 @@ def text_add_device_intro(current_count: int) -> str:
         "📱 Добавление устройств",
         "",
         f"Текущее количество: {current_count}",
-        "Стоимость: 80 ₽ за каждое дополнительное устройство.",
+        f"Стоимость: {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждое дополнительное устройство.",
         "",
         "Выберите количество устройств:",
     ]
@@ -379,12 +381,12 @@ def text_add_device_intro(current_count: int) -> str:
 
 def text_add_device_confirm(current_count: int, new_count: int) -> str:
     extra = new_count - current_count
-    cost = extra * 80
+    cost = extra * EXTRA_DEVICE_PRICE_RUBLES
     lines = [
         "📱 Подтверждение",
         "",
         f"Добавляем устройств: {extra}",
-        f"Стоимость: {extra} × 80 ₽ = {cost} ₽",
+        f"Стоимость: {extra} × {EXTRA_DEVICE_PRICE_RUBLES} ₽ = {cost} ₽",
         "",
         "Устройства будут добавлены к текущей подписке.",
     ]
@@ -400,10 +402,10 @@ def text_add_device_unavailable() -> str:
 
 
 def remove_device_keyboard(current: int) -> dict[str, Any]:
-    min_count = max(5, current - 1)
+    min_count = max(DEFAULT_DEVICE_LIMIT, current - 1)
     rows: list[list[dict[str, str]]] = []
     rows.append([{"text": f"📱 Текущее: {current} → {min_count}", "callback_data": "noop"}])
-    if current > 5:
+    if current > DEFAULT_DEVICE_LIMIT:
         rows.append(
             [{"text": f"✅ Подтвердить ({min_count} устройств)", "callback_data": f"remove_dev_confirm:{min_count}"}]
         )

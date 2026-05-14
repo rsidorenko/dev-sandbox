@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from app.domain.plans import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES
 
+MAX_DEVICE_COUNT = 20
+
 
 def validate_device_count(count: int) -> str | None:
     if count < 1:
         return "Количество устройств не может быть меньше 1"
-    if count > 20:
-        return "Максимум 20 устройств"
+    if count > MAX_DEVICE_COUNT:
+        return f"Максимум {MAX_DEVICE_COUNT} устройств"
     return None
 
 

@@ -85,3 +85,17 @@ def build_commissions_for_payment(
 
 def rubles_from_kopecks(kopecks: int) -> float:
     return kopecks / 100
+
+
+def resolve_direct_and_indirect_referrers(
+    relationships: tuple,
+) -> tuple[str | None, str | None]:
+    """Extract level-1 (direct) and level-2 (indirect) referrer user IDs from relationships."""
+    direct_referrer = None
+    indirect_referrer = None
+    for r in relationships:
+        if r.level == 1:
+            direct_referrer = r.referrer_user_id
+        if r.level == 2:
+            indirect_referrer = r.referrer_user_id
+    return direct_referrer, indirect_referrer
