@@ -46,25 +46,25 @@ def test_retention_integration_artifact_contract_locked() -> None:
     assert "if-no-files-found: warn" in upload_step
 
 
-def test_retention_integration_boundary_blocking_vs_advisory_locked() -> None:
+def test_retention_integration_boundary_all_blocking_locked() -> None:
     text = _workflow_text()
 
     retention_step = _step_block(text, "Run opt-in slice-1 retention integration tests (PostgreSQL service)")
     assert "continue-on-error:" not in retention_step
 
-    composition_step = _step_block(text, "Run ADM-01 Postgres issuance composition check (advisory)")
-    assert "continue-on-error: true" in composition_step
+    composition_step = _step_block(text, "Run ADM-01 Postgres issuance composition check (blocking)")
+    assert "continue-on-error:" not in composition_step
 
-    operator_step = _step_block(text, "Run operator billing ingest/apply e2e smoke (advisory evidence)")
-    assert "continue-on-error: true" in operator_step
+    operator_step = _step_block(text, "Run operator billing ingest/apply e2e smoke (blocking gate)")
+    assert "continue-on-error:" not in operator_step
 
 
-def test_adm01_postgres_composition_advisory_evidence_contract_locked() -> None:
+def test_adm01_postgres_composition_blocking_gate_contract_locked() -> None:
     text = _workflow_text()
-    step = _step_block(text, "Run ADM-01 Postgres issuance composition check (advisory)")
+    step = _step_block(text, "Run ADM-01 Postgres issuance composition check (blocking)")
 
     assert "id: adm01_postgres_issuance_composition" in step
-    assert "continue-on-error: true" in step
+    assert "continue-on-error:" not in step
     assert "run: python scripts/check_adm01_postgres_issuance_composition.py" in step
 
     assert "DATABASE_URL:" in step

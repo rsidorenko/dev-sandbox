@@ -145,10 +145,10 @@ def test_workflow_release_validator_step_remains_blocking_not_advisory() -> None
     assert "continue-on-error: true" not in canonical_step
 
 
-def test_workflow_keeps_adm01_advisory_step_name_and_semantics() -> None:
+def test_workflow_keeps_adm01_blocking_step_name_and_semantics() -> None:
     text = _workflow_text()
-    step = _step_block(text, "Run ADM-01 Postgres issuance composition check (advisory)")
-    assert "continue-on-error: true" in step
+    step = _step_block(text, "Run ADM-01 Postgres issuance composition check (blocking)")
+    assert "continue-on-error:" not in step
 
 
 def test_workflow_has_no_repo_secret_or_production_like_connection_refs() -> None:

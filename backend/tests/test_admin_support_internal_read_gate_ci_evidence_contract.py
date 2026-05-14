@@ -1,4 +1,4 @@
-"""Contract locks for admin support internal read gate CI advisory evidence."""
+"""Contract locks for admin support internal read gate CI blocking gate."""
 
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ def _step_block(text: str, step_name: str) -> str:
     return text[start:next_step]
 
 
-def test_admin_support_internal_read_gate_advisory_step_contract_locked() -> None:
+def test_admin_support_internal_read_gate_blocking_step_contract_locked() -> None:
     text = _workflow_text()
-    step = _step_block(text, "Run admin support internal read gate (advisory evidence)")
+    step = _step_block(text, "Run admin support internal read gate (blocking)")
     assert "id: admin_support_internal_read_gate" in step
-    assert "continue-on-error: true" in step
+    assert "continue-on-error:" not in step
     assert "run: python scripts/check_admin_support_internal_read_gate.py" in step
 
 
