@@ -1,14 +1,45 @@
-# Generated backend CI/test reports
-backend/.test-reports/
-backend/test-reports/
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.egg-info/
+dist/
+build/
 
-# Cursor IDE planning files (historical reference only, per CLAUDE.md)
-.cursor/plans/
+# Generated backend CI/test reports
+backend/.test-reports/
+backend/test-reports/
+
+# Node / Frontend
+node_modules/
+.next/
+out/
+.vercel/
 
 # Local environment files (real values — never commit)
+.env
+.env.local
+.env.*.local
 backend/.env
 backend/.env.local
 backend/.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local config
+.claude/settings.local.json
+
+# Misc
+image.png
+*.log
