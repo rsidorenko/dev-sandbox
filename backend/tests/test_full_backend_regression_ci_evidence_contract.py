@@ -1,4 +1,4 @@
-"""Contract locks for full backend regression CI blocking gate."""
+"""Contract locks for full backend regression CI advisory evidence."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_full_backend_regression_blocking_step_contract_locked() -> None:
     text = _workflow_text()
     step = _step_block(text, "Run full backend regression tests (blocking gate)")
     assert "id: full_backend_regression" in step
-    assert "continue-on-error:" not in step
+    assert "continue-on-error" not in step
     assert 'run: python -m pytest -q --junitxml="$REPORT_DIR/backend-full-regression.xml"' in step
 
 

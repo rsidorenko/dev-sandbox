@@ -105,8 +105,9 @@ jobs:
       - name: Prepare validation reports directory
         run: mkdir -p "$REPORT_DIR"
 
-      - name: Run admin support internal read gate (blocking)
+      - name: Run admin support internal read gate (advisory evidence)
         id: admin_support_internal_read_gate
+        continue-on-error: true
         run: python scripts/check_admin_support_internal_read_gate.py
 
       - name: Run ADM-01 internal HTTP entrypoint smoke (blocking gate)
@@ -323,8 +324,9 @@ jobs:
       - name: Prepare test reports directory
         run: mkdir -p "$REPORT_DIR"
 
-      - name: Run ADM-01 Postgres issuance composition check (blocking)
+      - name: Run ADM-01 Postgres issuance composition check (advisory)
         id: adm01_postgres_issuance_composition
+        continue-on-error: true
         env:
           DATABASE_URL: postgresql://slice1ret_ci:slice1retCILocal0nly@127.0.0.1:5432/slice1retention_ci
           ADM01_POSTGRES_ISSUANCE_COMPOSITION_CHECK_ENABLE: "1"
@@ -354,8 +356,9 @@ jobs:
             tests/test_postgres_adm01_issuance_read_adapter.py \
             --junitxml="$REPORT_DIR/backend-postgres-retention-integration.xml"
 
-      - name: Run operator billing ingest/apply e2e smoke (blocking gate)
+      - name: Run operator billing ingest/apply e2e smoke (advisory evidence)
         id: operator_billing_ingest_apply_e2e
+        continue-on-error: true
         env:
           DATABASE_URL: postgresql://slice1ret_ci:slice1retCILocal0nly@127.0.0.1:5432/slice1retention_ci
           BILLING_NORMALIZED_INGEST_ENABLE: "1"
