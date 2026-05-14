@@ -99,6 +99,9 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -e .[test]
 
+      - name: Verify all source modules compile
+        run: python -m compileall src/ -q
+
       - name: Prepare validation reports directory
         run: mkdir -p "$REPORT_DIR"
 
@@ -172,9 +175,8 @@ jobs:
           summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
           PY
 
-      - name: Run full backend regression tests (advisory evidence, non-blocking)
+      - name: Run full backend regression tests (blocking gate)
         id: full_backend_regression
-        continue-on-error: true
         run: python -m pytest -q --junitxml="$REPORT_DIR/backend-full-regression.xml"
 
       - name: Write full regression advisory summary marker
@@ -315,6 +317,9 @@ jobs:
 
       - name: Install backend dependencies
         run: python -m pip install -e .[test]
+
+      - name: Verify all source modules compile
+        run: python -m compileall src/ -q
 
       - name: Prepare test reports directory
         run: mkdir -p "$REPORT_DIR"

@@ -23,11 +23,11 @@ def _step_block(text: str, step_name: str) -> str:
     return text[start:next_step]
 
 
-def test_full_backend_regression_advisory_step_contract_locked() -> None:
+def test_full_backend_regression_blocking_step_contract_locked() -> None:
     text = _workflow_text()
-    step = _step_block(text, "Run full backend regression tests (advisory evidence, non-blocking)")
+    step = _step_block(text, "Run full backend regression tests (blocking gate)")
     assert "id: full_backend_regression" in step
-    assert "continue-on-error: true" in step
+    assert "continue-on-error" not in step
     assert 'run: python -m pytest -q --junitxml="$REPORT_DIR/backend-full-regression.xml"' in step
 
 
