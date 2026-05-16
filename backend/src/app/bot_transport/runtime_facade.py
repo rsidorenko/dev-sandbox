@@ -37,6 +37,13 @@ from app.bot_transport.storefront_ui import (
     CB_MY_KEYS,
     CB_REISSUE_KEYS,
     CB_REISSUE_CONFIRM,
+    CB_CONNECT_DEVICE,
+    CB_CONNECT_WIN,
+    CB_CONNECT_ANDROID,
+    CB_CONNECT_IOS,
+    CB_CONNECT_MAC,
+    CB_CONNECT_NEXT,
+    CB_CONNECT_DONE,
     CB_MY_SUB,
     CB_PAY_BALANCE,
     CB_PLAN,
@@ -44,7 +51,6 @@ from app.bot_transport.storefront_ui import (
     CB_REMOVE_DEVICE,
     CB_ROUTER,
     CB_SETTINGS,
-    CB_SUB_URL,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
     back_only_keyboard,
@@ -80,6 +86,14 @@ from app.bot_transport.storefront_ui import (
     keys_keyboard,
     text_reissue_confirm,
     reissue_confirm_keyboard,
+    text_connect_device,
+    connect_device_keyboard,
+    text_connect_platform,
+    connect_platform_keyboard,
+    text_connect_config,
+    connect_config_keyboard,
+    text_connect_done,
+    connect_done_keyboard,
     text_no_subscription,
     text_payment_unavailable,
     text_purchase_summary,
@@ -90,7 +104,6 @@ from app.bot_transport.storefront_ui import (
     text_settings,
     text_subscription_active,
     text_subscription_expired,
-    text_subscription_url,
     text_welcome,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
@@ -146,7 +159,13 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_BUY_VPN,
         CB_MY_SUB,
         CB_MY_KEYS,
-        CB_SUB_URL,
+        CB_CONNECT_DEVICE,
+        CB_CONNECT_WIN,
+        CB_CONNECT_ANDROID,
+        CB_CONNECT_IOS,
+        CB_CONNECT_MAC,
+        CB_CONNECT_NEXT,
+        CB_CONNECT_DONE,
         CB_REFERRAL,
         CB_BALANCE,
         CB_SETTINGS,
@@ -900,9 +919,15 @@ async def _render_storefront_response(
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
         text, keyboard = await _render_subscription_status(composition, uid, cid)
 
-    elif code == CB_SUB_URL:
-        has_sub = await _has_active_subscription(composition, uid)
-        if has_sub and uid is not None and composition.vless_provider is not None:
+    elif code == CB_CONNECT_DEVICE:
+        text, keyboard = text_connect_device(), connect_device_keyboard()
+
+    elif code in (CB_CONNECT_WIN, CB_CONNECT_ANDROID, CB_CONNECT_IOS, CB_CONNECT_MAC):
+        text = text_connect_platform(code)
+        keyboard = connect_platform_keyboard()
+
+    elif code == CB_CONNECT_NEXT:
+        if uid is not None and composition.vless_provider is not None:
             from app.issuance.vless_provider import VlessProviderOutcome
 
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
@@ -911,13 +936,16 @@ async def _render_storefront_response(
                     internal_user_id=id_rec.internal_user_id,
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    text, keyboard = text_subscription_url(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
+                    text, keyboard = text_connect_config(vless_result.config), connect_config_keyboard()
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
             else:
                 text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
         else:
             text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+
+    elif code == CB_CONNECT_DONE:
+        text, keyboard = text_connect_done(), connect_done_keyboard()
 
     elif code == CB_MY_KEYS:
         has_sub = await _has_active_subscription(composition, uid)

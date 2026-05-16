@@ -8,8 +8,8 @@ MAX_DEVICE_COUNT = 20
 
 
 def validate_device_count(count: int) -> str | None:
-    if count < 1:
-        return "Количество устройств не может быть меньше 1"
+    if count < DEFAULT_DEVICE_LIMIT:
+        return f"Минимум {DEFAULT_DEVICE_LIMIT} устройств"
     if count > MAX_DEVICE_COUNT:
         return f"Максимум {MAX_DEVICE_COUNT} устройств"
     return None

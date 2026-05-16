@@ -89,6 +89,7 @@ export function Footer() {
           <p>
             &copy; {new Date().getFullYear()} {siteConfig.ipName}. Все права
             защищены. ИНН: {siteConfig.inn}
+            {siteConfig.ogrnip && <> · ОГРНИП: {siteConfig.ogrnip}</>}
           </p>
           <p className="mt-1">
             Услуга защищённого сетевого доступа — персональный шифрованный

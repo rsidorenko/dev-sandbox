@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -9,6 +9,14 @@ import { siteConfig } from "@/config/site";
 type Step = "email" | "code" | "error";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<section className="flex min-h-[70vh] items-center justify-center"><p className="text-gray-500">Загрузка...</p></section>}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>("email");
@@ -92,8 +100,7 @@ export default function LoginPage() {
     }
 
     if (result.data.token) {
-      try { localStorage.setItem("session", result.data.token); } catch {}
-      document.cookie = `session=${result.data.token}; path=/; max-age=${72 * 3600}; samesite=lax; secure`;
+      // Session is set by backend httponly cookie — no client-side storage needed
     }
 
     const next = searchParams.get("next") || "/dashboard";
@@ -132,7 +139,7 @@ export default function LoginPage() {
           </p>
 
           {errorMsg && (
-            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
               {errorMsg}
             </div>
           )}
@@ -140,7 +147,7 @@ export default function LoginPage() {
           {step === "email" && (
             <form onSubmit={handleSendCode} className="mt-6 space-y-4">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Email
                 </label>
                 <input
@@ -167,12 +174,12 @@ export default function LoginPage() {
           {step === "code" && (
             <form onSubmit={handleVerifyCode} className="mt-6 space-y-4">
               <div>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   Код подтверждения отправлен на <strong>{email}</strong>
                 </p>
               </div>
               <div>
-                <label htmlFor="code" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="code" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Код подтверждения
                 </label>
                 <input
@@ -222,7 +229,7 @@ export default function LoginPage() {
             </form>
           )}
 
-          <div className="mt-6 border-t border-gray-100 pt-4 text-center text-sm text-gray-500">
+          <div className="mt-6 border-t border-gray-100 pt-4 text-center text-sm text-gray-500 dark:border-zinc-700">
             <p>
               Нет аккаунта? Привяжите email через{" "}
               <a
