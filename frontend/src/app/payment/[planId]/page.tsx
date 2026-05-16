@@ -1,20 +1,36 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { Suspense, useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { siteConfig } from "@/config/site";
 
+const EXTRA_DEVICE_PRICE = 80;
+const DEFAULT_DEVICES = 5;
+
+function calcTotal(basePrice: number, months: number, devices: number): number {
+  const extra = Math.max(0, devices - DEFAULT_DEVICES);
+  return basePrice + extra * EXTRA_DEVICE_PRICE * months;
+}
+
 export default function PaymentPage() {
+  return (
+    <Suspense fallback={<section className="flex min-h-[70vh] items-center justify-center"><p className="text-gray-500">Загрузка...</p></section>}>
+      <PaymentForm />
+    </Suspense>
+  );
+}
+
+function PaymentForm() {
   const { planId } = useParams<{ planId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { loading: authLoading, authenticated } = useAuth();
   const [deviceCount, setDeviceCount] = useState(() => {
     const d = searchParams.get("devices");
-    return d ? parseInt(d) || 5 : 5;
+    return d ? Math.max(DEFAULT_DEVICES, parseInt(d) || DEFAULT_DEVICES) : DEFAULT_DEVICES;
   });
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -36,7 +52,7 @@ export default function PaymentPage() {
     return (
       <section className="flex min-h-[60vh] items-center justify-center py-20">
         <div className="mx-auto max-w-md px-4 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Тариф не найден</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Тариф не найден</h1>
           <Link
             href="/#tariffs"
             className="mt-6 inline-block rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
@@ -47,6 +63,11 @@ export default function PaymentPage() {
       </section>
     );
   }
+
+  const months = tariff.durationDays / 30;
+  const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
+  const extraCost = extraDevices * EXTRA_DEVICE_PRICE * months;
+  const total = calcTotal(tariff.price, months, deviceCount);
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,55 +103,72 @@ export default function PaymentPage() {
     <section className="py-12">
       <div className="mx-auto max-w-lg px-4">
         <Link
-          href="/dashboard"
+          href="/#tariffs"
           className="text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
         >
-          &larr; Назад
+          &larr; Назад к тарифам
         </Link>
 
-        <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
-          <h1 className="text-xl font-bold text-gray-900">Оформление подписки</h1>
+        <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-8 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Оформление подписки</h1>
 
           <div className="mt-6 space-y-3">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Тариф</span>
-              <span className="font-medium text-gray-900">{tariff.label}</span>
+              <span className="text-gray-500 dark:text-gray-400">Тариф</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.label}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Период</span>
-              <span className="font-medium text-gray-900">{tariff.durationDays} дней</span>
+              <span className="text-gray-500 dark:text-gray-400">Период</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.durationDays} дней</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Подписка</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.price} ₽</span>
             </div>
           </div>
 
           {/* Device count selector */}
           <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-700">
-              Количество устройств: {deviceCount}
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Количество устройств: <strong>{deviceCount}</strong>
             </label>
             <input
               type="range"
-              min={1}
+              min={5}
               max={20}
               value={deviceCount}
               onChange={(e) => setDeviceCount(parseInt(e.target.value))}
               className="mt-2 w-full accent-brand-600"
             />
             <div className="flex justify-between text-xs text-gray-400">
-              <span>1</span>
+              <span>5</span>
+              <span>10</span>
+              <span>15</span>
               <span>20</span>
             </div>
+            {extraDevices > 0 && (
+              <p className="mt-1 text-xs text-gray-400">
+                Доп. устройства: {extraDevices} × {EXTRA_DEVICE_PRICE} ₽ × {months} мес. = {extraCost} ₽
+              </p>
+            )}
+          </div>
+
+          {/* Total */}
+          <div className="mt-6 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total} ₽</span>
           </div>
 
           {errorMsg && (
-            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
               {errorMsg}
             </div>
           )}
 
           {paymentResult && paymentResult.status === "payment_unavailable" && (
-            <div className="mt-4 rounded-lg bg-brand-50 px-4 py-3">
-              <p className="text-sm text-brand-900">{paymentResult.message}</p>
-              <p className="mt-2 text-sm font-medium text-brand-700">
+            <div className="mt-4 rounded-lg bg-brand-50 px-4 py-3 dark:bg-brand-950/30">
+              <p className="text-sm text-brand-900 dark:text-brand-200">{paymentResult.message}</p>
+              <p className="mt-2 text-sm font-medium text-brand-700 dark:text-brand-300">
                 Сумма: {paymentResult.amount_rubles} ₽
               </p>
             </div>
@@ -141,7 +179,7 @@ export default function PaymentPage() {
             disabled={loading}
             className="mt-6 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оформить подписку`}
+            {loading ? "Обработка..." : `Оплатить ${total} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">

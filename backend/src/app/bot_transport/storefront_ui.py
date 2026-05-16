@@ -41,6 +41,13 @@ CB_LINK_EMAIL_CONFIRM = "link_email_confirm:"
 CB_RESEND_EMAIL_CODE = "resend_email_code"
 CB_REISSUE_KEYS = "reissue_keys"
 CB_REISSUE_CONFIRM = "reissue_keys_confirm"
+CB_CONNECT_DEVICE = "connect_device"
+CB_CONNECT_WIN = "connect_win"
+CB_CONNECT_ANDROID = "connect_android"
+CB_CONNECT_IOS = "connect_ios"
+CB_CONNECT_MAC = "connect_mac"
+CB_CONNECT_NEXT = "connect_next"
+CB_CONNECT_DONE = "connect_done"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -58,7 +65,7 @@ def main_menu_keyboard() -> dict[str, Any]:
                 {"text": "📋 Моя подписка", "callback_data": CB_MY_SUB},
                 {"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS},
             ],
-            [{"text": "📎 Ссылка для приложений", "callback_data": CB_SUB_URL}],
+            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
             [
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
@@ -217,17 +224,23 @@ def text_no_subscription() -> str:
 
 
 def text_my_keys(config: VlessUserConfig) -> str:
-    lines = ["🔐 Ваши VLESS-ключи:\n"]
+    lines = [
+        "🔐 Ваши настройки подключения:\n",
+        "📎 Ссылка для подписки (скопируйте):",
+        f"`{config.subscription_url}`\n",
+        "🔑 Ключи:",
+    ]
     lines.append(format_key_list(config.servers))
-    lines.extend(["", "💡 Нажмите на ключ ниже, чтобы скопировать.", "Поддерживаемые приложения: Karing, v2rayTune, Happ, v2rayNG и др."])
+    lines.extend(["", "💡 Нажмите на ссылку или ключ, чтобы скопировать."])
     return "\n".join(lines)
 
 
 def keys_keyboard() -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
-    rows.append([{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}])
-    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
-    return _inline_kb(rows)
+    return _inline_kb([
+        [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
+        [{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}],
+        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+    ])
 
 
 def text_reissue_confirm() -> str:
@@ -243,6 +256,127 @@ def reissue_confirm_keyboard() -> dict[str, Any]:
     return _inline_kb([
         [{"text": "✅ Да, перевыпустить", "callback_data": CB_REISSUE_CONFIRM}],
         [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+    ])
+
+
+# ─── Connect device flow ──────────────────────────────────────────
+
+_PLATFORM_TEXTS: dict[str, str] = {
+    "win": (
+        "🖥 *Windows*\n\n"
+        "Скачайте приложение:\n\n"
+        "🔹 Karing\n"
+        "https://github.com/KaringX/karing/releases\n\n"
+        "🔹 Happ\n"
+        "https://github.com/Happ-proxy/happ-desktop/releases\n\n"
+        "Скачайте, установите и нажмите «Далее»."
+    ),
+    "android": (
+        "📱 *Android*\n\n"
+        "Скачайте приложение:\n\n"
+        "🔹 Karing\n"
+        "https://github.com/KaringX/karing/releases\n\n"
+        "🔹 Happ\n"
+        "https://play.google.com/store/apps/details?id=com.happproxy\n\n"
+        "Скачайте, установите и нажмите «Далее»."
+    ),
+    "ios": (
+        "📱 *iOS*\n\n"
+        "Скачайте приложение:\n\n"
+        "🔹 Karing\n"
+        "https://apps.apple.com/app/karing/id6472431552\n\n"
+        "🔹 Happ\n"
+        "https://apps.apple.com/app/happ-proxy-utility/id6504287215\n\n"
+        "Скачайте, установите и нажмите «Далее»."
+    ),
+    "mac": (
+        "💻 *macOS*\n\n"
+        "Скачайте приложение:\n\n"
+        "🔹 Karing\n"
+        "https://apps.apple.com/app/karing/id6472431552\n\n"
+        "🔹 Happ\n"
+        "https://apps.apple.com/app/happ-proxy-utility/id6504287215\n\n"
+        "Скачайте, установите и нажмите «Далее»."
+    ),
+}
+
+_PLATFORM_CB: dict[str, str] = {
+    "win": CB_CONNECT_WIN,
+    "android": CB_CONNECT_ANDROID,
+    "ios": CB_CONNECT_IOS,
+    "mac": CB_CONNECT_MAC,
+}
+
+
+def text_connect_device() -> str:
+    return "📱 Выберите ваше устройство:"
+
+
+def connect_device_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [
+            {"text": "🖥 Windows", "callback_data": CB_CONNECT_WIN},
+            {"text": "🤖 Android", "callback_data": CB_CONNECT_ANDROID},
+        ],
+        [
+            {"text": "🍎 iOS", "callback_data": CB_CONNECT_IOS},
+            {"text": "💻 macOS", "callback_data": CB_CONNECT_MAC},
+        ],
+        [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+    ])
+
+
+def _platform_from_cb(cb: str) -> str | None:
+    for key, val in _PLATFORM_CB.items():
+        if cb == val:
+            return key
+    return None
+
+
+def text_connect_platform(cb: str) -> str:
+    platform = _platform_from_cb(cb)
+    return _PLATFORM_TEXTS.get(platform, "Выберите устройство.")
+
+
+def connect_platform_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "➡️ Далее", "callback_data": CB_CONNECT_NEXT}],
+        [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+    ])
+
+
+def text_connect_config(config: VlessUserConfig) -> str:
+    return (
+        "⚙️ Подключение\n\n"
+        "Скопируйте ссылку ниже:\n"
+        f"`{config.subscription_url}`\n\n"
+        "Откройте приложение и:\n"
+        "1. Найдите раздел «Подписка» или «Subscription»\n"
+        "2. Вставьте скопированную ссылку\n"
+        "3. Нажмите «Импорт» / «Добавить»\n"
+        "4. Подключитесь — выберите любой сервер\n\n"
+        "Все настройки подтянутся автоматически!"
+    )
+
+
+def connect_config_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "✅ Готово", "callback_data": CB_CONNECT_DONE}],
+        [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+    ])
+
+
+def text_connect_done() -> str:
+    return (
+        "🎉 Вы подключены!\n\n"
+        "Настройки защищённого соединения активны.\n"
+        "Если возникнут вопросы — напишите в поддержку."
+    )
+
+
+def connect_done_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "↩️ В главное меню", "callback_data": CB_MAIN_MENU}],
     ])
 
 

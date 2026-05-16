@@ -1,43 +1,15 @@
-/** API client for backend communication. */
+/** API client for backend communication. Uses httponly cookie for auth. */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; detail?: string };
 
-function getSessionToken(): string | undefined {
-  try {
-    return localStorage.getItem("session") || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function setSessionToken(token: string): void {
-  try {
-    localStorage.setItem("session", token);
-  } catch {
-    // ignore
-  }
-}
-
-function clearSessionToken(): void {
-  try {
-    localStorage.removeItem("session");
-  } catch {
-    // ignore
-  }
-}
-
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<ApiResult<T>> {
   try {
-    const token = getSessionToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options?.headers as Record<string, string>),
     };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,

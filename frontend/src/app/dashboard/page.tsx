@@ -57,7 +57,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (profile?.subscription) {
       setSelectedPlan(profile.subscription.plan_id || "plan_1m");
-      setSelectedDevices(profile.subscription.device_count || 5);
+      setSelectedDevices(Math.max(5, profile.subscription.device_count || 5));
     }
   }, [profile]);
 
@@ -80,7 +80,7 @@ export default function DashboardPage() {
     setReissueConfirm(false);
   };
 
-  const normalizePlanId = (id: string | null): string => {
+  const normalizePlanId = (id: string | null | undefined): string => {
     if (!id) return "1m";
     return id.replace("plan_", "");
   };
@@ -188,7 +188,7 @@ export default function DashboardPage() {
                     </svg>
                     <div>
                       <p className="text-sm font-semibold text-white">Показать ключи</p>
-                      <p className="text-xs text-brand-200">VPN-ключи и ссылка</p>
+                      <p className="text-xs text-brand-200">Настройки и ссылка</p>
                     </div>
                   </button>
 
@@ -278,11 +278,11 @@ export default function DashboardPage() {
                       Количество устройств: <strong className="text-brand-600 dark:text-brand-400">{selectedDevices}</strong>
                     </p>
                     <input
-                      type="range" min={1} max={10} value={selectedDevices}
+                      type="range" min={5} max={20} value={selectedDevices}
                       onChange={(e) => setSelectedDevices(Number(e.target.value))}
                       className="w-full accent-brand-600"
                     />
-                    <div className="flex justify-between text-xs text-gray-400 mt-1"><span>1</span><span>5</span><span>10</span></div>
+                    <div className="flex justify-between text-xs text-gray-400 mt-1"><span>5</span><span>10</span><span>15</span><span>20</span></div>
                     <div className="flex gap-2 mt-3">
                       <button onClick={handleChangeDevices} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">
                         Перейти к оплате
@@ -359,7 +359,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-800">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">VPN-ключи</h2>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Настройки подключения</h2>
               <button onClick={() => { setShowKeys(false); setReissueConfirm(false); }} className="text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200">✕</button>
             </div>
 
@@ -371,7 +371,7 @@ export default function DashboardPage() {
               <>
                 {subUrl && (
                   <div className="mt-4 rounded-lg bg-brand-50 p-4 dark:bg-brand-950/30">
-                    <p className="text-xs font-medium text-brand-700 dark:text-brand-300">Ссылка для приложений (Karing, v2rayNG и др.)</p>
+                    <p className="text-xs font-medium text-brand-700 dark:text-brand-300">Ссылка для совместимых приложений</p>
                     <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Все ключи подтянутся автоматически</p>
                     <button onClick={() => copyToClipboard(subUrl, "sub-url")} className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">
                       {copied === "sub-url" ? "Скопировано!" : "Скопировать ссылку"}
