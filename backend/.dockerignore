@@ -1,0 +1,25 @@
+# Tests
+tests/
+.pytest_cache/
+
+# Environment (never in image)
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# CI/test reports
+test-reports/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

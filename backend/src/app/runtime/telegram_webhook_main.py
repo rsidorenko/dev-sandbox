@@ -16,27 +16,32 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.observability.logging_policy import sanitize_structured_fields
-from app.persistence.slice1_postgres_wiring import (
+from app.observability.logging_config import configure_logging
+
+# Initialise structured logging before any logger usage.
+configure_logging()
+
+from app.observability.logging_policy import sanitize_structured_fields  # noqa: E402
+from app.persistence.slice1_postgres_wiring import (  # noqa: E402
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
 )
-from app.runtime.payment_fulfillment_ingress import (
+from app.runtime.payment_fulfillment_ingress import (  # noqa: E402
     create_payment_fulfillment_ingress_app,
     load_fulfillment_ingress_settings_from_env,
 )
-from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
-from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle
-from app.runtime.telegram_webhook_ingress import (
+from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient  # noqa: E402
+from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle  # noqa: E402
+from app.runtime.telegram_webhook_ingress import (  # noqa: E402
     create_slice1_telegram_webhook_starlette_app,
     load_telegram_webhook_ingress_settings_from_env,
 )
-from app.runtime.telegram_webhook_ingress_telemetry import (
+from app.runtime.telegram_webhook_ingress_telemetry import (  # noqa: E402
     StructuredLoggingTelegramWebhookIngressTelemetry,
     TelegramWebhookIngressDecisionEvent,
     TelegramWebhookIngressTelemetry,
 )
-from app.security.config import ConfigurationError, load_runtime_config
+from app.security.config import ConfigurationError, load_runtime_config  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 ReadinessCheck = Callable[[], Awaitable[bool]]
@@ -268,6 +273,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         if loop is not None:
             # Already inside event loop (uvicorn) — use nest_asyncio or defer
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 composition, runtime_pool = executor.submit(
                     asyncio.run, resolve_slice1_composition_for_runtime(config)
@@ -351,6 +357,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             dsn = (config.database_url or "").strip()
             web_api_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=8)
             from app.web_api.app import build_web_api_app
+
             web_api_app = build_web_api_app(pool=web_api_pool)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
