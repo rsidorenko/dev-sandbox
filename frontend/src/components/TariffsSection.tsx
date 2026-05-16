@@ -9,13 +9,13 @@ type Props = {
 
 export function TariffsSection({ tariffs }: Props) {
   return (
-    <section id="tariffs" className="bg-gray-50 py-20">
+    <section id="tariffs" className="bg-gray-50 py-20 dark:bg-zinc-800/50">
       <div className="mx-auto max-w-6xl px-4">
         <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900">
+          <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
             Тарифы
           </h2>
-          <p className="mt-3 text-gray-500">
+          <p className="mt-3 text-gray-500 dark:text-gray-400">
             Выберите подходящий период подписки
           </p>
         </div>
@@ -24,10 +24,10 @@ export function TariffsSection({ tariffs }: Props) {
           {tariffs.map((t) => (
             <div
               key={t.id}
-              className={`relative rounded-2xl bg-white p-8 shadow-sm transition hover:shadow-md ${
+              className={`relative rounded-2xl bg-white p-8 shadow-sm transition hover:shadow-md dark:bg-zinc-800 dark:shadow-none ${
                 t.popular
                   ? "ring-2 ring-brand-500"
-                  : "border border-gray-100"
+                  : "border border-gray-100 dark:border-zinc-700"
               }`}
             >
               {t.popular && (
@@ -35,16 +35,16 @@ export function TariffsSection({ tariffs }: Props) {
                   Популярный
                 </span>
               )}
-              <h3 className="text-lg font-semibold text-gray-900">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {t.label}
               </h3>
               <div className="mt-4">
-                <span className="text-4xl font-extrabold text-gray-900">
+                <span className="text-4xl font-extrabold text-gray-900 dark:text-white">
                   {t.priceLabel}
                 </span>
                 <span className="ml-2 text-sm text-gray-400">{t.perDay}</span>
               </div>
-              <ul className="mt-6 flex flex-col gap-2 text-sm text-gray-600">
+              <ul className="mt-6 flex flex-col gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <li className="flex items-center gap-2">
                   <Check /> Шифрование соединения
                 </li>
@@ -63,7 +63,7 @@ export function TariffsSection({ tariffs }: Props) {
                 className={`mt-8 block w-full rounded-xl py-3 text-center text-sm font-bold transition ${
                   t.popular
                     ? "bg-brand-600 text-white hover:bg-brand-700"
-                    : "bg-gray-900 text-white hover:bg-gray-800"
+                    : "bg-gray-900 text-white hover:bg-gray-800 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-zinc-100"
                 }`}
               >
                 Оформить подписку

@@ -33,7 +33,10 @@ from app.bot_transport.storefront_ui import (
     CB_HELP,
     CB_LINK_EMAIL,
     CB_MAIN_MENU,
+    CB_RESEND_EMAIL_CODE,
     CB_MY_KEYS,
+    CB_REISSUE_KEYS,
+    CB_REISSUE_CONFIRM,
     CB_MY_SUB,
     CB_PAY_BALANCE,
     CB_PLAN,
@@ -64,7 +67,6 @@ from app.bot_transport.storefront_ui import (
     text_device_select,
     text_error_generic,
     text_help,
-    text_keys_not_available,
     text_link_email_already_linked,
     link_email_code_keyboard,
     text_link_email_code_sent,
@@ -74,6 +76,10 @@ from app.bot_transport.storefront_ui import (
     text_link_email_success,
     text_main_menu,
     text_my_keys,
+    text_keys_not_available,
+    keys_keyboard,
+    text_reissue_confirm,
+    reissue_confirm_keyboard,
     text_no_subscription,
     text_payment_unavailable,
     text_purchase_summary,
@@ -397,6 +403,78 @@ async def _handle_email_linking(
     sent = await send_verification_code(email, code)
     if not sent:
         return text_link_email_error("smtp_not_configured"), link_email_keyboard()
+
+    return text_link_email_code_sent(email), link_email_code_keyboard()
+
+
+async def _handle_resend_email_code(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> tuple[str, dict[str, Any] | None]:
+    if uid is None:
+        return text_link_email_intro(), link_email_keyboard()
+
+    pool = _get_pool_from_composition(composition)
+    if pool is None:
+        return text_link_email_intro(), link_email_keyboard()
+
+    # Find the most recent pending email for this user
+    pending = await pool.fetchrow(
+        """SELECT email FROM email_verification_codes
+           WHERE telegram_user_id = $1 AND purpose = 'link_email' AND used_at IS NULL
+           ORDER BY created_at DESC LIMIT 1""",
+        uid,
+    )
+    if pending is None:
+        return text_link_email_intro(), link_email_keyboard()
+
+    email = pending["email"]
+
+    # Invalidate old unused codes for this email+user
+    from datetime import UTC, datetime
+
+    await pool.execute(
+        """UPDATE email_verification_codes SET used_at = $1
+           WHERE email = $2 AND purpose = 'link_email' AND telegram_user_id = $3 AND used_at IS NULL""",
+        datetime.now(UTC),
+        email,
+        uid,
+    )
+
+    # Rate limit check
+    from app.web_api.email_link import _MAX_SEND_PER_EMAIL_PER_HOUR
+
+    recent = await pool.fetchval(
+        """SELECT COUNT(*) FROM email_verification_codes
+           WHERE email = $1 AND created_at > NOW() - INTERVAL '1 hour'""",
+        email,
+    )
+    if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
+        return text_link_email_error("rate_limited"), link_email_code_keyboard()
+
+    # Generate and send new code
+    from datetime import timedelta
+
+    from app.web_api.email_link import _generate_code, _hash_code as _hash
+
+    code = _generate_code()
+    code_hash = _hash(code)
+    expires_at = datetime.now(UTC) + timedelta(minutes=10)
+
+    await pool.execute(
+        """INSERT INTO email_verification_codes (email, code_hash, purpose, telegram_user_id, expires_at)
+           VALUES ($1, $2, 'link_email', $3, $4)""",
+        email,
+        code_hash,
+        uid,
+        expires_at,
+    )
+
+    from app.email.sender import send_verification_code
+
+    sent = await send_verification_code(email, code)
+    if not sent:
+        return text_link_email_error("smtp_not_configured"), link_email_code_keyboard()
 
     return text_link_email_code_sent(email), link_email_code_keyboard()
 
@@ -797,10 +875,24 @@ async def _render_storefront_response(
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
 
     elif code == CB_LINK_EMAIL:
+        # Invalidate all previous pending codes so user can start fresh
+        pool = _get_pool_from_composition(composition)
+        if pool is not None and uid is not None:
+            from datetime import UTC, datetime
+
+            await pool.execute(
+                """UPDATE email_verification_codes SET used_at = $1
+                   WHERE telegram_user_id = $2 AND purpose = 'link_email' AND used_at IS NULL""",
+                datetime.now(UTC),
+                uid,
+            )
         # Check if email already linked
         existing_email = await _get_linked_email(composition, uid)
         text = text_link_email_intro(existing_email)
         keyboard = link_email_keyboard()
+
+    elif code == CB_RESEND_EMAIL_CODE:
+        text, keyboard = await _handle_resend_email_code(composition, uid)
 
     elif code == "identity_ready":
         text, keyboard = text_welcome(), main_menu_keyboard()
@@ -808,7 +900,7 @@ async def _render_storefront_response(
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
         text, keyboard = await _render_subscription_status(composition, uid, cid)
 
-    elif code in (CB_MY_KEYS, CB_SUB_URL):
+    elif code == CB_SUB_URL:
         has_sub = await _has_active_subscription(composition, uid)
         if has_sub and uid is not None and composition.vless_provider is not None:
             from app.issuance.vless_provider import VlessProviderOutcome
@@ -819,10 +911,48 @@ async def _render_storefront_response(
                     internal_user_id=id_rec.internal_user_id,
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    if code == CB_MY_KEYS:
-                        text, keyboard = text_my_keys(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
-                    else:
-                        text, keyboard = text_subscription_url(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
+                    text, keyboard = text_subscription_url(vless_result.config), back_only_keyboard(CB_MAIN_MENU)
+                else:
+                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+            else:
+                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+        else:
+            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+
+    elif code == CB_MY_KEYS:
+        has_sub = await _has_active_subscription(composition, uid)
+        if has_sub and uid is not None and composition.vless_provider is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                vless_result = await composition.vless_provider.get_user_config(
+                    internal_user_id=id_rec.internal_user_id,
+                )
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    text = text_my_keys(vless_result.config)
+                    keyboard = keys_keyboard()
+                else:
+                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+            else:
+                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+        else:
+            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+
+    elif code == CB_REISSUE_KEYS:
+        text, keyboard = text_reissue_confirm(), reissue_confirm_keyboard()
+
+    elif code == CB_REISSUE_CONFIRM:
+        if uid is not None and composition.vless_provider is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
+                vless_result = await composition.vless_provider.create_user(internal_user_id=id_rec.internal_user_id)
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    text = "✅ Ключи перевыпущены!\n\n" + text_my_keys(vless_result.config)
+                    keyboard = keys_keyboard()
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
             else:

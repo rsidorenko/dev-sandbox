@@ -75,7 +75,8 @@ def plan_display_name(plan_id: str) -> str:
         PlanId.THREE_MONTHS: "3 месяца",
         PlanId.SIX_MONTHS: "6 месяцев",
     }
+    normalized = plan_id.removeprefix("plan_")
     try:
-        return names[PlanId(plan_id)]
+        return names[PlanId(normalized)]
     except (ValueError, KeyError):
         return plan_id

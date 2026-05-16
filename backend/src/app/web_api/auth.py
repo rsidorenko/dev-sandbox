@@ -131,6 +131,12 @@ async def handle_send_code(request: Request) -> JSONResponse:
     code = _generate_code()
     code_hash = _hash_code(code)
 
+    # Remove old codes for this email
+    await pool.execute(
+        "DELETE FROM email_verification_codes WHERE email = $1 AND purpose = 'auth'",
+        email,
+    )
+
     await pool.execute(
         """INSERT INTO email_verification_codes (email, code_hash, purpose, expires_at)
            VALUES ($1, $2, 'auth', $3)""",
@@ -185,10 +191,9 @@ async def handle_verify_code(request: Request) -> JSONResponse:
     if not hmac.compare_digest(row["code_hash"], expected_hash):
         return _safe_json_error(400, "invalid_code")
 
-    # Mark code as used
+    # Delete used code
     await pool.execute(
-        "UPDATE email_verification_codes SET used_at = $1 WHERE id = $2",
-        now,
+        "DELETE FROM email_verification_codes WHERE id = $1",
         row["id"],
     )
 
@@ -204,10 +209,14 @@ async def handle_verify_code(request: Request) -> JSONResponse:
     if user_email_row:
         telegram_user_id = user_email_row["telegram_user_id"]
     else:
-        # New email — create a virtual identity (no telegram_user_id yet)
-        # Will be linked when user connects via bot or already has telegram identity
-        return _safe_json_error(404, "email_not_linked",
-                                "This email is not linked to an account. Link it via Telegram bot first.")
+        # New email — auto-create a web-only identity
+        await pool.execute(
+            """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
+               VALUES (0, $1, TRUE, $2)
+               ON CONFLICT (telegram_user_id, email) DO UPDATE SET is_verified = TRUE, verified_at = $2""",
+            email,
+            now,
+        )
 
     if telegram_user_id is not None:
         identity = await pool.fetchrow(
@@ -215,6 +224,8 @@ async def handle_verify_code(request: Request) -> JSONResponse:
             telegram_user_id,
         )
         internal_user_id = identity["internal_user_id"] if identity else f"u{telegram_user_id}"
+    else:
+        internal_user_id = f"web_{hashlib.sha256(email.encode()).hexdigest()[:12]}"
 
     token = _issue_jwt({
         "telegram_user_id": telegram_user_id,
@@ -224,6 +235,7 @@ async def handle_verify_code(request: Request) -> JSONResponse:
 
     response = JSONResponse({
         "ok": True,
+        "token": token,
         "user": {
             "telegram_user_id": telegram_user_id,
             "email": email,
