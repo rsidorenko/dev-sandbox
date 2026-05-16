@@ -23,7 +23,7 @@ from app.bot_transport.storefront_ui import (
     CB_REFERRAL,
     CB_ROUTER,
     CB_SETTINGS,
-    CB_SUB_URL,
+    CB_CONNECT_DEVICE,
     text_buy_vpn_intro,
     text_help,
     text_keys_not_available,
@@ -334,13 +334,14 @@ def test_facade_callback_my_keys_not_available() -> None:
     _run(main())
 
 
-def test_facade_callback_subscription_url_not_available() -> None:
+def test_facade_callback_connect_device() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
-        raw = _callback_update(callback_data=CB_SUB_URL)
+        raw = _callback_update(callback_data=CB_CONNECT_DEVICE)
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == text_keys_not_available()
+        from app.bot_transport.storefront_ui import text_connect_device
+        assert pkg.message_text == text_connect_device()
 
     _run(main())
 

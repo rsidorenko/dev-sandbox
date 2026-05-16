@@ -8,12 +8,14 @@ from app.domain.devices import (
 
 
 def test_validate_device_count_valid():
-    assert validate_device_count(1) is None
     assert validate_device_count(5) is None
+    assert validate_device_count(10) is None
     assert validate_device_count(20) is None
 
 
 def test_validate_device_count_too_low():
+    assert validate_device_count(4) is not None
+    assert validate_device_count(1) is not None
     assert validate_device_count(0) is not None
     assert validate_device_count(-1) is not None
 
