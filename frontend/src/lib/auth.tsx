@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type UserProfile } from "./api";
 
 type AuthState = {
@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     const result = await api.user.profile();
     if (result.ok) {
@@ -30,21 +30,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null);
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
+
+  const value = useMemo<AuthState>(
+    () => ({
+      loading,
+      authenticated: profile !== null,
+      profile,
+      refresh,
+    }),
+    [loading, profile, refresh],
+  );
 
   return (
-    <AuthContext.Provider
-      value={{
-        loading,
-        authenticated: profile !== null,
-        profile,
-        refresh,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
