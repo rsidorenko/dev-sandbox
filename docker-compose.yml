@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpnbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-vpnbot}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpnbot} -d ${POSTGRES_DB:-vpnbot}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN in .env}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vpnbot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpnbot}?sslmode=disable
+      APP_ENV: ${APP_ENV:-production}
+      PORT: "8000"
+      # PostgreSQL repos
+      SLICE1_USE_POSTGRES_REPOS: "1"
+      # Webhook
+      TELEGRAM_WEBHOOK_HTTP_ENABLE: ${TELEGRAM_WEBHOOK_HTTP_ENABLE:-1}
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: ${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}
+      TELEGRAM_WEBHOOK_PUBLIC_URL: ${TELEGRAM_WEBHOOK_PUBLIC_URL:-}
+      TELEGRAM_WEBHOOK_ALLOWED_UPDATES: ${TELEGRAM_WEBHOOK_ALLOWED_UPDATES:-message}
+      # Web API (frontend)
+      WEB_API_ENABLE: ${WEB_API_ENABLE:-1}
+      WEB_API_CORS_ORIGINS: ${WEB_API_CORS_ORIGINS:-}
+      # Storefront
+      TELEGRAM_STOREFRONT_CHECKOUT_URL: ${TELEGRAM_STOREFRONT_CHECKOUT_URL:-}
+      TELEGRAM_STOREFRONT_RENEWAL_URL: ${TELEGRAM_STOREFRONT_RENEWAL_URL:-}
+      TELEGRAM_STOREFRONT_SUPPORT_URL: ${TELEGRAM_STOREFRONT_SUPPORT_URL:-}
+      TELEGRAM_STOREFRONT_PLAN_NAME: ${TELEGRAM_STOREFRONT_PLAN_NAME:-}
+      TELEGRAM_STOREFRONT_PLAN_PRICE: ${TELEGRAM_STOREFRONT_PLAN_PRICE:-}
+      # Payment fulfillment
+      PAYMENT_FULFILLMENT_HTTP_ENABLE: ${PAYMENT_FULFILLMENT_HTTP_ENABLE:-1}
+      PAYMENT_FULFILLMENT_WEBHOOK_SECRET: ${PAYMENT_FULFILLMENT_WEBHOOK_SECRET:-}
+      # Checkout reference
+      TELEGRAM_CHECKOUT_REFERENCE_SECRET: ${TELEGRAM_CHECKOUT_REFERENCE_SECRET:-}
+      TELEGRAM_CHECKOUT_REFERENCE_MAX_AGE_SECONDS: ${TELEGRAM_CHECKOUT_REFERENCE_MAX_AGE_SECONDS:-604800}
+      # Access / resend
+      TELEGRAM_ACCESS_RESEND_ENABLE: ${TELEGRAM_ACCESS_RESEND_ENABLE:-1}
+      ACCESS_RECONCILE_SCHEDULE_ACK: "1"
+      ACCESS_RECONCILE_MAX_INTERVAL_SECONDS: "3600"
+      # Subscription
+      SUBSCRIPTION_DEFAULT_PERIOD_DAYS: ${SUBSCRIPTION_DEFAULT_PERIOD_DAYS:-30}
+      # SMTP email
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-1}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
