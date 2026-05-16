@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, type UserProfile } from "./api";
+import { userApi } from "@/entities/user/api";
+import type { UserProfile } from "@/entities/user/types";
 
 type AuthState = {
   loading: boolean;
@@ -23,7 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const result = await api.user.profile();
+    const result = await userApi.profile();
     if (result.ok) {
       setProfile(result.data);
     } else {

@@ -1,4 +1,4 @@
-import { siteConfig } from "@/config/site";
+import { siteConfig } from "@/shared/config/site";
 
 export function CtaSection() {
   return (

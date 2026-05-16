@@ -1,6 +1,6 @@
 import { Metadata } from "next";
-import { PageHeader } from "@/components/PageHeader";
-import { siteConfig } from "@/config/site";
+import { PageHeader } from "@/shared/ui/PageHeader";
+import { siteConfig } from "@/shared/config/site";
 
 export const metadata: Metadata = {
   title: "Политика конфиденциальности",
