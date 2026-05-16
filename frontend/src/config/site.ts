@@ -1,11 +1,11 @@
 export const siteConfig = {
   // === ЗАМЕНИТЕ НА СВОИ ДАННЫЕ ===
-  ipName: "ИП Иванов Иван Иванович",
+  ipName: "ИП Сидоренко Роман Романович",
   inn: "000000000000",
-  supportEmail: "support@example.com",
-  supportTelegram: "https://t.me/your_support_bot",
-  supportTelegramHandle: "@your_support_bot",
-  botUsername: "your_bot_username", // ЗАМЕНИТЕ на username вашего Telegram-бота (без @)
+  supportEmail: "support_bravada@mail.ru",
+  supportTelegram: "https://t.me/bravada_support",
+  supportTelegramHandle: "@bravada_support",
+  botUsername: "bravadavpn_bot", // ЗАМЕНИТЕ на username вашего Telegram-бота (без @)
   // =================================
 
   siteName: "Bravada",

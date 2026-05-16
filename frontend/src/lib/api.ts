@@ -4,14 +4,43 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; detail?: string };
 
+function getSessionToken(): string | undefined {
+  try {
+    return localStorage.getItem("session") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function setSessionToken(token: string): void {
+  try {
+    localStorage.setItem("session", token);
+  } catch {
+    // ignore
+  }
+}
+
+function clearSessionToken(): void {
+  try {
+    localStorage.removeItem("session");
+  } catch {
+    // ignore
+  }
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<ApiResult<T>> {
   try {
+    const token = getSessionToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options?.headers as Record<string, string>),
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers,
       credentials: "include",
     });
     const body = await res.json();
@@ -32,6 +61,7 @@ export interface SendCodeResponse {
 
 export interface VerifyResponse {
   ok: boolean;
+  token: string;
   user: { telegram_user_id: number; email: string };
 }
 
@@ -49,6 +79,27 @@ export interface UserProfile {
     balance_rubles: number;
     referrals_count: number;
   } | null;
+}
+
+export interface KeyEntry {
+  label: string;
+  country: string;
+  flag: string;
+  link: string;
+}
+
+export interface KeysResponse {
+  ok: boolean;
+  keys: KeyEntry[];
+  subscription_url: string | null;
+}
+
+export interface SubscriptionActionResponse {
+  ok: boolean;
+  active_until?: string;
+  plan_id?: string;
+  device_count?: number;
+  state?: string;
 }
 
 export interface PaymentCreateResponse {
@@ -81,6 +132,12 @@ export const api = {
   },
   user: {
     profile: () => apiFetch<UserProfile>("/api/v1/user/profile"),
+    keys: () => apiFetch<KeysResponse>("/api/v1/user/keys"),
+    reissueKeys: () => apiFetch<KeysResponse>("/api/v1/user/keys/reissue", { method: "POST" }),
+    renewSubscription: () => apiFetch<SubscriptionActionResponse>("/api/v1/user/subscription/renew", { method: "POST" }),
+    changePlan: (planId: string) => apiFetch<SubscriptionActionResponse>("/api/v1/user/subscription/change-plan", { method: "POST", body: JSON.stringify({ plan_id: planId }) }),
+    changeDevices: (count: number) => apiFetch<SubscriptionActionResponse>("/api/v1/user/subscription/change-devices", { method: "POST", body: JSON.stringify({ device_count: count }) }),
+    cancelSubscription: () => apiFetch<SubscriptionActionResponse>("/api/v1/user/subscription/cancel", { method: "POST" }),
   },
   payment: {
     create: (planId: string, deviceCount: number = 5) =>

@@ -18,10 +18,10 @@ export function FaqSection({ faq }: Props) {
     <section id="faq" className="py-20">
       <div className="mx-auto max-w-3xl px-4">
         <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900">
+          <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
             Часто задаваемые вопросы
           </h2>
-          <p className="mt-3 text-gray-500">
+          <p className="mt-3 text-gray-500 dark:text-gray-400">
             Ответы на популярные вопросы о сервисе
           </p>
         </div>
@@ -30,13 +30,13 @@ export function FaqSection({ faq }: Props) {
           {faq.map((item, i) => (
             <div
               key={i}
-              className="rounded-xl border border-gray-100 bg-white transition"
+              className="rounded-xl border border-gray-100 bg-white transition dark:border-zinc-700 dark:bg-zinc-800"
             >
               <button
                 className="flex w-full items-center justify-between px-6 py-4 text-left"
                 onClick={() => setOpen(open === i ? null : i)}
               >
-                <span className="text-sm font-semibold text-gray-900">
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {item.question}
                 </span>
                 <svg
@@ -56,7 +56,7 @@ export function FaqSection({ faq }: Props) {
                 </svg>
               </button>
               {open === i && (
-                <div className="px-6 pb-4 text-sm leading-relaxed text-gray-600">
+                <div className="px-6 pb-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
                   {item.answer}
                 </div>
               )}

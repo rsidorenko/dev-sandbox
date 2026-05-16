@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { siteConfig } from "@/config/site";
@@ -10,8 +10,12 @@ import { siteConfig } from "@/config/site";
 export default function PaymentPage() {
   const { planId } = useParams<{ planId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { loading: authLoading, authenticated } = useAuth();
-  const [deviceCount, setDeviceCount] = useState(5);
+  const [deviceCount, setDeviceCount] = useState(() => {
+    const d = searchParams.get("devices");
+    return d ? parseInt(d) || 5 : 5;
+  });
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [paymentResult, setPaymentResult] = useState<{
@@ -78,10 +82,10 @@ export default function PaymentPage() {
     <section className="py-12">
       <div className="mx-auto max-w-lg px-4">
         <Link
-          href="/#tariffs"
-          className="text-sm font-medium text-brand-600 transition hover:text-brand-700"
+          href="/dashboard"
+          className="text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
         >
-          &larr; Назад к тарифам
+          &larr; Назад
         </Link>
 
         <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">

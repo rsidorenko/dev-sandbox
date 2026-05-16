@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import calendar
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 from starlette.requests import Request
@@ -13,12 +14,23 @@ from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
 
+_VALID_PLANS = {"1m", "3m", "6m", "plan_1m", "plan_3m", "plan_6m"}
+_PLAN_DURATION = {"1m": 1, "3m": 3, "6m": 6, "plan_1m": 1, "plan_3m": 3, "plan_6m": 6}
+
 
 def _safe_json_error(status_code: int, error: str) -> JSONResponse:
     return JSONResponse({"ok": False, "error": error}, status_code=status_code)
 
 
 async def handle_get_profile(request: Request) -> JSONResponse:
+    try:
+        return await _handle_get_profile_inner(request)
+    except Exception as exc:
+        _LOGGER.exception("profile_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def _handle_get_profile_inner(request: Request) -> JSONResponse:
     auth_result = require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
@@ -69,14 +81,14 @@ async def handle_get_profile(request: Request) -> JSONResponse:
     keys_info = None
     if subscription and subscription["state"] == "active":
         issuance = await pool.fetchrow(
-            """SELECT operational_state, redacted_reference
+            """SELECT issuance_state
                FROM issuance_state WHERE internal_user_id = $1""",
             internal_user_id,
         )
         if issuance:
             keys_info = {
-                "available": issuance["operational_state"] == "issued",
-                "status": issuance["operational_state"],
+                "available": issuance["issuance_state"] == "issued",
+                "status": issuance["issuance_state"],
             }
 
     # Get referral info
@@ -111,3 +123,247 @@ async def handle_get_profile(request: Request) -> JSONResponse:
         "keys": keys_info,
         "referral": referral,
     })
+
+
+async def handle_get_keys(request: Request) -> JSONResponse:
+    try:
+        auth_result = require_auth(request)
+        if isinstance(auth_result, JSONResponse):
+            return auth_result
+
+        telegram_user_id = auth_result.get("telegram_user_id")
+        if telegram_user_id is None:
+            return _safe_json_error(403, "no_telegram_identity")
+
+        pool: asyncpg.Pool = request.app.state.pool
+        identity = await pool.fetchrow(
+            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+            telegram_user_id,
+        )
+        if identity is None:
+            return _safe_json_error(404, "identity_not_found")
+
+        provider = request.app.state.vless_provider
+        from app.issuance.vless_provider import VlessProviderOutcome
+
+        result = await provider.get_user_config(internal_user_id=identity["internal_user_id"])
+        if result.outcome != VlessProviderOutcome.SUCCESS:
+            result = await provider.create_user(internal_user_id=identity["internal_user_id"])
+        if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
+            return JSONResponse({"ok": True, "keys": [], "subscription_url": None})
+
+        keys = [
+            {
+                "label": s.server_label,
+                "country": s.country_code,
+                "flag": s.country_flag,
+                "link": s.vless_link,
+            }
+            for s in result.config.servers
+        ]
+        return JSONResponse({
+            "ok": True,
+            "keys": keys,
+            "subscription_url": result.config.subscription_url,
+        })
+    except Exception:
+        _LOGGER.exception("keys_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def handle_reissue_keys(request: Request) -> JSONResponse:
+    try:
+        auth_result = require_auth(request)
+        if isinstance(auth_result, JSONResponse):
+            return auth_result
+
+        telegram_user_id = auth_result.get("telegram_user_id")
+        if telegram_user_id is None:
+            return _safe_json_error(403, "no_telegram_identity")
+
+        pool: asyncpg.Pool = request.app.state.pool
+        identity = await pool.fetchrow(
+            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+            telegram_user_id,
+        )
+        if identity is None:
+            return _safe_json_error(404, "identity_not_found")
+
+        provider = request.app.state.vless_provider
+        from app.issuance.vless_provider import VlessProviderOutcome
+
+        await provider.revoke_user(internal_user_id=identity["internal_user_id"])
+        result = await provider.create_user(internal_user_id=identity["internal_user_id"])
+        if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
+            return _safe_json_error(500, "reissue_failed")
+
+        keys = [
+            {
+                "label": s.server_label,
+                "country": s.country_code,
+                "flag": s.country_flag,
+                "link": s.vless_link,
+            }
+            for s in result.config.servers
+        ]
+        return JSONResponse({
+            "ok": True,
+            "keys": keys,
+            "subscription_url": result.config.subscription_url,
+        })
+    except Exception:
+        _LOGGER.exception("reissue_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def _get_identity(request: Request) -> tuple[asyncpg.Pool, str] | JSONResponse:
+    auth_result = require_auth(request)
+    if isinstance(auth_result, JSONResponse):
+        return auth_result
+    telegram_user_id = auth_result.get("telegram_user_id")
+    if telegram_user_id is None:
+        return _safe_json_error(403, "no_telegram_identity")
+    pool: asyncpg.Pool = request.app.state.pool
+    identity = await pool.fetchrow(
+        "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+        telegram_user_id,
+    )
+    if identity is None:
+        return _safe_json_error(404, "identity_not_found")
+    return pool, identity["internal_user_id"]
+
+
+def _plan_months(plan_id: str) -> int:
+    return _PLAN_DURATION.get(plan_id, 1)
+
+
+def _next_expiry(current_until: datetime | None, months: int) -> datetime:
+    base = current_until if current_until and current_until > datetime.now(UTC) else datetime.now(UTC)
+    new_month = base.month + months
+    new_year = base.year + (new_month - 1) // 12
+    new_month = ((new_month - 1) % 12) + 1
+    max_day = calendar.monthrange(new_year, new_month)[1]
+    return base.replace(year=new_year, month=new_month, day=min(base.day, max_day), hour=0, minute=0, second=0, microsecond=0)
+
+
+async def handle_renew_subscription(request: Request) -> JSONResponse:
+    try:
+        result = await _get_identity(request)
+        if isinstance(result, JSONResponse):
+            return result
+        pool, internal_user_id = result
+
+        snapshot = await pool.fetchrow(
+            "SELECT plan_id, active_until_utc, device_count FROM subscription_snapshots WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        if snapshot is None:
+            return _safe_json_error(404, "no_subscription")
+
+        plan_id = snapshot["plan_id"] or "plan_1m"
+        months = _plan_months(plan_id)
+        new_until = _next_expiry(snapshot["active_until_utc"], months)
+
+        await pool.execute(
+            """UPDATE subscription_snapshots
+               SET state_label = 'active', active_until_utc = $1, updated_at = NOW()
+               WHERE internal_user_id = $2""",
+            new_until,
+            internal_user_id,
+        )
+        return JSONResponse({"ok": True, "active_until": new_until.isoformat()})
+    except Exception:
+        _LOGGER.exception("renew_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def handle_change_plan(request: Request) -> JSONResponse:
+    try:
+        data = await request.json()
+    except Exception:
+        return _safe_json_error(400, "invalid_request")
+
+    plan_id = data.get("plan_id", "").strip()
+    if plan_id not in _VALID_PLANS:
+        return _safe_json_error(400, "invalid_plan")
+
+    try:
+        result = await _get_identity(request)
+        if isinstance(result, JSONResponse):
+            return result
+        pool, internal_user_id = result
+
+        snapshot = await pool.fetchrow(
+            "SELECT active_until_utc FROM subscription_snapshots WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        if snapshot is None:
+            return _safe_json_error(404, "no_subscription")
+
+        months = _plan_months(plan_id)
+        new_until = _next_expiry(snapshot["active_until_utc"], months)
+
+        await pool.execute(
+            """UPDATE subscription_snapshots
+               SET plan_id = $1, active_until_utc = $2, updated_at = NOW()
+               WHERE internal_user_id = $3""",
+            plan_id,
+            new_until,
+            internal_user_id,
+        )
+        return JSONResponse({"ok": True, "plan_id": plan_id, "active_until": new_until.isoformat()})
+    except Exception:
+        _LOGGER.exception("change_plan_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def handle_change_devices(request: Request) -> JSONResponse:
+    try:
+        data = await request.json()
+    except Exception:
+        return _safe_json_error(400, "invalid_request")
+
+    try:
+        device_count = int(data.get("device_count", 0))
+    except (ValueError, TypeError):
+        return _safe_json_error(400, "invalid_device_count")
+
+    if device_count < 1 or device_count > 20:
+        return _safe_json_error(400, "invalid_device_count")
+
+    try:
+        result = await _get_identity(request)
+        if isinstance(result, JSONResponse):
+            return result
+        pool, internal_user_id = result
+
+        await pool.execute(
+            """UPDATE subscription_snapshots
+               SET device_count = $1, updated_at = NOW()
+               WHERE internal_user_id = $2""",
+            device_count,
+            internal_user_id,
+        )
+        return JSONResponse({"ok": True, "device_count": device_count})
+    except Exception:
+        _LOGGER.exception("change_devices_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def handle_cancel_subscription(request: Request) -> JSONResponse:
+    try:
+        result = await _get_identity(request)
+        if isinstance(result, JSONResponse):
+            return result
+        pool, internal_user_id = result
+
+        await pool.execute(
+            """UPDATE subscription_snapshots
+               SET state_label = 'cancelled', updated_at = NOW()
+               WHERE internal_user_id = $1""",
+            internal_user_id,
+        )
+        return JSONResponse({"ok": True, "state": "cancelled"})
+    except Exception:
+        _LOGGER.exception("cancel_error")
+        return _safe_json_error(500, "internal_error")

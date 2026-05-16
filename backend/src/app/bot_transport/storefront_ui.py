@@ -38,6 +38,9 @@ CB_ADD_DEV_BALANCE = "add_dev_bal:"
 CB_REMOVE_DEVICE = "remove_device"
 CB_LINK_EMAIL = "link_email"
 CB_LINK_EMAIL_CONFIRM = "link_email_confirm:"
+CB_RESEND_EMAIL_CODE = "resend_email_code"
+CB_REISSUE_KEYS = "reissue_keys"
+CB_REISSUE_CONFIRM = "reissue_keys_confirm"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -216,8 +219,31 @@ def text_no_subscription() -> str:
 def text_my_keys(config: VlessUserConfig) -> str:
     lines = ["🔐 Ваши VLESS-ключи:\n"]
     lines.append(format_key_list(config.servers))
-    lines.extend(["", "💡 Скопируйте ключ и вставьте в приложение:", "Karing, v2rayTune, Happ, v2rayNG и др."])
+    lines.extend(["", "💡 Нажмите на ключ ниже, чтобы скопировать.", "Поддерживаемые приложения: Karing, v2rayTune, Happ, v2rayNG и др."])
     return "\n".join(lines)
+
+
+def keys_keyboard() -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    rows.append([{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
+
+
+def text_reissue_confirm() -> str:
+    return (
+        "⚠️ Перевыпуск ключей\n\n"
+        "Старые ключи перестанут работать.\n"
+        "Все устройства нужно будет переподключить.\n\n"
+        "Продолжить?"
+    )
+
+
+def reissue_confirm_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "✅ Да, перевыпустить", "callback_data": CB_REISSUE_CONFIRM}],
+        [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+    ])
 
 
 def text_subscription_url(config: VlessUserConfig) -> str:
@@ -299,7 +325,8 @@ def text_help() -> str:
         "⚙️ Настройки подписки — управление подпиской\n\n"
         "Все суммы указаны в рублях.\n"
         f"Подписка включает {DEFAULT_DEVICE_LIMIT} устройств по умолчанию.\n"
-        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждый месяц подписки."
+        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждый месяц подписки.\n\n"
+        "✉️ Написать нам в поддержку: @bravada_support"
     )
 
 
@@ -439,7 +466,7 @@ def link_email_keyboard() -> dict[str, Any]:
 def link_email_code_keyboard() -> dict[str, Any]:
     return _inline_kb(
         [
-            [{"text": "📧 Отправить код повторно", "callback_data": CB_LINK_EMAIL}],
+            [{"text": "📧 Отправить код повторно", "callback_data": CB_RESEND_EMAIL_CODE}],
             [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
         ]
     )
