@@ -80,6 +80,18 @@ export default function DashboardPage() {
     setReissueConfirm(false);
   };
 
+  if (loading) {
+    return (
+      <section className="flex min-h-[70vh] items-center justify-center">
+        <p className="text-gray-500 dark:text-gray-400">Загрузка...</p>
+      </section>
+    );
+  }
+
+  if (!profile) return null;
+
+  const sub = profile.subscription;
+
   const normalizePlanId = (id: string | null | undefined): string => {
     if (!id) return "1m";
     return id.replace("plan_", "");
@@ -110,18 +122,6 @@ export default function DashboardPage() {
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   };
-
-  if (loading) {
-    return (
-      <section className="flex min-h-[70vh] items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">Загрузка...</p>
-      </section>
-    );
-  }
-
-  if (!profile) return null;
-
-  const sub = profile.subscription;
   const isActive = sub?.state === "active";
   const referral = profile.referral;
   const days = sub?.active_until ? daysLeft(sub.active_until) : 0;
