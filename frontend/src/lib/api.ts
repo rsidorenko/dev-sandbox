@@ -7,9 +7,11 @@ type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; detail?:
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<ApiResult<T>> {
   try {
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
       ...(options?.headers as Record<string, string>),
     };
+    if (options?.body) {
+      headers["Content-Type"] = "application/json";
+    }
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,

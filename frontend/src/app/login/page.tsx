@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -26,6 +26,28 @@ function LoginForm() {
   const [errorMsg, setErrorMsg] = useState("");
   const [codeTtl, setCodeTtl] = useState(10);
   const [resendTimer, setResendTimer] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startResendTimer = () => {
+    setResendTimer(60);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setResendTimer((t) => {
+        if (t <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          timerRef.current = null;
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+  };
 
   const validateEmail = (e: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
@@ -55,16 +77,7 @@ function LoginForm() {
 
     setCodeTtl(result.data.ttl_minutes || 10);
     setStep("code");
-    setResendTimer(60);
-    const interval = setInterval(() => {
-      setResendTimer((t) => {
-        if (t <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
+    startResendTimer();
   };
 
   const handleVerifyCode = async (e: FormEvent) => {
@@ -114,16 +127,7 @@ function LoginForm() {
     const result = await api.auth.sendCode(email);
     setLoading(false);
     if (result.ok) {
-      setResendTimer(60);
-      const interval = setInterval(() => {
-        setResendTimer((t) => {
-          if (t <= 1) {
-            clearInterval(interval);
-            return 0;
-          }
-          return t - 1;
-        });
-      }, 1000);
+      startResendTimer();
     } else {
       setErrorMsg("Не удалось отправить код повторно.");
     }

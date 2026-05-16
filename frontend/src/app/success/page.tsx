@@ -43,12 +43,20 @@ export default function SuccessPage() {
             {siteConfig.supportTelegramHandle}
           </a>
         </p>
-        <Link
-          href="/"
-          className="mt-8 inline-block rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
-        >
-          На главную
-        </Link>
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/dashboard"
+            className="rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-700"
+          >
+            Перейти в личный кабинет
+          </Link>
+          <Link
+            href="/"
+            className="rounded-xl border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            На главную
+          </Link>
+        </div>
       </div>
     </section>
   );
