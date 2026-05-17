@@ -210,22 +210,45 @@ async def handle_verify_code(request: Request) -> JSONResponse:
         telegram_user_id = user_email_row["telegram_user_id"]
     else:
         # New email — auto-create a web-only identity
+        # Use negative ID to avoid collision with real Telegram user IDs
+        web_user_seq = await pool.fetchval(
+            "SELECT nextval('web_user_id_seq')"
+        ) if await pool.fetchval(
+            "SELECT COUNT(*) FROM information_schema.sequences WHERE sequence_name = 'web_user_id_seq'"
+        ) else None
+
+        if web_user_seq is None:
+            # Create sequence if not exists, then use it
+            await pool.execute(
+                "CREATE SEQUENCE IF NOT EXISTS web_user_id_seq START WITH -1 INCREMENT BY -1 MINVALUE -999999999"
+            )
+            web_user_seq = await pool.fetchval("SELECT nextval('web_user_id_seq')")
+
+        web_telegram_id = int(web_user_seq)
+        web_internal_id = f"web_{hashlib.sha256(email.encode()).hexdigest()[:12]}"
+
+        await pool.execute(
+            "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            web_telegram_id,
+            web_internal_id,
+        )
         await pool.execute(
             """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
-               VALUES (0, $1, TRUE, $2)
-               ON CONFLICT (telegram_user_id, email) DO UPDATE SET is_verified = TRUE, verified_at = $2""",
+               VALUES ($1, $2, TRUE, $3)
+               ON CONFLICT (telegram_user_id, email) DO UPDATE SET is_verified = TRUE, verified_at = $3""",
+            web_telegram_id,
             email,
             now,
         )
+        telegram_user_id = web_telegram_id
+        internal_user_id = web_internal_id
 
-    if telegram_user_id is not None and telegram_user_id != 0:
+    if internal_user_id is None and telegram_user_id is not None:
         identity = await pool.fetchrow(
             "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
             telegram_user_id,
         )
         internal_user_id = identity["internal_user_id"] if identity else f"u{telegram_user_id}"
-    else:
-        internal_user_id = f"web_{hashlib.sha256(email.encode()).hexdigest()[:12]}"
 
     token = _issue_jwt({
         "telegram_user_id": telegram_user_id,

@@ -172,7 +172,7 @@ export function LoginForm() {
                   maxLength={6}
                   {...codeForm.register("code")}
                   placeholder="123456"
-                  className="mt-1 block w-full rounded-lg border border-gray-200 px-4 py-2.5 text-center text-lg tracking-widest transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                  className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-center text-lg tracking-widest text-gray-900 transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
                   disabled={codeForm.formState.isSubmitting}
                   autoFocus
                 />

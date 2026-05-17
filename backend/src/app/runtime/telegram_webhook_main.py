@@ -402,10 +402,26 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
         status_code = sent_responses[0].get("status", 500)
         body = b"".join(sent_body_parts)
-        return JSONResponse(
+        response = JSONResponse(
             content=json.loads(body) if body else {},
             status_code=status_code,
         )
+        # Forward Set-Cookie headers from inner app (e.g. session cookie from auth)
+        for resp_msg in sent_responses:
+            for header_pair in resp_msg.get("headers", []):
+                if header_pair[0] == b"set-cookie":
+                    cookie_value = header_pair[1].decode("latin-1")
+                    cookie_name = cookie_value.split("=", 1)[0]
+                    response.set_cookie(
+                        key=cookie_name,
+                        value=cookie_value.split("=", 1)[1].split(";")[0] if "=" in cookie_value else "",
+                        max_age=int(cookie_value.split("Max-Age=")[1].split(";")[0]) if "Max-Age=" in cookie_value else None,
+                        httponly="httponly" in cookie_value.lower(),
+                        secure="secure" in cookie_value.lower(),
+                        samesite="lax" if "samesite=lax" in cookie_value.lower() else "strict" if "samesite=strict" in cookie_value.lower() else None,
+                        path="/",
+                    )
+        return response
 
     if web_api_enabled:
         routes.append(Route("/api/{path:path}", _web_api_proxy, methods=["GET", "POST", "OPTIONS"]))
