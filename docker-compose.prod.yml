@@ -99,10 +99,11 @@ services:
       - backend
       - frontend
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80/healthz"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 3
+      start_period: 10s
 
   certbot:
     image: certbot/certbot
