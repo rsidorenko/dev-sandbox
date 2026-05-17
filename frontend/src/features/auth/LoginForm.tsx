@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -28,7 +28,6 @@ type CodeForm = z.infer<typeof codeSchema>;
 type Step = "email" | "code";
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>("email");
   const [serverError, setServerError] = useState("");
@@ -86,7 +85,7 @@ export function LoginForm() {
       return;
     }
     const next = searchParams.get("next") || "/dashboard";
-    router.push(next);
+    window.location.href = next;
   });
 
   const handleResend = async () => {
