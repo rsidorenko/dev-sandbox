@@ -1,11 +1,44 @@
-# HTTP-only config (used until SSL certificate is ready)
-# When SSL is available, replace this file with ssl.conf content
+# HTTPS config — activate when SSL certificate is ready
+# Usage: mv ssl.conf.example default.conf && docker compose restart nginx
+#
+# SSL cert files should be placed in /opt/bravada/ssl/:
+#   fullchain.pem  — certificate + chain
+#   privkey.pem    — private key
 
 server {
     listen 80;
     server_name bravada-connect.ru www.bravada-connect.ru;
 
-    # Backend API
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name bravada-connect.ru www.bravada-connect.ru;
+
+    ssl_certificate /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+    gzip_min_length 256;
+
     location /api/ {
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
@@ -14,7 +47,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Backend health/readiness
     location /healthz {
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
@@ -25,7 +57,6 @@ server {
         proxy_set_header Host $host;
     }
 
-    # Telegram webhook
     location /telegram/webhook {
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
@@ -34,7 +65,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Payment fulfillment webhook
     location /payment/ {
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
@@ -43,7 +73,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Auth routes
     location /auth/ {
         proxy_pass http://backend:8000;
         proxy_set_header Host $host;
@@ -52,7 +81,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Frontend (everything else)
     location / {
         proxy_pass http://frontend:3000;
         proxy_set_header Host $host;
