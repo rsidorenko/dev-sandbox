@@ -383,7 +383,6 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     async def _web_api_proxy(request: Request) -> JSONResponse:
         if web_api_app is None:
             return JSONResponse({"ok": False, "error": "temporarily_unavailable"}, status_code=503)
-        # Directly call the web_api_app as ASGI sub-app
         scope = request.scope
         recv = request.receive
         sent_responses: list[dict[str, Any]] = []
@@ -395,17 +394,27 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             elif msg["type"] == "http.response.body":
                 sent_body_parts.append(msg.get("body", b""))
 
-        await web_api_app(scope, recv, send)
+        try:
+            await web_api_app(scope, recv, send)
+        except Exception:
+            _LOGGER.exception("web_api_proxy.inner_error")
+            return JSONResponse({"ok": False, "error": "internal_error"}, status_code=500)
 
         if not sent_responses:
             return JSONResponse({"ok": False, "error": "internal_error"}, status_code=500)
 
         status_code = sent_responses[0].get("status", 500)
         body = b"".join(sent_body_parts)
-        response = JSONResponse(
-            content=json.loads(body) if body else {},
-            status_code=status_code,
+        _LOGGER.debug(
+            "web_api_proxy.response status=%s body_len=%s",
+            status_code,
+            len(body),
         )
+        try:
+            content = json.loads(body) if body else {}
+        except (json.JSONDecodeError, ValueError):
+            content = {"ok": False, "error": "internal_error"}
+        response = JSONResponse(content=content, status_code=status_code)
         # Forward Set-Cookie headers from inner app (e.g. session cookie from auth)
         for resp_msg in sent_responses:
             for header_pair in resp_msg.get("headers", []):
