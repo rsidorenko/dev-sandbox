@@ -352,7 +352,7 @@ export function SubscriptionCard({
             </p>
             <div className="mt-3">
               <Link
-                href="/#tariffs"
+                href="/payment/3m"
                 className="inline-block rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
               >
                 Оформить подписку
