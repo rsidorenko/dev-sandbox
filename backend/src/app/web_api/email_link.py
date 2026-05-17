@@ -171,4 +171,8 @@ async def handle_bot_verify_code(request: Request) -> JSONResponse:
         now,
     )
 
+    # Merge web-only account if this email was previously registered on the website
+    from app.persistence.account_merge import merge_web_account_if_needed
+    await merge_web_account_if_needed(pool, telegram_user_id, email)
+
     return JSONResponse({"ok": True})

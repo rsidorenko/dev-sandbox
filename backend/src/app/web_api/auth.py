@@ -218,7 +218,7 @@ async def handle_verify_code(request: Request) -> JSONResponse:
             now,
         )
 
-    if telegram_user_id is not None:
+    if telegram_user_id is not None and telegram_user_id != 0:
         identity = await pool.fetchrow(
             "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
             telegram_user_id,

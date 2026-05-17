@@ -373,6 +373,11 @@ async def _handle_email_linking(
             pending["email"],
             now,
         )
+
+        # Merge web-only account if this email was previously registered on the website
+        from app.persistence.account_merge import merge_web_account_if_needed
+        await merge_web_account_if_needed(pool, uid, pending["email"])
+
         return text_link_email_success(pending["email"]), main_menu_keyboard()
 
     # No pending verification — treat text as email
