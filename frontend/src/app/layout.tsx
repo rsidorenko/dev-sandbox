@@ -4,6 +4,7 @@ import "./globals.css";
 import { Header } from "@/widgets/header/Header";
 import { Footer } from "@/widgets/footer/Footer";
 import { siteConfig } from "@/shared/config/site";
+import { AuthProvider } from "@/shared/lib/auth";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -41,9 +42,11 @@ export default function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <Header />
-        <main className="min-h-screen">{children}</main>
-        <Footer />
+        <AuthProvider>
+          <Header />
+          <main className="min-h-screen">{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

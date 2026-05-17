@@ -71,7 +71,7 @@ export default function ContactsPage() {
               )}
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Платёжный оператор</span>
-                <p className="mt-1">Платёжный сервис ЮKassa</p>
+                <p className="mt-1">Подключаемый платёжный сервис</p>
               </div>
             </div>
           </div>

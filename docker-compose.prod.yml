@@ -1,0 +1,116 @@
+# Production deployment — nginx + certbot + backend + frontend + postgres
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Variables are read from backend/.env (or .env at repo root).
+# Copy .env.example to .env and fill in real values before first run.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpnbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-vpnbot}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "password_encryption=md5"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpnbot} -d ${POSTGRES_DB:-vpnbot}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN in .env}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vpnbot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpnbot}?sslmode=disable
+      APP_ENV: production
+      PORT: "8000"
+      SLICE1_USE_POSTGRES_REPOS: "1"
+      TELEGRAM_WEBHOOK_HTTP_ENABLE: "1"
+      TELEGRAM_WEBHOOK_SECRET_TOKEN: ${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}
+      TELEGRAM_WEBHOOK_PUBLIC_URL: ${TELEGRAM_WEBHOOK_PUBLIC_URL:?Set TELEGRAM_WEBHOOK_PUBLIC_URL in .env}
+      TELEGRAM_WEBHOOK_ALLOWED_UPDATES: ${TELEGRAM_WEBHOOK_ALLOWED_UPDATES:-message}
+      WEB_API_ENABLE: "1"
+      WEB_API_CORS_ORIGINS: ${WEB_API_CORS_ORIGINS:-}
+      TELEGRAM_STOREFRONT_CHECKOUT_URL: ${TELEGRAM_STOREFRONT_CHECKOUT_URL:-}
+      TELEGRAM_STOREFRONT_RENEWAL_URL: ${TELEGRAM_STOREFRONT_RENEWAL_URL:-}
+      TELEGRAM_STOREFRONT_SUPPORT_URL: ${TELEGRAM_STOREFRONT_SUPPORT_URL:-}
+      TELEGRAM_STOREFRONT_PLAN_NAME: ${TELEGRAM_STOREFRONT_PLAN_NAME:-}
+      TELEGRAM_STOREFRONT_PLAN_PRICE: ${TELEGRAM_STOREFRONT_PLAN_PRICE:-}
+      PAYMENT_FULFILLMENT_HTTP_ENABLE: ${PAYMENT_FULFILLMENT_HTTP_ENABLE:-1}
+      PAYMENT_FULFILLMENT_WEBHOOK_SECRET: ${PAYMENT_FULFILLMENT_WEBHOOK_SECRET:-}
+      TELEGRAM_CHECKOUT_REFERENCE_SECRET: ${TELEGRAM_CHECKOUT_REFERENCE_SECRET:-}
+      TELEGRAM_CHECKOUT_REFERENCE_MAX_AGE_SECONDS: ${TELEGRAM_CHECKOUT_REFERENCE_MAX_AGE_SECONDS:-604800}
+      TELEGRAM_ACCESS_RESEND_ENABLE: ${TELEGRAM_ACCESS_RESEND_ENABLE:-1}
+      ACCESS_RECONCILE_SCHEDULE_ACK: "1"
+      ACCESS_RECONCILE_MAX_INTERVAL_SECONDS: "3600"
+      SUBSCRIPTION_DEFAULT_PERIOD_DAYS: ${SUBSCRIPTION_DEFAULT_PERIOD_DAYS:-30}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-1}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-}
+      WEB_API_DEV_INSECURE_COOKIE: ${WEB_API_DEV_INSECURE_COOKIE:-}
+      YOOKASSA_ENABLED: ${YOOKASSA_ENABLED:-}
+      BOT_USERNAME: ${BOT_USERNAME:-}
+      ISSUANCE_OPERATOR_ENABLE: ${ISSUANCE_OPERATOR_ENABLE:-}
+      ADM02_ENSURE_ACCESS_ENABLE: ${ADM02_ENSURE_ACCESS_ENABLE:-}
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://bravada-connect.ru}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://bravada-connect.ru}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-www:/var/www/certbot:ro
+      - certs:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certs:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  pgdata:
+  certbot-www:
+  certs:
