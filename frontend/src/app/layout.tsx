@@ -44,7 +44,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <Header />
-          <main className="min-h-screen">{children}</main>
+          <main>{children}</main>
           <Footer />
         </AuthProvider>
       </body>
