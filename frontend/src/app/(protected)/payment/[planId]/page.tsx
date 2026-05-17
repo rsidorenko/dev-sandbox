@@ -3,9 +3,10 @@
 import { Suspense, useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import { siteConfig } from "@/config/site";
+import { paymentApi } from "@/entities/payment/api";
+import { useAuth } from "@/shared/lib/auth";
+import { siteConfig } from "@/shared/config/site";
+import { Alert } from "@/shared/ui/Alert";
 
 const EXTRA_DEVICE_PRICE = 80;
 const DEFAULT_DEVICES = 5;
@@ -17,7 +18,13 @@ function calcTotal(basePrice: number, months: number, devices: number): number {
 
 export default function PaymentPage() {
   return (
-    <Suspense fallback={<section className="flex min-h-[70vh] items-center justify-center"><p className="text-gray-500">Загрузка...</p></section>}>
+    <Suspense
+      fallback={
+        <section className="flex min-h-[70vh] items-center justify-center">
+          <p className="text-gray-500">Загрузка...</p>
+        </section>
+      }
+    >
       <PaymentForm />
     </Suspense>
   );
@@ -74,7 +81,7 @@ function PaymentForm() {
     setErrorMsg("");
     setLoading(true);
 
-    const result = await api.payment.create(tariff.id, deviceCount);
+    const result = await paymentApi.create(tariff.id, deviceCount);
     setLoading(false);
 
     if (!result.ok) {
@@ -127,7 +134,6 @@ function PaymentForm() {
             </div>
           </div>
 
-          {/* Device count selector */}
           <div className="mt-6">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Количество устройств: <strong>{deviceCount}</strong>
@@ -141,10 +147,7 @@ function PaymentForm() {
               className="mt-2 w-full accent-brand-600"
             />
             <div className="flex justify-between text-xs text-gray-400">
-              <span>5</span>
-              <span>10</span>
-              <span>15</span>
-              <span>20</span>
+              <span>5</span><span>10</span><span>15</span><span>20</span>
             </div>
             {extraDevices > 0 && (
               <p className="mt-1 text-xs text-gray-400">
@@ -153,25 +156,20 @@ function PaymentForm() {
             )}
           </div>
 
-          {/* Total */}
           <div className="mt-6 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
             <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total} ₽</span>
           </div>
 
-          {errorMsg && (
-            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
-              {errorMsg}
-            </div>
-          )}
+          {errorMsg && <Alert className="mt-4">{errorMsg}</Alert>}
 
           {paymentResult && paymentResult.status === "payment_unavailable" && (
-            <div className="mt-4 rounded-lg bg-brand-50 px-4 py-3 dark:bg-brand-950/30">
+            <Alert variant="info" className="mt-4">
               <p className="text-sm text-brand-900 dark:text-brand-200">{paymentResult.message}</p>
               <p className="mt-2 text-sm font-medium text-brand-700 dark:text-brand-300">
                 Сумма: {paymentResult.amount_rubles} ₽
               </p>
-            </div>
+            </Alert>
           )}
 
           <button

@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
-import { siteConfig } from "@/config/site";
-import { AuthProvider } from "@/lib/auth";
+import { Header } from "@/widgets/header/Header";
+import { Footer } from "@/widgets/footer/Footer";
+import { siteConfig } from "@/shared/config/site";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -23,14 +22,8 @@ export const metadata: Metadata = {
     locale: "ru_RU",
     type: "website",
   },
-  robots: {
-    index: true,
-    follow: true,
-  },
-  icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-touch-icon.png",
-  },
+  robots: { index: true, follow: true },
+  icons: { icon: "/favicon.ico", apple: "/apple-touch-icon.png" },
 };
 
 export default function RootLayout({
@@ -48,11 +41,9 @@ export default function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <AuthProvider>
-          <Header />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
-        </AuthProvider>
+        <Header />
+        <main className="min-h-screen">{children}</main>
+        <Footer />
       </body>
     </html>
   );

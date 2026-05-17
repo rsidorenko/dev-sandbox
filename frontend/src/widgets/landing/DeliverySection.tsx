@@ -1,3 +1,5 @@
+import { siteConfig } from "@/shared/config/site";
+
 export function DeliverySection() {
   return (
     <section id="delivery" className="py-20">
@@ -35,7 +37,9 @@ export function DeliverySection() {
           доступны в личном кабинете и Telegram-боте. Если у вас возникли вопросы —
           напишите в{" "}
           <a
-            href="#delivery"
+            href={siteConfig.supportTelegram}
+            target="_blank"
+            rel="noopener noreferrer"
             className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
           >
             поддержку

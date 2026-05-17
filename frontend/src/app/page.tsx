@@ -1,10 +1,10 @@
-import { siteConfig } from "@/config/site";
-import { HeroSection } from "@/components/HeroSection";
-import { HowItWorks } from "@/components/HowItWorks";
-import { TariffsSection } from "@/components/TariffsSection";
-import { DeliverySection } from "@/components/DeliverySection";
-import { FaqSection } from "@/components/FaqSection";
-import { CtaSection } from "@/components/CtaSection";
+import { siteConfig } from "@/shared/config/site";
+import { HeroSection } from "@/widgets/landing/HeroSection";
+import { HowItWorks } from "@/widgets/landing/HowItWorks";
+import { TariffsSection } from "@/widgets/landing/TariffsSection";
+import { DeliverySection } from "@/widgets/landing/DeliverySection";
+import { FaqSection } from "@/widgets/landing/FaqSection";
+import { CtaSection } from "@/widgets/landing/CtaSection";
 
 export default function HomePage() {
   return (

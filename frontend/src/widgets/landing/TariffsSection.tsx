@@ -1,4 +1,4 @@
-import { siteConfig } from "@/config/site";
+import { siteConfig } from "@/shared/config/site";
 import Link from "next/link";
 
 type Tariff = (typeof siteConfig.tariffs)[number];

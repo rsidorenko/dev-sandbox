@@ -1,6 +1,6 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { siteConfig } from "@/config/site";
+import { siteConfig } from "@/shared/config/site";
 
 export const metadata: Metadata = {
   title: "Ошибка оплаты",
