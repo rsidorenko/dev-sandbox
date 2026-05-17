@@ -264,25 +264,11 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     config = load_runtime_config()
     if _durable_dedup_required(app_env=app_env) and not slice1_postgres_repos_requested():
         raise ConfigurationError("missing configuration for durable webhook dedup: SLICE1_USE_POSTGRES_REPOS=1")
-    composition, runtime_pool = None, None
-    if slice1_postgres_repos_requested():
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None:
-            # Already inside event loop (uvicorn) — use nest_asyncio or defer
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                composition, runtime_pool = executor.submit(
-                    asyncio.run, resolve_slice1_composition_for_runtime(config)
-                ).result()
-        else:
-            composition, runtime_pool = asyncio.run(resolve_slice1_composition_for_runtime(config))
+    # Build bundle with default in-memory composition; postgres composition is swapped in
+    # during lifespan startup so the asyncpg pool lives in the correct event loop.
     raw_bundle = build_slice1_httpx_raw_runtime_bundle(
         config.bot_token,
-        composition=composition,
+        composition=None,
     )
     runtime = raw_bundle.bundle.runtime
     telemetry = StructuredLoggingTelegramWebhookIngressTelemetry()
@@ -305,9 +291,21 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             return JSONResponse({"ok": False, "error": "temporarily_unavailable"}, status_code=503)
         return await fulfillment_app.router.routes[0].endpoint(request)  # type: ignore[return-value]
 
+    runtime_pg_pool: asyncpg.Pool | None = None
+
+    _BOT_MENU_COMMANDS: list[dict[str, str]] = [
+        {"command": "start", "description": "Начать / главное меню"},
+    ]
+
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app
+        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool
+        # Build postgres composition in the correct event loop (uvicorn's loop).
+        if slice1_postgres_repos_requested():
+            composition, pool = await resolve_slice1_composition_for_runtime(config)
+            runtime._composition = composition
+            runtime._inner._composition = composition
+            runtime_pg_pool = pool
         if fulfillment_settings is not None:
             dsn = (config.database_url or "").strip()
             fulfillment_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=4)
@@ -316,12 +314,15 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 settings=fulfillment_settings,
                 activation_telegram_notifier=_FulfillmentActivationTelegramNotifier(raw_bundle.client),
             )
+        # Register bot menu commands (same as polling mode).
+        with suppress(Exception):
+            await raw_bundle.client.set_my_commands(_BOT_MENU_COMMANDS)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
         if fulfillment_pool is not None:
             await fulfillment_pool.close()
-        if runtime_pool is not None:
-            await runtime_pool.close()
+        if runtime_pg_pool is not None:
+            await runtime_pg_pool.close()
         await raw_bundle.aclose()
         _log_webhook_main_event(outcome="shutdown", detail="client_closed")
 
@@ -344,7 +345,13 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     @asynccontextmanager
     async def _lifespan_with_web_api(app: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app
+        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool
+        # Build postgres composition in the correct event loop (uvicorn's loop).
+        if slice1_postgres_repos_requested():
+            composition, pool = await resolve_slice1_composition_for_runtime(config)
+            runtime._composition = composition
+            runtime._inner._composition = composition
+            runtime_pg_pool = pool
         if fulfillment_settings is not None:
             dsn = (config.database_url or "").strip()
             fulfillment_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=4)
@@ -359,14 +366,17 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             from app.web_api.app import build_web_api_app
 
             web_api_app = build_web_api_app(pool=web_api_pool)
+        # Register bot menu commands (same as polling mode).
+        with suppress(Exception):
+            await raw_bundle.client.set_my_commands(_BOT_MENU_COMMANDS)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
         if web_api_pool is not None:
             await web_api_pool.close()
         if fulfillment_pool is not None:
             await fulfillment_pool.close()
-        if runtime_pool is not None:
-            await runtime_pool.close()
+        if runtime_pg_pool is not None:
+            await runtime_pg_pool.close()
         await raw_bundle.aclose()
         _log_webhook_main_event(outcome="shutdown", detail="client_closed")
 

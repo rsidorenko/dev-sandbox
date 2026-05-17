@@ -17,12 +17,9 @@ echo "Applying migrations..."
 python -m app.persistence.postgres_migrations_main
 echo "Migrations applied."
 
-# Start polling bot in the background
-echo "Starting Telegram polling bot..."
-python -m app.runtime &
-POLL_PID=$!
-
-# Start HTTP server (API + webhook endpoint) in the foreground
+# Start HTTP server (webhook + API) in the foreground.
+# Telegram bot operates in webhook mode: updates are pushed by Telegram
+# to /telegram/webhook instead of us polling getUpdates.
 echo "Starting HTTP server on port ${PORT:-8000}..."
 exec uvicorn app.runtime.telegram_webhook_main:app \
   --host 0.0.0.0 \
