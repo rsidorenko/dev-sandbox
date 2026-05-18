@@ -47,23 +47,27 @@ def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
 def _build_vless_link(
     server: XuiServerConfig,
     user_uuid: str,
+    *,
+    flow: str = "xtls-rprx-vision",
 ) -> str:
-    """Build a vless:// URI for a specific server."""
+    """Build a vless:// URI for a specific server with Reality TLS."""
     host = server.server_host
     port = server.server_port
-    path = server.ws_path.lstrip("/")
-    sni = server.tls_sni or host
-    label = f"VPN+{server.label}"
+    label = f"{server.country_flag} {server.label}"
     return (
         f"vless://{user_uuid}@{host}:{port}"
-        f"?type=ws&security=tls&sni={sni}&path=%2F{path}#{label}"
+        f"?type=tcp&security=reality"
+        f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+        f"&sid={server.reality_sid}&spx=%2F&flow={flow}"
+        f"#{label}"
     )
 
 
 async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...]:
     rows = await pool.fetch(
         """SELECT id, label, country_code, country_flag, server_host, server_port,
-                  ws_path, tls_sni, panel_url, panel_username, panel_password, inbound_id
+                  ws_path, tls_sni, panel_url, panel_username, panel_password, inbound_id,
+                  reality_pbk, reality_sid, reality_sni
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -80,6 +84,9 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             panel_username=r["panel_username"],
             panel_password=r["panel_password"],
             inbound_id=r["inbound_id"],
+            reality_pbk=r["reality_pbk"],
+            reality_sid=r["reality_sid"],
+            reality_sni=r["reality_sni"],
         )
         for r in rows
     )
