@@ -63,17 +63,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     app.state.pool = pool
 
     from app.issuance.vless_provider import StubVlessProvider
-    from app.issuance.xui_vless_provider import XuiVlessProvider
-
-    # Use real provider if VPN servers exist in DB, otherwise fall back to stub
-    try:
-        servers = await pool.fetch("SELECT id FROM vpn_servers WHERE is_active = TRUE LIMIT 1")
-        if servers:
-            app.state.vless_provider = XuiVlessProvider(pool)
-        else:
-            app.state.vless_provider = StubVlessProvider()
-    except Exception:
-        app.state.vless_provider = StubVlessProvider()
+    app.state.vless_provider = StubVlessProvider()
 
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]

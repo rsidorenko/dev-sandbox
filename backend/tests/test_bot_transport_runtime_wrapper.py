@@ -50,7 +50,7 @@ def test_runtime_wrapper_private_start_send_message() -> None:
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
         assert action.chat_id == 42
-        assert action.message_text == text_welcome()
+        assert action.message_text == text_welcome(trial_available=True)
         assert action.action_keys == ()
         assert action.reply_markup is not None
         assert "inline_keyboard" in action.reply_markup

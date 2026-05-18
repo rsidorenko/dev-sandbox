@@ -61,6 +61,9 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "021_referral_relationships_fix_unique.sql",
         "022_user_emails.sql",
         "023_email_verification_codes.sql",
+        "024_vpn_servers.sql",
+        "025_trial_period.sql",
+        "026_notification_state.sql",
     ]
 
 
