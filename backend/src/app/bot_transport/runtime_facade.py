@@ -319,6 +319,54 @@ async def _handle_trial_activation(
     return text_trial_activated(vless_result.config), trial_activated_keyboard()
 
 
+async def _activate_trial_silently(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> bool:
+    """Activate 3-day trial without showing keys. Returns True on success."""
+    from datetime import UTC, datetime
+
+    from app.application.interfaces import SubscriptionSnapshot
+    from app.domain.trial import trial_expires_at
+    from app.issuance.vless_provider import VlessProviderOutcome
+
+    if uid is None:
+        return False
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return False
+    if composition.vless_provider is None:
+        return False
+
+    vless_result = await composition.vless_provider.create_user(
+        internal_user_id=id_rec.internal_user_id,
+    )
+    if vless_result.outcome != VlessProviderOutcome.SUCCESS:
+        return False
+
+    now = datetime.now(UTC)
+    expires = trial_expires_at(now)
+    await composition.snapshots.upsert_state(
+        SubscriptionSnapshot(
+            internal_user_id=id_rec.internal_user_id,
+            state_label="active",
+            active_until_utc=expires,
+            trial_started_at=now,
+            trial_expires_at=expires,
+        )
+    )
+
+    pool = _get_pool_from_composition(composition)
+    if pool is not None:
+        await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+    return True
+
+    return text_trial_activated(vless_result.config), trial_activated_keyboard()
+
+
 # ─── Storefront data helpers ─────────────────────────────────────────
 
 
@@ -1022,6 +1070,9 @@ async def _render_storefront_response(
     keyboard: dict[str, Any] | None = None
 
     if code in (CB_MAIN_MENU, "store_menu"):
+        # Auto-activate trial for new users who haven't used it yet
+        if await _is_trial_available(composition, uid):
+            await _activate_trial_silently(composition, uid)
         text, keyboard = text_main_menu(), main_menu_keyboard()
 
     elif code in (CB_BUY_VPN, "store_plans"):
