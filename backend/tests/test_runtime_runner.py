@@ -49,6 +49,7 @@ class FakeTelegramPollingClient:
         text: str,
         *,
         reply_markup=None,
+        parse_mode: str | None = None,
     ) -> int:
         return message_id
 

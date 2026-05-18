@@ -78,7 +78,7 @@ def format_key_list(servers: tuple[VlessServerConfig, ...]) -> str:
         lines.append(f"{s.country_flag} {s.server_label}")
         lines.append(f"`{s.vless_link}`")
         lines.append("")
-    return "\n".join(lines).rstrip()
+    return "\n".join(lines).strip()
 
 
 class StubVlessProvider:

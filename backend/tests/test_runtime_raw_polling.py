@@ -95,6 +95,7 @@ class FakeTelegramRawPollingClient:
         *,
         correlation_id: str,
         reply_markup: object | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         if self.send_fail:
             raise RuntimeError("send failed")
@@ -111,6 +112,7 @@ class FakeTelegramRawPollingClient:
         text: str,
         *,
         reply_markup=None,
+        parse_mode: str | None = None,
     ) -> int:
         return message_id
 
@@ -185,7 +187,8 @@ def test_mixed_batch_accepted_rejected_bridge_exception() -> None:
                 return await fetch_raw_updates(limit=limit, offset=offset)
 
             async def send_text_message(
-                self, chat_id: int, text: str, *, correlation_id: str, reply_markup: object | None = None
+                self, chat_id: int, text: str, *, correlation_id: str, reply_markup: object | None = None,
+                parse_mode: str | None = None,
             ) -> int:
                 return await client.send_text_message(chat_id, text, correlation_id=correlation_id)
 

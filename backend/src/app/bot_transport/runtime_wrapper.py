@@ -30,6 +30,7 @@ class TelegramRuntimeFollowUpSend:
 
     message_text: str
     reply_markup: Mapping[str, Any] | None
+    parse_mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class TelegramRuntimeAction:
     reply_markup: Mapping[str, Any] | None
     uc01_idempotency_key: str | None = None
     follow_ups: tuple[TelegramRuntimeFollowUpSend, ...] = ()
+    parse_mode: str | None = None
 
 
 def extract_eligible_private_chat_id_from_telegram_like_update(
@@ -161,7 +163,7 @@ async def handle_slice1_telegram_update_to_runtime_action(
             follow_ups=(),
         )
     follow_ups = tuple(
-        TelegramRuntimeFollowUpSend(message_text=fu.message_text, reply_markup=fu.reply_markup)
+        TelegramRuntimeFollowUpSend(message_text=fu.message_text, reply_markup=fu.reply_markup, parse_mode=fu.parse_mode)
         for fu in rendered.follow_up_messages
     )
     return TelegramRuntimeAction(
@@ -173,6 +175,7 @@ async def handle_slice1_telegram_update_to_runtime_action(
         reply_markup=rendered.reply_markup,
         uc01_idempotency_key=idem_key,
         follow_ups=follow_ups,
+        parse_mode=rendered.parse_mode,
     )
 
 
