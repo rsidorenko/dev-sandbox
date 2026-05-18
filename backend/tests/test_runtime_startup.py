@@ -125,7 +125,7 @@ def test_bundle_e2e_start_send_then_status_fail_closed() -> None:
             correlation_id=cid,
         )
         assert len(client.send_calls) == 1
-        assert client.send_calls[0][1] == text_welcome()
+        assert client.send_calls[0][1] == text_welcome(trial_available=True)
         await bundle.runtime.process_batch(
             [_update(message=_base_message(user_id=uid, text="/status"))],
             correlation_id=cid,

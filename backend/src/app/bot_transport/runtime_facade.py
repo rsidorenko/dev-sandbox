@@ -51,6 +51,7 @@ from app.bot_transport.storefront_ui import (
     CB_REMOVE_DEVICE,
     CB_ROUTER,
     CB_SETTINGS,
+    CB_TRIAL,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
     back_only_keyboard,
@@ -104,7 +105,12 @@ from app.bot_transport.storefront_ui import (
     text_settings,
     text_subscription_active,
     text_subscription_expired,
+    text_trial_activated,
+    text_trial_offer,
+    trial_activated_keyboard,
+    trial_offer_keyboard,
     text_welcome,
+    welcome_keyboard,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, plan_display_name
@@ -171,6 +177,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_SETTINGS,
         CB_HELP,
         CB_ROUTER,
+        CB_TRIAL,
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
         CB_LINK_EMAIL,
@@ -206,6 +213,105 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
             )
         )
     )
+
+
+# ─── Trial period helpers ──────────────────────────────────────────────
+
+
+async def _is_trial_available(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> bool:
+    """Check if the user can still activate a free trial."""
+    if uid is None:
+        return False
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return False
+    snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+    # Trial available if: never used trial AND no active subscription
+    if snap is not None and snap.state_label == "active":
+        return False
+    if snap is not None and snap.trial_started_at is not None:
+        return False
+    # Check trial_used flag on identity
+    pool = _get_pool_from_composition(composition)
+    if pool is not None:
+        row = await pool.fetchrow(
+            "SELECT trial_used FROM user_identities WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+        if row is not None and row["trial_used"]:
+            return False
+    return True
+
+
+async def _handle_trial_activation(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Activate 3-day trial: create VLESS keys, set trial dates."""
+    from datetime import UTC, datetime
+
+    from app.application.interfaces import SubscriptionSnapshot
+    from app.domain.trial import trial_expires_at
+
+    if uid is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Check trial not already used
+    snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+    if snap is not None and snap.trial_started_at is not None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    pool = _get_pool_from_composition(composition)
+    if pool is not None:
+        row = await pool.fetchrow(
+            "SELECT trial_used FROM user_identities WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+        if row is not None and row["trial_used"]:
+            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Check VLESS provider available
+    if composition.vless_provider is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Create VLESS user
+    from app.issuance.vless_provider import VlessProviderOutcome
+
+    vless_result = await composition.vless_provider.create_user(
+        internal_user_id=id_rec.internal_user_id,
+    )
+    if vless_result.outcome != VlessProviderOutcome.SUCCESS or vless_result.config is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Set trial period
+    now = datetime.now(UTC)
+    expires = trial_expires_at(now)
+
+    await composition.snapshots.upsert_state(
+        SubscriptionSnapshot(
+            internal_user_id=id_rec.internal_user_id,
+            state_label="active",
+            active_until_utc=expires,
+            trial_started_at=now,
+            trial_expires_at=expires,
+        )
+    )
+
+    # Mark trial as used
+    if pool is not None:
+        await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+
+    return text_trial_activated(vless_result.config), trial_activated_keyboard()
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -587,7 +693,32 @@ async def _process_balance_payment(
 
     if composition.vless_provider is not None:
         with contextlib.suppress(Exception):
-            await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+            pool = _get_pool_from_composition(composition)
+            if pool is not None:
+                snap_check = await pool.fetchrow(
+                    """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
+                       WHERE internal_user_id = $1""",
+                    internal_user_id,
+                )
+                if snap_check is not None and snap_check["keys_deleted_at"] is not None:
+                    # Keys were deleted — create new ones
+                    await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+                elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
+                    # Keys were deactivated — re-enable
+                    await composition.vless_provider.activate_user(internal_user_id=internal_user_id)
+                else:
+                    await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+            else:
+                await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+        # Reset lifecycle tracking
+        if pool is not None:
+            with contextlib.suppress(Exception):
+                await pool.execute(
+                    """UPDATE subscription_snapshots
+                       SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
+                       WHERE internal_user_id = $1""",
+                    internal_user_id,
+                )
 
     correlation_id = f"bal-pay-{uuid.uuid4()}"
     await composition.referral_transaction_repo.append_transaction(
@@ -919,7 +1050,13 @@ async def _render_storefront_response(
         text, keyboard = await _handle_resend_email_code(composition, uid)
 
     elif code == "identity_ready":
-        text, keyboard = text_welcome(), main_menu_keyboard()
+        # Show trial offer for new users who haven't used trial yet
+        trial_available = await _is_trial_available(composition, uid)
+        text = text_welcome(trial_available=trial_available)
+        keyboard = welcome_keyboard(trial_available=trial_available)
+
+    elif code == CB_TRIAL:
+        text, keyboard = await _handle_trial_activation(composition, uid)
 
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
         text, keyboard = await _render_subscription_status(composition, uid, cid)

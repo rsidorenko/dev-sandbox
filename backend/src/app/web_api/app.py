@@ -18,6 +18,7 @@ from app.web_api.payment import handle_create_payment, handle_get_payment_status
 from app.web_api.profile import (
     handle_get_profile, handle_get_keys, handle_reissue_keys,
     handle_renew_subscription, handle_change_plan, handle_change_devices, handle_cancel_subscription,
+    handle_activate_trial,
 )
 
 
@@ -48,6 +49,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/subscription/change-plan", handle_change_plan, methods=["POST"]),
         Route("/api/v1/user/subscription/change-devices", handle_change_devices, methods=["POST"]),
         Route("/api/v1/user/subscription/cancel", handle_cancel_subscription, methods=["POST"]),
+        # Trial
+        Route("/api/v1/user/trial/activate", handle_activate_trial, methods=["POST"]),
         # Payment
         Route("/api/v1/payment/create", handle_create_payment, methods=["POST"]),
         Route("/api/v1/payment/{payment_id}/status", handle_get_payment_status, methods=["GET"]),

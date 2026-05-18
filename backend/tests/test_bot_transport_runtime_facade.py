@@ -70,7 +70,7 @@ def test_facade_raw_private_start_returns_storefront_welcome() -> None:
         raw = _update(message=_base_message(text="/start"))
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert isinstance(pkg, RenderedMessagePackage)
-        assert pkg.message_text == text_welcome()
+        assert pkg.message_text == text_welcome(trial_available=True)
         assert pkg.action_keys == ()
         assert pkg.correlation_id == cid
         assert pkg.uc01_idempotency_key == build_bootstrap_idempotency_key(42, 1)
@@ -210,7 +210,7 @@ def test_slice1_telegram_runtime_facade_delegates() -> None:
         raw = _update(message=_base_message(text="/start"))
         facade = Slice1TelegramRuntimeFacade()
         pkg = await facade.handle_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == text_welcome()
+        assert pkg.message_text == text_welcome(trial_available=True)
         assert pkg.correlation_id == cid
 
     _run(main())

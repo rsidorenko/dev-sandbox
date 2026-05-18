@@ -7,6 +7,7 @@ import logging
 import signal
 
 from app.observability.logging_policy import sanitize_structured_fields
+from app.runtime.notification_scheduler import NotificationScheduler, start_notification_scheduler
 from app.runtime.runner import PollingRunSummary
 from app.runtime.telegram_httpx_live_process import (
     Slice1HttpxLiveProcess,
@@ -118,6 +119,27 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
                     )
                 },
             )
+        # Start notification scheduler if pg_pool and vless_provider are available
+        scheduler: NotificationScheduler | None = None
+        scheduler_task: asyncio.Task | None = None
+        try:
+            pool = process.app.bundle.pg_pool
+            composition = process.app.bundle.bundle.composition
+            if pool is not None and composition.vless_provider is not None:
+                scheduler = start_notification_scheduler(
+                    pool=pool,
+                    bot_token=process.app.bundle.client._bot_token,
+                    vless_provider=composition.vless_provider,
+                )
+                scheduler_task = asyncio.create_task(scheduler.run())
+                _log_lifecycle_event(
+                    intent="startup",
+                    outcome="completed",
+                    operation="notification_scheduler_started",
+                )
+        except Exception:
+            _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
+
         try:
             summary = await process.run_until_stopped()
         except Exception:
@@ -142,6 +164,10 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         )
         return summary
     finally:
+        if scheduler is not None:
+            scheduler.stop()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
         await process.aclose()
 
 

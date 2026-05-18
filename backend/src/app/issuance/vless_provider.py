@@ -54,6 +54,8 @@ class VlessProviderPort(Protocol):
     async def create_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
+    async def activate_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
+    async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
 
 
 def _fake_vless_link(server: dict[str, str], user_uuid: str) -> str:
@@ -95,6 +97,14 @@ class StubVlessProvider:
         return self._build_config(internal_user_id)
 
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
+        self._created_users.discard(internal_user_id)
+        return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
+
+    async def activate_user(self, *, internal_user_id: str) -> VlessProviderResult:
+        self._created_users.add(internal_user_id)
+        return self._build_config(internal_user_id)
+
+    async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:
         self._created_users.discard(internal_user_id)
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
 

@@ -19,7 +19,8 @@ class PostgresSubscriptionSnapshotReader:
             async with self._pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    SELECT internal_user_id, state_label, active_until_utc, plan_id, device_count
+                    SELECT internal_user_id, state_label, active_until_utc, plan_id, device_count,
+                           trial_started_at, trial_expires_at
                     FROM subscription_snapshots
                     WHERE internal_user_id = $1::text
                     """,
@@ -35,6 +36,8 @@ class PostgresSubscriptionSnapshotReader:
             active_until_utc=row["active_until_utc"],
             plan_id=row.get("plan_id"),
             device_count=row.get("device_count"),
+            trial_started_at=row.get("trial_started_at"),
+            trial_expires_at=row.get("trial_expires_at"),
         )
 
     async def put_if_absent(self, snapshot: SubscriptionSnapshot) -> None:
@@ -56,13 +59,15 @@ class PostgresSubscriptionSnapshotReader:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
 
     _UPSERT_STATE = """
-        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count)
-        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5))
+        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count, trial_started_at, trial_expires_at)
+        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5), $6::timestamptz, $7::timestamptz)
         ON CONFLICT (internal_user_id) DO UPDATE
         SET state_label = EXCLUDED.state_label,
             active_until_utc = EXCLUDED.active_until_utc,
             plan_id = EXCLUDED.plan_id,
             device_count = COALESCE(EXCLUDED.device_count, subscription_snapshots.device_count),
+            trial_started_at = COALESCE(EXCLUDED.trial_started_at, subscription_snapshots.trial_started_at),
+            trial_expires_at = COALESCE(EXCLUDED.trial_expires_at, subscription_snapshots.trial_expires_at),
             updated_at = now()
     """
 
@@ -79,6 +84,8 @@ class PostgresSubscriptionSnapshotReader:
                 snapshot.active_until_utc,
                 snapshot.plan_id,
                 snapshot.device_count,
+                snapshot.trial_started_at,
+                snapshot.trial_expires_at,
             )
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
