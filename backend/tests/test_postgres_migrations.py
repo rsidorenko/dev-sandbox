@@ -64,6 +64,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "024_vpn_servers.sql",
         "025_trial_period.sql",
         "026_notification_state.sql",
+        "027_vpn_servers_reality.sql",
     ]
 
 

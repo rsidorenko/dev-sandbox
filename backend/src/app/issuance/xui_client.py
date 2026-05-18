@@ -46,6 +46,9 @@ class XuiServerConfig:
     panel_username: str
     panel_password: str
     inbound_id: int
+    reality_pbk: str = ""
+    reality_sid: str = "37"
+    reality_sni: str = "eh.vk.ru"
 
 
 class XuiApiClient:
