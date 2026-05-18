@@ -102,7 +102,7 @@ class NotificationScheduler:
         existing = await self._pool.fetchval(
             """SELECT 1 FROM notification_log
                WHERE internal_user_id = $1 AND notification_type = $2
-               AND sent_at > NOW() - INTERVAL '1 day' LIMIT 1""",
+               AND sent_date = CURRENT_DATE LIMIT 1""",
             internal_user_id,
             notification_type,
         )

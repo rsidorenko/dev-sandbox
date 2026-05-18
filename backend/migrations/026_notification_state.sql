@@ -6,9 +6,10 @@ CREATE TABLE IF NOT EXISTS notification_log (
     sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Prevent duplicate notifications per user per type per day
+-- Prevent duplicate notifications per user per type per day (use date column for IMMUTABLE index)
+ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS sent_date DATE NOT NULL DEFAULT CURRENT_DATE;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_log_dedup
-    ON notification_log (internal_user_id, notification_type, date_trunc('day', sent_at));
+    ON notification_log (internal_user_id, notification_type, sent_date);
 
 -- Key lifecycle tracking
 ALTER TABLE subscription_snapshots
