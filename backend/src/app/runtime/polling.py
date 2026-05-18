@@ -49,6 +49,7 @@ class TelegramPollingClient(Protocol):
         *,
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         """Send one outbound text message; failures are reported via exceptions.
 
@@ -67,6 +68,7 @@ class TelegramPollingClient(Protocol):
         text: str,
         *,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         """Update an existing message in-place via Telegram ``editMessageText``.
 
@@ -150,15 +152,15 @@ class Slice1PollingRuntime:
                 noop += 1
                 continue
             idem_key = action.uc01_idempotency_key
-            sends: list[tuple[str, Mapping[str, Any] | None]] = [
-                (action.message_text or "", action.reply_markup),
+            sends: list[tuple[str, Mapping[str, Any] | None, str | None]] = [
+                (action.message_text or "", action.reply_markup, action.parse_mode),
             ]
-            sends.extend((fu.message_text, fu.reply_markup) for fu in action.follow_ups)
+            sends.extend((fu.message_text, fu.reply_markup, fu.parse_mode) for fu in action.follow_ups)
             try:
                 if idem_key is not None:
                     await self._composition.outbound_delivery.ensure_pending(idem_key)
                 first = True
-                for text, markup in sends:
+                for text, markup, pmode in sends:
                     if not text.strip():
                         continue
                     if first and cb_origin is not None:
@@ -169,6 +171,7 @@ class Slice1PollingRuntime:
                                 origin_msg_id,
                                 text,
                                 reply_markup=markup,
+                                parse_mode=pmode,
                             )
                             _LOGGER.info(
                                 "polling.edit_message_ok chat_id=%s msg_id=%s",
@@ -187,6 +190,7 @@ class Slice1PollingRuntime:
                                 text,
                                 correlation_id=action.correlation_id,
                                 reply_markup=markup,
+                                parse_mode=pmode,
                             )
                     else:
                         if first and cb_origin is None and cb_qid is not None:
@@ -199,6 +203,7 @@ class Slice1PollingRuntime:
                             text,
                             correlation_id=action.correlation_id,
                             reply_markup=markup,
+                            parse_mode=pmode,
                         )
                     if first and idem_key is not None:
                         await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)

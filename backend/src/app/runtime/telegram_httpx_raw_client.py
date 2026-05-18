@@ -136,11 +136,14 @@ class HttpxTelegramRawPollingClient:
         *,
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
         post_kw = _httpx_post_timeout_kwargs(td)
         _ = correlation_id
         body: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode is not None:
+            body["parse_mode"] = parse_mode
         if reply_markup is not None:
             body["reply_markup"] = dict(reply_markup)
         response = await self._client.post(f"{self._base}sendMessage", json=body, **post_kw)
@@ -172,11 +175,14 @@ class HttpxTelegramRawPollingClient:
         text: str,
         *,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         """Call Telegram ``editMessageText`` to update an existing message in-place."""
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
         post_kw = _httpx_post_timeout_kwargs(td)
         body: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if parse_mode is not None:
+            body["parse_mode"] = parse_mode
         if reply_markup is not None:
             body["reply_markup"] = dict(reply_markup)
         response = await self._client.post(f"{self._base}editMessageText", json=body, **post_kw)

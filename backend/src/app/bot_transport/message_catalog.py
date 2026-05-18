@@ -30,6 +30,7 @@ class RenderedMessagePackage:
     replay_suppresses_outbound: bool = False
     uc01_idempotency_key: str | None = None
     follow_up_messages: tuple[RenderedMessagePackage, ...] = ()
+    parse_mode: str | None = None
 
 
 def _text_service_unavailable() -> str:

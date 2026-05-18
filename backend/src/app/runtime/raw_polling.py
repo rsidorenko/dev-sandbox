@@ -49,6 +49,7 @@ class TelegramRawPollingClient(Protocol):
         *,
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int: ...
 
     async def answer_callback_query(self, callback_query_id: str) -> None: ...
@@ -60,6 +61,7 @@ class TelegramRawPollingClient(Protocol):
         text: str,
         *,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int: ...
 
 
@@ -91,12 +93,14 @@ class _PollingClientFromRaw:
         *,
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         return await self._raw.send_text_message(
             chat_id,
             text,
             correlation_id=correlation_id,
             reply_markup=reply_markup,
+            parse_mode=parse_mode,
         )
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
@@ -109,12 +113,14 @@ class _PollingClientFromRaw:
         text: str,
         *,
         reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int:
         return await self._raw.edit_message_text(
             chat_id,
             message_id,
             text,
             reply_markup=reply_markup,
+            parse_mode=parse_mode,
         )
 
 

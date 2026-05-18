@@ -159,6 +159,11 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 
+_MARKDOWN_CODES = frozenset({
+    CB_TRIAL, CB_MY_KEYS, CB_REISSUE_CONFIRM,
+    CB_REFERRAL, CB_CONNECT_NEXT,
+})
+
 _CALLBACK_ONLY_STOREFRONT = frozenset(
     {
         CB_MAIN_MENU,
@@ -1314,6 +1319,8 @@ async def _render_storefront_response(
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)
 
+    parse_mode = "Markdown" if code in _MARKDOWN_CODES else None
+
     return RenderedMessagePackage(
         message_text=text,
         action_keys=(),
@@ -1321,6 +1328,7 @@ async def _render_storefront_response(
         reply_markup=keyboard,
         replay_suppresses_outbound=transport.replay_suppresses_outbound,
         uc01_idempotency_key=transport.uc01_idempotency_key,
+        parse_mode=parse_mode,
     )
 
 
