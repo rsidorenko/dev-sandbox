@@ -164,7 +164,7 @@ def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
     if trial_available:
         return _inline_kb([
             [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
-            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ])
     return main_menu_keyboard()
 
