@@ -35,6 +35,8 @@ class SubscriptionSnapshot:
     active_until_utc: datetime | None = None
     plan_id: str | None = None
     device_count: int | None = None
+    trial_started_at: datetime | None = None
+    trial_expires_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

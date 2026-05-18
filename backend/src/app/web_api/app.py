@@ -18,6 +18,7 @@ from app.web_api.payment import handle_create_payment, handle_get_payment_status
 from app.web_api.profile import (
     handle_get_profile, handle_get_keys, handle_reissue_keys,
     handle_renew_subscription, handle_change_plan, handle_change_devices, handle_cancel_subscription,
+    handle_activate_trial,
 )
 
 
@@ -48,6 +49,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/subscription/change-plan", handle_change_plan, methods=["POST"]),
         Route("/api/v1/user/subscription/change-devices", handle_change_devices, methods=["POST"]),
         Route("/api/v1/user/subscription/cancel", handle_cancel_subscription, methods=["POST"]),
+        # Trial
+        Route("/api/v1/user/trial/activate", handle_activate_trial, methods=["POST"]),
         # Payment
         Route("/api/v1/payment/create", handle_create_payment, methods=["POST"]),
         Route("/api/v1/payment/{payment_id}/status", handle_get_payment_status, methods=["GET"]),
@@ -60,7 +63,17 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     app.state.pool = pool
 
     from app.issuance.vless_provider import StubVlessProvider
-    app.state.vless_provider = StubVlessProvider()
+    from app.issuance.xui_vless_provider import XuiVlessProvider
+
+    # Use real provider if VPN servers exist in DB, otherwise fall back to stub
+    try:
+        servers = await pool.fetch("SELECT id FROM vpn_servers WHERE is_active = TRUE LIMIT 1")
+        if servers:
+            app.state.vless_provider = XuiVlessProvider(pool)
+        else:
+            app.state.vless_provider = StubVlessProvider()
+    except Exception:
+        app.state.vless_provider = StubVlessProvider()
 
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]

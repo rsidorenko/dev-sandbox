@@ -48,6 +48,7 @@ CB_CONNECT_IOS = "connect_ios"
 CB_CONNECT_MAC = "connect_mac"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
+CB_TRIAL = "start_trial"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -152,8 +153,20 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
 # ─── Message texts ──────────────────────────────────────────────────────
 
 
-def text_welcome() -> str:
-    return "👋 Добро пожаловать в VPN-сервис!\n\nВыберите действие в меню ниже."
+def text_welcome(*, trial_available: bool = False) -> str:
+    base = "👋 Добро пожаловать в VPN-сервис!\n\nВыберите действие в меню ниже."
+    if trial_available:
+        base = "👋 Добро пожаловать в VPN-сервис!\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
+    return base
+
+
+def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
+    if trial_available:
+        return _inline_kb([
+            [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+        ])
+    return main_menu_keyboard()
 
 
 def text_main_menu() -> str:
@@ -652,3 +665,49 @@ def text_link_email_error(error: str) -> str:
         "smtp_not_configured": "⚠️ Отправка писем временно недоступна. Попробуйте позже.",
     }
     return messages.get(error, "⚠️ Что-то пошло не так. Попробуйте позже.")
+
+
+# ─── Trial period ──────────────────────────────────────────────────
+
+
+def text_trial_offer() -> str:
+    return (
+        "🎁 Попробуйте VPN бесплатно!\n\n"
+        "3 дня полного доступа ко всем серверам.\n"
+        "Ключи для всех стран, ссылка для автонастройки в Karing, Happ, v2rayTune.\n\n"
+        "Без обязательств — просто попробуйте."
+    )
+
+
+def trial_offer_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
+        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+    ])
+
+
+def text_trial_activated(config: VlessUserConfig) -> str:
+    lines = [
+        "🎉 Пробный период активирован!\n",
+        f"⏳ Действует 3 дня.\n",
+        "📎 Ссылка для подписки (скопируйте и вставьте в приложение):",
+        f"`{config.subscription_url}`\n",
+        "🔑 Ключи:",
+    ]
+    lines.append(format_key_list(config.servers))
+    lines.extend([
+        "",
+        "💡 Как подключиться:",
+        "1. Скачайте Karing / Happ / v2rayTune",
+        "2. Скопируйте ссылку выше",
+        "3. В приложении: Подписка → Вставить ссылку → Импорт",
+        "4. Выберите сервер и подключитесь!",
+    ])
+    return "\n".join(lines)
+
+
+def trial_activated_keyboard() -> dict[str, Any]:
+    return _inline_kb([
+        [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
+        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+    ])

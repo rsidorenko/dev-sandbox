@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -58,10 +59,17 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
     internal_user_id = identity["internal_user_id"]
 
     snapshot = await pool.fetchrow(
-        """SELECT state_label, active_until_utc, plan_id, device_count
+        """SELECT state_label, active_until_utc, plan_id, device_count,
+                  trial_started_at, trial_expires_at
            FROM subscription_snapshots WHERE internal_user_id = $1""",
         internal_user_id,
     )
+
+    trial_used_row = await pool.fetchrow(
+        "SELECT trial_used FROM user_identities WHERE internal_user_id = $1",
+        internal_user_id,
+    )
+    trial_used = trial_used_row["trial_used"] if trial_used_row else False
 
     subscription = None
     if snapshot:
@@ -75,6 +83,19 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
             "active_until": snapshot["active_until_utc"].isoformat() if snapshot["active_until_utc"] else None,
             "plan_id": snapshot["plan_id"],
             "device_count": snapshot["device_count"],
+            "trial_started_at": snapshot["trial_started_at"].isoformat() if snapshot["trial_started_at"] else None,
+            "trial_expires_at": snapshot["trial_expires_at"].isoformat() if snapshot["trial_expires_at"] else None,
+            "trial_available": not trial_used and not is_active,
+        }
+    elif not trial_used:
+        subscription = {
+            "state": "inactive",
+            "active_until": None,
+            "plan_id": None,
+            "device_count": None,
+            "trial_started_at": None,
+            "trial_expires_at": None,
+            "trial_available": True,
         }
 
     # Get keys info (only if subscription is active)
@@ -254,7 +275,8 @@ async def handle_renew_subscription(request: Request) -> JSONResponse:
         pool, internal_user_id = result
 
         snapshot = await pool.fetchrow(
-            "SELECT plan_id, active_until_utc, device_count FROM subscription_snapshots WHERE internal_user_id = $1",
+            """SELECT plan_id, active_until_utc, device_count, keys_deactivated_at, keys_deleted_at
+               FROM subscription_snapshots WHERE internal_user_id = $1""",
             internal_user_id,
         )
         if snapshot is None:
@@ -264,9 +286,20 @@ async def handle_renew_subscription(request: Request) -> JSONResponse:
         months = _plan_months(plan_id)
         new_until = _next_expiry(snapshot["active_until_utc"], months)
 
+        # Handle key lifecycle on renewal
+        provider = request.app.state.vless_provider
+        if provider is not None:
+            if snapshot["keys_deleted_at"] is not None:
+                with contextlib.suppress(Exception):
+                    await provider.create_user(internal_user_id=internal_user_id)
+            elif snapshot["keys_deactivated_at"] is not None:
+                with contextlib.suppress(Exception):
+                    await provider.activate_user(internal_user_id=internal_user_id)
+
         await pool.execute(
             """UPDATE subscription_snapshots
-               SET state_label = 'active', active_until_utc = $1, updated_at = NOW()
+               SET state_label = 'active', active_until_utc = $1,
+                   keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
                WHERE internal_user_id = $2""",
             new_until,
             internal_user_id,
@@ -366,4 +399,94 @@ async def handle_cancel_subscription(request: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "state": "cancelled"})
     except Exception:
         _LOGGER.exception("cancel_error")
+        return _safe_json_error(500, "internal_error")
+
+
+async def handle_activate_trial(request: Request) -> JSONResponse:
+    """Activate 3-day free trial: create VLESS keys, set trial period."""
+    try:
+        auth_result = require_auth(request)
+        if isinstance(auth_result, JSONResponse):
+            return auth_result
+
+        telegram_user_id = auth_result.get("telegram_user_id")
+        if telegram_user_id is None:
+            return _safe_json_error(403, "no_telegram_identity")
+
+        pool: asyncpg.Pool = request.app.state.pool
+        identity = await pool.fetchrow(
+            "SELECT internal_user_id, trial_used FROM user_identities WHERE telegram_user_id = $1",
+            telegram_user_id,
+        )
+        if identity is None:
+            return _safe_json_error(404, "identity_not_found")
+
+        if identity["trial_used"]:
+            return _safe_json_error(409, "trial_already_used")
+
+        internal_user_id = identity["internal_user_id"]
+
+        # Check no active subscription
+        snap = await pool.fetchrow(
+            "SELECT state_label, trial_started_at FROM subscription_snapshots WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        if snap is not None and snap["state_label"] == "active":
+            return _safe_json_error(409, "already_subscribed")
+        if snap is not None and snap["trial_started_at"] is not None:
+            return _safe_json_error(409, "trial_already_used")
+
+        # Create VLESS user
+        provider = request.app.state.vless_provider
+        from app.issuance.vless_provider import VlessProviderOutcome
+
+        vless_result = await provider.create_user(internal_user_id=internal_user_id)
+        if vless_result.outcome != VlessProviderOutcome.SUCCESS or vless_result.config is None:
+            return _safe_json_error(503, "vless_unavailable")
+
+        # Set trial period
+        from app.domain.trial import trial_expires_at
+
+        now = datetime.now(UTC)
+        expires = trial_expires_at(now)
+
+        await pool.execute(
+            """INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, trial_started_at, trial_expires_at)
+               VALUES ($1, 'active', $2, $3, $4)
+               ON CONFLICT (internal_user_id) DO UPDATE
+               SET state_label = 'active', active_until_utc = $2, trial_started_at = $3, trial_expires_at = $4, updated_at = now()""",
+            internal_user_id,
+            expires,
+            now,
+            expires,
+        )
+
+        # Mark trial used
+        await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+
+        config = vless_result.config
+        return JSONResponse({
+            "ok": True,
+            "trial": {
+                "started_at": now.isoformat(),
+                "expires_at": expires.isoformat(),
+            },
+            "keys": {
+                "subscription_url": config.subscription_url,
+                "servers": [
+                    {
+                        "label": s.server_label,
+                        "country_code": s.country_code,
+                        "country_flag": s.country_flag,
+                        "vless_link": s.vless_link,
+                    }
+                    for s in config.servers
+                ],
+            },
+        })
+    except Exception:
+        _LOGGER.exception("trial_activate_error")
         return _safe_json_error(500, "internal_error")

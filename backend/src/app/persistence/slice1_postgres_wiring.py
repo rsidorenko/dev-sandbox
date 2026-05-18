@@ -12,6 +12,7 @@ from app.application.telegram_access_resend import IssuanceCurrentStateRef
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
 from app.issuance.vless_provider import StubVlessProvider
+from app.issuance.xui_vless_provider import XuiVlessProvider
 from app.persistence.issuance_state_record import IssuanceStatePersistence
 from app.persistence.postgres_audit import PostgresAuditAppender
 from app.persistence.postgres_idempotency import PostgresIdempotencyRepository
@@ -78,6 +79,13 @@ async def resolve_slice1_composition_for_runtime(
     opener = open_pool or _default_open_pool
     pool = await opener(dsn)
 
+    # Use real VLESS provider if VPN servers exist in DB, otherwise stub
+    try:
+        servers = await pool.fetch("SELECT id FROM vpn_servers WHERE is_active = TRUE LIMIT 1")
+        vless_provider = XuiVlessProvider(pool) if servers else StubVlessProvider()
+    except Exception:
+        vless_provider = StubVlessProvider()
+
     issuance_state_repo = PostgresIssuanceStateRepository(pool)
     composition = build_slice1_composition(
         issuance_service=IssuanceService(
@@ -97,6 +105,6 @@ async def resolve_slice1_composition_for_runtime(
         referral_balance_repo=PostgresReferralBalanceRepository(pool),
         referral_transaction_repo=PostgresReferralTransactionRepository(pool),
         bot_username=os.environ.get("BOT_USERNAME", ""),
-        vless_provider=StubVlessProvider(),
+        vless_provider=vless_provider,
     )
     return composition, pool
