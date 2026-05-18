@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { TelegramButton } from "@/shared/ui/TelegramButton";
 
 function SunIcon({ className }: { className?: string }) {
   return (
@@ -70,9 +71,10 @@ export function Header() {
           >
             {themeIcon}
           </button>
+          <TelegramButton />
           <Link
             href="/dashboard"
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             Личный кабинет
           </Link>
@@ -112,10 +114,14 @@ export function Header() {
               {l.label}
             </Link>
           ))}
+          <TelegramButton
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+            onClick={() => setOpen(false)}
+          />
           <Link
             href="/dashboard"
             onClick={() => setOpen(false)}
-            className="mt-2 block rounded-lg bg-brand-600 px-4 py-2 text-center text-sm font-semibold text-white transition hover:bg-brand-700"
+            className="mt-1 block rounded-lg border border-gray-200 px-4 py-2 text-center text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             Личный кабинет
           </Link>

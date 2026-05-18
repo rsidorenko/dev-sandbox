@@ -21,19 +21,17 @@ export function KeysModal({ open, onClose }: Props) {
   const { copy, isCopied } = useCopyToClipboard();
 
   useEffect(() => {
-    if (open && !loaded) loadKeys();
-  }, [open]);
-
-  const loadKeys = async () => {
+    if (!open || loaded) return;
     setLoading(true);
-    const result = await userApi.keys();
-    if (result.ok) {
-      setKeys(result.data.keys);
-      setSubUrl(result.data.subscription_url);
-    }
-    setLoading(false);
-    setLoaded(true);
-  };
+    userApi.keys().then((result) => {
+      if (result.ok) {
+        setKeys(result.data.keys);
+        setSubUrl(result.data.subscription_url);
+      }
+      setLoading(false);
+      setLoaded(true);
+    });
+  }, [open, loaded]);
 
   const handleReissue = async () => {
     setReissuing(true);
