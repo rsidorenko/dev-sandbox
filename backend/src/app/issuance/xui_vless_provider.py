@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -21,11 +23,38 @@ from app.issuance.vless_provider import (
     VlessUserConfig,
     build_subscription_url,
 )
+
+_SUBSCRIPTION_BASE_URL = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").rstrip("/")
 from app.issuance.xui_client import XuiApiClient, XuiOutcome, XuiServerConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_EXPIRY_DAYS = 365
+_TRIAL_DEVICE_LIMIT = 5
+
+
+def _generate_subscription_token() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def _web_sub_url(token: str) -> str:
+    return f"{_SUBSCRIPTION_BASE_URL}/sub/{token}"
+
+
+async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
+    row = await pool.fetchrow(
+        "SELECT subscription_token FROM user_identities WHERE internal_user_id = $1",
+        internal_user_id,
+    )
+    if row and row["subscription_token"]:
+        return row["subscription_token"]
+    token = _generate_subscription_token()
+    await pool.execute(
+        "UPDATE user_identities SET subscription_token = $1 WHERE internal_user_id = $2",
+        token,
+        internal_user_id,
+    )
+    return token
 
 
 def _user_uuid_from_internal(internal_user_id: str) -> str:
@@ -102,10 +131,11 @@ class XuiVlessProvider(VlessProviderPort):
         configs = await _load_server_configs(self._pool)
         return [XuiApiClient(c) for c in configs]
 
-    async def create_user(self, *, internal_user_id: str) -> VlessProviderResult:
+    async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         user_uuid = _user_uuid_from_internal(internal_user_id)
         email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
+        limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
         if not clients:
@@ -119,6 +149,7 @@ class XuiVlessProvider(VlessProviderPort):
                 email=email,
                 expiry_ts=expiry,
                 enable=True,
+                limit_ip=limit_ip,
             )
             if result.outcome == XuiOutcome.SUCCESS:
                 successes.append((client, client.server_config))
@@ -141,9 +172,10 @@ class XuiVlessProvider(VlessProviderPort):
             )
             for _, sc in successes
         )
+        token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
             user_uuid=user_uuid,
-            subscription_url=build_subscription_url(servers),
+            subscription_url=_web_sub_url(token),
             servers=servers,
         )
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
@@ -171,9 +203,10 @@ class XuiVlessProvider(VlessProviderPort):
         if not servers:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
+        token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
             user_uuid=user_uuid,
-            subscription_url=build_subscription_url(tuple(servers)),
+            subscription_url=_web_sub_url(token),
             servers=tuple(servers),
         )
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
@@ -197,17 +230,18 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-    async def activate_user(self, *, internal_user_id: str) -> VlessProviderResult:
+    async def activate_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
         user_uuid = _user_uuid_from_internal(internal_user_id)
         email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
+        limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
         any_enabled = False
         for client in clients:
             result = await client.enable_client(
-                user_uuid=user_uuid, email=email, expiry_ts=expiry
+                user_uuid=user_uuid, email=email, expiry_ts=expiry, limit_ip=limit_ip
             )
             if result.outcome == XuiOutcome.SUCCESS:
                 any_enabled = True
