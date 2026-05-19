@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import logging
-import os
-import secrets
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
@@ -14,35 +11,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.email.sender import send_verification_code
+from app.web_api.helpers import generate_code, hash_code, validate_email
 
 _LOGGER = logging.getLogger(__name__)
 
-ENV_JWT_SECRET = "JWT_SECRET"
 _CODE_TTL_MINUTES = 10
 _MAX_SEND_PER_EMAIL_PER_HOUR = 5
-
-
-def _get_jwt_secret() -> str:
-    return os.environ.get(ENV_JWT_SECRET, "").strip()
-
-
-def _hash_code(code: str) -> str:
-    secret = _get_jwt_secret()
-    return hmac.new(secret.encode(), code.encode(), hashlib.sha256).hexdigest()
-
-
-def _generate_code() -> str:
-    return "".join(secrets.choice("0123456789") for _ in range(6))
-
-
-def _validate_email(email: str) -> bool:
-    if not email or len(email) > 254:
-        return False
-    parts = email.split("@")
-    if len(parts) != 2:
-        return False
-    local, domain = parts
-    return bool(local) and bool(domain) and "." in domain
 
 
 async def handle_bot_send_code(request: Request) -> JSONResponse:
@@ -55,7 +29,7 @@ async def handle_bot_send_code(request: Request) -> JSONResponse:
     email = data.get("email", "").strip().lower()
     telegram_user_id = data.get("telegram_user_id")
 
-    if not _validate_email(email):
+    if not validate_email(email):
         return JSONResponse({"ok": False, "error": "invalid_email"}, status_code=400)
     if telegram_user_id is None:
         return JSONResponse({"ok": False, "error": "invalid_telegram_user_id"}, status_code=400)
@@ -81,8 +55,8 @@ async def handle_bot_send_code(request: Request) -> JSONResponse:
     if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
         return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
 
-    code = _generate_code()
-    code_hash = _hash_code(code)
+    code = generate_code()
+    code_hash = hash_code(code)
     expires_at = datetime.now(UTC) + timedelta(minutes=_CODE_TTL_MINUTES)
 
     await pool.execute(
@@ -109,7 +83,7 @@ async def handle_bot_verify_code(request: Request) -> JSONResponse:
     code = data.get("code", "").strip()
     telegram_user_id = data.get("telegram_user_id")
 
-    if not _validate_email(email) or not code or telegram_user_id is None:
+    if not validate_email(email) or not code or telegram_user_id is None:
         return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
 
     pool: asyncpg.Pool = request.app.state.pool
@@ -137,7 +111,7 @@ async def handle_bot_verify_code(request: Request) -> JSONResponse:
         row["id"],
     )
 
-    expected_hash = _hash_code(code)
+    expected_hash = hash_code(code)
     if not hmac.compare_digest(row["code_hash"], expected_hash):
         return JSONResponse({"ok": False, "error": "invalid_code"}, status_code=400)
 

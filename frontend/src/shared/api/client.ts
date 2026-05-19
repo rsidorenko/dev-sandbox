@@ -1,10 +1,19 @@
-/** Shared API client — httponly cookie auth, JSON transport. */
+/** Shared API client — httponly cookie auth, JSON transport, CSRF protection. */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; detail?: string };
+
+/** Read a cookie value by name. */
+function getCookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${name}=`));
+  return match?.split("=")[1];
+}
 
 export async function apiFetch<T>(
   path: string,
@@ -16,6 +25,13 @@ export async function apiFetch<T>(
     };
     if (options?.body) {
       headers["Content-Type"] = "application/json";
+    }
+    // Attach CSRF token for non-GET requests
+    if (options?.method && options.method !== "GET") {
+      const csrf = getCookie("csrf_token");
+      if (csrf) {
+        headers["X-CSRF-Token"] = csrf;
+      }
     }
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,

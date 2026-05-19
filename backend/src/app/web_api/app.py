@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
 import os
-from typing import Any
 
 import asyncpg
 from starlette.applications import Starlette
@@ -12,15 +12,33 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.web_api.auth import handle_send_code, handle_verify_code, handle_logout
+from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.payment import handle_create_payment, handle_get_payment_status
 from app.web_api.profile import (
-    handle_get_profile, handle_get_keys, handle_reissue_keys,
-    handle_renew_subscription, handle_change_plan, handle_change_devices, handle_cancel_subscription,
     handle_activate_trial,
+    handle_cancel_subscription,
+    handle_change_devices,
+    handle_change_plan,
+    handle_get_keys,
+    handle_get_profile,
+    handle_reissue_keys,
+    handle_renew_subscription,
 )
 from app.web_api.subscription import handle_subscription
+
+ENV_INTERNAL_API_SECRET = "INTERNAL_API_SECRET"
+
+
+def _require_internal_auth(request: Request) -> JSONResponse | None:
+    """Validate internal API secret from header. Returns error response or None if OK."""
+    secret = os.environ.get(ENV_INTERNAL_API_SECRET, "").strip()
+    if not secret:
+        return None  # No secret configured = skip auth (backward compat)
+    header_val = request.headers.get("X-Internal-Secret", "").strip()
+    if not header_val or not hmac.compare_digest(header_val, secret):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return None
 
 
 async def _healthz(_: Request) -> JSONResponse:
@@ -29,6 +47,16 @@ async def _healthz(_: Request) -> JSONResponse:
 
 def _truthy(raw: str | None) -> bool:
     return raw is not None and raw.strip().lower() in ("1", "true", "yes")
+
+
+def _wrap_internal(handler):
+    """Wrap an internal endpoint handler with optional secret-based auth."""
+    async def _wrapped(request: Request) -> JSONResponse:
+        auth_err = _require_internal_auth(request)
+        if auth_err is not None:
+            return auth_err
+        return await handler(request)
+    return _wrapped
 
 
 def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
@@ -55,9 +83,9 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Payment
         Route("/api/v1/payment/create", handle_create_payment, methods=["POST"]),
         Route("/api/v1/payment/{payment_id}/status", handle_get_payment_status, methods=["GET"]),
-        # Email linking (called by bot internally)
-        Route("/api/v1/internal/email/send-code", handle_bot_send_code, methods=["POST"]),
-        Route("/api/v1/internal/email/verify-code", handle_bot_verify_code, methods=["POST"]),
+        # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
+        Route("/api/v1/internal/email/send-code", _wrap_internal(handle_bot_send_code), methods=["POST"]),
+        Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),
         # Public subscription endpoint (no auth)
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
     ]
@@ -66,7 +94,12 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     app.state.pool = pool
 
     from app.issuance.vless_provider import StubVlessProvider
-    app.state.vless_provider = StubVlessProvider()
+    from app.issuance.xui_vless_provider import XuiVlessProvider
+
+    if _truthy(os.environ.get("XUI_ENABLED")):
+        app.state.vless_provider = XuiVlessProvider(pool)
+    else:
+        app.state.vless_provider = StubVlessProvider()
 
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]

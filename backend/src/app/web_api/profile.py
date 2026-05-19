@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 import contextlib
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import asyncpg
 from starlette.requests import Request
@@ -26,7 +26,7 @@ def _safe_json_error(status_code: int, error: str) -> JSONResponse:
 async def handle_get_profile(request: Request) -> JSONResponse:
     try:
         return await _handle_get_profile_inner(request)
-    except Exception as exc:
+    except Exception:
         _LOGGER.exception("profile_error")
         return _safe_json_error(500, "internal_error")
 
@@ -138,7 +138,6 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         "user": {
             "telegram_user_id": telegram_user_id,
             "email": email,
-            "internal_user_id": internal_user_id,
         },
         "subscription": subscription,
         "keys": keys_info,
@@ -403,7 +402,11 @@ async def handle_cancel_subscription(request: Request) -> JSONResponse:
 
 
 async def handle_activate_trial(request: Request) -> JSONResponse:
-    """Activate 3-day free trial: create VLESS keys, set trial period."""
+    """Activate 3-day free trial: create VLESS keys, set trial period.
+
+    Uses atomic ``UPDATE ... WHERE trial_used = FALSE`` to prevent
+    double-trial under concurrent requests.
+    """
     try:
         auth_result = require_auth(request)
         if isinstance(auth_result, JSONResponse):
@@ -421,9 +424,6 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
         if identity is None:
             return _safe_json_error(404, "identity_not_found")
 
-        if identity["trial_used"]:
-            return _safe_json_error(409, "trial_already_used")
-
         internal_user_id = identity["internal_user_id"]
 
         # Check no active subscription
@@ -436,12 +436,26 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
         if snap is not None and snap["trial_started_at"] is not None:
             return _safe_json_error(409, "trial_already_used")
 
+        # Atomic claim: mark trial_used only if it was FALSE/NULL.
+        # Prevents double-trial under concurrent requests.
+        claim_result = await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1 AND (trial_used = FALSE OR trial_used IS NULL)",
+            internal_user_id,
+        )
+        if claim_result == "UPDATE 0":
+            return _safe_json_error(409, "trial_already_used")
+
         # Create VLESS user
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
         vless_result = await provider.create_user(internal_user_id=internal_user_id)
         if vless_result.outcome != VlessProviderOutcome.SUCCESS or vless_result.config is None:
+            # Roll back trial claim
+            await pool.execute(
+                "UPDATE user_identities SET trial_used = FALSE WHERE internal_user_id = $1",
+                internal_user_id,
+            )
             return _safe_json_error(503, "vless_unavailable")
 
         # Set trial period
@@ -459,12 +473,6 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
             expires,
             now,
             expires,
-        )
-
-        # Mark trial used
-        await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
-            internal_user_id,
         )
 
         config = vless_result.config
