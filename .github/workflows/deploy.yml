@@ -152,6 +152,83 @@ jobs:
                   user_identities
                 CASCADE;" 2>&1
 
-              echo "--- Cleanup complete ---"
-              echo "=== DATABASE CLEANUP COMPLETE ==="
+              echo "--- Deleting all VLESS users from 3x-ui panels ---"
+              cd /opt/bravada
+              cat > /tmp/clean_vless_users.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, json
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                conn = await asyncpg.connect(dsn)
+                try:
+                    rows = await conn.fetch(
+                        "SELECT id, panel_url, panel_username, panel_password, "
+                        "COALESCE(encrypted_password, '') AS encrypted_password, inbound_id "
+                        "FROM vpn_servers WHERE is_active = TRUE"
+                    )
+                    if not rows:
+                        print('No active VPN servers found.')
+                        return
+                    import httpx
+                    for row in rows:
+                        panel_url = row['panel_url'].rstrip('/')
+                        password = row['encrypted_password'] if row['encrypted_password'] else row['panel_password']
+                        if row['encrypted_password']:
+                            password = decrypt_field(row['encrypted_password'])
+                        inbound_id = row['inbound_id']
+                        print(f'  Server {row["id"]}: {panel_url} (inbound {inbound_id})')
+
+                        async with httpx.AsyncClient(verify=False) as client:
+                            login = await client.post(f'{panel_url}/login',
+                                data={'username': row['panel_username'], 'password': password})
+                            if login.status_code != 200 or not login.json().get('success'):
+                                print(f'    Login FAILED')
+                                continue
+                            resp = await client.get(f'{panel_url}/panel/api/inbounds/list')
+                            if resp.status_code != 200:
+                                print(f'    List inbounds FAILED: {resp.status_code}')
+                                continue
+                            inbounds = resp.json().get('obj', [])
+                            target = None
+                            for ib in inbounds:
+                                if ib.get('id') == inbound_id:
+                                    target = ib
+                                    break
+                            if not target:
+                                print(f'    Inbound {inbound_id} not found')
+                                continue
+                            settings_str = target.get('settings', '{}')
+                            try:
+                                settings = json.loads(settings_str)
+                            except json.JSONDecodeError:
+                                print(f'    Could not parse settings')
+                                continue
+                            clients = settings.get('clients', [])
+                            if not clients:
+                                print(f'    No VLESS users on this server.')
+                                continue
+                            print(f'    Found {len(clients)} VLESS users, deleting...')
+                            for c in clients:
+                                uuid = c.get('id', '')
+                                email = c.get('email', '')
+                                del_resp = await client.post(
+                                    f'{panel_url}/panel/api/inbounds/{inbound_id}/delClient/{uuid}')
+                                status = 'OK' if del_resp.status_code == 200 else f'FAIL({del_resp.status_code})'
+                                print(f'      Deleted {email} ({uuid[:8]}...): {status}')
+                    print('VLESS cleanup done.')
+                finally:
+                    await conn.close()
+
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/clean_vless_users.py backend:/tmp/clean_vless_users.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python /tmp/clean_vless_users.py 2>&1 || echo "  VLESS cleanup completed or skipped"
+              rm -f /tmp/clean_vless_users.py
+
+              echo "=== DATABASE + VLESS CLEANUP COMPLETE ==="
             fi
