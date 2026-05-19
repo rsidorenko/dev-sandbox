@@ -228,7 +228,7 @@ jobs:
                                 print(f'      Deleted {email} ({uuid[:8]}...): {status}')
                             # Restart Xray via panel API (session cookie is already set)
                             try:
-                                rr = await client.post(f'{panel_url}/panel/setting/restartXrayService')
+                                rr = await client.post(f'{panel_url}/restartXrayService')
                                 body = rr.json() if rr.status_code == 200 else {}
                                 if rr.status_code == 200 and body.get('success'):
                                     print(f'    Xray restarted OK')
@@ -269,7 +269,7 @@ jobs:
                     async with httpx.AsyncClient(verify=False) as c:
                         lr = await c.post(f'{url}/login', data={'username': r['panel_username'], 'password': pwd})
                         print(f'  Login: {lr.status_code} cookies={dict(c.cookies)}')
-                        rr = await c.post(f'{url}/panel/setting/restartXrayService')
+                        rr = await c.post(f'{url}/restartXrayService')
                         print(f'  Restart Xray: {rr.status_code} {rr.text[:200]}')
             asyncio.run(main())
             PYEOF
