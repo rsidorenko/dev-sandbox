@@ -9,6 +9,10 @@ on:
         description: "Run post-deploy security hardening (migration, encrypt passwords, update .env)"
         required: false
         default: "false"
+      run_cleanup:
+        description: "Clean all user data and VLESS keys from database (destructive!)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -24,13 +28,14 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
+          RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
           FIELD_ENCRYPTION_KEY: "aXXXj3z+PJk93aBlp5PmYbyvPNuFpJGlvc4DfMslg9A="
           INTERNAL_API_SECRET: "Mbht2HC-AXBAbX5DQkjWwQinb0GY7JZfxby37o5JPaSjA5iQSj7le2Mu_2WvZiFP"
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: RUN_HARDENING,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
             cd /opt/bravada
@@ -116,4 +121,37 @@ jobs:
               curl -sf http://127.0.0.1:8000/readyz && echo " - backend readyz OK" || echo " - backend readyz FAILED (may need a moment)"
               echo ""
               echo "=== HARDENING COMPLETE ==="
+            fi
+
+            if [ "$RUN_CLEANUP" = "true" ]; then
+              echo "=== DATABASE CLEANUP ==="
+              cd /opt/bravada
+
+              echo "--- Truncating all user data tables ---"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
+                "TRUNCATE TABLE
+                  email_verification_codes,
+                  user_emails,
+                  referral_transactions,
+                  referral_balances,
+                  referral_relationships,
+                  referral_codes,
+                  notification_log,
+                  access_reconcile_runs,
+                  telegram_update_dedup,
+                  adm02_ensure_access_audit_events,
+                  issuance_state,
+                  billing_subscription_apply_audit_events,
+                  billing_subscription_apply_records,
+                  billing_ingestion_audit_events,
+                  billing_events_ledger,
+                  slice1_uc01_outbound_deliveries,
+                  idempotency_records,
+                  slice1_audit_events,
+                  subscription_snapshots,
+                  user_identities
+                CASCADE;" 2>&1
+
+              echo "--- Cleanup complete ---"
+              echo "=== DATABASE CLEANUP COMPLETE ==="
             fi
