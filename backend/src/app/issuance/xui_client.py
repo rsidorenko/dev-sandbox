@@ -95,6 +95,7 @@ class XuiApiClient:
         email: str,
         expiry_ts: int,
         enable: bool = True,
+        limit_ip: int = 0,
     ) -> XuiClientResult:
         settings = {
             "id": user_uuid,
@@ -102,7 +103,7 @@ class XuiApiClient:
             "enable": enable,
             "expiryTime": expiry_ts,
             "flow": "xtls-rprx-vision",
-            "limitIp": 0,
+            "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
             "subId": "",
@@ -132,6 +133,7 @@ class XuiApiClient:
         email: str,
         enable: bool,
         expiry_ts: int,
+        limit_ip: int = 0,
     ) -> XuiClientResult:
         settings = {
             "id": user_uuid,
@@ -139,7 +141,7 @@ class XuiApiClient:
             "enable": enable,
             "expiryTime": expiry_ts,
             "flow": "xtls-rprx-vision",
-            "limitIp": 0,
+            "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
             "subId": "",
@@ -163,14 +165,14 @@ class XuiApiClient:
             user_uuid=user_uuid,
         )
 
-    async def disable_client(self, *, user_uuid: str, email: str, expiry_ts: int) -> XuiClientResult:
+    async def disable_client(self, *, user_uuid: str, email: str, expiry_ts: int, limit_ip: int = 0) -> XuiClientResult:
         return await self.update_client(
-            user_uuid=user_uuid, email=email, enable=False, expiry_ts=expiry_ts
+            user_uuid=user_uuid, email=email, enable=False, expiry_ts=expiry_ts, limit_ip=limit_ip
         )
 
-    async def enable_client(self, *, user_uuid: str, email: str, expiry_ts: int) -> XuiClientResult:
+    async def enable_client(self, *, user_uuid: str, email: str, expiry_ts: int, limit_ip: int = 0) -> XuiClientResult:
         return await self.update_client(
-            user_uuid=user_uuid, email=email, enable=True, expiry_ts=expiry_ts
+            user_uuid=user_uuid, email=email, enable=True, expiry_ts=expiry_ts, limit_ip=limit_ip
         )
 
     async def _do_client_op(

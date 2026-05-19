@@ -20,6 +20,7 @@ from app.web_api.profile import (
     handle_renew_subscription, handle_change_plan, handle_change_devices, handle_cancel_subscription,
     handle_activate_trial,
 )
+from app.web_api.subscription import handle_subscription
 
 
 async def _healthz(_: Request) -> JSONResponse:
@@ -57,6 +58,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Email linking (called by bot internally)
         Route("/api/v1/internal/email/send-code", handle_bot_send_code, methods=["POST"]),
         Route("/api/v1/internal/email/verify-code", handle_bot_verify_code, methods=["POST"]),
+        # Public subscription endpoint (no auth)
+        Route("/sub/{token}", handle_subscription, methods=["GET"]),
     ]
 
     app = Starlette(routes=routes)
