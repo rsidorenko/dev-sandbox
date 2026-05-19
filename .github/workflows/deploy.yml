@@ -224,6 +224,12 @@ jobs:
                                     f'{panel_url}/panel/api/inbounds/{inbound_id}/delClient/{uuid}')
                                 status = 'OK' if del_resp.status_code == 200 else f'FAIL({del_resp.status_code})'
                                 print(f'      Deleted {email} ({uuid[:8]}...): {status}')
+                            # Restart Xray to apply deletions immediately
+                            restart_resp = await client.post(f'{panel_url}/panel/setting/restartXrayService')
+                            if restart_resp.status_code == 200 and restart_resp.json().get('success'):
+                                print(f'    Xray restarted OK')
+                            else:
+                                print(f'    Xray restart FAILED (changes may take time to apply)')
                     print('VLESS cleanup done.')
                 finally:
                     await conn.close()
