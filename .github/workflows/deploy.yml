@@ -184,10 +184,12 @@ jobs:
                         password = row['encrypted_password'] if row['encrypted_password'] else row['panel_password']
                         if row['encrypted_password']:
                             password = decrypt_field(row['encrypted_password'])
+                        # Extract host from panel_url for direct SSH restart
+                        panel_host = row['panel_url'].split('://')[1].split(':')[0]
                         inbound_id = row['inbound_id']
                         print(f'  Server {row["id"]}: {panel_url} (inbound {inbound_id})')
 
-                        async with httpx.AsyncClient(verify=False) as client:
+                        async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
                             login = await client.post(f'{panel_url}/login',
                                 data={'username': row['panel_username'], 'password': password})
                             if login.status_code != 200 or not login.json().get('success'):
@@ -224,12 +226,16 @@ jobs:
                                     f'{panel_url}/panel/api/inbounds/{inbound_id}/delClient/{uuid}')
                                 status = 'OK' if del_resp.status_code == 200 else f'FAIL({del_resp.status_code})'
                                 print(f'      Deleted {email} ({uuid[:8]}...): {status}')
-                            # Restart Xray to apply deletions immediately
-                            restart_resp = await client.post(f'{panel_url}/panel/setting/restartXrayService')
-                            if restart_resp.status_code == 200 and restart_resp.json().get('success'):
-                                print(f'    Xray restarted OK')
-                            else:
-                                print(f'    Xray restart FAILED (changes may take time to apply)')
+                            # Restart Xray via panel API (session cookie is already set)
+                            try:
+                                rr = await client.post(f'{panel_url}/panel/setting/restartXrayService')
+                                body = rr.json() if rr.status_code == 200 else {}
+                                if rr.status_code == 200 and body.get('success'):
+                                    print(f'    Xray restarted OK')
+                                else:
+                                    print(f'    Xray restart via API returned {rr.status_code}: {body}')
+                            except Exception as e:
+                                print(f'    Xray restart error: {e}')
                     print('VLESS cleanup done.')
                 finally:
                     await conn.close()
@@ -239,6 +245,34 @@ jobs:
               docker compose -f docker-compose.prod.yml cp /tmp/clean_vless_users.py backend:/tmp/clean_vless_users.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python /tmp/clean_vless_users.py 2>&1 || echo "  VLESS cleanup completed or skipped"
               rm -f /tmp/clean_vless_users.py
+
+              echo "--- Restarting Xray via panel API ---"
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python -c "
+import asyncio, asyncpg, os, sys
+sys.path.insert(0, '/app/src')
+from app.security.field_encryption import decrypt_field
+
+async def main():
+    dsn = os.environ.get('DATABASE_URL', '')
+    if not dsn:
+        return
+    conn = await asyncpg.connect(dsn)
+    rows = await conn.fetch(
+        'SELECT panel_url, panel_username, panel_password, COALESCE(encrypted_password, \\'\\') AS enc FROM vpn_servers WHERE is_active = TRUE'
+    )
+    await conn.close()
+    import httpx
+    for r in rows:
+        url = r['panel_url'].rstrip('/')
+        pwd = decrypt_field(r['enc']) if r['enc'] else r['panel_password']
+        async with httpx.AsyncClient(verify=False) as c:
+            lr = await c.post(f'{url}/login', data={'username': r['panel_username'], 'password': pwd})
+            print(f'Login: {lr.status_code} cookies={dict(c.cookies)}')
+            rr = await c.post(f'{url}/panel/setting/restartXrayService')
+            print(f'Restart Xray: {rr.status_code} {rr.text[:200]}')
+asyncio.run(main())
+" 2>&1
 
               echo "=== DATABASE + VLESS CLEANUP COMPLETE ==="
             fi
