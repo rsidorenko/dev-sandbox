@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_hardening:
+        description: "Run post-deploy security hardening (migration, encrypt passwords, update .env)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -17,10 +22,15 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
+          FIELD_ENCRYPTION_KEY: "aXXXj3z+PJk93aBlp5PmYbyvPNuFpJGlvc4DfMslg9A="
+          INTERNAL_API_SECRET: "Mbht2HC-AXBAbX5DQkjWwQinb0GY7JZfxby37o5JPaSjA5iQSj7le2Mu_2WvZiFP"
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: RUN_HARDENING,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
             cd /opt/bravada
@@ -30,3 +40,42 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
             docker image prune -f
             echo "Deploy complete: $(date)"
+
+            if [ "$RUN_HARDENING" = "true" ]; then
+              echo "=== POST-DEPLOY HARDENING ==="
+
+              echo "--- Step 1: Update .env ---"
+              cd /opt/bravada/backend
+              grep -q "^FIELD_ENCRYPTION_KEY=" .env || echo "FIELD_ENCRYPTION_KEY=" >> .env
+              grep -q "^XUI_ENABLED=" .env || echo "XUI_ENABLED=0" >> .env
+              grep -q "^XUI_VERIFY_SSL=" .env || echo "XUI_VERIFY_SSL=1" >> .env
+              grep -q "^INTERNAL_API_SECRET=" .env || echo "INTERNAL_API_SECRET=" >> .env
+              grep -q "^SUBSCRIPTION_BASE_URL=" .env || echo "SUBSCRIPTION_BASE_URL=https://bravada-connect.ru" >> .env
+
+              sed -i "s|^FIELD_ENCRYPTION_KEY=.*|FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}|" .env
+              sed -i "s|^XUI_ENABLED=.*|XUI_ENABLED=1|" .env
+              sed -i "s|^XUI_VERIFY_SSL=.*|XUI_VERIFY_SSL=1|" .env
+              sed -i "s|^INTERNAL_API_SECRET=.*|INTERNAL_API_SECRET=${INTERNAL_API_SECRET}|" .env
+              sed -i "s|^SUBSCRIPTION_BASE_URL=.*|SUBSCRIPTION_BASE_URL=https://bravada-connect.ru|" .env
+              echo "  .env updated"
+
+              echo "--- Step 2: Run migration 029 ---"
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
+                "ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS encrypted_password TEXT NOT NULL DEFAULT '';" 2>&1 || echo "  Column already exists"
+
+              echo "--- Step 3: Encrypt panel passwords ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python scripts/encrypt_panel_passwords.py 2>&1 || echo "  Check output above"
+
+              echo "--- Step 4: Restart with new env ---"
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+              sleep 5
+
+              echo "--- Step 5: Verify ---"
+              docker compose -f docker-compose.prod.yml ps
+              sleep 3
+              curl -sf http://127.0.0.1:8000/healthz && echo " - backend healthz OK" || echo " - backend healthz FAILED"
+              curl -sf http://127.0.0.1:8000/readyz && echo " - backend readyz OK" || echo " - backend readyz FAILED (may need a moment)"
+              echo ""
+              echo "=== HARDENING COMPLETE ==="
+            fi
