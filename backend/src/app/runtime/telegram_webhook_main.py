@@ -412,9 +412,17 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         )
         try:
             content = json.loads(body) if body else {}
+            response = JSONResponse(content=content, status_code=status_code)
         except (json.JSONDecodeError, ValueError):
-            content = {"ok": False, "error": "internal_error"}
-        response = JSONResponse(content=content, status_code=status_code)
+            # Non-JSON response (e.g. subscription endpoint returns base64 text)
+            from starlette.responses import Response as _RawResponse
+
+            content_type = "text/plain"
+            for resp_msg in sent_responses:
+                for h_name, h_value in resp_msg.get("headers", []):
+                    if h_name == b"content-type":
+                        content_type = h_value.decode("latin-1")
+            response = _RawResponse(content=body, status_code=status_code, media_type=content_type)
         # Forward Set-Cookie headers from inner app (e.g. session cookie from auth)
         for resp_msg in sent_responses:
             for header_pair in resp_msg.get("headers", []):
@@ -434,6 +442,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     if web_api_enabled:
         routes.append(Route("/api/{path:path}", _web_api_proxy, methods=["GET", "POST", "OPTIONS"]))
+        routes.append(Route("/sub/{path:path}", _web_api_proxy, methods=["GET"]))
 
     lifespan = _lifespan_with_web_api if web_api_enabled else _lifespan
     return Starlette(routes=routes, lifespan=lifespan)
