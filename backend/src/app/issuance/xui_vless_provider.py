@@ -24,9 +24,10 @@ from app.issuance.vless_provider import (
 from app.issuance.xui_client import XuiApiClient, XuiOutcome, XuiServerConfig
 from app.security.field_encryption import decrypt_field
 
-_SUBSCRIPTION_BASE_URL = os.environ.get(
-    "SUBSCRIPTION_BASE_URL",
-    os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru"),
+_SUBSCRIPTION_BASE_URL = (
+    os.environ.get("SUBSCRIPTION_BASE_URL", "").strip()
+    or os.environ.get("NEXT_PUBLIC_SITE_URL", "").strip()
+    or "https://bravada-connect.ru"
 ).rstrip("/")
 
 _LOGGER = logging.getLogger(__name__)
