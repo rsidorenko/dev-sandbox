@@ -12,7 +12,7 @@ from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import plan_display_name
-from app.issuance.vless_provider import VlessUserConfig, format_key_list
+from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
 
 # ─── Callback data constants ──────────────────────────────────────────
 
@@ -49,9 +49,22 @@ CB_CONNECT_MAC = "connect_mac"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
+CB_ALL_KEYS = "all_keys"
+CB_SERVER = "server:"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
+
+_MAX_CALLBACK_BYTES = 64
+
+
+def _cb(prefix: str, value: str) -> str:
+    """Build callback_data with Telegram 64-byte limit enforcement."""
+    payload = f"{prefix}{value}"
+    encoded = payload.encode("utf-8")
+    if len(encoded) > _MAX_CALLBACK_BYTES:
+        return payload[: _MAX_CALLBACK_BYTES - 3] + "..."
+    return payload
 
 
 def _inline_kb(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
@@ -80,9 +93,16 @@ def main_menu_keyboard() -> dict[str, Any]:
     )
 
 
+_PLAN_EMOJI: dict[str, str] = {
+    "1m": "🟢",
+    "3m": "🔵",
+    "6m": "🟣",
+}
+
+
 def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
     rows = [
-        [{"text": f"{p.display_name} — {p.price_rubles} ₽", "callback_data": f"{CB_PLAN}{p.plan_id}"}] for p in plans
+        [{"text": f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {p.price_rubles} ₽", "callback_data": f"{CB_PLAN}{p.plan_id}"}] for p in plans
     ]
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
@@ -174,7 +194,7 @@ def text_main_menu() -> str:
 
 
 def text_buy_vpn_intro() -> str:
-    return "🔑 Выберите тариф VPN-подписки:"
+    return "🔑 Выберите тариф VPN-подписки:\n\n🟢 — 1 месяц\n🔵 — 3 месяца\n🟣 — 6 месяцев"
 
 
 def text_device_select(plan_id: str, price_rubles: int, duration_months: int, device_count: int) -> str:
@@ -216,15 +236,21 @@ def text_payment_unavailable() -> str:
     return "⚠️ Оплата временно недоступна. Попробуйте позже или обратитесь в поддержку."
 
 
-def text_subscription_active(active_until: str | None, plan_name: str | None, device_count: int | None) -> str:
+def text_subscription_active(
+    active_until: str | None,
+    plan_name: str | None,
+    device_count: int | None,
+    *,
+    remaining_days: int | None = None,
+) -> str:
     lines = ["✅ Ваша подписка активна!"]
-    if plan_name:
-        lines.append(f"📦 Тариф: {plan_name}")
+    if remaining_days is not None:
+        lines.append(f"⏳ Осталось: {remaining_days} дн.")
     if device_count is not None:
         lines.append(f"📱 Устройств: {device_count}")
     if active_until:
         lines.append(f"📅 Действует до: {active_until}")
-    lines.extend(["", "Используйте кнопки меню для управления."])
+    lines.extend(["", "Используйте кнопки меню для управления 📋"])
     return "\n".join(lines)
 
 
@@ -254,6 +280,45 @@ def keys_keyboard() -> dict[str, Any]:
         [{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}],
         [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
     ])
+
+
+def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = [
+        [{"text": "📋 Все ключи списком", "callback_data": CB_ALL_KEYS}],
+    ]
+    server_row: list[dict[str, str]] = []
+    for s in servers:
+        server_row.append({"text": f"{s.country_flag} {s.server_label}", "callback_data": _cb(CB_SERVER, s.server_label)})
+        if len(server_row) == 2:
+            rows.append(server_row)
+            server_row = []
+    if server_row:
+        rows.append(server_row)
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
+
+
+def text_my_keys_menu() -> str:
+    return "🔐 Ваши ключи\n\nВыберите сервер или нажмите «Все ключи списком»:"
+
+
+def text_single_server_key(server: VlessServerConfig) -> str:
+    return f"🔑 {server.country_flag} {server.server_label}\n\n`{server.vless_link}`\n\n💡 Нажмите на ключ, чтобы скопировать."
+
+
+def single_server_key_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}]])
+
+
+def text_all_keys_list(config: VlessUserConfig) -> str:
+    lines = ["🔐 Все ваши ключи:\n"]
+    lines.append(format_key_list(config.servers))
+    lines.append("💡 Нажмите на ключ, чтобы скопировать.")
+    return "\n".join(lines)
+
+
+def all_keys_list_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}]])
 
 
 def text_reissue_confirm() -> str:

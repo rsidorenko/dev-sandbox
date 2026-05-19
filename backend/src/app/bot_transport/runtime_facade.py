@@ -25,91 +25,97 @@ from app.bot_transport.storefront_ui import (
     CB_ADD_DEV,
     CB_ADD_DEV_BALANCE,
     CB_ADD_DEVICE,
+    CB_ALL_KEYS,
     CB_BALANCE,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
+    CB_CONNECT_ANDROID,
+    CB_CONNECT_DEVICE,
+    CB_CONNECT_DONE,
+    CB_CONNECT_IOS,
+    CB_CONNECT_MAC,
+    CB_CONNECT_NEXT,
+    CB_CONNECT_WIN,
     CB_DEVICES,
     CB_DO_PAY,
     CB_HELP,
     CB_LINK_EMAIL,
     CB_MAIN_MENU,
-    CB_RESEND_EMAIL_CODE,
     CB_MY_KEYS,
-    CB_REISSUE_KEYS,
-    CB_REISSUE_CONFIRM,
-    CB_CONNECT_DEVICE,
-    CB_CONNECT_WIN,
-    CB_CONNECT_ANDROID,
-    CB_CONNECT_IOS,
-    CB_CONNECT_MAC,
-    CB_CONNECT_NEXT,
-    CB_CONNECT_DONE,
     CB_MY_SUB,
     CB_PAY_BALANCE,
     CB_PLAN,
     CB_REFERRAL,
+    CB_REISSUE_CONFIRM,
+    CB_REISSUE_KEYS,
     CB_REMOVE_DEVICE,
+    CB_RESEND_EMAIL_CODE,
     CB_ROUTER,
+    CB_SERVER,
     CB_SETTINGS,
     CB_TRIAL,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
+    all_keys_list_keyboard,
     back_only_keyboard,
     balance_keyboard,
     buy_vpn_keyboard,
     confirm_pay_keyboard,
+    connect_config_keyboard,
+    connect_device_keyboard,
+    connect_done_keyboard,
+    connect_platform_keyboard,
     device_select_keyboard,
+    keys_keyboard,
+    link_email_code_keyboard,
+    link_email_keyboard,
     main_menu_keyboard,
+    my_keys_menu_keyboard,
     no_subscription_keyboard,
+    reissue_confirm_keyboard,
     remove_device_keyboard,
     settings_keyboard,
+    single_server_key_keyboard,
     text_add_device_confirm,
     text_add_device_intro,
     text_add_device_success,
     text_add_device_unavailable,
+    text_all_keys_list,
     text_balance,
     text_balance_insufficient,
     text_balance_payment_success,
     text_buy_vpn_intro,
+    text_connect_config,
+    text_connect_device,
+    text_connect_done,
+    text_connect_platform,
     text_device_select,
     text_error_generic,
     text_help,
+    text_keys_not_available,
     text_link_email_already_linked,
-    link_email_code_keyboard,
     text_link_email_code_sent,
     text_link_email_error,
     text_link_email_intro,
-    link_email_keyboard,
     text_link_email_success,
     text_main_menu,
     text_my_keys,
-    text_keys_not_available,
-    keys_keyboard,
-    text_reissue_confirm,
-    reissue_confirm_keyboard,
-    text_connect_device,
-    connect_device_keyboard,
-    text_connect_platform,
-    connect_platform_keyboard,
-    text_connect_config,
-    connect_config_keyboard,
-    text_connect_done,
-    connect_done_keyboard,
+    text_my_keys_menu,
     text_no_subscription,
     text_payment_unavailable,
     text_purchase_summary,
     text_referral_program,
+    text_reissue_confirm,
     text_remove_device_confirm,
     text_remove_device_success,
     text_router_soon,
     text_settings,
+    text_single_server_key,
     text_subscription_active,
     text_subscription_expired,
     text_trial_activated,
-    text_trial_offer,
-    trial_activated_keyboard,
-    trial_offer_keyboard,
     text_welcome,
+    trial_activated_keyboard,
     welcome_keyboard,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
@@ -162,6 +168,7 @@ _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 _MARKDOWN_CODES = frozenset({
     CB_TRIAL, CB_MY_KEYS, CB_REISSUE_CONFIRM,
     CB_REFERRAL, CB_CONNECT_NEXT,
+    CB_ALL_KEYS,
 })
 
 _CALLBACK_ONLY_STOREFRONT = frozenset(
@@ -170,6 +177,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_BUY_VPN,
         CB_MY_SUB,
         CB_MY_KEYS,
+        CB_ALL_KEYS,
         CB_CONNECT_DEVICE,
         CB_CONNECT_WIN,
         CB_CONNECT_ANDROID,
@@ -212,6 +220,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_DO_PAY,
                     CB_ADD_DEV_BALANCE,
                     CB_ADD_DEV,
+                    CB_SERVER,
                     "add_dev_pay:",
                     "remove_dev",
                 )
@@ -255,7 +264,11 @@ async def _handle_trial_activation(
     composition: Slice1Composition,
     uid: int | None,
 ) -> tuple[str, dict[str, Any] | None]:
-    """Activate 3-day trial: create VLESS keys, set trial dates."""
+    """Activate 3-day trial: create VLESS keys, set trial dates.
+
+    Uses atomic ``UPDATE ... WHERE trial_used = FALSE`` to prevent double-trial
+    under concurrent requests.
+    """
     from datetime import UTC, datetime
 
     from app.application.interfaces import SubscriptionSnapshot
@@ -268,22 +281,31 @@ async def _handle_trial_activation(
     if id_rec is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    # Check trial not already used
-    snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
-    if snap is not None and snap.trial_started_at is not None:
-        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
-
     pool = _get_pool_from_composition(composition)
+
+    # Atomic claim: mark trial_used = TRUE only if it was FALSE.
+    # If someone else already claimed it, rows_affected == 0 → reject.
     if pool is not None:
-        row = await pool.fetchrow(
-            "SELECT trial_used FROM user_identities WHERE internal_user_id = $1",
+        result = await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1 AND (trial_used = FALSE OR trial_used IS NULL)",
             id_rec.internal_user_id,
         )
-        if row is not None and row["trial_used"]:
+        if result == "UPDATE 0":
+            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    else:
+        # In-memory fallback: non-atomic check (tests / dev only)
+        snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+        if snap is not None and snap.trial_started_at is not None:
             return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
     # Check VLESS provider available
     if composition.vless_provider is None:
+        # Roll back trial claim
+        if pool is not None:
+            await pool.execute(
+                "UPDATE user_identities SET trial_used = FALSE WHERE internal_user_id = $1",
+                id_rec.internal_user_id,
+            )
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
     # Create VLESS user
@@ -293,6 +315,12 @@ async def _handle_trial_activation(
         internal_user_id=id_rec.internal_user_id,
     )
     if vless_result.outcome != VlessProviderOutcome.SUCCESS or vless_result.config is None:
+        # Roll back trial claim
+        if pool is not None:
+            await pool.execute(
+                "UPDATE user_identities SET trial_used = FALSE WHERE internal_user_id = $1",
+                id_rec.internal_user_id,
+            )
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
     # Set trial period
@@ -309,13 +337,6 @@ async def _handle_trial_activation(
         )
     )
 
-    # Mark trial as used
-    if pool is not None:
-        await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
-            id_rec.internal_user_id,
-        )
-
     return text_trial_activated(vless_result.config), trial_activated_keyboard()
 
 
@@ -323,7 +344,10 @@ async def _activate_trial_silently(
     composition: Slice1Composition,
     uid: int | None,
 ) -> bool:
-    """Activate 3-day trial without showing keys. Returns True on success."""
+    """Activate 3-day trial without showing keys. Returns True on success.
+
+    Uses atomic trial claim to prevent double-activation under concurrency.
+    """
     from datetime import UTC, datetime
 
     from app.application.interfaces import SubscriptionSnapshot
@@ -338,10 +362,26 @@ async def _activate_trial_silently(
     if composition.vless_provider is None:
         return False
 
+    pool = _get_pool_from_composition(composition)
+
+    # Atomic claim
+    if pool is not None:
+        result = await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1 AND (trial_used = FALSE OR trial_used IS NULL)",
+            id_rec.internal_user_id,
+        )
+        if result == "UPDATE 0":
+            return False
+
     vless_result = await composition.vless_provider.create_user(
         internal_user_id=id_rec.internal_user_id,
     )
     if vless_result.outcome != VlessProviderOutcome.SUCCESS:
+        if pool is not None:
+            await pool.execute(
+                "UPDATE user_identities SET trial_used = FALSE WHERE internal_user_id = $1",
+                id_rec.internal_user_id,
+            )
         return False
 
     now = datetime.now(UTC)
@@ -356,15 +396,7 @@ async def _activate_trial_silently(
         )
     )
 
-    pool = _get_pool_from_composition(composition)
-    if pool is not None:
-        await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
-            id_rec.internal_user_id,
-        )
     return True
-
-    return text_trial_activated(vless_result.config), trial_activated_keyboard()
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -377,6 +409,8 @@ async def _render_subscription_status(
 ) -> tuple[str, dict[str, Any] | None]:
     if uid is None:
         return text_no_subscription(), no_subscription_keyboard()
+    from datetime import UTC, datetime
+
     from app.application.handlers import GetSubscriptionStatusInput
 
     result = await composition.get_status.handle(
@@ -388,6 +422,9 @@ async def _render_subscription_status(
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_READY,
     ):
         active_until = result.active_until_utc.date().isoformat() if result.active_until_utc else None
+        remaining_days = None
+        if result.active_until_utc is not None:
+            remaining_days = (result.active_until_utc.date() - datetime.now(UTC).date()).days
         plan_name = None
         device_count = None
         id_rec = await composition.identity.find_by_telegram_user_id(uid)
@@ -397,7 +434,11 @@ async def _render_subscription_status(
                 if snap.plan_id:
                     plan_name = plan_display_name(snap.plan_id)
                 device_count = snap.device_count
-        return text_subscription_active(active_until, plan_name, device_count), main_menu_keyboard()
+        if device_count is None:
+            device_count = DEVICES_DEFAULT
+        return text_subscription_active(
+            active_until, plan_name, device_count, remaining_days=remaining_days,
+        ), main_menu_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), no_subscription_keyboard()
     return text_no_subscription(), no_subscription_keyboard()
@@ -486,7 +527,7 @@ async def _handle_email_linking(
             return text_link_email_error("code_expired"), link_email_keyboard()
 
         # Try to verify via internal API logic
-        from app.web_api.email_link import _hash_code
+        from app.web_api.helpers import hash_code as _hash_code
 
         code_hash = _hash_code(text)
         row = await pool.fetchrow(
@@ -558,7 +599,9 @@ async def _handle_email_linking(
     # Send verification code
     from datetime import UTC, datetime, timedelta
 
-    from app.web_api.email_link import _generate_code, _hash_code as _hash, _MAX_SEND_PER_EMAIL_PER_HOUR
+    from app.web_api.email_link import _MAX_SEND_PER_EMAIL_PER_HOUR
+    from app.web_api.helpers import generate_code
+    from app.web_api.helpers import hash_code as _hash
 
     recent = await pool.fetchval(
         """SELECT COUNT(*) FROM email_verification_codes
@@ -568,7 +611,7 @@ async def _handle_email_linking(
     if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
         return text_link_email_error("rate_limited"), link_email_keyboard()
 
-    code = _generate_code()
+    code = generate_code()
     code_hash = _hash(code)
     expires_at = datetime.now(UTC) + timedelta(minutes=10)
 
@@ -638,9 +681,10 @@ async def _handle_resend_email_code(
     # Generate and send new code
     from datetime import timedelta
 
-    from app.web_api.email_link import _generate_code, _hash_code as _hash
+    from app.web_api.helpers import generate_code
+    from app.web_api.helpers import hash_code as _hash
 
-    code = _generate_code()
+    code = generate_code()
     code_hash = _hash(code)
     expires_at = datetime.now(UTC) + timedelta(minutes=10)
 
@@ -1156,14 +1200,63 @@ async def _render_storefront_response(
                     internal_user_id=id_rec.internal_user_id,
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    text = text_my_keys(vless_result.config)
-                    keyboard = keys_keyboard()
+                    text = text_my_keys_menu()
+                    keyboard = my_keys_menu_keyboard(vless_result.config.servers)
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
             else:
                 text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
         else:
             text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
+
+    elif code == CB_ALL_KEYS:
+        has_sub = await _has_active_subscription(composition, uid)
+        if has_sub and uid is not None and composition.vless_provider is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                vless_result = await composition.vless_provider.get_user_config(
+                    internal_user_id=id_rec.internal_user_id,
+                )
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    text = text_all_keys_list(vless_result.config)
+                    keyboard = all_keys_list_keyboard()
+                else:
+                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+            else:
+                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+        else:
+            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+
+    elif code.startswith(CB_SERVER):
+        server_label = code[len(CB_SERVER):]
+        has_sub = await _has_active_subscription(composition, uid)
+        if has_sub and uid is not None and composition.vless_provider is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                vless_result = await composition.vless_provider.get_user_config(
+                    internal_user_id=id_rec.internal_user_id,
+                )
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    server = None
+                    for s in vless_result.config.servers:
+                        if s.server_label == server_label:
+                            server = s
+                            break
+                    if server is not None:
+                        text = text_single_server_key(server)
+                        keyboard = single_server_key_keyboard()
+                    else:
+                        text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+                else:
+                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+            else:
+                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
+        else:
+            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
 
     elif code == CB_REISSUE_KEYS:
         text, keyboard = text_reissue_confirm(), reissue_confirm_keyboard()

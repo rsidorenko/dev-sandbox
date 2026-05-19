@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
-import uuid
+import os
+from asyncio import sleep as asyncio_sleep
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -12,6 +14,14 @@ import httpx
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 15.0
+_MAX_RETRIES = 2
+_RETRY_DELAY_SECONDS = 1.0
+_ENV_VERIFY_SSL = "XUI_VERIFY_SSL"
+
+
+def _should_verify_ssl() -> bool:
+    raw = os.environ.get(_ENV_VERIFY_SSL, "1").strip().lower()
+    return raw not in ("0", "false", "no")
 
 
 class XuiOutcome(StrEnum):
@@ -47,20 +57,31 @@ class XuiServerConfig:
     panel_password: str
     inbound_id: int
     reality_pbk: str = ""
-    reality_sid: str = "37"
-    reality_sni: str = "eh.vk.ru"
+    reality_sid: str = ""
+    reality_sni: str = ""
 
 
 class XuiApiClient:
-    """Stateless HTTP client for a single 3x-ui panel.
+    """HTTP client for a single 3x-ui panel.
 
-    Each call authenticates, performs the operation, and returns.
-    Session cookies are not reused across calls to avoid stale-session issues.
+    Uses a lazily-created httpx.AsyncClient for connection reuse.
+    Each operation authenticates fresh to avoid stale-session issues.
     """
 
     def __init__(self, config: XuiServerConfig) -> None:
         self._config = config
         self._base = config.panel_url.rstrip("/")
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(verify=_should_verify_ssl())
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     @property
     def server_id(self) -> int:
@@ -70,7 +91,8 @@ class XuiApiClient:
     def server_config(self) -> XuiServerConfig:
         return self._config
 
-    async def _login(self, client: httpx.AsyncClient) -> bool:
+    async def _login(self) -> bool:
+        client = await self._get_client()
         try:
             resp = await client.post(
                 f"{self._base}/login",
@@ -110,7 +132,7 @@ class XuiApiClient:
         }
         payload = {
             "id": self._config.inbound_id,
-            "settings": f'{{"clients": [{_json_dumps_settings(settings)}]}}',
+            "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}',
         }
         return await self._do_client_op(
             "POST",
@@ -148,7 +170,7 @@ class XuiApiClient:
         }
         payload = {
             "id": self._config.inbound_id,
-            "settings": f'{{"clients": [{_json_dumps_settings(settings)}]}}',
+            "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}',
         }
         return await self._do_client_op(
             "POST",
@@ -183,22 +205,30 @@ class XuiApiClient:
         *,
         user_uuid: str | None = None,
     ) -> XuiClientResult:
-        try:
-            async with httpx.AsyncClient(verify=False) as client:
-                logged_in = await self._login(client)
+        last_result = XuiClientResult(outcome=XuiOutcome.ERROR)
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                client = await self._get_client()
+                logged_in = await self._login()
                 if not logged_in:
                     return XuiClientResult(outcome=XuiOutcome.UNAUTHORIZED)
                 if method == "GET":
                     resp = await client.get(url, timeout=_DEFAULT_TIMEOUT)
                 else:
                     resp = await client.post(url, json=payload, timeout=_DEFAULT_TIMEOUT)
-                return _map_response(resp, user_uuid=user_uuid)
-        except httpx.ConnectError:
-            _LOGGER.debug("xui connect error server=%s", self._config.server_id, exc_info=True)
-            return XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
-        except Exception:
-            _LOGGER.debug("xui op error server=%s", self._config.server_id, exc_info=True)
-            return XuiClientResult(outcome=XuiOutcome.ERROR)
+                result = _map_response(resp, user_uuid=user_uuid)
+                if result.outcome != XuiOutcome.UNAVAILABLE or attempt == _MAX_RETRIES:
+                    return result
+                last_result = result
+            except httpx.ConnectError:
+                _LOGGER.debug("xui connect error server=%s attempt=%s", self._config.server_id, attempt, exc_info=True)
+                last_result = XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
+            except Exception:
+                _LOGGER.debug("xui op error server=%s attempt=%s", self._config.server_id, attempt, exc_info=True)
+                last_result = XuiClientResult(outcome=XuiOutcome.ERROR)
+            if attempt < _MAX_RETRIES:
+                await asyncio_sleep(_RETRY_DELAY_SECONDS)
+        return last_result
 
 
 def _map_response(resp: httpx.Response, *, user_uuid: str | None = None) -> XuiClientResult:
@@ -218,18 +248,3 @@ def _map_response(resp: httpx.Response, *, user_uuid: str | None = None) -> XuiC
     if not success and resp.status_code >= 400:
         return XuiClientResult(outcome=XuiOutcome.ERROR)
     return XuiClientResult(outcome=XuiOutcome.SUCCESS, client_id=user_uuid, user_uuid=user_uuid)
-
-
-def _json_dumps_settings(s: dict) -> str:
-    """Minimal JSON serialization for client settings (no external dependency)."""
-    parts: list[str] = []
-    for k, v in s.items():
-        if isinstance(v, bool):
-            parts.append(f'"{k}":{"true" if v else "false"}')
-        elif isinstance(v, int):
-            parts.append(f'"{k}":{v}')
-        elif isinstance(v, str):
-            parts.append(f'"{k}":"{v}"')
-        else:
-            parts.append(f'"{k}":null')
-    return "{" + ",".join(parts) + "}"

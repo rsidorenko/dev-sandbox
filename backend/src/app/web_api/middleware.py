@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
 import logging
 import os
-import base64
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +16,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 _LOGGER = logging.getLogger(__name__)
+
+_CSRF_COOKIE_NAME = "csrf_token"
+_CSRF_HEADER_NAME = "x-csrf-token"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def _get_jwt_secret() -> str | None:
@@ -57,3 +62,26 @@ def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
     if claims is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     return claims
+
+
+def generate_csrf_token() -> str:
+    """Generate a random CSRF token."""
+    return secrets.token_urlsafe(32)
+
+
+def validate_csrf(request: Request) -> bool:
+    """Validate CSRF token: cookie must match header for non-safe methods."""
+    if request.method in _SAFE_METHODS:
+        return True
+    cookie_token = request.cookies.get(_CSRF_COOKIE_NAME, "")
+    header_token = request.headers.get(_CSRF_HEADER_NAME, "")
+    if not cookie_token or not header_token:
+        return False
+    return hmac.compare_digest(cookie_token, header_token)
+
+
+def require_csrf(request: Request) -> JSONResponse | None:
+    """Returns error response if CSRF check fails, None if OK."""
+    if not validate_csrf(request):
+        return JSONResponse({"ok": False, "error": "csrf_validation_failed"}, status_code=403)
+    return None

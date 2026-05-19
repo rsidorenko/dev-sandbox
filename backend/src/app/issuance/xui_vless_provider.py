@@ -6,7 +6,6 @@ across all active VPN servers registered in the ``vpn_servers`` table.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import secrets
@@ -21,11 +20,14 @@ from app.issuance.vless_provider import (
     VlessProviderResult,
     VlessServerConfig,
     VlessUserConfig,
-    build_subscription_url,
 )
-
-_SUBSCRIPTION_BASE_URL = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").rstrip("/")
 from app.issuance.xui_client import XuiApiClient, XuiOutcome, XuiServerConfig
+from app.security.field_encryption import decrypt_field
+
+_SUBSCRIPTION_BASE_URL = os.environ.get(
+    "SUBSCRIPTION_BASE_URL",
+    os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru"),
+).rstrip("/")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,9 +60,8 @@ async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) 
 
 
 def _user_uuid_from_internal(internal_user_id: str) -> str:
-    """Deterministic UUID v4 derived from internal user ID (stable across calls)."""
-    digest = hashlib.sha256(internal_user_id.encode()).hexdigest()
-    return str(uuid.UUID(digest[:32]))
+    """Deterministic UUID v5 derived from internal user ID (stable, not guessable)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"vpn.bravada.internal.{internal_user_id}"))
 
 
 def _email_from_internal(internal_user_id: str) -> str:
@@ -92,11 +93,20 @@ def _build_vless_link(
     )
 
 
+def _resolve_panel_password(row: asyncpg.Record) -> str:
+    """Resolve panel password: prefer encrypted column, fallback to plaintext."""
+    encrypted = row.get("encrypted_password", "")
+    if encrypted:
+        return decrypt_field(encrypted)
+    return row["panel_password"]
+
+
 async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...]:
     rows = await pool.fetch(
         """SELECT id, label, country_code, country_flag, server_host, server_port,
-                  ws_path, tls_sni, panel_url, panel_username, panel_password, inbound_id,
-                  reality_pbk, reality_sid, reality_sni
+                  ws_path, tls_sni, panel_url, panel_username, panel_password,
+                  COALESCE(encrypted_password, '') AS encrypted_password,
+                  inbound_id, reality_pbk, reality_sid, reality_sni
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -111,7 +121,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             tls_sni=r["tls_sni"],
             panel_url=r["panel_url"],
             panel_username=r["panel_username"],
-            panel_password=r["panel_password"],
+            panel_password=_resolve_panel_password(r),
             inbound_id=r["inbound_id"],
             reality_pbk=r["reality_pbk"],
             reality_sid=r["reality_sid"],

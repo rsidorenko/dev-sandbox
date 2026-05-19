@@ -7,7 +7,6 @@ import hmac
 import json
 import logging
 import os
-import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -17,6 +16,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.email.sender import send_verification_code
+from app.web_api.helpers import generate_code, get_jwt_secret, hash_code, safe_json_error, truthy, validate_email
+from app.web_api.middleware import generate_csrf_token
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,17 +29,6 @@ _DEFAULT_JWT_TTL_HOURS = 72
 _DEFAULT_CODE_TTL_MINUTES = 10
 _MAX_SEND_PER_EMAIL_PER_HOUR = 5
 _CODE_LENGTH = 6
-
-
-def _truthy(raw: str | None) -> bool:
-    return raw is not None and raw.strip().lower() in ("1", "true", "yes")
-
-
-def _get_jwt_secret() -> str:
-    secret = os.environ.get(ENV_JWT_SECRET, "").strip()
-    if not secret:
-        raise ValueError("JWT_SECRET is not configured")
-    return secret
 
 
 def _get_jwt_ttl_hours() -> int:
@@ -61,33 +51,10 @@ def _get_code_ttl_minutes() -> int:
     return _DEFAULT_CODE_TTL_MINUTES
 
 
-def _hash_code(code: str) -> str:
-    secret = _get_jwt_secret()
-    return hmac.new(secret.encode(), code.encode(), hashlib.sha256).hexdigest()
-
-
-def _generate_code() -> str:
-    return "".join(secrets.choice("0123456789") for _ in range(_CODE_LENGTH))
-
-
-def _validate_email(email: str) -> bool:
-    if not email or len(email) > 254:
-        return False
-    parts = email.split("@")
-    if len(parts) != 2:
-        return False
-    local, domain = parts
-    if not local or not domain:
-        return False
-    if "." not in domain:
-        return False
-    return True
-
-
 def _issue_jwt(payload: dict[str, Any]) -> str:
     import base64
 
-    secret = _get_jwt_secret()
+    secret = get_jwt_secret()
     ttl = _get_jwt_ttl_hours()
     header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
     exp = datetime.now(UTC) + timedelta(hours=ttl)
@@ -99,10 +66,7 @@ def _issue_jwt(payload: dict[str, Any]) -> str:
 
 
 def _safe_json_error(status_code: int, error: str, detail: str = "") -> JSONResponse:
-    body: dict[str, Any] = {"ok": False, "error": error}
-    if detail:
-        body["detail"] = detail
-    return JSONResponse(body, status_code=status_code)
+    return safe_json_error(status_code, error, detail)
 
 
 async def handle_send_code(request: Request) -> JSONResponse:
@@ -112,7 +76,7 @@ async def handle_send_code(request: Request) -> JSONResponse:
         return _safe_json_error(400, "invalid_request", "Expected JSON body")
 
     email = data.get("email", "").strip().lower()
-    if not _validate_email(email):
+    if not validate_email(email):
         return _safe_json_error(400, "invalid_email")
 
     pool: asyncpg.Pool = request.app.state.pool
@@ -128,8 +92,8 @@ async def handle_send_code(request: Request) -> JSONResponse:
     if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
         return _safe_json_error(429, "rate_limited", "Too many codes sent. Try later.")
 
-    code = _generate_code()
-    code_hash = _hash_code(code)
+    code = generate_code()
+    code_hash = hash_code(code)
 
     # Remove old codes for this email
     await pool.execute(
@@ -160,7 +124,7 @@ async def handle_verify_code(request: Request) -> JSONResponse:
 
     email = data.get("email", "").strip().lower()
     code = data.get("code", "").strip()
-    if not _validate_email(email) or not code:
+    if not validate_email(email) or not code:
         return _safe_json_error(400, "invalid_request")
 
     pool: asyncpg.Pool = request.app.state.pool
@@ -187,7 +151,7 @@ async def handle_verify_code(request: Request) -> JSONResponse:
         row["id"],
     )
 
-    expected_hash = _hash_code(code)
+    expected_hash = hash_code(code)
     if not hmac.compare_digest(row["code_hash"], expected_hash):
         return _safe_json_error(400, "invalid_code")
 
@@ -255,10 +219,12 @@ async def handle_verify_code(request: Request) -> JSONResponse:
         "internal_user_id": internal_user_id,
         "email": email,
     })
+    csrf_token = generate_csrf_token()
 
     response = JSONResponse({
         "ok": True,
         "token": token,
+        "csrf_token": csrf_token,
         "user": {
             "telegram_user_id": telegram_user_id,
             "email": email,
@@ -270,7 +236,16 @@ async def handle_verify_code(request: Request) -> JSONResponse:
         value=token,
         max_age=ttl * 3600,
         httponly=True,
-        secure=not _truthy(os.environ.get("WEB_API_DEV_INSECURE_COOKIE")),
+        secure=not truthy(os.environ.get("WEB_API_DEV_INSECURE_COOKIE")),
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        max_age=ttl * 3600,
+        httponly=False,
+        secure=not truthy(os.environ.get("WEB_API_DEV_INSECURE_COOKIE")),
         samesite="lax",
         path="/",
     )
@@ -280,4 +255,5 @@ async def handle_verify_code(request: Request) -> JSONResponse:
 async def handle_logout(request: Request) -> JSONResponse:
     response = JSONResponse({"ok": True})
     response.delete_cookie(key="session", path="/")
+    response.delete_cookie(key="csrf_token", path="/")
     return response
