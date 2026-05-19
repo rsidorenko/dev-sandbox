@@ -248,31 +248,34 @@ jobs:
 
               echo "--- Restarting Xray via panel API ---"
               cd /opt/bravada
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python -c "
-import asyncio, asyncpg, os, sys
-sys.path.insert(0, '/app/src')
-from app.security.field_encryption import decrypt_field
+              cat > /tmp/restart_xray.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, json
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
 
-async def main():
-    dsn = os.environ.get('DATABASE_URL', '')
-    if not dsn:
-        return
-    conn = await asyncpg.connect(dsn)
-    rows = await conn.fetch(
-        'SELECT panel_url, panel_username, panel_password, COALESCE(encrypted_password, \\'\\') AS enc FROM vpn_servers WHERE is_active = TRUE'
-    )
-    await conn.close()
-    import httpx
-    for r in rows:
-        url = r['panel_url'].rstrip('/')
-        pwd = decrypt_field(r['enc']) if r['enc'] else r['panel_password']
-        async with httpx.AsyncClient(verify=False) as c:
-            lr = await c.post(f'{url}/login', data={'username': r['panel_username'], 'password': pwd})
-            print(f'Login: {lr.status_code} cookies={dict(c.cookies)}')
-            rr = await c.post(f'{url}/panel/setting/restartXrayService')
-            print(f'Restart Xray: {rr.status_code} {rr.text[:200]}')
-asyncio.run(main())
-" 2>&1
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    return
+                conn = await asyncpg.connect(dsn)
+                rows = await conn.fetch(
+                    "SELECT panel_url, panel_username, panel_password, COALESCE(encrypted_password, '') AS enc FROM vpn_servers WHERE is_active = TRUE"
+                )
+                await conn.close()
+                import httpx
+                for r in rows:
+                    url = r['panel_url'].rstrip('/')
+                    pwd = decrypt_field(r['enc']) if r['enc'] else r['panel_password']
+                    async with httpx.AsyncClient(verify=False) as c:
+                        lr = await c.post(f'{url}/login', data={'username': r['panel_username'], 'password': pwd})
+                        print(f'  Login: {lr.status_code} cookies={dict(c.cookies)}')
+                        rr = await c.post(f'{url}/panel/setting/restartXrayService')
+                        print(f'  Restart Xray: {rr.status_code} {rr.text[:200]}')
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/restart_xray.py backend:/tmp/restart_xray.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python /tmp/restart_xray.py 2>&1 || echo "  Xray restart skipped"
+              rm -f /tmp/restart_xray.py
 
               echo "=== DATABASE + VLESS CLEANUP COMPLETE ==="
             fi
