@@ -26,6 +26,10 @@ from app.persistence.slice1_postgres_wiring import (  # noqa: E402
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
 )
+from app.runtime.notification_scheduler import (  # noqa: E402
+    NotificationScheduler,
+    start_notification_scheduler,
+)
 from app.runtime.payment_fulfillment_ingress import (  # noqa: E402
     create_payment_fulfillment_ingress_app,
     load_fulfillment_ingress_settings_from_env,
@@ -297,9 +301,12 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         {"command": "start", "description": "Начать / главное меню"},
     ]
 
+    scheduler: NotificationScheduler | None = None
+    scheduler_task: asyncio.Task | None = None
+
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool
+        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool, scheduler, scheduler_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         if slice1_postgres_repos_requested():
             composition, pool = await resolve_slice1_composition_for_runtime(config)
@@ -317,8 +324,25 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         # Register bot menu commands (same as polling mode).
         with suppress(Exception):
             await raw_bundle.client.set_my_commands(_BOT_MENU_COMMANDS)
+        # Start notification scheduler for subscription lifecycle checks.
+        try:
+            pool = runtime_pg_pool
+            if pool is not None and runtime._composition is not None and runtime._composition.vless_provider is not None:
+                scheduler = start_notification_scheduler(
+                    pool=pool,
+                    bot_token=config.bot_token,
+                    vless_provider=runtime._composition.vless_provider,
+                )
+                scheduler_task = asyncio.create_task(scheduler.run())
+                _LOGGER.info("notification_scheduler_started")
+        except Exception:
+            _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if scheduler is not None:
+            scheduler.stop()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
         if fulfillment_pool is not None:
             await fulfillment_pool.close()
         if runtime_pg_pool is not None:
@@ -345,7 +369,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     @asynccontextmanager
     async def _lifespan_with_web_api(app: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool
+        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool, scheduler, scheduler_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         if slice1_postgres_repos_requested():
             composition, pool = await resolve_slice1_composition_for_runtime(config)
@@ -369,8 +393,25 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         # Register bot menu commands (same as polling mode).
         with suppress(Exception):
             await raw_bundle.client.set_my_commands(_BOT_MENU_COMMANDS)
+        # Start notification scheduler for subscription lifecycle checks.
+        try:
+            pool = runtime_pg_pool or web_api_pool
+            if pool is not None and runtime._composition is not None and runtime._composition.vless_provider is not None:
+                scheduler = start_notification_scheduler(
+                    pool=pool,
+                    bot_token=config.bot_token,
+                    vless_provider=runtime._composition.vless_provider,
+                )
+                scheduler_task = asyncio.create_task(scheduler.run())
+                _LOGGER.info("notification_scheduler_started")
+        except Exception:
+            _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if scheduler is not None:
+            scheduler.stop()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
         if web_api_pool is not None:
             await web_api_pool.close()
         if fulfillment_pool is not None:
