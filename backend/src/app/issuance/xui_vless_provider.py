@@ -65,6 +65,23 @@ def _user_uuid_from_internal(internal_user_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"vpn.bravada.internal.{internal_user_id}"))
 
 
+async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -> str:
+    """Get stored VLESS UUID or generate a new random one and persist it."""
+    row = await pool.fetchrow(
+        "SELECT vless_uuid FROM user_identities WHERE internal_user_id = $1",
+        internal_user_id,
+    )
+    if row and row["vless_uuid"]:
+        return row["vless_uuid"]
+    new_uuid = str(uuid.uuid4())
+    await pool.execute(
+        "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
+        new_uuid,
+        internal_user_id,
+    )
+    return new_uuid
+
+
 def _email_from_internal(internal_user_id: str) -> str:
     return f"user-{internal_user_id[:16]}"
 
@@ -143,7 +160,7 @@ class XuiVlessProvider(VlessProviderPort):
         return [XuiApiClient(c) for c in configs]
 
     async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
-        user_uuid = _user_uuid_from_internal(internal_user_id)
+        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
@@ -192,7 +209,7 @@ class XuiVlessProvider(VlessProviderPort):
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
-        user_uuid = _user_uuid_from_internal(internal_user_id)
+        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         clients = await self._get_clients()
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
@@ -224,7 +241,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
-        user_uuid = _user_uuid_from_internal(internal_user_id)
+        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
 
@@ -243,7 +260,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def activate_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
-        user_uuid = _user_uuid_from_internal(internal_user_id)
+        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
@@ -263,7 +280,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Permanently delete VLESS user from all servers."""
-        user_uuid = _user_uuid_from_internal(internal_user_id)
+        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
 
         clients = await self._get_clients()
         any_deleted = False

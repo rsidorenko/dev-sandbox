@@ -1272,6 +1272,13 @@ async def _render_storefront_response(
 
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
+                # Clear stored UUID so reissue generates a fresh random key
+                pool = _get_pool_from_composition(composition)
+                if pool is not None:
+                    await pool.execute(
+                        "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
+                        id_rec.internal_user_id,
+                    )
                 await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
                 vless_result = await composition.vless_provider.create_user(internal_user_id=id_rec.internal_user_id)
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:

@@ -64,10 +64,14 @@ jobs:
               sed -i "s|^SUBSCRIPTION_BASE_URL=.*|SUBSCRIPTION_BASE_URL=https://bravada-connect.ru|" .env
               echo "  .env updated"
 
-              echo "--- Step 2: Run migration 029 ---"
+              echo "--- Step 2: Run migrations ---"
               cd /opt/bravada
               docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
                 "ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS encrypted_password TEXT NOT NULL DEFAULT '';" 2>&1 || echo "  Column already exists"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
+                "ALTER TABLE user_identities ADD COLUMN IF NOT EXISTS vless_uuid TEXT NULL;" 2>&1 || echo "  Column already exists"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_vless_uuid ON user_identities (vless_uuid) WHERE vless_uuid IS NOT NULL;" 2>&1 || echo "  Index already exists"
 
               echo "--- Step 3: Encrypt panel passwords ---"
               cd /opt/bravada
