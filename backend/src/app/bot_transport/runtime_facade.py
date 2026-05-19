@@ -171,6 +171,8 @@ _MARKDOWN_CODES = frozenset({
     CB_ALL_KEYS,
 })
 
+_MARKDOWN_PREFIXES = (CB_SERVER,)
+
 _CALLBACK_ONLY_STOREFRONT = frozenset(
     {
         CB_MAIN_MENU,
@@ -194,6 +196,9 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
         CB_LINK_EMAIL,
+        CB_REISSUE_KEYS,
+        CB_REISSUE_CONFIRM,
+        CB_RESEND_EMAIL_CODE,
         "add_device",
         "remove_device",
         "store_plans",
@@ -1463,7 +1468,7 @@ async def _render_storefront_response(
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)
 
-    parse_mode = "Markdown" if code in _MARKDOWN_CODES else None
+    parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
 
     return RenderedMessagePackage(
         message_text=text,
