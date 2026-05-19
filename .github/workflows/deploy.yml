@@ -65,41 +65,45 @@ jobs:
                 "ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS encrypted_password TEXT NOT NULL DEFAULT '';" 2>&1 || echo "  Column already exists"
 
               echo "--- Step 3: Encrypt panel passwords ---"
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python -c "
-import asyncio, asyncpg, os, base64, sys
-sys.path.insert(0, '/app/src')
-from app.security.field_encryption import encrypt_field
+              cd /opt/bravada
+              cat > /tmp/encrypt_passwords.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import encrypt_field
 
-async def main():
-    dsn = os.environ.get('DATABASE_URL', '')
-    if not dsn:
-        print('ERROR: DATABASE_URL not set')
-        return
-    conn = await asyncpg.connect(dsn)
-    try:
-        rows = await conn.fetch('SELECT id, panel_password, COALESCE(encrypted_password, \\'\\') AS enc FROM vpn_servers')
-        if not rows:
-            print('No vpn_servers found.')
-            return
-        for row in rows:
-            sid = row['id']
-            enc = row['enc']
-            plain = row['panel_password']
-            if enc:
-                print(f'  server {sid}: already encrypted, skipping')
-                continue
-            if not plain:
-                print(f'  server {sid}: empty password, skipping')
-                continue
-            encrypted = encrypt_field(plain)
-            await conn.execute('UPDATE vpn_servers SET encrypted_password = \$1 WHERE id = \$2', encrypted, sid)
-            print(f'  server {sid}: encrypted')
-        print('Encryption done.')
-    finally:
-        await conn.close()
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                conn = await asyncpg.connect(dsn)
+                try:
+                    rows = await conn.fetch("SELECT id, panel_password, COALESCE(encrypted_password, '') AS enc FROM vpn_servers")
+                    if not rows:
+                        print('No vpn_servers found.')
+                        return
+                    for row in rows:
+                        sid = row['id']
+                        enc = row['enc']
+                        plain = row['panel_password']
+                        if enc:
+                            print(f'  server {sid}: already encrypted, skipping')
+                            continue
+                        if not plain:
+                            print(f'  server {sid}: empty password, skipping')
+                            continue
+                        encrypted = encrypt_field(plain)
+                        await conn.execute('UPDATE vpn_servers SET encrypted_password = $1 WHERE id = $2', encrypted, sid)
+                        print(f'  server {sid}: encrypted')
+                    print('Encryption done.')
+                finally:
+                    await conn.close()
 
-asyncio.run(main())
-" 2>&1 || echo "  Encryption check completed"
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/encrypt_passwords.py backend:/tmp/encrypt_passwords.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY backend python /tmp/encrypt_passwords.py 2>&1 || echo "  Encryption completed or skipped"
+              rm -f /tmp/encrypt_passwords.py
 
               echo "--- Step 4: Restart with new env ---"
               docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
