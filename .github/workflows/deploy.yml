@@ -266,17 +266,11 @@ jobs:
                 for r in rows:
                     url = r['panel_url'].rstrip('/')
                     pwd = decrypt_field(r['enc']) if r['enc'] else r['panel_password']
-                    async with httpx.AsyncClient(verify=False) as c:
+                    async with httpx.AsyncClient(verify=False, follow_redirects=True) as c:
                         lr = await c.post(f'{url}/login', data={'username': r['panel_username'], 'password': pwd})
                         print(f'  Login: {lr.status_code} cookies={dict(c.cookies)}')
-                        for ep in ['/panel/setting/restartXrayService', '/restartXrayService', '/xui/API/inbounds/restartXrayService']:
-                            try:
-                                rr = await c.post(f'{url}{ep}')
-                                print(f'  POST {ep}: {rr.status_code} {rr.text[:200]}')
-                                if rr.status_code == 200:
-                                    break
-                            except Exception as e:
-                                print(f'  POST {ep}: error {e}')
+                        rr = await c.post(f'{url}/panel/setting/restartXrayService')
+                        print(f'  Restart Xray: {rr.status_code} {rr.text[:200]}')
             asyncio.run(main())
             PYEOF
               docker compose -f docker-compose.prod.yml cp /tmp/restart_xray.py backend:/tmp/restart_xray.py 2>/dev/null || true
