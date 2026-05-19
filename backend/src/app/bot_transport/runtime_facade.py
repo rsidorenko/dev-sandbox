@@ -1205,7 +1205,7 @@ async def _render_storefront_response(
                     internal_user_id=id_rec.internal_user_id,
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    text = text_my_keys_menu()
+                    text = text_my_keys_menu(subscription_url=vless_result.config.subscription_url)
                     keyboard = my_keys_menu_keyboard(vless_result.config.servers)
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)

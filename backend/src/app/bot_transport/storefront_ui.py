@@ -298,8 +298,12 @@ def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, A
     return _inline_kb(rows)
 
 
-def text_my_keys_menu() -> str:
-    return "🔐 Ваши ключи\n\nВыберите сервер или нажмите «Все ключи списком»:"
+def text_my_keys_menu(*, subscription_url: str | None = None) -> str:
+    lines = ["🔐 Ваши ключи\n"]
+    if subscription_url:
+        lines.append(f"🔗 Ссылка для подписки:\n`{subscription_url}`\n")
+    lines.append("Выберите сервер или нажмите «Все ключи списком»:")
+    return "\n".join(lines)
 
 
 def text_single_server_key(server: VlessServerConfig) -> str:
