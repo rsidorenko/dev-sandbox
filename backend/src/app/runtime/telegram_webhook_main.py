@@ -150,7 +150,7 @@ def _should_check_postgres_readiness(*, database_url: str | None) -> bool:
     return bool(dsn) or slice1_postgres_repos_requested()
 
 
-async def _default_postgres_readiness_check(*, database_url: str) -> bool:
+async def _default_postgres_readiness_check(database_url: str) -> bool:
     conn = None
     try:
         conn = await asyncpg.connect(database_url, timeout=2)
