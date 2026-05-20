@@ -166,6 +166,14 @@ class XuiApiClient:
             None,
         )
 
+    async def get_client_traffics(self, *, email: str) -> XuiClientResult:
+        """Check if a specific client exists by email via 3x-ui traffics endpoint."""
+        return await self._do_client_op(
+            "GET",
+            f"{self._base}/panel/api/inbounds/getClientTraffics/{email}",
+            None,
+        )
+
     async def update_client(
         self,
         *,
