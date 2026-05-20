@@ -253,6 +253,17 @@ async def handle_verify_code(request: Request) -> JSONResponse:
 
 
 async def handle_logout(request: Request) -> JSONResponse:
+    # Revoke JWT if present
+    token = request.cookies.get("session") or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if token:
+        claims = _decode_jwt(token)
+        if claims and claims.get("jti"):
+            pool: asyncpg.Pool | None = getattr(request.app.state, "pool", None)
+            if pool is not None:
+                await pool.execute(
+                    "INSERT INTO jwt_revocation_list (jti) VALUES ($1) ON CONFLICT DO NOTHING",
+                    claims["jti"],
+                )
     response = JSONResponse({"ok": True})
     response.delete_cookie(key="session", path="/")
     response.delete_cookie(key="csrf_token", path="/")
