@@ -64,6 +64,23 @@ def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
     return claims
 
 
+async def check_jwt_not_revoked(request: Request, claims: dict[str, Any]) -> JSONResponse | None:
+    """Check if JWT jti is in revocation list. Returns error response if revoked, None if OK."""
+    jti = claims.get("jti")
+    if not jti:
+        return None
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        return None
+    row = await pool.fetchrow(
+        "SELECT 1 FROM jwt_revocation_list WHERE jti = $1",
+        jti,
+    )
+    if row is not None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return None
+
+
 def generate_csrf_token() -> str:
     """Generate a random CSRF token."""
     return secrets.token_urlsafe(32)

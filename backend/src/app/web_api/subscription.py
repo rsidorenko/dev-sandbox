@@ -12,11 +12,25 @@ from app.issuance.vless_provider import VlessProviderOutcome
 
 _SUB_RATE_LIMIT_MAX = 30
 _SUB_RATE_LIMIT_WINDOW = 60
+_SUB_RATE_LIMIT_MAX_ENTRIES = 10000
 _sub_rate_limit_store: dict[str, list[float]] = {}
+_sub_last_cleanup: float = 0.0
 
 
 def _check_sub_rate_limit(client_ip: str) -> bool:
+    global _sub_last_cleanup
     now = time.monotonic()
+    # Periodic cleanup: remove old entries every 60s
+    if now - _sub_last_cleanup > _SUB_RATE_LIMIT_WINDOW:
+        expired = [k for k, v in _sub_rate_limit_store.items() if not v or now - v[-1] > _SUB_RATE_LIMIT_WINDOW]
+        for k in expired:
+            del _sub_rate_limit_store[k]
+        # Cap total entries
+        if len(_sub_rate_limit_store) > _SUB_RATE_LIMIT_MAX_ENTRIES:
+            oldest = sorted(_sub_rate_limit_store, key=lambda k: _sub_rate_limit_store[k][-1] if _sub_rate_limit_store[k] else 0)
+            for k in oldest[: len(_sub_rate_limit_store) - _SUB_RATE_LIMIT_MAX_ENTRIES]:
+                del _sub_rate_limit_store[k]
+        _sub_last_cleanup = now
     window = _sub_rate_limit_store.get(client_ip, [])
     window = [t for t in window if now - t < _SUB_RATE_LIMIT_WINDOW]
     if len(window) >= _SUB_RATE_LIMIT_MAX:

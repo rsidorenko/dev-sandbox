@@ -69,6 +69,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "029_vpn_servers_encrypted_password.sql",
         "030_user_vless_uuid.sql",
         "031_subscription_token_ttl.sql",
+        "032_jwt_revocation.sql",
     ]
 
 
