@@ -46,15 +46,33 @@ def _web_sub_url(token: str) -> str:
 
 async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
     row = await pool.fetchrow(
-        "SELECT subscription_token FROM user_identities WHERE internal_user_id = $1",
+        "SELECT subscription_token, subscription_token_expires_at FROM user_identities WHERE internal_user_id = $1",
         internal_user_id,
     )
     if row and row["subscription_token"]:
-        return row["subscription_token"]
+        expires_at = row["subscription_token_expires_at"]
+        if expires_at is None or expires_at > datetime.now(UTC):
+            return row["subscription_token"]
+        # Token expired — regenerate
     token = _generate_subscription_token()
+    expires_at = datetime.now(UTC) + timedelta(days=90)
     await pool.execute(
-        "UPDATE user_identities SET subscription_token = $1 WHERE internal_user_id = $2",
+        "UPDATE user_identities SET subscription_token = $1, subscription_token_expires_at = $2 WHERE internal_user_id = $3",
         token,
+        expires_at,
+        internal_user_id,
+    )
+    return token
+
+
+async def _rotate_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
+    """Generate a new subscription token, invalidating the old one."""
+    token = _generate_subscription_token()
+    expires_at = datetime.now(UTC) + timedelta(days=90)
+    await pool.execute(
+        "UPDATE user_identities SET subscription_token = $1, subscription_token_expires_at = $2 WHERE internal_user_id = $3",
+        token,
+        expires_at,
         internal_user_id,
     )
     return token

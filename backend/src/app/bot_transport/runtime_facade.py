@@ -1279,6 +1279,9 @@ async def _render_storefront_response(
                         "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
                         id_rec.internal_user_id,
                     )
+                    # Rotate subscription token to invalidate old shared links
+                    from app.issuance.xui_vless_provider import _rotate_subscription_token
+                    await _rotate_subscription_token(pool, id_rec.internal_user_id)
                 await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
                 vless_result = await composition.vless_provider.create_user(internal_user_id=id_rec.internal_user_id)
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
