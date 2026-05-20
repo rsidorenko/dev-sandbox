@@ -17,6 +17,7 @@ _DEFAULT_TIMEOUT = 15.0
 _MAX_RETRIES = 2
 _RETRY_DELAY_SECONDS = 1.0
 _ENV_VERIFY_SSL = "XUI_VERIFY_SSL"
+_LOGIN_SESSION_TTL_SECONDS = 300  # re-login at most every 5 minutes
 
 
 def _should_verify_ssl() -> bool:
@@ -64,24 +65,29 @@ class XuiServerConfig:
 class XuiApiClient:
     """HTTP client for a single 3x-ui panel.
 
-    Uses a lazily-created httpx.AsyncClient for connection reuse.
-    Each operation authenticates fresh to avoid stale-session issues.
+    Uses a lazily-created httpx.AsyncClient with connection pool limits.
+    Session cookies are cached — login is skipped if a recent session exists.
     """
 
     def __init__(self, config: XuiServerConfig) -> None:
         self._config = config
         self._base = config.panel_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
+        self._last_login_ts: float = 0.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(verify=_should_verify_ssl())
+            self._client = httpx.AsyncClient(
+                verify=_should_verify_ssl(),
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            )
         return self._client
 
     async def aclose(self) -> None:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
             self._client = None
+        self._last_login_ts = 0.0
 
     @property
     def server_id(self) -> int:
@@ -92,6 +98,8 @@ class XuiApiClient:
         return self._config
 
     async def _login(self) -> bool:
+        import time
+
         client = await self._get_client()
         try:
             resp = await client.post(
@@ -104,11 +112,21 @@ class XuiApiClient:
             )
             if resp.status_code == 200:
                 body = resp.json()
-                return body.get("success", False)
+                if body.get("success", False):
+                    self._last_login_ts = time.monotonic()
+                    return True
             return False
         except Exception:
             _LOGGER.debug("xui login failed for server %s", self._config.server_id, exc_info=True)
             return False
+
+    async def _ensure_session(self) -> bool:
+        """Login only if session is stale or missing. Returns True if session is valid."""
+        import time
+
+        if time.monotonic() - self._last_login_ts < _LOGIN_SESSION_TTL_SECONDS:
+            return True
+        return await self._login()
 
     async def add_client(
         self,
@@ -209,13 +227,18 @@ class XuiApiClient:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 client = await self._get_client()
-                logged_in = await self._login()
-                if not logged_in:
+                # Try with cached session first; re-login only on 401
+                if not await self._ensure_session():
                     return XuiClientResult(outcome=XuiOutcome.UNAUTHORIZED)
                 if method == "GET":
                     resp = await client.get(url, timeout=_DEFAULT_TIMEOUT)
                 else:
                     resp = await client.post(url, json=payload, timeout=_DEFAULT_TIMEOUT)
+                # If session expired mid-request, force re-login and retry once
+                if resp.status_code == 401 and attempt == 0:
+                    self._last_login_ts = 0.0
+                    _LOGGER.debug("xui session expired, re-login server=%s", self._config.server_id)
+                    continue
                 result = _map_response(resp, user_uuid=user_uuid)
                 if result.outcome != XuiOutcome.UNAVAILABLE or attempt == _MAX_RETRIES:
                     return result
