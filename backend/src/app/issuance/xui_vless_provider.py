@@ -6,9 +6,12 @@ across all active VPN servers registered in the ``vpn_servers`` table.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -21,7 +24,7 @@ from app.issuance.vless_provider import (
     VlessServerConfig,
     VlessUserConfig,
 )
-from app.issuance.xui_client import XuiApiClient, XuiOutcome, XuiServerConfig
+from app.issuance.xui_client import XuiApiClient, XuiClientResult, XuiOutcome, XuiServerConfig
 from app.security.field_encryption import decrypt_field
 
 _SUBSCRIPTION_BASE_URL = (
@@ -29,6 +32,8 @@ _SUBSCRIPTION_BASE_URL = (
     or os.environ.get("NEXT_PUBLIC_SITE_URL", "").strip()
     or "https://bravada-connect.ru"
 ).rstrip("/")
+
+_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,14 +155,40 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
 
 
 class XuiVlessProvider(VlessProviderPort):
-    """Real VLESS provider: manages users across all active 3x-ui panels."""
+    """Real VLESS provider: manages users across all active 3x-ui panels.
+
+    Caches XuiApiClient instances with a TTL to avoid recreating HTTP clients
+    on every operation. All panel requests run concurrently via asyncio.gather.
+    """
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+        self._clients: list[XuiApiClient] | None = None
+        self._clients_ts: float = 0.0
 
     async def _get_clients(self) -> list[XuiApiClient]:
+        if self._clients is not None and time.monotonic() - self._clients_ts < _CACHE_TTL_SECONDS:
+            return self._clients
+        # Close old clients before creating new ones
+        if self._clients is not None:
+            await self._close_clients()
         configs = await _load_server_configs(self._pool)
-        return [XuiApiClient(c) for c in configs]
+        self._clients = [XuiApiClient(c) for c in configs]
+        self._clients_ts = time.monotonic()
+        return self._clients
+
+    async def _close_clients(self) -> None:
+        if self._clients is None:
+            return
+        for c in self._clients:
+            with contextlib.suppress(Exception):
+                await c.aclose()
+        self._clients = None
+        self._clients_ts = 0.0
+
+    async def aclose(self) -> None:
+        """Close all cached HTTP clients. Call on shutdown."""
+        await self._close_clients()
 
     async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
@@ -170,8 +201,7 @@ class XuiVlessProvider(VlessProviderPort):
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        successes: list[tuple[XuiApiClient, XuiServerConfig]] = []
-        for client in clients:
+        async def _add(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult]:
             result = await client.add_client(
                 user_uuid=user_uuid,
                 email=email,
@@ -179,8 +209,18 @@ class XuiVlessProvider(VlessProviderPort):
                 enable=True,
                 limit_ip=limit_ip,
             )
+            return client, result
+
+        results = await asyncio.gather(*[_add(c) for c in clients], return_exceptions=True)
+
+        successes: list[XuiApiClient] = []
+        for item in results:
+            if isinstance(item, Exception):
+                _LOGGER.warning("xui add_client exception: %s", item)
+                continue
+            client, result = item
             if result.outcome == XuiOutcome.SUCCESS:
-                successes.append((client, client.server_config))
+                successes.append(client)
             else:
                 _LOGGER.warning(
                     "xui add_client failed server=%s outcome=%s",
@@ -193,12 +233,12 @@ class XuiVlessProvider(VlessProviderPort):
 
         servers = tuple(
             VlessServerConfig(
-                server_label=sc.label,
-                country_code=sc.country_code,
-                country_flag=sc.country_flag,
-                vless_link=_build_vless_link(sc, user_uuid),
+                server_label=c.server_config.label,
+                country_code=c.server_config.country_code,
+                country_flag=c.server_config.country_flag,
+                vless_link=_build_vless_link(c.server_config, user_uuid),
             )
-            for _, sc in successes
+            for c in successes
         )
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
@@ -214,10 +254,17 @@ class XuiVlessProvider(VlessProviderPort):
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        servers: list[VlessServerConfig] = []
-        for client in clients:
-            # Check if client exists on this server by trying to get it
+        async def _check(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult]:
             result = await client.get_client(email=_email_from_internal(internal_user_id))
+            return client, result
+
+        results = await asyncio.gather(*[_check(c) for c in clients], return_exceptions=True)
+
+        servers: list[VlessServerConfig] = []
+        for item in results:
+            if isinstance(item, Exception):
+                continue
+            client, result = item
             if result.outcome == XuiOutcome.SUCCESS:
                 servers.append(
                     VlessServerConfig(
@@ -246,13 +293,18 @@ class XuiVlessProvider(VlessProviderPort):
         expiry = _expiry_timestamp()
 
         clients = await self._get_clients()
-        any_disabled = False
-        for client in clients:
-            result = await client.disable_client(
-                user_uuid=user_uuid, email=email, expiry_ts=expiry
-            )
-            if result.outcome == XuiOutcome.SUCCESS:
-                any_disabled = True
+        if not clients:
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+        async def _disable(client: XuiApiClient) -> XuiClientResult:
+            return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
+
+        results = await asyncio.gather(*[_disable(c) for c in clients], return_exceptions=True)
+
+        any_disabled = any(
+            not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
+            for r in results
+        )
 
         if any_disabled:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
@@ -266,13 +318,20 @@ class XuiVlessProvider(VlessProviderPort):
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
-        any_enabled = False
-        for client in clients:
-            result = await client.enable_client(
+        if not clients:
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+        async def _enable(client: XuiApiClient) -> XuiClientResult:
+            return await client.enable_client(
                 user_uuid=user_uuid, email=email, expiry_ts=expiry, limit_ip=limit_ip
             )
-            if result.outcome == XuiOutcome.SUCCESS:
-                any_enabled = True
+
+        results = await asyncio.gather(*[_enable(c) for c in clients], return_exceptions=True)
+
+        any_enabled = any(
+            not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
+            for r in results
+        )
 
         if any_enabled:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
@@ -283,11 +342,18 @@ class XuiVlessProvider(VlessProviderPort):
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
 
         clients = await self._get_clients()
-        any_deleted = False
-        for client in clients:
-            result = await client.delete_client(user_uuid=user_uuid)
-            if result.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND):
-                any_deleted = True
+        if not clients:
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+        async def _delete(client: XuiApiClient) -> XuiClientResult:
+            return await client.delete_client(user_uuid=user_uuid)
+
+        results = await asyncio.gather(*[_delete(c) for c in clients], return_exceptions=True)
+
+        any_deleted = any(
+            not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND)
+            for r in results
+        )
 
         if any_deleted:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
