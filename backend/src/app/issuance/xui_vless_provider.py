@@ -255,7 +255,7 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
         async def _check(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult]:
-            result = await client.get_client(email=_email_from_internal(internal_user_id))
+            result = await client.get_client_traffics(email=_email_from_internal(internal_user_id))
             return client, result
 
         results = await asyncio.gather(*[_check(c) for c in clients], return_exceptions=True)
