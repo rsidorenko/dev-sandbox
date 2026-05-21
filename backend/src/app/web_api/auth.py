@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 
 from app.email.sender import send_verification_code
 from app.web_api.helpers import generate_code, get_jwt_secret, hash_code, safe_json_error, truthy, validate_email
-from app.web_api.middleware import generate_csrf_token
+from app.web_api.middleware import _decode_jwt, generate_csrf_token
 
 _LOGGER = logging.getLogger(__name__)
 

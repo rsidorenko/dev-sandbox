@@ -19,8 +19,11 @@ _VALID_PLANS = {"1m", "3m", "6m", "plan_1m", "plan_3m", "plan_6m"}
 _PLAN_DURATION = {"1m": 1, "3m": 3, "6m": 6, "plan_1m": 1, "plan_3m": 3, "plan_6m": 6}
 
 
-def _safe_json_error(status_code: int, error: str) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": error}, status_code=status_code)
+def _safe_json_error(status_code: int, error: str, detail: str = "") -> JSONResponse:
+    body: dict = {"ok": False, "error": error}
+    if detail:
+        body["detail"] = detail
+    return JSONResponse(body, status_code=status_code)
 
 
 async def handle_get_profile(request: Request) -> JSONResponse:
