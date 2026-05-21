@@ -48,6 +48,7 @@ class NotificationScheduler:
         self._bot_token = bot_token
         self._vless_provider = vless_provider
         self._running = False
+        self._http_client: httpx.AsyncClient | None = None
 
     async def run(self) -> None:
         """Main loop: run checks every hour."""
@@ -61,6 +62,17 @@ class NotificationScheduler:
 
     def stop(self) -> None:
         self._running = False
+
+    async def aclose(self) -> None:
+        if self._http_client is not None:
+            with contextlib.suppress(Exception):
+                await self._http_client.aclose()
+            self._http_client = None
+
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=15.0)
+        return self._http_client
 
     async def _sleep(self, seconds: int) -> None:
         """Interruptible sleep."""
@@ -111,25 +123,24 @@ class NotificationScheduler:
 
         # Send via Telegram Bot API
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"https://api.telegram.org/bot{self._bot_token}/sendMessage",
-                    json={
-                        "chat_id": telegram_user_id,
-                        "text": text,
-                        "parse_mode": "Markdown",
-                        "reply_markup": keyboard,
-                    },
-                    timeout=15.0,
+            client = await self._get_http_client()
+            resp = await client.post(
+                f"https://api.telegram.org/bot{self._bot_token}/sendMessage",
+                json={
+                    "chat_id": telegram_user_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": keyboard,
+                },
+            )
+            if resp.status_code != 200:
+                _LOGGER.warning(
+                    "notification_send_failed user=%s type=%s status=%d",
+                    internal_user_id,
+                    notification_type,
+                    resp.status_code,
                 )
-                if resp.status_code != 200:
-                    _LOGGER.warning(
-                        "notification_send_failed user=%s type=%s status=%d",
-                        internal_user_id,
-                        notification_type,
-                        resp.status_code,
-                    )
-                    return False
+                return False
         except Exception:
             _LOGGER.debug("notification_send_error user=%s", internal_user_id, exc_info=True)
             return False
@@ -177,9 +188,16 @@ class NotificationScheduler:
         for row in rows:
             uid = row["internal_user_id"]
             # Deactivate VLESS keys
-            with contextlib.suppress(Exception):
-                await self._vless_provider.revoke_user(internal_user_id=uid)
-            # Update state
+            revoke_ok = False
+            try:
+                result = await self._vless_provider.revoke_user(internal_user_id=uid)
+                revoke_ok = result.outcome in (VlessProviderOutcome.SUCCESS, VlessProviderOutcome.NOT_FOUND)
+            except Exception:
+                _LOGGER.exception("notification_scheduler.revoke_failed user=%s", uid)
+            if not revoke_ok:
+                _LOGGER.warning("notification_scheduler.revoke_skipped user=%s — will retry next cycle", uid)
+                continue
+            # Update state only after successful revoke
             await self._pool.execute(
                 """UPDATE subscription_snapshots
                    SET state_label = 'expired', keys_deactivated_at = NOW(), updated_at = NOW()
@@ -227,8 +245,15 @@ class NotificationScheduler:
         )
         for row in rows:
             uid = row["internal_user_id"]
-            with contextlib.suppress(Exception):
-                await self._vless_provider.revoke_user(internal_user_id=uid)
+            revoke_ok = False
+            try:
+                result = await self._vless_provider.revoke_user(internal_user_id=uid)
+                revoke_ok = result.outcome in (VlessProviderOutcome.SUCCESS, VlessProviderOutcome.NOT_FOUND)
+            except Exception:
+                _LOGGER.exception("notification_scheduler.revoke_failed user=%s", uid)
+            if not revoke_ok:
+                _LOGGER.warning("notification_scheduler.revoke_skipped user=%s — will retry next cycle", uid)
+                continue
             await self._pool.execute(
                 """UPDATE subscription_snapshots
                    SET state_label = 'expired', keys_deactivated_at = NOW(), updated_at = NOW()
@@ -254,8 +279,15 @@ class NotificationScheduler:
         )
         for row in rows:
             uid = row["internal_user_id"]
-            with contextlib.suppress(Exception):
-                await self._vless_provider.delete_user(internal_user_id=uid)
+            delete_ok = False
+            try:
+                result = await self._vless_provider.delete_user(internal_user_id=uid)
+                delete_ok = result.outcome in (VlessProviderOutcome.SUCCESS, VlessProviderOutcome.NOT_FOUND)
+            except Exception:
+                _LOGGER.exception("notification_scheduler.delete_failed user=%s", uid)
+            if not delete_ok:
+                _LOGGER.warning("notification_scheduler.delete_skipped user=%s — will retry next cycle", uid)
+                continue
             await self._pool.execute(
                 """UPDATE subscription_snapshots
                    SET keys_deleted_at = NOW(), updated_at = NOW()

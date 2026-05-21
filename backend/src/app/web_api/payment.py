@@ -29,7 +29,7 @@ def _truthy(raw: str | None) -> bool:
 
 
 async def handle_create_payment(request: Request) -> JSONResponse:
-    auth_result = require_auth(request)
+    auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
 
@@ -82,7 +82,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
 
 
 async def handle_get_payment_status(request: Request) -> JSONResponse:
-    auth_result = require_auth(request)
+    auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
 

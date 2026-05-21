@@ -63,9 +63,8 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if expires_at is not None and expires_at <= datetime.now(UTC):
         return PlainTextResponse("token expired", status_code=410)
 
-    from app.issuance.xui_vless_provider import XuiVlessProvider
+    provider = request.app.state.vless_provider
 
-    provider = XuiVlessProvider(pool)
     result = await provider.get_user_config(internal_user_id=row["internal_user_id"])
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)

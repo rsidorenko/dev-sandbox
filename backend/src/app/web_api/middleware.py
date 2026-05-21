@@ -51,7 +51,7 @@ def _decode_jwt(token: str) -> dict[str, Any] | None:
     return claims
 
 
-def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
+async def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
     """Extract and validate JWT from session cookie. Returns claims or error response."""
     token = request.cookies.get("session")
     if not token:
@@ -61,6 +61,9 @@ def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
     claims = _decode_jwt(token)
     if claims is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    revocation_err = await check_jwt_not_revoked(request, claims)
+    if revocation_err is not None:
+        return revocation_err
     return claims
 
 

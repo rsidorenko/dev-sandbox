@@ -223,7 +223,6 @@ async def handle_verify_code(request: Request) -> JSONResponse:
 
     response = JSONResponse({
         "ok": True,
-        "token": token,
         "csrf_token": csrf_token,
         "user": {
             "telegram_user_id": telegram_user_id,

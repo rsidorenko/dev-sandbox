@@ -32,7 +32,7 @@ async def handle_get_profile(request: Request) -> JSONResponse:
 
 
 async def _handle_get_profile_inner(request: Request) -> JSONResponse:
-    auth_result = require_auth(request)
+    auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
 
@@ -129,7 +129,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         )
         referral = {
             "code": ref_code_row["referral_code"],
-            "balance_rubles": (balance_row["balance_kopecks"] or 0) / 100 if balance_row else 0,
+            "balance_rubles": f"{(balance_row['balance_kopecks'] or 0) / 100:.2f}" if balance_row else "0.00",
             "referrals_count": ref_count or 0,
         }
 
@@ -147,7 +147,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
 
 async def handle_get_keys(request: Request) -> JSONResponse:
     try:
-        auth_result = require_auth(request)
+        auth_result = await require_auth(request)
         if isinstance(auth_result, JSONResponse):
             return auth_result
 
@@ -193,7 +193,7 @@ async def handle_get_keys(request: Request) -> JSONResponse:
 
 async def handle_reissue_keys(request: Request) -> JSONResponse:
     try:
-        auth_result = require_auth(request)
+        auth_result = await require_auth(request)
         if isinstance(auth_result, JSONResponse):
             return auth_result
 
@@ -237,7 +237,7 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
 
 
 async def _get_identity(request: Request) -> tuple[asyncpg.Pool, str] | JSONResponse:
-    auth_result = require_auth(request)
+    auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
     telegram_user_id = auth_result.get("telegram_user_id")
@@ -267,13 +267,19 @@ def _next_expiry(current_until: datetime | None, months: int) -> datetime:
 
 
 async def handle_renew_subscription(request: Request) -> JSONResponse:
+    """Renew subscription — requires active payment confirmation.
+
+    This endpoint is a placeholder until YooKassa integration is complete.
+    Currently returns payment_unavailable to prevent free renewals via API.
+    """
     try:
         result = await _get_identity(request)
         if isinstance(result, JSONResponse):
             return result
-        pool, internal_user_id = result
-
-        snapshot = await pool.fetchrow(
+        return _safe_json_error(402, "payment_required", "Subscription renewal requires a confirmed payment")
+    except Exception:
+        _LOGGER.exception("renew_error")
+        return _safe_json_error(500, "internal_error")
             """SELECT plan_id, active_until_utc, device_count, keys_deactivated_at, keys_deleted_at
                FROM subscription_snapshots WHERE internal_user_id = $1""",
             internal_user_id,
@@ -310,40 +316,16 @@ async def handle_renew_subscription(request: Request) -> JSONResponse:
 
 
 async def handle_change_plan(request: Request) -> JSONResponse:
-    try:
-        data = await request.json()
-    except Exception:
-        return _safe_json_error(400, "invalid_request")
+    """Change subscription plan — requires payment for the new plan.
 
-    plan_id = data.get("plan_id", "").strip()
-    if plan_id not in _VALID_PLANS:
-        return _safe_json_error(400, "invalid_plan")
-
+    This endpoint is a placeholder until YooKassa integration is complete.
+    Currently returns payment_unavailable to prevent free plan changes via API.
+    """
     try:
         result = await _get_identity(request)
         if isinstance(result, JSONResponse):
             return result
-        pool, internal_user_id = result
-
-        snapshot = await pool.fetchrow(
-            "SELECT active_until_utc FROM subscription_snapshots WHERE internal_user_id = $1",
-            internal_user_id,
-        )
-        if snapshot is None:
-            return _safe_json_error(404, "no_subscription")
-
-        months = _plan_months(plan_id)
-        new_until = _next_expiry(snapshot["active_until_utc"], months)
-
-        await pool.execute(
-            """UPDATE subscription_snapshots
-               SET plan_id = $1, active_until_utc = $2, updated_at = NOW()
-               WHERE internal_user_id = $3""",
-            plan_id,
-            new_until,
-            internal_user_id,
-        )
-        return JSONResponse({"ok": True, "plan_id": plan_id, "active_until": new_until.isoformat()})
+        return _safe_json_error(402, "payment_required", "Plan change requires a confirmed payment")
     except Exception:
         _LOGGER.exception("change_plan_error")
         return _safe_json_error(500, "internal_error")
@@ -408,7 +390,7 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
     double-trial under concurrent requests.
     """
     try:
-        auth_result = require_auth(request)
+        auth_result = await require_auth(request)
         if isinstance(auth_result, JSONResponse):
             return auth_result
 

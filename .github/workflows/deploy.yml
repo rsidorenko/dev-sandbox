@@ -29,8 +29,8 @@ jobs:
         env:
           RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
-          FIELD_ENCRYPTION_KEY: "aXXXj3z+PJk93aBlp5PmYbyvPNuFpJGlvc4DfMslg9A="
-          INTERNAL_API_SECRET: "Mbht2HC-AXBAbX5DQkjWwQinb0GY7JZfxby37o5JPaSjA5iQSj7le2Mu_2WvZiFP"
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+          INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}

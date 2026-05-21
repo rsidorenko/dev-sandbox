@@ -11,6 +11,7 @@ from app.application.bootstrap import Slice1Composition, build_slice1_compositio
 from app.application.telegram_access_resend import IssuanceCurrentStateRef
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
+from app.issuance.vless_issuance_adapter import VlessIssuanceAdapter
 from app.issuance.vless_provider import StubVlessProvider
 from app.issuance.xui_vless_provider import XuiVlessProvider
 from app.persistence.issuance_state_record import IssuanceStatePersistence
@@ -89,7 +90,7 @@ async def resolve_slice1_composition_for_runtime(
     issuance_state_repo = PostgresIssuanceStateRepository(pool)
     composition = build_slice1_composition(
         issuance_service=IssuanceService(
-            FakeIssuanceProvider(FakeProviderMode.SUCCESS),
+            VlessIssuanceAdapter(vless_provider),
             operational_state=issuance_state_repo,
         ),
         issuance_state_lookup=_PostgresIssuanceStateLookup(issuance_state_repo),
