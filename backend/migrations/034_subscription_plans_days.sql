@@ -18,15 +18,15 @@ ALTER TABLE subscription_plans ADD CONSTRAINT subscription_plans_duration_days_c
 
 -- Insert new day-based plans
 INSERT INTO subscription_plans (plan_id, duration_months, duration_days, price_rubles, default_device_limit, extra_device_price_rubles) VALUES
-    ('1d',  0, 1,   12,   5, 80),
-    ('7d',  0, 7,   99,   5, 80),
-    ('14d', 0, 14,  169,  5, 80),
-    ('365d', 0, 365, 2199, 5, 80)
+    ('1d',  0, 1,   15,   5, 80),
+    ('7d',  0, 7,   100,  5, 80),
+    ('14d', 0, 14,  180,  5, 80),
+    ('365d', 0, 365, 3000, 5, 80)
 ON CONFLICT (plan_id) DO UPDATE SET
     duration_days = EXCLUDED.duration_days,
     price_rubles = EXCLUDED.price_rubles;
 
--- Update existing plans to set correct duration_days and prices
-UPDATE subscription_plans SET duration_days = 30,  price_rubles = 249  WHERE plan_id = '1m';
-UPDATE subscription_plans SET duration_days = 90,  price_rubles = 699  WHERE plan_id = '3m';
-UPDATE subscription_plans SET duration_days = 180, price_rubles = 1259 WHERE plan_id = '6m';
+-- Update existing plans to set correct duration_days
+UPDATE subscription_plans SET duration_days = 30  WHERE plan_id = '1m';
+UPDATE subscription_plans SET duration_days = 90  WHERE plan_id = '3m';
+UPDATE subscription_plans SET duration_days = 180 WHERE plan_id = '6m';
