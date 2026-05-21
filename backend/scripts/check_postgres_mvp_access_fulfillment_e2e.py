@@ -570,6 +570,13 @@ async def run_postgres_mvp_access_fulfillment_e2e() -> None:
         await _run_billing_ingest_apply_for_active_subscription(ids, dsn)
         await _assert_active_subscription(pool, ids)
         composition = await _resolve_postgres_composition_with_existing_pool(pool)
+
+        # The composition uses StubVlessProvider (no VPN servers in CI DB).
+        # Seed the provider's in-memory user set so get_user_config succeeds
+        # during the /get_access RESEND flow's get_safe_delivery_instructions call.
+        if composition.vless_provider is not None:
+            await composition.vless_provider.create_user(internal_user_id=ids.internal_user_id)
+
         adm01_lookup_handler = _build_adm01_lookup_handler_with_existing_pool(pool)
         adm02_audit_sink = PostgresAdm02EnsureAccessAuditSink(
             pool,
