@@ -16,7 +16,7 @@ def test_get_plan_1m():
     plan = get_plan("1m")
     assert plan is not None
     assert plan.duration_days == 30
-    assert plan.price_rubles == 300
+    assert plan.price_rubles == 249
     assert plan.default_device_limit == 5
     assert plan.extra_device_price_rubles == 80
 
@@ -25,42 +25,42 @@ def test_get_plan_3m():
     plan = get_plan("3m")
     assert plan is not None
     assert plan.duration_days == 90
-    assert plan.price_rubles == 750
+    assert plan.price_rubles == 699
 
 
 def test_get_plan_6m():
     plan = get_plan("6m")
     assert plan is not None
     assert plan.duration_days == 180
-    assert plan.price_rubles == 1350
+    assert plan.price_rubles == 1259
 
 
 def test_get_plan_1d():
     plan = get_plan("1d")
     assert plan is not None
     assert plan.duration_days == 1
-    assert plan.price_rubles == 15
+    assert plan.price_rubles == 12
 
 
 def test_get_plan_7d():
     plan = get_plan("7d")
     assert plan is not None
     assert plan.duration_days == 7
-    assert plan.price_rubles == 100
+    assert plan.price_rubles == 99
 
 
 def test_get_plan_14d():
     plan = get_plan("14d")
     assert plan is not None
     assert plan.duration_days == 14
-    assert plan.price_rubles == 180
+    assert plan.price_rubles == 169
 
 
 def test_get_plan_365d():
     plan = get_plan("365d")
     assert plan is not None
     assert plan.duration_days == 365
-    assert plan.price_rubles == 3000
+    assert plan.price_rubles == 2199
 
 
 def test_get_plan_unknown():
@@ -84,25 +84,25 @@ def test_get_all_plans():
 
 def test_calculate_total_price_default_devices():
     plan = get_plan("1m")
-    assert calculate_total_price(plan, 5) == 300
+    assert calculate_total_price(plan, 5) == 249
 
 
 def test_calculate_total_price_extra_devices():
     plan = get_plan("1m")
     # extra 2 devices × 80₽/30 per day × 30 days = 2 × 80 = 160
-    assert calculate_total_price(plan, 7) == 300 + 2 * round(80 / 30 * 30)
+    assert calculate_total_price(plan, 7) == 249 + 2 * round(80 / 30 * 30)
 
 
 def test_calculate_total_price_no_extra():
     plan = get_plan("3m")
-    assert calculate_total_price(plan, 5) == 750
+    assert calculate_total_price(plan, 5) == 699
 
 
 def test_calculate_total_price_many_extra():
     plan = get_plan("6m")
     # 5 extra × 80₽/30 per day × 180 days
     extra = 5 * round(80 / 30 * 180)  # 2400
-    assert calculate_total_price(plan, 10) == 1350 + extra
+    assert calculate_total_price(plan, 10) == 1259 + extra
 
 
 def test_custom_plan():

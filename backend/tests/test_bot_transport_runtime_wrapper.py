@@ -148,7 +148,7 @@ def test_runtime_wrapper_private_unknown_slash_send_invalid_input() -> None:
         raw = _update(message=_base_message(text="/unknown"))
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
-        assert action.message_text == "Ввод некорректен. Попробуйте снова."
+        assert action.message_text == "❌ Ввод некорректен. Попробуйте снова."
         assert action.correlation_id == cid
 
     _run(main())

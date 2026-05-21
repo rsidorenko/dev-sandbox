@@ -135,21 +135,21 @@ _awaiting_custom_days: dict[int, bool] = {}
 def _handle_custom_days_input(
     uid: int,
     user_text: str,
-) -> tuple[str, dict[str, Any] | None]:
-    """Process user's custom days text input."""
+) -> tuple[str, dict[str, Any] | None, bool]:
+    """Process user's custom days text input. Returns (text, keyboard, is_valid)."""
     try:
         days = int(user_text)
     except ValueError:
-        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard(), False
     if not (1 <= days <= 365):
-        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard(), False
     plan_id = make_custom_plan_id(days)
     plan = get_plan(plan_id)
     if plan is None:
-        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard(), False
     text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT)
     keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
-    return text, keyboard
+    return text, keyboard, True
 
 
 # ─── User ID extraction ──────────────────────────────────────────────
@@ -1416,18 +1416,35 @@ async def _render_storefront_response(
             keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
 
     elif code.startswith(CB_DEVICES):
-        parts = code[len(CB_DEVICES) :].split(":")
-        plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
+        rest = code[len(CB_DEVICES) :]
+        # plan_id may contain colons (e.g. "custom:45"), device_count is always last
+        sep = rest.rfind(":")
+        if sep >= 0:
+            plan_id = rest[:sep]
+            try:
+                device_count = int(rest[sep + 1 :])
+            except ValueError:
+                device_count = DEVICES_DEFAULT
+        else:
+            plan_id = rest
+            device_count = DEVICES_DEFAULT
         plan = get_plan(plan_id)
         if plan is not None:
             text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, device_count)
             keyboard = device_select_keyboard(plan_id, device_count)
 
     elif code.startswith(CB_CONFIRM_PAY):
-        parts = code[len(CB_CONFIRM_PAY) :].split(":")
-        plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
+        rest = code[len(CB_CONFIRM_PAY) :]
+        sep = rest.rfind(":")
+        if sep >= 0:
+            plan_id = rest[:sep]
+            try:
+                device_count = int(rest[sep + 1 :])
+            except ValueError:
+                device_count = DEVICES_DEFAULT
+        else:
+            plan_id = rest
+            device_count = DEVICES_DEFAULT
         summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
         if summary is not None:
             user_balance_kopecks = 0
@@ -1457,9 +1474,17 @@ async def _render_storefront_response(
         keyboard = back_only_keyboard(CB_BUY_VPN)
 
     elif code.startswith(CB_PAY_BALANCE):
-        parts = code[len(CB_PAY_BALANCE) :].split(":")
-        plan_id = parts[0] if parts else ""
-        device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
+        rest = code[len(CB_PAY_BALANCE) :]
+        sep = rest.rfind(":")
+        if sep >= 0:
+            plan_id = rest[:sep]
+            try:
+                device_count = int(rest[sep + 1 :])
+            except ValueError:
+                device_count = DEVICES_DEFAULT
+        else:
+            plan_id = rest
+            device_count = DEVICES_DEFAULT
         text, keyboard = await _process_balance_payment(
             composition,
             uid,
@@ -1542,8 +1567,10 @@ async def handle_slice1_telegram_update_to_rendered_message(
             user_text = msg.get("text", "")
             if isinstance(user_text, str) and user_text.strip() and not user_text.startswith("/"):
                 # Handle custom days input
-                if _awaiting_custom_days.pop(uid, False):
-                    custom_text, custom_keyboard = _handle_custom_days_input(uid, user_text.strip())
+                if _awaiting_custom_days.get(uid, False):
+                    custom_text, custom_keyboard, is_valid = _handle_custom_days_input(uid, user_text.strip())
+                    if is_valid:
+                        _awaiting_custom_days.pop(uid, None)
                     return RenderedMessagePackage(
                         message_text=custom_text,
                         action_keys=(),

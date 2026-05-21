@@ -14,6 +14,7 @@ from app.bot_transport.storefront_ui import (
     CB_BALANCE,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
+    CB_CONNECT_DEVICE,
     CB_DEVICES,
     CB_HELP,
     CB_MAIN_MENU,
@@ -23,7 +24,6 @@ from app.bot_transport.storefront_ui import (
     CB_REFERRAL,
     CB_ROUTER,
     CB_SETTINGS,
-    CB_CONNECT_DEVICE,
     text_buy_vpn_intro,
     text_help,
     text_keys_not_available,
@@ -288,7 +288,7 @@ def test_facade_callback_plan_select_renders_device_select() -> None:
         raw = _callback_update(callback_data=f"{CB_PLAN}1m")
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert "1 мес" in pkg.message_text
-        assert "300" in pkg.message_text
+        assert "249" in pkg.message_text
         kb = pkg.reply_markup
         assert kb is not None
         buttons = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
@@ -341,6 +341,7 @@ def test_facade_callback_connect_device() -> None:
         raw = _callback_update(callback_data=CB_CONNECT_DEVICE)
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         from app.bot_transport.storefront_ui import text_connect_device
+
         assert pkg.message_text == text_connect_device()
 
     _run(main())
