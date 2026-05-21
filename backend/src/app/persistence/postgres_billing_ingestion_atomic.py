@@ -30,38 +30,51 @@ class PostgresAtomicBillingIngestion:
         self,
         input_: NormalizedBillingFactInput,
     ) -> IngestNormalizedBillingFactResult:
-        """Validate, then append ledger and audit in a single database transaction.
-
-        * New fact: if the audit insert fails, the whole transaction rolls back (no new ledger row).
-        * Idempotent replay: if the audit insert fails, the prior committed ledger row is unchanged
-          and no new audit row is written for this attempt; the error propagates.
-        """
         constructed = build_ledger_record_for_ingest(input_)
         try:
             async with self._pool.acquire() as conn, conn.transaction():
-                stored, inserted_new = await PostgresBillingEventsLedgerRepository.append_or_get_in_connection(
-                    conn,
-                    constructed,
-                )
-                is_replay = not inserted_new
-                audit_outcome = (
-                    BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
-                )
-                await PostgresBillingIngestionAuditAppender.append_in_connection(
-                    conn,
-                    BillingIngestionAuditRecord(
-                        internal_fact_ref=stored.internal_fact_ref,
-                        billing_provider_key=stored.billing_provider_key,
-                        external_event_id=stored.external_event_id,
-                        ingestion_correlation_id=stored.ingestion_correlation_id,
-                        operation=BILLING_INGESTION_AUDIT_OPERATION,
-                        outcome=audit_outcome,
-                        billing_event_status=stored.status.value,
-                        is_idempotent_replay=is_replay,
-                    ),
-                )
+                return await self._ingest_in_connection(conn, constructed)
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
+
+    async def ingest_in_connection(
+        self,
+        conn: asyncpg.Connection,
+        input_: NormalizedBillingFactInput,
+    ) -> IngestNormalizedBillingFactResult:
+        """Ingest using an existing connection (caller manages the transaction)."""
+        constructed = build_ledger_record_for_ingest(input_)
+        try:
+            return await self._ingest_in_connection(conn, constructed)
+        except (asyncpg.PostgresError, OSError) as exc:
+            raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
+
+    async def _ingest_in_connection(
+        self,
+        conn: asyncpg.Connection,
+        constructed,
+    ) -> IngestNormalizedBillingFactResult:
+        stored, inserted_new = await PostgresBillingEventsLedgerRepository.append_or_get_in_connection(
+            conn,
+            constructed,
+        )
+        is_replay = not inserted_new
+        audit_outcome = (
+            BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
+        )
+        await PostgresBillingIngestionAuditAppender.append_in_connection(
+            conn,
+            BillingIngestionAuditRecord(
+                internal_fact_ref=stored.internal_fact_ref,
+                billing_provider_key=stored.billing_provider_key,
+                external_event_id=stored.external_event_id,
+                ingestion_correlation_id=stored.ingestion_correlation_id,
+                operation=BILLING_INGESTION_AUDIT_OPERATION,
+                outcome=audit_outcome,
+                billing_event_status=stored.status.value,
+                is_idempotent_replay=is_replay,
+            ),
+        )
         return IngestNormalizedBillingFactResult(
             record=stored,
             is_idempotent_replay=is_replay,

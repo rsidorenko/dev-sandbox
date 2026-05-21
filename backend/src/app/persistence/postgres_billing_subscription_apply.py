@@ -67,6 +67,22 @@ class PostgresAtomicUC05SubscriptionApply:
         except (asyncpg.PostgresError, OSError) as exc:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
 
+    async def apply_in_connection(
+        self,
+        conn: asyncpg.Connection,
+        internal_fact_ref: str,
+    ) -> UC05PostgresApplyResult:
+        """Apply using an existing connection (caller manages the transaction)."""
+        try:
+            validate_internal_fact_ref_uc05(internal_fact_ref)
+        except ValidationError:
+            return UC05PostgresApplyResult(
+                operation_outcome=OperationOutcomeCategory.VALIDATION_FAILURE,
+                idempotent_replay=False,
+                apply_outcome=None,
+            )
+        return await self._apply_in_transaction(conn, internal_fact_ref)
+
     async def _apply_in_transaction(
         self,
         conn: asyncpg.Connection,

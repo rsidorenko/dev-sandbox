@@ -555,25 +555,27 @@ def create_payment_fulfillment_ingress_app(
         try:
             identity_repo = PostgresUserIdentityRepository(pool)
             await identity_repo.create_if_absent(telegram_user_id)
-            atomic_ingest = PostgresAtomicBillingIngestion(pool)
-            ingest_result = await atomic_ingest.ingest_normalized_billing_fact(ingest_input)
-            apply = PostgresAtomicUC05SubscriptionApply(pool)
-            apply_result = await apply.apply_by_internal_fact_ref(ingest_result.record.internal_fact_ref)
-            if apply_result.operation_outcome in (
-                OperationOutcomeCategory.SUCCESS,
-                OperationOutcomeCategory.IDEMPOTENT_NOOP,
-            ):
-                snapshots = PostgresSubscriptionSnapshotReader(pool)
-                snapshot_plan_id = _plan_id_from_period_days(period_days)
-                await snapshots.upsert_state(
-                    SubscriptionSnapshot(
-                        internal_user_id=internal_user_id,
-                        state_label="active",
-                        active_until_utc=active_until_utc,
-                        plan_id=snapshot_plan_id,
-                        device_count=DEFAULT_DEVICE_LIMIT,
+
+            async with pool.acquire() as conn, conn.transaction():
+                atomic_ingest = PostgresAtomicBillingIngestion(pool)
+                ingest_result = await atomic_ingest.ingest_in_connection(conn, ingest_input)
+                apply = PostgresAtomicUC05SubscriptionApply(pool)
+                apply_result = await apply.apply_in_connection(conn, ingest_result.record.internal_fact_ref)
+                if apply_result.operation_outcome in (
+                    OperationOutcomeCategory.SUCCESS,
+                    OperationOutcomeCategory.IDEMPOTENT_NOOP,
+                ):
+                    snapshot_plan_id = _plan_id_from_period_days(period_days)
+                    await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
+                        conn,
+                        SubscriptionSnapshot(
+                            internal_user_id=internal_user_id,
+                            state_label="active",
+                            active_until_utc=active_until_utc,
+                            plan_id=snapshot_plan_id,
+                            device_count=DEFAULT_DEVICE_LIMIT,
+                        ),
                     )
-                )
                 if (
                     notify_activation is not None
                     and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS

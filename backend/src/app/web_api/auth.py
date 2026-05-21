@@ -79,6 +79,11 @@ async def handle_send_code(request: Request) -> JSONResponse:
     if not validate_email(email):
         return _safe_json_error(400, "invalid_email")
 
+    # Check SMTP is configured before doing anything
+    from app.email.sender import load_smtp_config
+    if load_smtp_config() is None:
+        return _safe_json_error(503, "email_not_configured", "Email service is not available")
+
     pool: asyncpg.Pool = request.app.state.pool
     ttl_minutes = _get_code_ttl_minutes()
     expires_at = datetime.now(UTC) + timedelta(minutes=ttl_minutes)

@@ -28,9 +28,19 @@ class PostgresReferralCodeRepository:
         self._pool = pool
 
     async def get_or_create(self, internal_user_id: str) -> ReferralCodeRecord:
-        code = _generate_referral_code()
-        now = datetime.now(UTC)
         async with self._pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT internal_user_id, referral_code, created_at FROM referral_codes WHERE internal_user_id = $1",
+                internal_user_id,
+            )
+            if existing is not None:
+                return ReferralCodeRecord(
+                    internal_user_id=existing["internal_user_id"],
+                    referral_code=existing["referral_code"],
+                    created_at=existing["created_at"],
+                )
+            code = _generate_referral_code()
+            now = datetime.now(UTC)
             row = await conn.fetchrow(
                 """
                 INSERT INTO referral_codes (internal_user_id, referral_code, created_at)

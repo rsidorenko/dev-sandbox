@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -24,6 +25,31 @@ from app.runtime.payment_fulfillment_ingress import (
 from app.security.checkout_reference import create_signed_checkout_reference
 from app.security.config import ConfigurationError
 from app.shared.types import OperationOutcomeCategory
+
+
+class _FakeConn:
+    """Minimal asyncpg.Connection mock for transaction tests."""
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, *a, **kw):
+        return "OK"
+
+    async def fetchrow(self, *a, **kw):
+        return None
+
+    async def fetchval(self, *a, **kw):
+        return None
+
+
+class _FakePool:
+    """Minimal asyncpg.Pool mock that yields _FakeConn on acquire()."""
+
+    @asynccontextmanager
+    async def acquire(self):
+        yield _FakeConn()
 
 
 def _sign(secret: str, ts: str, body: bytes) -> str:
@@ -129,7 +155,7 @@ async def test_strict_mode_rejects_dangerously_large_checkout_reference_ttl(
 
 
 def test_invalid_signature_rejects_and_does_not_mutate() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings())  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings())  # type: ignore[arg-type]
     body = json.dumps(_payload()).encode("utf-8")
     with (
         pytest.MonkeyPatch.context() as m,
@@ -139,8 +165,8 @@ def test_invalid_signature_rejects_and_does_not_mutate() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         r = client.post(
             "/billing/fulfillment/webhook",
             data=body,
@@ -156,7 +182,7 @@ def test_invalid_signature_rejects_and_does_not_mutate() -> None:
 
 
 def test_malformed_payload_rejects_and_does_not_mutate() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings())  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings())  # type: ignore[arg-type]
     body = b'{"schema_version":1}'
     ts = "1777248000"
     sig = _sign(_settings().secret, ts, body)
@@ -168,9 +194,9 @@ def test_malformed_payload_rejects_and_does_not_mutate() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -189,7 +215,7 @@ def test_malformed_payload_rejects_and_does_not_mutate() -> None:
 def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     app = create_payment_fulfillment_ingress_app(
-        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+        pool=_FakePool(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     body = json.dumps(payload).encode("utf-8")
@@ -221,9 +247,9 @@ def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
             ]
         )
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r1 = client.post(
             "/billing/fulfillment/webhook",
@@ -251,7 +277,7 @@ def test_valid_paid_event_applies_and_duplicate_is_idempotent() -> None:
 def test_valid_paid_event_persists_active_until_from_period_days() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     app = create_payment_fulfillment_ingress_app(
-        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+        pool=_FakePool(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["period_days"] = 10
@@ -275,16 +301,16 @@ def test_valid_paid_event_persists_active_until_from_period_days() -> None:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
         m.setattr(
             ingress_mod.PostgresAtomicBillingIngestion,
-            "ingest_normalized_billing_fact",
+            "ingest_in_connection",
             AsyncMock(return_value=_IngestResult()),
         )
         m.setattr(
             ingress_mod.PostgresAtomicUC05SubscriptionApply,
-            "apply_by_internal_fact_ref",
+            "apply_in_connection",
             AsyncMock(return_value=_ApplyResult()),
         )
         upsert_state = AsyncMock()
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", upsert_state)
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", upsert_state)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -296,7 +322,7 @@ def test_valid_paid_event_persists_active_until_from_period_days() -> None:
         )
     assert r.status_code == 200
     assert upsert_state.await_count == 1
-    snapshot = upsert_state.await_args.args[0]
+    snapshot = upsert_state.await_args.args[1]
     assert snapshot.internal_user_id == "u12345"
     assert snapshot.state_label == "active"
     assert snapshot.active_until_utc == datetime(2026, 5, 7, 0, 0, 0, tzinfo=UTC)
@@ -305,7 +331,7 @@ def test_valid_paid_event_persists_active_until_from_period_days() -> None:
 def test_missing_payload_period_uses_default_period_without_rejection() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     app = create_payment_fulfillment_ingress_app(
-        pool=object(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
+        pool=_FakePool(), settings=_settings(strict_reference=True), now_utc_provider=lambda: _now
     )  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload.pop("period_days")
@@ -328,15 +354,15 @@ def test_missing_payload_period_uses_default_period_without_rejection() -> None:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
         m.setattr(
             ingress_mod.PostgresAtomicBillingIngestion,
-            "ingest_normalized_billing_fact",
+            "ingest_in_connection",
             AsyncMock(return_value=_IngestResult()),
         )
         m.setattr(
             ingress_mod.PostgresAtomicUC05SubscriptionApply,
-            "apply_by_internal_fact_ref",
+            "apply_in_connection",
             AsyncMock(return_value=_ApplyResult()),
         )
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -350,7 +376,7 @@ def test_missing_payload_period_uses_default_period_without_rejection() -> None:
 
 
 def test_invalid_period_rejects_without_mutation() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["period_days"] = -7
     body = json.dumps(payload).encode("utf-8")
@@ -361,8 +387,8 @@ def test_invalid_period_rejects_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -380,7 +406,7 @@ def test_invalid_period_rejects_without_mutation() -> None:
 
 def test_strict_mode_rejects_expired_reference_without_mutation() -> None:
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         now_utc_provider=lambda: datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC),
     )  # type: ignore[arg-type]
@@ -393,8 +419,8 @@ def test_strict_mode_rejects_expired_reference_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -412,7 +438,7 @@ def test_strict_mode_rejects_expired_reference_without_mutation() -> None:
 
 def test_strict_mode_rejects_future_reference_without_mutation() -> None:
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         now_utc_provider=lambda: datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC),
     )  # type: ignore[arg-type]
@@ -425,8 +451,8 @@ def test_strict_mode_rejects_future_reference_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -444,7 +470,7 @@ def test_strict_mode_rejects_future_reference_without_mutation() -> None:
 
 def test_strict_mode_rejects_paid_at_before_checkout_reference_issued_at() -> None:
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         now_utc_provider=lambda: datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC),
     )  # type: ignore[arg-type]
@@ -458,8 +484,8 @@ def test_strict_mode_rejects_paid_at_before_checkout_reference_issued_at() -> No
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -476,7 +502,7 @@ def test_strict_mode_rejects_paid_at_before_checkout_reference_issued_at() -> No
 
 
 def test_strict_mode_rejects_missing_reference_without_mutation() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
     body = json.dumps(_payload()).encode("utf-8")
     ts = "1777248000"
     sig = _sign(_settings(strict_reference=True).secret, ts, body)
@@ -485,8 +511,8 @@ def test_strict_mode_rejects_missing_reference_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -503,7 +529,7 @@ def test_strict_mode_rejects_missing_reference_without_mutation() -> None:
 
 
 def test_strict_mode_rejects_tampered_reference_without_mutation() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["client_reference_proof"] = "0" * 64
     body = json.dumps(payload).encode("utf-8")
@@ -514,8 +540,8 @@ def test_strict_mode_rejects_tampered_reference_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
@@ -535,7 +561,7 @@ def test_proactive_success_notification_sent_once_on_first_apply() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
         now_utc_provider=lambda: _now,
@@ -560,15 +586,15 @@ def test_proactive_success_notification_sent_once_on_first_apply() -> None:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
         m.setattr(
             ingress_mod.PostgresAtomicBillingIngestion,
-            "ingest_normalized_billing_fact",
+            "ingest_in_connection",
             AsyncMock(return_value=_IngestResult()),
         )
         m.setattr(
             ingress_mod.PostgresAtomicUC05SubscriptionApply,
-            "apply_by_internal_fact_ref",
+            "apply_in_connection",
             AsyncMock(return_value=_ApplyResult()),
         )
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -592,7 +618,7 @@ def test_proactive_success_notification_not_sent_on_duplicate_apply() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
         now_utc_provider=lambda: _now,
@@ -618,12 +644,12 @@ def test_proactive_success_notification_not_sent_on_duplicate_apply() -> None:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
         m.setattr(
             ingress_mod.PostgresAtomicBillingIngestion,
-            "ingest_normalized_billing_fact",
+            "ingest_in_connection",
             AsyncMock(return_value=_IngestResult()),
         )
         m.setattr(
             ingress_mod.PostgresAtomicUC05SubscriptionApply,
-            "apply_by_internal_fact_ref",
+            "apply_in_connection",
             AsyncMock(
                 side_effect=[
                     _ApplyResult(OperationOutcomeCategory.SUCCESS),
@@ -631,7 +657,7 @@ def test_proactive_success_notification_not_sent_on_duplicate_apply() -> None:
                 ]
             ),
         )
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r1 = client.post(
             "/billing/fulfillment/webhook",
@@ -657,15 +683,15 @@ def test_proactive_success_notification_not_sent_on_duplicate_apply() -> None:
 def test_proactive_notification_not_sent_on_invalid_signature() -> None:
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
     )  # type: ignore[arg-type]
     body = json.dumps(_payload_with_reference()).encode("utf-8")
     with pytest.MonkeyPatch.context() as m, TestClient(app) as client:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", AsyncMock())
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", AsyncMock())
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", AsyncMock())
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -683,7 +709,7 @@ def test_proactive_notification_not_sent_when_apply_fails() -> None:
     _now = datetime(2026, 4, 27, 0, 0, 0, tzinfo=UTC)
     notifier = AsyncMock()
     app = create_payment_fulfillment_ingress_app(
-        pool=object(),
+        pool=_FakePool(),
         settings=_settings(strict_reference=True),
         activation_telegram_notifier=notifier,
         now_utc_provider=lambda: _now,
@@ -708,15 +734,15 @@ def test_proactive_notification_not_sent_when_apply_fails() -> None:
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", AsyncMock())
         m.setattr(
             ingress_mod.PostgresAtomicBillingIngestion,
-            "ingest_normalized_billing_fact",
+            "ingest_in_connection",
             AsyncMock(return_value=_IngestResult()),
         )
         m.setattr(
             ingress_mod.PostgresAtomicUC05SubscriptionApply,
-            "apply_by_internal_fact_ref",
+            "apply_in_connection",
             AsyncMock(return_value=_ApplyFailed()),
         )
-        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state", AsyncMock())
+        m.setattr(ingress_mod.PostgresSubscriptionSnapshotReader, "upsert_state_in_connection", AsyncMock())
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         r = client.post(
             "/billing/fulfillment/webhook",
@@ -744,7 +770,7 @@ def test_proactive_notification_copy_has_no_sensitive_leaks() -> None:
 
 
 def test_strict_mode_rejects_telegram_user_mismatch_without_mutation() -> None:
-    app = create_payment_fulfillment_ingress_app(pool=object(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
+    app = create_payment_fulfillment_ingress_app(pool=_FakePool(), settings=_settings(strict_reference=True))  # type: ignore[arg-type]
     payload = _payload_with_reference()
     payload["telegram_user_id"] = 54321
     body = json.dumps(payload).encode("utf-8")
@@ -755,8 +781,8 @@ def test_strict_mode_rejects_telegram_user_mismatch_without_mutation() -> None:
         ingest = AsyncMock()
         apply = AsyncMock()
         m.setattr(ingress_mod.PostgresUserIdentityRepository, "create_if_absent", create_if_absent)
-        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_normalized_billing_fact", ingest)
-        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_by_internal_fact_ref", apply)
+        m.setattr(ingress_mod.PostgresAtomicBillingIngestion, "ingest_in_connection", ingest)
+        m.setattr(ingress_mod.PostgresAtomicUC05SubscriptionApply, "apply_in_connection", apply)
         m.setattr(ingress_mod.time, "time", lambda: 1777248000)
         response = client.post(
             "/billing/fulfillment/webhook",
