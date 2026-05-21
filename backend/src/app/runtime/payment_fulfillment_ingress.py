@@ -393,11 +393,16 @@ async def _send_activation_notice_best_effort(
 
 
 def _plan_id_from_period_days(period_days: int) -> str:
-    if period_days <= 30:
-        return "1m"
-    if period_days <= 90:
-        return "3m"
-    return "6m"
+    _KNOWN: dict[int, str] = {
+        1: "1d",
+        7: "7d",
+        14: "14d",
+        30: "1m",
+        90: "3m",
+        180: "6m",
+        365: "365d",
+    }
+    return _KNOWN.get(period_days, f"custom:{period_days}")
 
 
 async def _process_referral_commissions_best_effort(

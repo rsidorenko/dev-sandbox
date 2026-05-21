@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import calendar
-import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -15,8 +13,16 @@ from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
 
-_VALID_PLANS = {"1m", "3m", "6m", "plan_1m", "plan_3m", "plan_6m"}
-_PLAN_DURATION = {"1m": 1, "3m": 3, "6m": 6, "plan_1m": 1, "plan_3m": 3, "plan_6m": 6}
+_VALID_PLANS = {"1d", "7d", "14d", "1m", "3m", "6m", "365d"}
+_PLAN_DURATION_DAYS: dict[str, int] = {
+    "1d": 1,
+    "7d": 7,
+    "14d": 14,
+    "1m": 30,
+    "3m": 90,
+    "6m": 180,
+    "365d": 365,
+}
 
 
 def _safe_json_error(status_code: int, error: str, detail: str = "") -> JSONResponse:
@@ -52,12 +58,14 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         telegram_user_id,
     )
     if identity is None:
-        return JSONResponse({
-            "ok": True,
-            "user": {"telegram_user_id": telegram_user_id, "email": email},
-            "subscription": None,
-            "keys": None,
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "user": {"telegram_user_id": telegram_user_id, "email": email},
+                "subscription": None,
+                "keys": None,
+            }
+        )
 
     internal_user_id = identity["internal_user_id"]
 
@@ -136,16 +144,18 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
             "referrals_count": ref_count or 0,
         }
 
-    return JSONResponse({
-        "ok": True,
-        "user": {
-            "telegram_user_id": telegram_user_id,
-            "email": email,
-        },
-        "subscription": subscription,
-        "keys": keys_info,
-        "referral": referral,
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "user": {
+                "telegram_user_id": telegram_user_id,
+                "email": email,
+            },
+            "subscription": subscription,
+            "keys": keys_info,
+            "referral": referral,
+        }
+    )
 
 
 async def handle_get_keys(request: Request) -> JSONResponse:
@@ -184,11 +194,13 @@ async def handle_get_keys(request: Request) -> JSONResponse:
             }
             for s in result.config.servers
         ]
-        return JSONResponse({
-            "ok": True,
-            "keys": keys,
-            "subscription_url": result.config.subscription_url,
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "keys": keys,
+                "subscription_url": result.config.subscription_url,
+            }
+        )
     except Exception:
         _LOGGER.exception("keys_error")
         return _safe_json_error(500, "internal_error")
@@ -229,11 +241,13 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
             }
             for s in result.config.servers
         ]
-        return JSONResponse({
-            "ok": True,
-            "keys": keys,
-            "subscription_url": result.config.subscription_url,
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "keys": keys,
+                "subscription_url": result.config.subscription_url,
+            }
+        )
     except Exception:
         _LOGGER.exception("reissue_error")
         return _safe_json_error(500, "internal_error")
@@ -256,17 +270,16 @@ async def _get_identity(request: Request) -> tuple[asyncpg.Pool, str] | JSONResp
     return pool, identity["internal_user_id"]
 
 
-def _plan_months(plan_id: str) -> int:
-    return _PLAN_DURATION.get(plan_id, 1)
+def _plan_duration_days(plan_id: str) -> int:
+    return _PLAN_DURATION_DAYS.get(plan_id, 30)
 
 
-def _next_expiry(current_until: datetime | None, months: int) -> datetime:
+def _next_expiry(current_until: datetime | None, days: int) -> datetime:
+    from datetime import timedelta
+
     base = current_until if current_until and current_until > datetime.now(UTC) else datetime.now(UTC)
-    new_month = base.month + months
-    new_year = base.year + (new_month - 1) // 12
-    new_month = ((new_month - 1) % 12) + 1
-    max_day = calendar.monthrange(new_year, new_month)[1]
-    return base.replace(year=new_year, month=new_month, day=min(base.day, max_day), hour=0, minute=0, second=0, microsecond=0)
+    result = base + timedelta(days=days)
+    return result.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 async def handle_renew_subscription(request: Request) -> JSONResponse:
@@ -428,25 +441,27 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
         )
 
         config = vless_result.config
-        return JSONResponse({
-            "ok": True,
-            "trial": {
-                "started_at": now.isoformat(),
-                "expires_at": expires.isoformat(),
-            },
-            "keys": {
-                "subscription_url": config.subscription_url,
-                "servers": [
-                    {
-                        "label": s.server_label,
-                        "country_code": s.country_code,
-                        "country_flag": s.country_flag,
-                        "vless_link": s.vless_link,
-                    }
-                    for s in config.servers
-                ],
-            },
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "trial": {
+                    "started_at": now.isoformat(),
+                    "expires_at": expires.isoformat(),
+                },
+                "keys": {
+                    "subscription_url": config.subscription_url,
+                    "servers": [
+                        {
+                            "label": s.server_label,
+                            "country_code": s.country_code,
+                            "country_flag": s.country_flag,
+                            "vless_link": s.vless_link,
+                        }
+                        for s in config.servers
+                    ],
+                },
+            }
+        )
     except Exception:
         _LOGGER.exception("trial_activate_error")
         return _safe_json_error(500, "internal_error")

@@ -19,5 +19,9 @@ def extra_device_count(requested: int, default: int = DEFAULT_DEVICE_LIMIT) -> i
     return max(0, requested - default)
 
 
-def extra_device_cost(requested: int, default: int = DEFAULT_DEVICE_LIMIT, duration_months: int = 1) -> int:
-    return extra_device_count(requested, default) * EXTRA_DEVICE_PRICE_RUBLES * duration_months
+def extra_device_cost(requested: int, default: int = DEFAULT_DEVICE_LIMIT, duration_days: int = 30) -> int:
+    extra = extra_device_count(requested, default)
+    if extra == 0:
+        return 0
+    daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
+    return extra * round(daily_price * duration_days)

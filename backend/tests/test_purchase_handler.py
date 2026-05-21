@@ -9,9 +9,9 @@ from app.application.purchase_handler import (
 
 def test_get_available_plans():
     plans = get_available_plans()
-    assert len(plans) == 3
+    assert len(plans) == 7
     ids = {p.plan_id for p in plans}
-    assert ids == {"1m", "3m", "6m"}
+    assert ids == {"1d", "7d", "14d", "1m", "3m", "6m", "365d"}
 
 
 def test_build_purchase_summary_default():
@@ -26,7 +26,7 @@ def test_build_purchase_summary_default():
 
 def test_build_purchase_summary_with_extra_devices():
     result = build_purchase_summary("1m", 8)
-    assert result.total_price_rubles == 300 + 3 * 80 * 1  # 540
+    assert result.total_price_rubles == 300 + 3 * round(80 / 30 * 30)  # 540
     assert result.extra_devices == 3
     assert result.extra_device_cost_rubles == 240
 
@@ -50,4 +50,4 @@ def test_build_purchase_summary_3m():
 
 def test_build_purchase_summary_6m_extra():
     result = build_purchase_summary("6m", 7)
-    assert result.total_price_rubles == 1350 + 2 * 80 * 6  # 2310
+    assert result.total_price_rubles == 1350 + 2 * round(80 / 30 * 180)  # 2310

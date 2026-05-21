@@ -345,7 +345,7 @@ def test_balance_payment_extends_3m():
     snap = _run(c.snapshots.get_for_user(uid))
     assert snap.active_until_utc.year == 2026
     assert snap.active_until_utc.month == 9
-    assert snap.active_until_utc.day == 15
+    assert snap.active_until_utc.day == 13  # June 15 + 90 days
 
 
 def test_settings_shows_tariff_devices_expiry():

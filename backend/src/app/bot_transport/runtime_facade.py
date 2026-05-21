@@ -36,6 +36,7 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_MAC,
     CB_CONNECT_NEXT,
     CB_CONNECT_WIN,
+    CB_CUSTOM_DAYS,
     CB_DEVICES,
     CB_DO_PAY,
     CB_HELP,
@@ -65,6 +66,7 @@ from app.bot_transport.storefront_ui import (
     connect_device_keyboard,
     connect_done_keyboard,
     connect_platform_keyboard,
+    custom_days_prompt_keyboard,
     device_select_keyboard,
     keys_keyboard,
     link_email_code_keyboard,
@@ -89,6 +91,8 @@ from app.bot_transport.storefront_ui import (
     text_connect_device,
     text_connect_done,
     text_connect_platform,
+    text_custom_days_invalid,
+    text_custom_days_prompt,
     text_device_select,
     text_error_generic,
     text_help,
@@ -119,9 +123,34 @@ from app.bot_transport.storefront_ui import (
     welcome_keyboard,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
-from app.domain.plans import get_plan, plan_display_name
+from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
+
+# ─── Custom days input state ────────────────────────────────────────
+
+_awaiting_custom_days: dict[int, bool] = {}
+
+
+def _handle_custom_days_input(
+    uid: int,
+    user_text: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Process user's custom days text input."""
+    try:
+        days = int(user_text)
+    except ValueError:
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+    if not (1 <= days <= 365):
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+    plan_id = make_custom_plan_id(days)
+    plan = get_plan(plan_id)
+    if plan is None:
+        return text_custom_days_invalid(user_text), custom_days_prompt_keyboard()
+    text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT)
+    keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
+    return text, keyboard
+
 
 # ─── User ID extraction ──────────────────────────────────────────────
 
@@ -165,11 +194,16 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 
-_MARKDOWN_CODES = frozenset({
-    CB_TRIAL, CB_MY_KEYS, CB_REISSUE_CONFIRM,
-    CB_REFERRAL, CB_CONNECT_NEXT,
-    CB_ALL_KEYS,
-})
+_MARKDOWN_CODES = frozenset(
+    {
+        CB_TRIAL,
+        CB_MY_KEYS,
+        CB_REISSUE_CONFIRM,
+        CB_REFERRAL,
+        CB_CONNECT_NEXT,
+        CB_ALL_KEYS,
+    }
+)
 
 _MARKDOWN_PREFIXES = (CB_SERVER,)
 
@@ -177,6 +211,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
     {
         CB_MAIN_MENU,
         CB_BUY_VPN,
+        CB_CUSTOM_DAYS,
         CB_MY_SUB,
         CB_MY_KEYS,
         CB_ALL_KEYS,
@@ -442,7 +477,10 @@ async def _render_subscription_status(
         if device_count is None:
             device_count = DEVICES_DEFAULT
         return text_subscription_active(
-            active_until, plan_name, device_count, remaining_days=remaining_days,
+            active_until,
+            plan_name,
+            device_count,
+            remaining_days=remaining_days,
         ), main_menu_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), no_subscription_keyboard()
@@ -581,6 +619,7 @@ async def _handle_email_linking(
 
         # Merge web-only account if this email was previously registered on the website
         from app.persistence.account_merge import merge_web_account_if_needed
+
         await merge_web_account_if_needed(pool, uid, pending["email"])
 
         return text_link_email_success(pending["email"]), main_menu_keyboard()
@@ -728,8 +767,7 @@ async def _process_balance_payment(
     plan_id: str,
     device_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
-    import calendar
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
 
     from app.application.interfaces import SubscriptionSnapshot
     from app.domain.plans import calculate_total_price_kopecks
@@ -765,19 +803,8 @@ async def _process_balance_payment(
             and existing_snap.active_until_utc > now
         ):
             base_date = existing_snap.active_until_utc
-        new_month = base_date.month + plan.duration_months
-        new_year = base_date.year + (new_month - 1) // 12
-        new_month = ((new_month - 1) % 12) + 1
-        max_day = calendar.monthrange(new_year, new_month)[1]
-        active_until = base_date.replace(
-            year=new_year,
-            month=new_month,
-            day=min(base_date.day, max_day),
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
+        active_until = base_date + timedelta(days=plan.duration_days)
+        active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
         await composition.snapshots.upsert_state(
             SubscriptionSnapshot(
                 internal_user_id=internal_user_id,
@@ -934,18 +961,18 @@ async def _render_add_device_confirm(
     if new_count <= current:
         return text_add_device_intro(current), add_device_select_keyboard(current)
 
-    duration_months = 1
+    duration_days = 30
     if snap and snap.plan_id:
         plan = get_plan(snap.plan_id)
         if plan is not None:
-            duration_months = plan.duration_months
+            duration_days = plan.duration_days
 
-    cost = extra_device_cost(new_count, current, duration_months)
+    cost = extra_device_cost(new_count, current, duration_days)
 
     balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
     balance_kopecks = balance_record.balance_kopecks if balance_record else 0
 
-    text = text_add_device_confirm(current, new_count)
+    text = text_add_device_confirm(current, new_count, duration_days=duration_days)
     return text, add_device_confirm_keyboard(
         new_count,
         balance_kopecks=balance_kopecks,
@@ -980,13 +1007,13 @@ async def _process_add_device_balance(
 
     from app.domain.devices import extra_device_cost as _extra_device_cost
 
-    duration_months = 1
+    duration_days = 30
     if snap.plan_id:
         plan = get_plan(snap.plan_id)
         if plan is not None:
-            duration_months = plan.duration_months
+            duration_days = plan.duration_days
 
-    cost_rubles = _extra_device_cost(new_count, current, duration_months)
+    cost_rubles = _extra_device_cost(new_count, current, duration_days)
     cost_kopecks = cost_rubles * 100
 
     debit_result = await composition.referral_balance_repo.debit(internal_user_id, cost_kopecks)
@@ -1235,7 +1262,7 @@ async def _render_storefront_response(
             text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MY_KEYS)
 
     elif code.startswith(CB_SERVER):
-        server_label = code[len(CB_SERVER):]
+        server_label = code[len(CB_SERVER) :]
         has_sub = await _has_active_subscription(composition, uid)
         if has_sub and uid is not None and composition.vless_provider is not None:
             from app.issuance.vless_provider import VlessProviderOutcome
@@ -1281,6 +1308,7 @@ async def _render_storefront_response(
                     )
                     # Rotate subscription token to invalidate old shared links
                     from app.issuance.xui_vless_provider import _rotate_subscription_token
+
                     await _rotate_subscription_token(pool, id_rec.internal_user_id)
                 await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
                 vless_result = await composition.vless_provider.create_user(internal_user_id=id_rec.internal_user_id)
@@ -1374,11 +1402,17 @@ async def _render_storefront_response(
             settings_keyboard(has_sub, device_count),
         )
 
+    elif code == CB_CUSTOM_DAYS:
+        if uid is not None:
+            _awaiting_custom_days[uid] = True
+        text = text_custom_days_prompt()
+        keyboard = custom_days_prompt_keyboard()
+
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN) :]
         plan = get_plan(plan_id)
         if plan is not None:
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, DEVICES_DEFAULT)
+            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT)
             keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
 
     elif code.startswith(CB_DEVICES):
@@ -1387,7 +1421,7 @@ async def _render_storefront_response(
         device_count = int(parts[1]) if len(parts) > 1 else DEVICES_DEFAULT
         plan = get_plan(plan_id)
         if plan is not None:
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_months, device_count)
+            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, device_count)
             keyboard = device_select_keyboard(plan_id, device_count)
 
     elif code.startswith(CB_CONFIRM_PAY):
@@ -1507,6 +1541,17 @@ async def handle_slice1_telegram_update_to_rendered_message(
         if isinstance(msg, Mapping):
             user_text = msg.get("text", "")
             if isinstance(user_text, str) and user_text.strip() and not user_text.startswith("/"):
+                # Handle custom days input
+                if _awaiting_custom_days.pop(uid, False):
+                    custom_text, custom_keyboard = _handle_custom_days_input(uid, user_text.strip())
+                    return RenderedMessagePackage(
+                        message_text=custom_text,
+                        action_keys=(),
+                        correlation_id=correlation_id or uuid.uuid4().hex,
+                        reply_markup=custom_keyboard,
+                        replay_suppresses_outbound=False,
+                        uc01_idempotency_key=None,
+                    )
                 email_result = await _handle_email_linking(composition, uid, user_text.strip())
                 if email_result is not None:
                     email_text, email_keyboard = email_result
