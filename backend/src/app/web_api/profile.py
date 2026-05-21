@@ -129,7 +129,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         )
         referral = {
             "code": ref_code_row["referral_code"],
-            "balance_rubles": f"{(balance_row['balance_kopecks'] or 0) / 100:.2f}" if balance_row else "0.00",
+            "balance_rubles": round((balance_row["balance_kopecks"] or 0) / 100, 2) if balance_row else 0,
             "referrals_count": ref_count or 0,
         }
 
