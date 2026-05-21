@@ -268,7 +268,8 @@ async def handle_logout(request: Request) -> JSONResponse:
                     "INSERT INTO jwt_revocation_list (jti) VALUES ($1) ON CONFLICT DO NOTHING",
                     claims["jti"],
                 )
+    is_secure = not truthy(os.environ.get("WEB_API_DEV_INSECURE_COOKIE"))
     response = JSONResponse({"ok": True})
-    response.delete_cookie(key="session", path="/")
-    response.delete_cookie(key="csrf_token", path="/")
+    response.delete_cookie(key="session", path="/", httponly=True, secure=is_secure, samesite="lax")
+    response.delete_cookie(key="csrf_token", path="/", secure=is_secure, samesite="lax")
     return response
