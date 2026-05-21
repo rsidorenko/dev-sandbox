@@ -51,6 +51,7 @@ CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
 CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
+CB_CUSTOM_DAYS = "custom_days"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -94,16 +95,27 @@ def main_menu_keyboard() -> dict[str, Any]:
 
 
 _PLAN_EMOJI: dict[str, str] = {
+    "1d": "⚪",
+    "7d": "🟡",
+    "14d": "🟠",
     "1m": "🟢",
     "3m": "🔵",
     "6m": "🟣",
+    "365d": "🏆",
 }
 
 
 def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
     rows = [
-        [{"text": f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {p.price_rubles} ₽", "callback_data": f"{CB_PLAN}{p.plan_id}"}] for p in plans
+        [
+            {
+                "text": f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {p.price_rubles} ₽",
+                "callback_data": f"{CB_PLAN}{p.plan_id}",
+            }
+        ]
+        for p in plans
     ]
+    rows.append([{"text": "📦 Свой тариф", "callback_data": CB_CUSTOM_DAYS}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
 
@@ -182,10 +194,12 @@ def text_welcome(*, trial_available: bool = False) -> str:
 
 def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
     if trial_available:
-        return _inline_kb([
-            [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ])
+        return _inline_kb(
+            [
+                [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
+                [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+            ]
+        )
     return main_menu_keyboard()
 
 
@@ -194,14 +208,24 @@ def text_main_menu() -> str:
 
 
 def text_buy_vpn_intro() -> str:
-    return "🔑 Выберите тариф VPN-подписки:\n\n🟢 — 1 месяц\n🔵 — 3 месяца\n🟣 — 6 месяцев"
+    return (
+        "🔑 Выберите тариф VPN-подписки:\n\n"
+        "⚪ — 1 день\n"
+        "🟡 — 7 дней\n"
+        "🟠 — 2 недели\n"
+        "🟢 — 1 месяц\n"
+        "🔵 — 3 месяца\n"
+        "🟣 — 6 месяцев\n"
+        "🏆 — 1 год\n\n"
+        "Или выберите «📦 Свой тариф» для произвольного количества дней."
+    )
 
 
-def text_device_select(plan_id: str, price_rubles: int, duration_months: int, device_count: int) -> str:
+def text_device_select(plan_id: str, price_rubles: int, duration_days: int, device_count: int) -> str:
     from app.domain.devices import extra_device_cost, extra_device_count
 
     extra = extra_device_count(device_count)
-    extra_cost = extra_device_cost(device_count, duration_months=duration_months)
+    extra_cost = extra_device_cost(device_count, duration_days=duration_days)
     total = price_rubles + extra_cost
     lines = [
         f"📦 Тариф: {plan_display_name(plan_id)}",
@@ -209,9 +233,8 @@ def text_device_select(plan_id: str, price_rubles: int, duration_months: int, de
         f"📱 Устройств: {device_count}",
     ]
     if extra > 0:
-        lines.append(
-            f"  ➕ Доп. устройств: {extra} × {EXTRA_DEVICE_PRICE_RUBLES} ₽/мес × {duration_months} мес = {extra_cost} ₽"
-        )
+        daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
+        lines.append(f"  ➕ Доп. устройств: {extra} × {daily_price:.1f} ₽/день × {duration_days} дн = {extra_cost} ₽")
     lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)
@@ -225,8 +248,9 @@ def text_purchase_summary(summary: PurchaseSummary) -> str:
         f"  Устройств: {summary.device_count}",
     ]
     if summary.extra_devices > 0:
+        daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
         lines.append(
-            f"  Доп. устройств: {summary.extra_devices} × {EXTRA_DEVICE_PRICE_RUBLES} ₽/мес × {summary.duration_months} мес = {summary.extra_device_cost_rubles} ₽"
+            f"  Доп. устройств: {summary.extra_devices} × {daily_price:.1f} ₽/день × {summary.duration_days} дн = {summary.extra_device_cost_rubles} ₽"
         )
     lines.extend(["", f"💳 К оплате: {summary.total_price_rubles} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
     return "\n".join(lines)
@@ -275,11 +299,13 @@ def text_my_keys(config: VlessUserConfig) -> str:
 
 
 def keys_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
-        [{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}],
-        [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
+            [{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, Any]:
@@ -288,7 +314,9 @@ def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, A
     ]
     server_row: list[dict[str, str]] = []
     for s in servers:
-        server_row.append({"text": f"{s.country_flag} {s.server_label}", "callback_data": _cb(CB_SERVER, s.server_label)})
+        server_row.append(
+            {"text": f"{s.country_flag} {s.server_label}", "callback_data": _cb(CB_SERVER, s.server_label)}
+        )
         if len(server_row) == 2:
             rows.append(server_row)
             server_row = []
@@ -335,10 +363,12 @@ def text_reissue_confirm() -> str:
 
 
 def reissue_confirm_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "✅ Да, перевыпустить", "callback_data": CB_REISSUE_CONFIRM}],
-        [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "✅ Да, перевыпустить", "callback_data": CB_REISSUE_CONFIRM}],
+            [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+        ]
+    )
 
 
 # ─── Connect device flow ──────────────────────────────────────────
@@ -395,17 +425,19 @@ def text_connect_device() -> str:
 
 
 def connect_device_keyboard() -> dict[str, Any]:
-    return _inline_kb([
+    return _inline_kb(
         [
-            {"text": "🖥 Windows", "callback_data": CB_CONNECT_WIN},
-            {"text": "🤖 Android", "callback_data": CB_CONNECT_ANDROID},
-        ],
-        [
-            {"text": "🍎 iOS", "callback_data": CB_CONNECT_IOS},
-            {"text": "💻 macOS", "callback_data": CB_CONNECT_MAC},
-        ],
-        [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
-    ])
+            [
+                {"text": "🖥 Windows", "callback_data": CB_CONNECT_WIN},
+                {"text": "🤖 Android", "callback_data": CB_CONNECT_ANDROID},
+            ],
+            [
+                {"text": "🍎 iOS", "callback_data": CB_CONNECT_IOS},
+                {"text": "💻 macOS", "callback_data": CB_CONNECT_MAC},
+            ],
+            [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+        ]
+    )
 
 
 def _platform_from_cb(cb: str) -> str | None:
@@ -421,10 +453,12 @@ def text_connect_platform(cb: str) -> str:
 
 
 def connect_platform_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "➡️ Далее", "callback_data": CB_CONNECT_NEXT}],
-        [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "➡️ Далее", "callback_data": CB_CONNECT_NEXT}],
+            [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
 
 
 def text_connect_config(config: VlessUserConfig) -> str:
@@ -442,24 +476,26 @@ def text_connect_config(config: VlessUserConfig) -> str:
 
 
 def connect_config_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "✅ Готово", "callback_data": CB_CONNECT_DONE}],
-        [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "✅ Готово", "callback_data": CB_CONNECT_DONE}],
+            [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
 
 
 def text_connect_done() -> str:
     return (
-        "🎉 Вы подключены!\n\n"
-        "Настройки защищённого соединения активны.\n"
-        "Если возникнут вопросы — напишите в поддержку."
+        "🎉 Вы подключены!\n\nНастройки защищённого соединения активны.\nЕсли возникнут вопросы — напишите в поддержку."
     )
 
 
 def connect_done_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "↩️ В главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "↩️ В главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 def text_subscription_url(config: VlessUserConfig) -> str:
@@ -483,9 +519,11 @@ def text_referral_program(info: ReferralInfo) -> str:
         f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
         f"👤 Прямых рефералов: {info.direct_referrals_count}\n\n"
         "📤 Отправляйте ссылку друзьям и получайте:\n"
-        "  1 мес — 35% | 3 мес — 30% | 6 мес — 25%\n"
+        "  1 день — 10% | 7 дней — 15% | 2 недели — 20%\n"
+        "  1 мес — 35% | 3 мес — 30% | 6 мес — 25% | 1 год — 25%\n"
         "Со 2-го уровня:\n"
-        "  1 мес — 5% | 3 мес — 3% | 6 мес — 2%\n\n"
+        "  1 день — 1% | 7 дней — 2% | 2 недели — 3%\n"
+        "  1 мес — 5% | 3 мес — 3% | 6 мес — 2% | 1 год — 2%\n\n"
         "💰 Реферальными деньгами можно оплачивать подписку."
     )
 
@@ -541,7 +579,7 @@ def text_help() -> str:
         "⚙️ Настройки подписки — управление подпиской\n\n"
         "Все суммы указаны в рублях.\n"
         f"Подписка включает {DEFAULT_DEVICE_LIMIT} устройств по умолчанию.\n"
-        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждый месяц подписки.\n\n"
+        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES / 30:.1f} ₽/день ({EXTRA_DEVICE_PRICE_RUBLES} ₽ за 30 дней).\n\n"
         "✉️ Написать нам в поддержку: @bravada_support"
     )
 
@@ -618,21 +656,24 @@ def text_add_device_intro(current_count: int) -> str:
         "📱 Добавление устройств",
         "",
         f"Текущее количество: {current_count}",
-        f"Стоимость: {EXTRA_DEVICE_PRICE_RUBLES} ₽ за каждое дополнительное устройство.",
+        f"Стоимость: {EXTRA_DEVICE_PRICE_RUBLES / 30:.1f} ₽/день за каждое дополнительное устройство.",
         "",
         "Выберите количество устройств:",
     ]
     return "\n".join(lines)
 
 
-def text_add_device_confirm(current_count: int, new_count: int) -> str:
+def text_add_device_confirm(current_count: int, new_count: int, *, duration_days: int = 30) -> str:
+    from app.domain.devices import extra_device_cost as _calc_cost
+
     extra = new_count - current_count
-    cost = extra * EXTRA_DEVICE_PRICE_RUBLES
+    cost = _calc_cost(new_count, current_count, duration_days)
+    daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
     lines = [
         "📱 Подтверждение",
         "",
         f"Добавляем устройств: {extra}",
-        f"Стоимость: {extra} × {EXTRA_DEVICE_PRICE_RUBLES} ₽ = {cost} ₽",
+        f"Стоимость: {extra} × {daily_price:.1f} ₽/день × {duration_days} дн = {cost} ₽",
         "",
         "Устройства будут добавлены к текущей подписке.",
     ]
@@ -696,26 +737,15 @@ def text_link_email_intro(email: str | None = None) -> str:
             "Если хотите заменить, введите новый email.\n"
             "Для подтверждения на почту будет отправлен код."
         )
-    return (
-        "📧 Привязка email\n\n"
-        "Введите ваш email-адрес.\n"
-        "На него будет отправлен код подтверждения."
-    )
+    return "📧 Привязка email\n\nВведите ваш email-адрес.\nНа него будет отправлен код подтверждения."
 
 
 def text_link_email_code_sent(email: str) -> str:
-    return (
-        f"📧 Код отправлен на {email}\n\n"
-        "Введите 6-значный код из письма.\n"
-        "Код действителен 10 минут."
-    )
+    return f"📧 Код отправлен на {email}\n\nВведите 6-значный код из письма.\nКод действителен 10 минут."
 
 
 def text_link_email_success(email: str) -> str:
-    return (
-        f"✅ Email {email} успешно привязан!\n\n"
-        "Теперь вы можете входить на сайт используя этот email."
-    )
+    return f"✅ Email {email} успешно привязан!\n\nТеперь вы можете входить на сайт используя этот email."
 
 
 def text_link_email_already_linked(email: str) -> str:
@@ -749,10 +779,12 @@ def text_trial_offer() -> str:
 
 
 def trial_offer_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
-        [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "🎁 Попробовать 3 дня бесплатно", "callback_data": CB_TRIAL}],
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+        ]
+    )
 
 
 def text_trial_activated(config: VlessUserConfig) -> str:
@@ -764,19 +796,43 @@ def text_trial_activated(config: VlessUserConfig) -> str:
         "🔑 Ключи:",
     ]
     lines.append(format_key_list(config.servers))
-    lines.extend([
-        "",
-        "💡 Как подключиться:",
-        "1. Скачайте Karing / Happ / v2rayTune",
-        "2. Нажмите на ссылку выше — она скопируется",
-        "3. В приложении: Подписка → Вставить ссылку → Импорт",
-        "4. Выберите сервер и подключитесь!",
-    ])
+    lines.extend(
+        [
+            "",
+            "💡 Как подключиться:",
+            "1. Скачайте Karing / Happ / v2rayTune",
+            "2. Нажмите на ссылку выше — она скопируется",
+            "3. В приложении: Подписка → Вставить ссылку → Импорт",
+            "4. Выберите сервер и подключитесь!",
+        ]
+    )
     return "\n".join(lines)
 
 
 def trial_activated_keyboard() -> dict[str, Any]:
-    return _inline_kb([
-        [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    return _inline_kb(
+        [
+            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+
+
+# ─── Custom days flow ──────────────────────────────────────────────
+
+
+def text_custom_days_prompt() -> str:
+    return (
+        "📦 Свой тариф\n\n"
+        "Введите количество дней (от 1 до 365):\n"
+        "Стоимость: 15 ₽ за каждый день.\n\n"
+        "Пример: 45 → 45 дней за 675 ₽"
+    )
+
+
+def custom_days_prompt_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад к тарифам", "callback_data": CB_BUY_VPN}]])
+
+
+def text_custom_days_invalid(user_input: str) -> str:
+    return f"❌ «{user_input}» — некорректное значение.\n\nВведите целое число от 1 до 365."

@@ -26,7 +26,7 @@ class PurchasePlanOption:
     plan_id: str
     display_name: str
     price_rubles: int
-    duration_months: int
+    duration_days: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class PurchaseSummary:
     extra_devices: int
     extra_device_cost_rubles: int
     total_price_rubles: int
-    duration_months: int
+    duration_days: int
 
 
 def get_available_plans() -> tuple[PurchasePlanOption, ...]:
@@ -47,7 +47,7 @@ def get_available_plans() -> tuple[PurchasePlanOption, ...]:
             plan_id=p.plan_id.value,
             display_name=plan_display_name(p.plan_id.value),
             price_rubles=p.price_rubles,
-            duration_months=p.duration_months,
+            duration_days=p.duration_days,
         )
         for p in get_all_plans()
     )
@@ -61,7 +61,7 @@ def build_purchase_summary(plan_id: str, device_count: int) -> PurchaseSummary |
     if err is not None:
         return err
     extra = extra_device_count(device_count, plan.default_device_limit)
-    extra_cost = extra_device_cost(device_count, plan.default_device_limit, plan.duration_months)
+    extra_cost = extra_device_cost(device_count, plan.default_device_limit, plan.duration_days)
     total = calculate_total_price(plan, device_count)
     return PurchaseSummary(
         plan_id=plan_id,
@@ -71,5 +71,5 @@ def build_purchase_summary(plan_id: str, device_count: int) -> PurchaseSummary |
         extra_devices=extra,
         extra_device_cost_rubles=extra_cost,
         total_price_rubles=total,
-        duration_months=plan.duration_months,
+        duration_days=plan.duration_days,
     )

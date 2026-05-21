@@ -347,6 +347,12 @@ async def run_customer_journey_e2e() -> None:
 
         composition = await _resolve_postgres_composition(pool)
 
+        # The composition uses StubVlessProvider (no VPN servers in CI DB).
+        # Seed the provider's in-memory user set so get_user_config succeeds
+        # during the /get_access RESEND flow's get_safe_delivery_instructions call.
+        if composition.vless_provider is not None:
+            await composition.vless_provider.create_user(internal_user_id=ids.internal_user_id)
+
         # Before fulfillment (pending/inactive customer-facing state)
         start = await _render_command(command="/start", ids=ids, composition=composition, update_id=1)
         _assert_contains(start.message_text, "Добро пожаловать")

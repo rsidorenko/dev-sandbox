@@ -306,7 +306,15 @@ async def test_access_smoke_uses_billing_path_and_adm02_remediation_not_direct_i
 
     async def fake_resolve(_pool):
         calls.append("resolve")
-        return object()
+
+        class _FakeVlessProvider:
+            async def create_user(self, *, internal_user_id: str):
+                calls.append("create_user")
+
+        class _Composition:
+            vless_provider = _FakeVlessProvider()
+
+        return _Composition()
 
     def fake_build_adm01_handler(_pool):
         calls.append("adm01_handler_built")

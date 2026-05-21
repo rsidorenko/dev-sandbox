@@ -71,6 +71,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "031_subscription_token_ttl.sql",
         "032_jwt_revocation.sql",
         "033_notification_indexes.sql",
+        "034_subscription_plans_days.sql",
     ]
 
 

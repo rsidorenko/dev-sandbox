@@ -8,16 +8,24 @@ from app.domain.plans import PlanId
 
 # Level 1 (direct referral) commission rates by plan
 _LEVEL1_RATES: dict[str, float] = {
+    PlanId.ONE_DAY: 0.10,
+    PlanId.SEVEN_DAYS: 0.15,
+    PlanId.TWO_WEEKS: 0.20,
     PlanId.ONE_MONTH: 0.35,
     PlanId.THREE_MONTHS: 0.30,
     PlanId.SIX_MONTHS: 0.25,
+    PlanId.ONE_YEAR: 0.25,
 }
 
 # Level 2 (referral of referral) commission rates by plan
 _LEVEL2_RATES: dict[str, float] = {
+    PlanId.ONE_DAY: 0.01,
+    PlanId.SEVEN_DAYS: 0.02,
+    PlanId.TWO_WEEKS: 0.03,
     PlanId.ONE_MONTH: 0.05,
     PlanId.THREE_MONTHS: 0.03,
     PlanId.SIX_MONTHS: 0.02,
+    PlanId.ONE_YEAR: 0.02,
 }
 
 

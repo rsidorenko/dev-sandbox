@@ -348,6 +348,13 @@ def test_postgres_composition_access_resend_enabled_uses_durable_state_happy_pat
                 open_pool=_reuse_pool,
             )
             assert maybe_pool is pool
+
+            # The composition uses StubVlessProvider (no VPN servers in CI DB).
+            # Seed the provider's in-memory user set so get_user_config succeeds
+            # during the RESEND flow's get_safe_delivery_instructions call.
+            if composition.vless_provider is not None:
+                await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+
             result = await composition.access_resend.handle(
                 TelegramAccessResendInput(
                     telegram_user_id=telegram_user_id,
