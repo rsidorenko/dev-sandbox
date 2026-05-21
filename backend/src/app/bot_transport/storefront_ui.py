@@ -124,7 +124,7 @@ def device_select_keyboard(plan_id: str, current: int = DEFAULT_DEVICE_LIMIT) ->
     rows = [
         [
             {"text": "➖", "callback_data": f"{CB_DEVICES}{plan_id}:{max(DEFAULT_DEVICE_LIMIT, current - 1)}"},
-            {"text": f"Устройств: {current}", "callback_data": f"{CB_DEVICES}{plan_id}:{current}"},
+            {"text": f"Устройств: {current}", "callback_data": "noop"},
             {"text": "➕", "callback_data": f"{CB_DEVICES}{plan_id}:{min(MAX_DEVICE_COUNT, current + 1)}"},
         ],
         [{"text": f"✅ Продолжить ({current} устройств)", "callback_data": f"{CB_CONFIRM_PAY}{plan_id}:{current}"}],

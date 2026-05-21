@@ -1591,13 +1591,26 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         uc01_idempotency_key=None,
                     )
 
+    # Short-circuit "noop" callbacks (non-clickable label buttons) — no message sent, spinner dismissed.
+    is_callback = isinstance(update.get("callback_query"), Mapping)
+    if is_callback:
+        cq = update.get("callback_query")
+        if isinstance(cq, Mapping) and cq.get("data") == "noop":
+            return RenderedMessagePackage(
+                message_text="",
+                action_keys=(),
+                correlation_id=correlation_id or uuid.uuid4().hex,
+                reply_markup=None,
+                replay_suppresses_outbound=False,
+                uc01_idempotency_key=None,
+            )
+
     transport = await handle_slice1_telegram_update(
         update,
         composition,
         correlation_id=correlation_id,
     )
 
-    is_callback = isinstance(update.get("callback_query"), Mapping)
     storefront = await _render_storefront_response(transport, composition, update, is_callback=is_callback)
     if storefront is not None:
         return storefront
