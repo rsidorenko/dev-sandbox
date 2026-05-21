@@ -84,7 +84,7 @@ _CATALOG_TEXT: dict[str, str] = {
         "/get_access - аналог /resend_access\n"
         "/help - эта справка"
     ),
-    OutboundMessageKey.INVALID_INPUT.value: "Ввод некорректен. Попробуйте снова.",
+    OutboundMessageKey.INVALID_INPUT.value: "❌ Ввод некорректен. Попробуйте снова.",
     OutboundMessageKey.TRY_AGAIN_LATER.value: ("Что-то пошло не так. Пожалуйста, попробуйте позже."),
     OutboundMessageKey.SERVICE_UNAVAILABLE.value: _text_service_unavailable(),
     OutboundMessageKey.TELEGRAM_COMMAND_RATE_LIMITED.value: "Слишком много запросов. Пожалуйста, попробуйте позже.",

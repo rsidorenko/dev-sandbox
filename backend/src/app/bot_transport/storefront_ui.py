@@ -11,7 +11,7 @@ from typing import Any
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
-from app.domain.plans import plan_display_name
+from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
 from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
 
 # ─── Callback data constants ──────────────────────────────────────────
@@ -825,8 +825,8 @@ def text_custom_days_prompt() -> str:
     return (
         "📦 Свой тариф\n\n"
         "Введите количество дней (от 1 до 365):\n"
-        "Стоимость: 15 ₽ за каждый день.\n\n"
-        "Пример: 45 → 45 дней за 675 ₽"
+        f"Стоимость: {CUSTOM_DAY_PRICE_RUBLES} ₽ за каждый день.\n\n"
+        f"Пример: 45 → 45 дней за {45 * CUSTOM_DAY_PRICE_RUBLES} ₽"
     )
 
 

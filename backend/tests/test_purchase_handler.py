@@ -19,14 +19,14 @@ def test_build_purchase_summary_default():
     assert isinstance(result, PurchaseSummary)
     assert result.plan_id == "1m"
     assert result.device_count == 5
-    assert result.total_price_rubles == 300
+    assert result.total_price_rubles == 249
     assert result.extra_devices == 0
     assert result.extra_device_cost_rubles == 0
 
 
 def test_build_purchase_summary_with_extra_devices():
     result = build_purchase_summary("1m", 8)
-    assert result.total_price_rubles == 300 + 3 * round(80 / 30 * 30)  # 540
+    assert result.total_price_rubles == 249 + 3 * round(80 / 30 * 30)  # 489
     assert result.extra_devices == 3
     assert result.extra_device_cost_rubles == 240
 
@@ -44,10 +44,10 @@ def test_build_purchase_summary_invalid_device_count():
 
 def test_build_purchase_summary_3m():
     result = build_purchase_summary("3m", 5)
-    assert result.total_price_rubles == 750
+    assert result.total_price_rubles == 699
     assert result.plan_display_name == "3 месяца"
 
 
 def test_build_purchase_summary_6m_extra():
     result = build_purchase_summary("6m", 7)
-    assert result.total_price_rubles == 1350 + 2 * round(80 / 30 * 180)  # 2310
+    assert result.total_price_rubles == 1259 + 2 * round(80 / 30 * 180)  # 2219

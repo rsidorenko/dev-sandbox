@@ -41,7 +41,7 @@ _FUTURE_DATE = datetime(2099, 12, 31, 23, 59, 59, tzinfo=UTC)
 
 
 def test_balance_payment_activates_subscription():
-    c, uid = _make_composition_with_balance(user_id=100, balance_kopecks=300_00)
+    c, uid = _make_composition_with_balance(user_id=100, balance_kopecks=249_00)
     update = _callback_update(user_id=100, callback_data="pay_balance:1m:5")
     pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
     assert "оплачена с реферального баланса" in pkg.message_text
@@ -58,17 +58,17 @@ def test_balance_payment_deducts_from_balance():
     _run(handle_slice1_telegram_update_to_rendered_message(update, c))
     bal = _run(c.referral_balance_repo.get_balance(uid))
     assert bal is not None
-    assert bal.balance_kopecks == 200_00  # 500 - 300
+    assert bal.balance_kopecks == 251_00  # 500 - 249
 
 
 def test_balance_payment_records_debit_transaction():
-    c, uid = _make_composition_with_balance(user_id=102, balance_kopecks=300_00)
+    c, uid = _make_composition_with_balance(user_id=102, balance_kopecks=249_00)
     update = _callback_update(user_id=102, callback_data="pay_balance:1m:5")
     _run(handle_slice1_telegram_update_to_rendered_message(update, c))
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=10))
     debit_txs = [t for t in txs if t.transaction_type == "subscription_payment"]
     assert len(debit_txs) == 1
-    assert debit_txs[0].amount_kopecks == -300_00  # дебет (списание) = отрицательное значение
+    assert debit_txs[0].amount_kopecks == -249_00  # дебет (списание) = отрицательное значение
     assert debit_txs[0].related_plan_id == "1m"
 
 
@@ -86,9 +86,9 @@ def test_balance_payment_with_extra_devices():
     assert "оплачена с реферального баланса" in pkg.message_text
     snap = _run(c.snapshots.get_for_user(uid))
     assert snap.device_count == 7
-    # Cost: 300 + 2*80*1 = 460
+    # Cost: 249 + 2*80*1 = 409
     bal = _run(c.referral_balance_repo.get_balance(uid))
-    assert bal.balance_kopecks == 540_00  # 1000 - 460
+    assert bal.balance_kopecks == 591_00  # 1000 - 409
 
 
 def test_balance_payment_3_month_plan():
@@ -97,7 +97,7 @@ def test_balance_payment_3_month_plan():
     pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
     assert "оплачена с реферального баланса" in pkg.message_text
     bal = _run(c.referral_balance_repo.get_balance(uid))
-    assert bal.balance_kopecks == 250_00  # 1000 - 750
+    assert bal.balance_kopecks == 301_00  # 1000 - 699
 
 
 # ─── Add device tests ─────────────────────────────────────────────────
@@ -296,7 +296,7 @@ def test_balance_payment_extends_active_subscription():
 
     snap = _run(c.snapshots.get_for_user(uid))
     assert snap is not None
-    # Should extend from 2026-06-15 by 1 month → 2026-07-15
+    # Should extend from 2026-06-15 by 30 days → 2026-07-15
     assert snap.active_until_utc is not None
     assert snap.active_until_utc.year == 2026
     assert snap.active_until_utc.month == 7
