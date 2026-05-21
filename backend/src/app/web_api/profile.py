@@ -280,39 +280,6 @@ async def handle_renew_subscription(request: Request) -> JSONResponse:
     except Exception:
         _LOGGER.exception("renew_error")
         return _safe_json_error(500, "internal_error")
-            """SELECT plan_id, active_until_utc, device_count, keys_deactivated_at, keys_deleted_at
-               FROM subscription_snapshots WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        if snapshot is None:
-            return _safe_json_error(404, "no_subscription")
-
-        plan_id = snapshot["plan_id"] or "plan_1m"
-        months = _plan_months(plan_id)
-        new_until = _next_expiry(snapshot["active_until_utc"], months)
-
-        # Handle key lifecycle on renewal
-        provider = request.app.state.vless_provider
-        if provider is not None:
-            if snapshot["keys_deleted_at"] is not None:
-                with contextlib.suppress(Exception):
-                    await provider.create_user(internal_user_id=internal_user_id)
-            elif snapshot["keys_deactivated_at"] is not None:
-                with contextlib.suppress(Exception):
-                    await provider.activate_user(internal_user_id=internal_user_id)
-
-        await pool.execute(
-            """UPDATE subscription_snapshots
-               SET state_label = 'active', active_until_utc = $1,
-                   keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
-               WHERE internal_user_id = $2""",
-            new_until,
-            internal_user_id,
-        )
-        return JSONResponse({"ok": True, "active_until": new_until.isoformat()})
-    except Exception:
-        _LOGGER.exception("renew_error")
-        return _safe_json_error(500, "internal_error")
 
 
 async def handle_change_plan(request: Request) -> JSONResponse:
