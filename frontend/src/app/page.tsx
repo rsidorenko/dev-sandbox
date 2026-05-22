@@ -13,7 +13,7 @@ export default function HomePage() {
       <HeroSection />
       <FeaturesSection />
       <HowItWorks steps={siteConfig.howItWorks} />
-      <TariffsSection tariffs={siteConfig.tariffs} />
+      <TariffsSection />
       <DeliverySection />
       <FaqSection faq={siteConfig.faq} />
       <CtaSection />

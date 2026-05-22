@@ -1,29 +1,33 @@
-import { siteConfig } from "@/shared/config/site";
-
-export type Tariff = (typeof siteConfig.tariffs)[number];
-
 export const PLANS = [
-  { id: "plan_1m", label: "1 месяц", months: 1 },
-  { id: "plan_3m", label: "3 месяца", months: 3 },
-  { id: "plan_6m", label: "6 месяцев", months: 6 },
+  { id: "1d", label: "1 день", durationDays: 1 },
+  { id: "7d", label: "7 дней", durationDays: 7 },
+  { id: "14d", label: "2 недели", durationDays: 14 },
+  { id: "1m", label: "1 месяц", durationDays: 30 },
+  { id: "3m", label: "3 месяца", durationDays: 90 },
+  { id: "6m", label: "6 месяцев", durationDays: 180 },
+  { id: "365d", label: "1 год", durationDays: 365 },
 ] as const;
+
+const PLAN_NAMES: Record<string, string> = {
+  "1d": "1 день",
+  "7d": "7 дней",
+  "14d": "2 недели",
+  "1m": "1 месяц",
+  "3m": "3 месяца",
+  "6m": "6 месяцев",
+  "365d": "1 год",
+};
 
 export function planName(planId: string | null): string {
   if (!planId) return "";
-  const map: Record<string, string> = {
-    "1m": "1 месяц",
-    "3m": "3 месяца",
-    "6m": "6 месяцев",
-    plan_1m: "1 месяц",
-    plan_3m: "3 месяца",
-    plan_6m: "6 месяцев",
-  };
-  return map[planId] || planId;
+  if (planId.startsWith("custom:")) {
+    const days = parseInt(planId.split(":")[1]);
+    if (!isNaN(days)) return formatDays(days);
+  }
+  return PLAN_NAMES[planId] || planId;
 }
 
-export function normalizePlanId(
-  id: string | null | undefined,
-): string {
+export function normalizePlanId(id: string | null | undefined): string {
   if (!id) return "1m";
   return id.replace("plan_", "");
 }
@@ -35,4 +39,12 @@ export function daysLeft(activeUntil: string): number {
       (new Date(activeUntil).getTime() - Date.now()) / 86400000,
     ),
   );
+}
+
+function formatDays(days: number): string {
+  if (days === 1) return "1 день";
+  if (days % 10 === 1 && days !== 11) return `${days} день`;
+  if (days % 10 >= 2 && days % 10 <= 4 && !(days >= 12 && days <= 14))
+    return `${days} дня`;
+  return `${days} дней`;
 }
