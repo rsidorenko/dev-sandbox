@@ -3992,9 +3992,9 @@
       "summary": "CI/CD workflow: codegraph-check.yml"
     },
     ".github/workflows/deploy.yml": {
-      "hash": "0fdf79dca2fd2ce0",
+      "hash": "baf3ca16cd45e585",
       "language": "yaml",
-      "size": 14520,
+      "size": 14546,
       "summary": "CI/CD workflow: deploy.yml"
     },
     ".github/workflows/frontend-ci.yml": {

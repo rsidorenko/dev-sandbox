@@ -29,7 +29,7 @@ jobs:
 
       - name: Create deploy artifact (exclude non-runtime files)
         run: |
-          mkdir -p /tmp/bravada-deploy
+          mkdir -p bravada-deploy
           rsync -a --delete \
             --exclude='.git' \
             --exclude='.github' \
@@ -52,7 +52,8 @@ jobs:
             --exclude='*.log' \
             --exclude='.env' \
             --exclude='.env.*' \
-            ./ /tmp/bravada-deploy/
+            --exclude='bravada-deploy' \
+            ./ bravada-deploy/
 
       - name: Package and upload artifact to server
         uses: appleboy/scp-action@v0.1.7
@@ -60,7 +61,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "/tmp/bravada-deploy"
+          source: "bravada-deploy"
           target: "/opt/bravada-release"
           strip_components: 1
 
