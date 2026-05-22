@@ -95,7 +95,7 @@ jobs:
             # Restore server-side files
             cp -p /tmp/backend.env.backup /opt/bravada/backend/.env 2>/dev/null || true
             cp -p /tmp/root.env.backup /opt/bravada/.env 2>/dev/null || true
-            cp -rp /tmp/ssl.backup/* /opt/bravada/ssl/ 2>/dev/null || true
+            cp -a /tmp/ssl.backup/. /opt/bravada/ssl/ 2>/dev/null || true
 
             echo "=== Verifying excluded paths are absent ==="
             test ! -e /opt/bravada/.codegraph || { echo "FAIL: .codegraph/ exists on server"; exit 1; }
