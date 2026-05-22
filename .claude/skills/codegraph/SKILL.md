@@ -1,6 +1,6 @@
-# Code Graph Skill
+# CodeGraph Skill
 
-This repository has a tracked code graph at `.codegraph/`. Use it before reading many files.
+This repository uses the official CodeGraph package (`@colbymchenry/codegraph`) for semantic code intelligence.
 
 ## When to use
 
@@ -9,37 +9,55 @@ This repository has a tracked code graph at `.codegraph/`. Use it before reading
 - When you need to locate tests for a source file
 - When the user asks "where is X?" or "what depends on Y?"
 
-## Commands
+## MCP tools (preferred)
 
-Prefer these commands over reading full files or broad directory listings:
+When `.codegraph/` exists, use these MCP tools directly for targeted lookups:
 
-```
-python scripts/codegraph/index.py summary
-python scripts/codegraph/index.py search "<query>"
-python scripts/codegraph/index.py related "<path>" --depth 1
-python scripts/codegraph/index.py file "<path>"
+| Tool | Purpose |
+|------|---------|
+| `codegraph_search` | Find symbols by name across the codebase |
+| `codegraph_callers` | Find what calls a function |
+| `codegraph_callees` | Find what a function calls |
+| `codegraph_impact` | Analyze what code is affected by changing a symbol |
+| `codegraph_node` | Get details about a specific symbol |
+| `codegraph_files` | Get indexed file structure |
+| `codegraph_status` | Check index health and statistics |
+
+For larger exploration tasks, spawn Explore agents with CodeGraph instructions rather than using `codegraph_context` or `codegraph_explore` in the main session.
+
+## CLI commands
+
+```bash
+codegraph init -i                        # Initialize and index
+codegraph index --force                  # Full rebuild
+codegraph sync                           # Incremental update
+codegraph status                         # Show index statistics
+codegraph query "<term>" --json          # Search symbols
+codegraph files --json                   # File structure from index
+codegraph query "<term>" --kind function # Filter by kind
+codegraph affected src/file.py --stdin   # Find affected test files
 ```
 
 ## Workflow
 
-1. Start with `summary` to understand project structure.
-2. Use `search` to find relevant files by name, symbol, import, or concept.
-3. Use `file` to see metadata for a specific file (imports, exports, symbols with line ranges).
-4. Use `related` to find neighboring files and test relationships.
-5. Read full source files only after the graph identifies the relevant files and line ranges.
+1. Start with `codegraph_status` to verify the index is healthy.
+2. Use `codegraph_search` to find relevant symbols by name.
+3. Use `codegraph_node` to see details for a specific symbol.
+4. Use `codegraph_callers`/`codegraph_callees` to trace call flow.
+5. Use `codegraph_files` for file structure instead of filesystem scanning.
+6. Read full source files only after CodeGraph identifies the relevant files and symbols.
 
 ## Keeping context low
 
-- Prefer exact file paths and line ranges from the graph.
-- Do not load broad directories when the graph can narrow the search.
-- Use `search` with specific queries instead of reading many files.
+- Prefer exact symbols and line ranges from CodeGraph.
+- Do not load broad directories when CodeGraph can narrow the search.
+- Use `codegraph_search` with specific queries instead of reading many files.
 
 ## Stale graph
 
-If the graph is stale or missing, suggest running:
+If the graph is stale or missing, run:
 
+```bash
+codegraph sync          # incremental update
+codegraph index --force # full rebuild
 ```
-python scripts/codegraph/index.py build
-```
-
-Then re-run the query.

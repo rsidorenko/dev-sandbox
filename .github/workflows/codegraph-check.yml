@@ -5,7 +5,6 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
-      - "scripts/codegraph/**"
       - ".codegraph/**"
       - ".github/workflows/codegraph-check.yml"
   push:
@@ -13,7 +12,6 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
-      - "scripts/codegraph/**"
       - ".codegraph/**"
       - ".github/workflows/codegraph-check.yml"
 
@@ -23,17 +21,33 @@ concurrency:
 
 jobs:
   check:
-    name: Code graph freshness
+    name: CodeGraph index validation
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Install CodeGraph
+        run: npm i -g @colbymchenry/codegraph
 
-      - name: Check code graph is current
-        run: python scripts/codegraph/index.py check
+      - name: Initialize CodeGraph index
+        run: codegraph init -i
+
+      - name: Verify index is healthy
+        run: |
+          codegraph status
+          FILE_COUNT=$(codegraph files --json | node -e "
+            const chunks = [];
+            process.stdin.on('data', c => chunks.push(c));
+            process.stdin.on('end', () => {
+              const files = JSON.parse(Buffer.concat(chunks).toString());
+              console.log(files.length);
+            });
+          ")
+          echo "Indexed $FILE_COUNT files"
+          if [ "$FILE_COUNT" -lt 100 ]; then
+            echo "FAIL: CodeGraph indexed fewer than 100 files — expected 400+"
+            exit 1
+          fi
+          echo "OK: CodeGraph index looks healthy ($FILE_COUNT files)"
