@@ -336,23 +336,38 @@ gh run view <run-id> --log-failed
 
 ---
 
-## Code graph
+## CodeGraph
 
-This repository has a tracked code graph in `.codegraph/`. Use it before reading many files.
+This repository uses the official CodeGraph package (`@colbymchenry/codegraph`) for semantic code intelligence.
 
-- Build/update: `python scripts/codegraph/index.py build`
-- Check freshness: `python scripts/codegraph/index.py check`
-- Summary: `python scripts/codegraph/index.py summary`
-- Search: `python scripts/codegraph/index.py search "<query>"`
-- Related files: `python scripts/codegraph/index.py related "<path>" --depth 1`
-- File metadata: `python scripts/codegraph/index.py file "<path>"`
+When `.codegraph/` exists in the project:
 
-Prefer graph summaries, symbols, relationships, and line ranges before opening full files.
+- Prefer CodeGraph MCP tools before broad file exploration.
+- Use lightweight lookups first:
+  - `codegraph_search` — find symbols by name
+  - `codegraph_callers` / `codegraph_callees` — trace call flow
+  - `codegraph_impact` — check what's affected before editing
+  - `codegraph_node` — get a single symbol's details
+  - `codegraph_files` — indexed file structure (faster than filesystem scanning)
+  - `codegraph_status` — check index health and statistics
+- For larger exploration tasks, spawn Explore agents with CodeGraph instructions.
+- Do not grep/read broad directories before checking CodeGraph.
+- Only read full files after CodeGraph identifies the relevant files/symbols.
 
-Before committing code changes, run `build` and `check` so the graph stays current in CI.
+Developer commands:
 
-`.codegraph/`, `.claude/`, and `scripts/codegraph/` are tracked in Git but excluded from deployment via artifact-based deploy (`.github/workflows/deploy.yml`). They must not reach the server.
+- Initialize: `codegraph init -i`
+- Full rebuild: `codegraph index --force`
+- Incremental sync: `codegraph sync`
+- Status: `codegraph status`
+- Query: `codegraph query "<term>" --json`
+- Files: `codegraph files --json`
+
+If the graph is stale or missing, run `codegraph sync` or `codegraph index --force`.
+
+`.codegraph/` is tracked in Git (`.gitignore` and `README.md` only; the SQLite DB is local-only and gitignored).
+`.codegraph/`, `.claude/`, and `scripts/codegraph/` are excluded from deployment via artifact-based deploy (`.github/workflows/deploy.yml`). They must not reach the server.
 
 ---
 
-*Last updated: 2026-05-22. Maintained by: rsidorenko / Claude Code delivery batches.*
+*Last updated: 2026-05-23. Maintained by: rsidorenko / Claude Code delivery batches.*
