@@ -61,12 +61,16 @@ export function TariffsSection() {
         ) : null}
 
         {/* Custom tariff toggle */}
-        <div className="mt-6 text-center">
+        <div className="mt-8 flex justify-center">
           <button
             onClick={() => setShowCustom(!showCustom)}
-            className="text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+            className={`inline-flex items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-3 text-sm font-semibold transition ${
+              showCustom
+                ? "border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-300"
+                : "border-gray-300 bg-white text-gray-700 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300 dark:hover:border-brand-500 dark:hover:text-brand-300"
+            }`}
           >
-            {showCustom ? "↩ Назад к тарифам" : "📦 Свой тариф (от 1 до 365 дней)"}
+            {showCustom ? "↩ Назад к тарифам" : "📦 Свой тариф — от 1 до 365 дней"}
           </button>
         </div>
       </div>
