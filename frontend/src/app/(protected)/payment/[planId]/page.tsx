@@ -6,14 +6,28 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi } from "@/entities/payment/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
+import { planName } from "@/entities/tariff/helpers";
 import { Alert } from "@/shared/ui/Alert";
 
 const EXTRA_DEVICE_PRICE = 80;
 const DEFAULT_DEVICES = 5;
+const CUSTOM_PRICE_PER_DAY = 15;
 
-function calcTotal(basePrice: number, months: number, devices: number): number {
-  const extra = Math.max(0, devices - DEFAULT_DEVICES);
-  return basePrice + extra * EXTRA_DEVICE_PRICE * months;
+function calcExtraDeviceCost(durationDays: number, extraDevices: number): number {
+  return extraDevices * Math.round(EXTRA_DEVICE_PRICE / 30 * durationDays);
+}
+
+function getTariffInfo(planId: string) {
+  const tariff = siteConfig.tariffs.find((t) => t.id === planId);
+  if (tariff) {
+    return { label: tariff.label, durationDays: tariff.durationDays, basePrice: tariff.price };
+  }
+  const match = planId.match(/^custom:(\d+)$/);
+  if (match) {
+    const days = parseInt(match[1]);
+    return { label: planName(planId), durationDays: days, basePrice: days * CUSTOM_PRICE_PER_DAY };
+  }
+  return null;
 }
 
 export default function PaymentPage() {
@@ -47,7 +61,7 @@ function PaymentForm() {
     message: string;
   } | null>(null);
 
-  const tariff = siteConfig.tariffs.find((t) => t.id === planId);
+  const info = planId ? getTariffInfo(planId) : null;
 
   useEffect(() => {
     if (!authLoading && !authenticated) {
@@ -55,7 +69,7 @@ function PaymentForm() {
     }
   }, [authLoading, authenticated, router, planId]);
 
-  if (!tariff) {
+  if (!info) {
     return (
       <section className="flex min-h-[60vh] items-center justify-center py-20">
         <div className="mx-auto max-w-md px-4 text-center">
@@ -71,17 +85,16 @@ function PaymentForm() {
     );
   }
 
-  const months = tariff.durationDays / 30;
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
-  const extraCost = extraDevices * EXTRA_DEVICE_PRICE * months;
-  const total = calcTotal(tariff.price, months, deviceCount);
+  const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
+  const total = info.basePrice + extraCost;
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
-    const result = await paymentApi.create(tariff.id, deviceCount);
+    const result = await paymentApi.create(planId, deviceCount);
     setLoading(false);
 
     if (!result.ok) {
@@ -122,15 +135,15 @@ function PaymentForm() {
           <div className="mt-6 space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">Тариф</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.label}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.label}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">Период</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.durationDays} дней</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.durationDays} дней</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">Подписка</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{tariff.price} ₽</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.basePrice.toLocaleString("ru-RU")} ₽</span>
             </div>
           </div>
 
@@ -151,14 +164,14 @@ function PaymentForm() {
             </div>
             {extraDevices > 0 && (
               <p className="mt-1 text-xs text-gray-400">
-                Доп. устройства: {extraDevices} × {EXTRA_DEVICE_PRICE} ₽ × {months} мес. = {extraCost} ₽
+                Доп. устройства: {extraDevices} &times; {Math.round(EXTRA_DEVICE_PRICE / 30 * info.durationDays)} ₽ = {extraCost.toLocaleString("ru-RU")} ₽
               </p>
             )}
           </div>
 
           <div className="mt-6 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total} ₽</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total.toLocaleString("ru-RU")} ₽</span>
           </div>
 
           {errorMsg && <Alert className="mt-4">{errorMsg}</Alert>}
@@ -177,7 +190,7 @@ function PaymentForm() {
             disabled={loading}
             className="mt-6 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оплатить ${total} ₽`}
+            {loading ? "Обработка..." : `Оплатить ${total.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">
