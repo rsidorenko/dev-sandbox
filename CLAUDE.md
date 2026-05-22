@@ -334,4 +334,25 @@ gh run view <run-id> --log-failed
 
 ---
 
-*Last updated: 2026-05-21. Maintained by: rsidorenko / Claude Code delivery batches.*
+---
+
+## Code graph
+
+This repository has a tracked code graph in `.codegraph/`. Use it before reading many files.
+
+- Build/update: `python scripts/codegraph/index.py build`
+- Check freshness: `python scripts/codegraph/index.py check`
+- Summary: `python scripts/codegraph/index.py summary`
+- Search: `python scripts/codegraph/index.py search "<query>"`
+- Related files: `python scripts/codegraph/index.py related "<path>" --depth 1`
+- File metadata: `python scripts/codegraph/index.py file "<path>"`
+
+Prefer graph summaries, symbols, relationships, and line ranges before opening full files.
+
+Before committing code changes, run `build` and `check` so the graph stays current in CI.
+
+`.codegraph/`, `.claude/`, and `scripts/codegraph/` are tracked in Git but excluded from deployment via artifact-based deploy (`.github/workflows/deploy.yml`). They must not reach the server.
+
+---
+
+*Last updated: 2026-05-22. Maintained by: rsidorenko / Claude Code delivery batches.*

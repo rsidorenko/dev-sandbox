@@ -1,0 +1,46 @@
+{
+  "languages": [
+    "config",
+    "css",
+    "dockerfile",
+    "dockerignore",
+    "gitignore",
+    "javascript",
+    "json",
+    "markdown",
+    "python",
+    "shell",
+    "sql",
+    "text",
+    "toml",
+    "typescript",
+    "yaml"
+  ],
+  "project": {
+    "languages": [
+      "config",
+      "css",
+      "dockerfile",
+      "dockerignore",
+      "gitignore",
+      "javascript",
+      "json",
+      "markdown",
+      "python",
+      "shell",
+      "sql",
+      "text",
+      "toml",
+      "typescript",
+      "yaml"
+    ],
+    "name": "TelegramBotVPN",
+    "root_marker": "CLAUDE.md"
+  },
+  "schema_version": "1.0",
+  "stats": {
+    "edges": 793,
+    "files": 600,
+    "symbols": 3515
+  }
+}

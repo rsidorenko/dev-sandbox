@@ -24,6 +24,46 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Create deploy artifact (exclude non-runtime files)
+        run: |
+          mkdir -p /tmp/bravada-deploy
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.codegraph' \
+            --exclude='.claude' \
+            --exclude='scripts/codegraph' \
+            --exclude='node_modules' \
+            --exclude='coverage' \
+            --exclude='logs' \
+            --exclude='tmp' \
+            --exclude='temp' \
+            --exclude='.cursor' \
+            --exclude='.vscode' \
+            --exclude='.idea' \
+            --exclude='.pytest_cache' \
+            --exclude='.mypy_cache' \
+            --exclude='.ruff_cache' \
+            --exclude='frontend/node_modules' \
+            --exclude='frontend/.next' \
+            --exclude='*.log' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            ./ /tmp/bravada-deploy/
+
+      - name: Package and upload artifact to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "/tmp/bravada-deploy"
+          target: "/opt/bravada-release"
+          strip_components: 1
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
@@ -38,9 +78,30 @@ jobs:
           envs: RUN_HARDENING,RUN_CLEANUP,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
+
+            echo "=== Swapping deploy artifact into place ==="
             cd /opt/bravada
-            git checkout -- .
-            git pull origin main
+
+            # Preserve server-side .env files (never overwritten from repo)
+            cp -p backend/.env /tmp/backend.env.backup 2>/dev/null || true
+            cp -p .env /tmp/root.env.backup 2>/dev/null || true
+
+            # Replace app directory with clean artifact
+            rm -rf /opt/bravada
+            mv /opt/bravada-release /opt/bravada
+
+            # Restore server-side .env files
+            cp -p /tmp/backend.env.backup /opt/bravada/backend/.env 2>/dev/null || true
+            cp -p /tmp/root.env.backup /opt/bravada/.env 2>/dev/null || true
+
+            echo "=== Verifying excluded paths are absent ==="
+            test ! -e /opt/bravada/.codegraph || { echo "FAIL: .codegraph/ exists on server"; exit 1; }
+            test ! -e /opt/bravada/.claude || { echo "FAIL: .claude/ exists on server"; exit 1; }
+            test ! -e /opt/bravada/scripts/codegraph || { echo "FAIL: scripts/codegraph/ exists on server"; exit 1; }
+            echo "OK: excluded paths verified absent"
+
+            echo "=== Building and starting containers ==="
+            cd /opt/bravada
             docker compose -f docker-compose.prod.yml build --no-cache
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate || docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
@@ -184,8 +245,6 @@ jobs:
                         password = row['encrypted_password'] if row['encrypted_password'] else row['panel_password']
                         if row['encrypted_password']:
                             password = decrypt_field(row['encrypted_password'])
-                        # Extract host from panel_url for direct SSH restart
-                        panel_host = row['panel_url'].split('://')[1].split(':')[0]
                         inbound_id = row['inbound_id']
                         print(f'  Server {row["id"]}: {panel_url} (inbound {inbound_id})')
 

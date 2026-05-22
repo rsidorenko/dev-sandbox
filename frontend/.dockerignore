@@ -7,6 +7,11 @@ out/
 .env.*
 !.env.example
 
+# Code graph (tracked in Git, excluded from Docker)
+.codegraph/
+.claude/
+scripts/codegraph/
+
 # IDE
 .vscode/
 .idea/

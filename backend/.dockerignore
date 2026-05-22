@@ -17,6 +17,11 @@ build/
 # CI/test reports
 test-reports/
 
+# Code graph (tracked in Git, excluded from Docker)
+.codegraph/
+.claude/
+scripts/codegraph/
+
 # IDE
 .vscode/
 .idea/

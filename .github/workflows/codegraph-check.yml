@@ -1,0 +1,39 @@
+name: codegraph-check
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/codegraph/**"
+      - ".codegraph/**"
+      - ".github/workflows/codegraph-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/codegraph/**"
+      - ".codegraph/**"
+      - ".github/workflows/codegraph-check.yml"
+
+concurrency:
+  group: codegraph-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Code graph freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Check code graph is current
+        run: python scripts/codegraph/index.py check
