@@ -46,7 +46,10 @@ SKIP_DIRS = {
     ".next", ".nuxt", "target", "__pycache__", ".pytest_cache",
     ".mypy_cache", ".ruff_cache", ".turbo", ".cache", "tmp", "temp", "logs",
     ".vscode", ".idea", "worktrees",
+    "test-reports", ".test-reports",
 }
+
+SKIP_DIR_SUFFIXES = {".egg-info"}
 
 # File patterns to skip
 SKIP_PATTERNS = {
@@ -58,6 +61,7 @@ SKIP_PATTERNS = {
 SKIP_FILES = {
     ".env", ".env.local", ".env.production",
     "image.png",
+    "next-env.d.ts", "tsconfig.tsbuildinfo",
 }
 
 # Prefixes that indicate secret files
@@ -69,6 +73,8 @@ def _should_skip(path: Path) -> bool:
     parts = path.parts
     for part in parts:
         if part in SKIP_DIRS:
+            return True
+        if any(part.endswith(s) for s in SKIP_DIR_SUFFIXES):
             return True
     name = path.name
     if name in SKIP_FILES:
@@ -499,7 +505,7 @@ def build_graph() -> dict[str, Any]:
     all_paths: list[Path] = []
     for root, dirs, filenames in os.walk(REPO_ROOT):
         # Prune skipped directories in-place
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".env")]
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".env") and not any(d.endswith(s) for s in SKIP_DIR_SUFFIXES)]
         root_path = Path(root)
         for fname in sorted(filenames):
             fpath = root_path / fname
@@ -944,7 +950,7 @@ def _detect_changed_files(graph: dict[str, Any]) -> list[str]:
 
     # Also detect new files (not in graph but exist)
     for root, dirs, filenames in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".env")]
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".env") and not any(d.endswith(s) for s in SKIP_DIR_SUFFIXES)]
         root_path = Path(root)
         for fname in sorted(filenames):
             fpath = root_path / fname

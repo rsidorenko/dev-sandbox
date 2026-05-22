@@ -4039,12 +4039,6 @@
       "size": 347,
       "summary": "dockerignore file: .dockerignore"
     },
-    "backend/.test-reports/backend-smoke-helper-regression.xml": {
-      "hash": "85cdb64d4fd5f3d0",
-      "language": "unknown",
-      "size": 4177,
-      "summary": "unknown file: backend-smoke-helper-regression.xml"
-    },
     "backend/Dockerfile": {
       "hash": "b94f25c02a1f48cf",
       "language": "dockerfile",
@@ -29273,48 +29267,6 @@
           "name": "handle_subscription"
         }
       ]
-    },
-    "backend/src/telegram_bot_vpn_backend.egg-info/PKG-INFO": {
-      "hash": "5a2f9a42cadecbc0",
-      "language": "unknown",
-      "size": 495,
-      "summary": "unknown file: PKG-INFO"
-    },
-    "backend/src/telegram_bot_vpn_backend.egg-info/SOURCES.txt": {
-      "hash": "744a9a637dfb7eca",
-      "language": "text",
-      "size": 17025,
-      "summary": "text file: SOURCES.txt"
-    },
-    "backend/src/telegram_bot_vpn_backend.egg-info/dependency_links.txt": {
-      "hash": "01ba4719c80b6fe9",
-      "language": "text",
-      "size": 2,
-      "summary": "text file: dependency_links.txt"
-    },
-    "backend/src/telegram_bot_vpn_backend.egg-info/requires.txt": {
-      "hash": "56b26645bd1b8c73",
-      "language": "text",
-      "size": 154,
-      "summary": "text file: requires.txt"
-    },
-    "backend/src/telegram_bot_vpn_backend.egg-info/top_level.txt": {
-      "hash": "8a8f60ecb09b7e64",
-      "language": "text",
-      "size": 4,
-      "summary": "text file: top_level.txt"
-    },
-    "backend/test-reports/backend-full-regression.xml": {
-      "hash": "d26dd548afa52db5",
-      "language": "unknown",
-      "size": 143171,
-      "summary": "unknown file: backend-full-regression.xml"
-    },
-    "backend/test-reports/backend-smoke-helper-regression.xml": {
-      "hash": "c1c14a732001eca1",
-      "language": "unknown",
-      "size": 4177,
-      "summary": "unknown file: backend-smoke-helper-regression.xml"
     },
     "backend/tests/__init__.py": {
       "hash": "01cd2dad6b813c41",
@@ -58838,12 +58790,6 @@
       "size": 7208,
       "summary": "markdown file: README.md"
     },
-    "frontend/next-env.d.ts": {
-      "hash": "9dd9d642cdb87d4d",
-      "language": "typescript",
-      "size": 233,
-      "summary": "TS module (next-env.d.ts)"
-    },
     "frontend/next.config.js": {
       "hash": "8136f18dd4f87771",
       "language": "javascript",
@@ -59864,12 +59810,6 @@
       "size": 604,
       "summary": "json file: tsconfig.json"
     },
-    "frontend/tsconfig.tsbuildinfo": {
-      "hash": "a2f58ae8efe295e9",
-      "language": "unknown",
-      "size": 111707,
-      "summary": "unknown file: tsconfig.tsbuildinfo"
-    },
     "nginx/conf.d/default.conf": {
       "hash": "875dd43b5416ad04",
       "language": "config",
@@ -59905,6 +59845,7 @@
         "SCHEMA_VERSION",
         "SECRET_PREFIXES",
         "SKIP_DIRS",
+        "SKIP_DIR_SUFFIXES",
         "SKIP_FILES",
         "SKIP_PATTERNS",
         "USAGE",
@@ -59919,7 +59860,7 @@
         "cmd_summary",
         "main"
       ],
-      "hash": "ee25575265343869",
+      "hash": "1a3a02fd534798e8",
       "imports": [
         "__future__.annotations",
         "ast",
@@ -59933,175 +59874,175 @@
         "typing.Any"
       ],
       "language": "python",
-      "size": 34788,
+      "size": 35098,
       "summary": "Python module: functions _should_skip, _file_hash, _detect_language, _parse_python",
       "symbols": [
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 87,
-          "line_start": 67,
+          "line_end": 93,
+          "line_start": 71,
           "name": "_should_skip"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 103,
-          "line_start": 94,
+          "line_end": 109,
+          "line_start": 100,
           "name": "_file_hash"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 143,
-          "line_start": 136,
+          "line_end": 149,
+          "line_start": 142,
           "name": "_detect_language"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 271,
-          "line_start": 150,
+          "line_end": 277,
+          "line_start": 156,
           "name": "_parse_python"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 286,
-          "line_start": 274,
+          "line_end": 292,
+          "line_start": 280,
           "name": "_decorators"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 374,
-          "line_start": 320,
+          "line_end": 380,
+          "line_start": 326,
           "name": "_parse_js_ts"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 406,
-          "line_start": 386,
+          "line_end": 412,
+          "line_start": 392,
           "name": "_parse_sql"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 419,
-          "line_start": 413,
+          "line_end": 425,
+          "line_start": 419,
           "name": "_parse_generic"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 468,
-          "line_start": 426,
+          "line_end": 474,
+          "line_start": 432,
           "name": "_generate_summary"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 485,
-          "line_start": 475,
+          "line_end": 491,
+          "line_start": 481,
           "name": "_find_related_tests"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 596,
-          "line_start": 492,
+          "line_end": 602,
+          "line_start": 498,
           "name": "build_graph"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 614,
-          "line_start": 603,
+          "line_end": 620,
+          "line_start": 609,
           "name": "build_manifest"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 640,
-          "line_start": 621,
+          "line_end": 646,
+          "line_start": 627,
           "name": "cmd_build"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 664,
-          "line_start": 643,
+          "line_end": 670,
+          "line_start": 649,
           "name": "cmd_check"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 703,
-          "line_start": 667,
+          "line_end": 709,
+          "line_start": 673,
           "name": "cmd_summary"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 773,
-          "line_start": 706,
+          "line_end": 779,
+          "line_start": 712,
           "name": "cmd_search"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 831,
-          "line_start": 776,
+          "line_end": 837,
+          "line_start": 782,
           "name": "cmd_file"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 909,
-          "line_start": 834,
+          "line_end": 915,
+          "line_start": 840,
           "name": "cmd_related"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 928,
-          "line_start": 912,
+          "line_end": 934,
+          "line_start": 918,
           "name": "cmd_changed"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 957,
-          "line_start": 931,
+          "line_end": 963,
+          "line_start": 937,
           "name": "_detect_changed_files"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 1019,
-          "line_start": 978,
+          "line_end": 1025,
+          "line_start": 984,
           "name": "main"
         }
       ]
@@ -72268,8 +72209,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 286,
-        "line_start": 274
+        "line_end": 292,
+        "line_start": 280
       }
     ],
     "_default_base_url": [
@@ -72348,8 +72289,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 957,
-        "line_start": 931
+        "line_end": 963,
+        "line_start": 937
       }
     ],
     "_detect_compose_command": [
@@ -72364,8 +72305,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 143,
-        "line_start": 136
+        "line_end": 149,
+        "line_start": 142
       }
     ],
     "_deterministic_ensure_access_idempotency_key": [
@@ -72746,8 +72687,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 103,
-        "line_start": 94
+        "line_end": 109,
+        "line_start": 100
       }
     ],
     "_find_mapping_section": [
@@ -72762,8 +72703,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 485,
-        "line_start": 475
+        "line_end": 491,
+        "line_start": 481
       }
     ],
     "_forbidden_fragments": [
@@ -72874,8 +72815,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 468,
-        "line_start": 426
+        "line_end": 474,
+        "line_start": 432
       }
     ],
     "_get_code_ttl_minutes": [
@@ -74034,8 +73975,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 419,
-        "line_start": 413
+        "line_end": 425,
+        "line_start": 419
       }
     ],
     "_parse_iso_timestamp": [
@@ -74050,8 +73991,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 374,
-        "line_start": 320
+        "line_end": 380,
+        "line_start": 326
       }
     ],
     "_parse_json_object": [
@@ -74090,8 +74031,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 271,
-        "line_start": 150
+        "line_end": 277,
+        "line_start": 156
       }
     ],
     "_parse_ref_arg": [
@@ -74114,8 +74055,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 406,
-        "line_start": 386
+        "line_end": 412,
+        "line_start": 392
       }
     ],
     "_parse_start_param": [
@@ -75282,8 +75223,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 87,
-        "line_start": 67
+        "line_end": 93,
+        "line_start": 71
       }
     ],
     "_should_verify_ssl": [
@@ -76566,8 +76507,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 596,
-        "line_start": 492
+        "line_end": 602,
+        "line_start": 498
       }
     ],
     "build_ledger_record_for_ingest": [
@@ -76582,8 +76523,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 614,
-        "line_start": 603
+        "line_end": 620,
+        "line_start": 609
       }
     ],
     "build_purchase_summary": [
@@ -76878,56 +76819,56 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 640,
-        "line_start": 621
+        "line_end": 646,
+        "line_start": 627
       }
     ],
     "cmd_changed": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 928,
-        "line_start": 912
+        "line_end": 934,
+        "line_start": 918
       }
     ],
     "cmd_check": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 664,
-        "line_start": 643
+        "line_end": 670,
+        "line_start": 649
       }
     ],
     "cmd_file": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 831,
-        "line_start": 776
+        "line_end": 837,
+        "line_start": 782
       }
     ],
     "cmd_related": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 909,
-        "line_start": 834
+        "line_end": 915,
+        "line_start": 840
       }
     ],
     "cmd_search": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 773,
-        "line_start": 706
+        "line_end": 779,
+        "line_start": 712
       }
     ],
     "cmd_summary": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 703,
-        "line_start": 667
+        "line_end": 709,
+        "line_start": 673
       }
     ],
     "command_bucket_from_key": [
@@ -78170,8 +78111,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 1019,
-        "line_start": 978
+        "line_end": 1025,
+        "line_start": 984
       }
     ],
     "main_menu_keyboard": [
