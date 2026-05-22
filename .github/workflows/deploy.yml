@@ -83,17 +83,19 @@ jobs:
             echo "=== Swapping deploy artifact into place ==="
             cd /opt/bravada
 
-            # Preserve server-side .env files (never overwritten from repo)
+            # Preserve server-side files (never overwritten from repo)
             cp -p backend/.env /tmp/backend.env.backup 2>/dev/null || true
             cp -p .env /tmp/root.env.backup 2>/dev/null || true
+            cp -rp ssl /tmp/ssl.backup 2>/dev/null || true
 
             # Replace app directory with clean artifact
             rm -rf /opt/bravada
             mv /opt/bravada-release /opt/bravada
 
-            # Restore server-side .env files
+            # Restore server-side files
             cp -p /tmp/backend.env.backup /opt/bravada/backend/.env 2>/dev/null || true
             cp -p /tmp/root.env.backup /opt/bravada/.env 2>/dev/null || true
+            cp -rp /tmp/ssl.backup/* /opt/bravada/ssl/ 2>/dev/null || true
 
             echo "=== Verifying excluded paths are absent ==="
             test ! -e /opt/bravada/.codegraph || { echo "FAIL: .codegraph/ exists on server"; exit 1; }
