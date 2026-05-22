@@ -95,8 +95,9 @@ def _file_hash(path: Path) -> str:
     h = hashlib.sha256()
     try:
         with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                h.update(chunk)
+            content = f.read()
+        content = content.replace(b"\r\n", b"\n")
+        h.update(content)
     except OSError:
         return ""
     return h.hexdigest()[:16]

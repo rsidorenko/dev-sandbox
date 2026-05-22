@@ -3968,19 +3968,19 @@
   ],
   "files": {
     ".editorconfig": {
-      "hash": "964346c0c8957065",
+      "hash": "85dd19b6c08643cb",
       "language": "unknown",
       "size": 342,
       "summary": "unknown file: .editorconfig"
     },
     ".github/workflows/backend-mvp-release-readiness.yml": {
-      "hash": "c99556b3f3ef9807",
+      "hash": "ca341bc47760a98e",
       "language": "yaml",
       "size": 4254,
       "summary": "CI/CD workflow: backend-mvp-release-readiness.yml"
     },
     ".github/workflows/backend-postgres-mvp-smoke-validation.yml": {
-      "hash": "ed2a285699194dc0",
+      "hash": "0da604a5c3d67061",
       "language": "yaml",
       "size": 17208,
       "summary": "CI/CD workflow: backend-postgres-mvp-smoke-validation.yml"
@@ -3998,43 +3998,43 @@
       "summary": "CI/CD workflow: deploy.yml"
     },
     ".github/workflows/frontend-ci.yml": {
-      "hash": "4b3f6b4764cc72c8",
+      "hash": "a2646a7fbdfbc585",
       "language": "yaml",
       "size": 2649,
       "summary": "CI/CD workflow: frontend-ci.yml"
     },
     ".github/workflows/post-deploy-hardening.yml": {
-      "hash": "88c6ccd3e516afdc",
+      "hash": "fc89a7f0c9347afc",
       "language": "yaml",
       "size": 4110,
       "summary": "CI/CD workflow: post-deploy-hardening.yml"
     },
     ".gitignore": {
-      "hash": "5fc736364492ca31",
+      "hash": "853ccaf9ec27eedb",
       "language": "gitignore",
       "size": 600,
       "summary": "gitignore file: .gitignore"
     },
     ".pre-commit-config.yaml": {
-      "hash": "ce51d328e12a81d3",
+      "hash": "32af0dc1a776007a",
       "language": "yaml",
       "size": 1078,
       "summary": "yaml file: .pre-commit-config.yaml"
     },
     "CLAUDE.md": {
-      "hash": "095652eb2ab82187",
+      "hash": "6ee3360e2204a24d",
       "language": "markdown",
       "size": 16264,
       "summary": "markdown file: CLAUDE.md"
     },
     "PROJECT_HANDOFF.md": {
-      "hash": "0cdbfcf80e462e42",
+      "hash": "53d1efccaa4657c5",
       "language": "markdown",
       "size": 5351,
       "summary": "markdown file: PROJECT_HANDOFF.md"
     },
     "backend/.dockerignore": {
-      "hash": "e2027fea3fc940d8",
+      "hash": "fe5e3b18b0c24dea",
       "language": "dockerignore",
       "size": 347,
       "summary": "dockerignore file: .dockerignore"
@@ -4046,139 +4046,139 @@
       "summary": "unknown file: backend-smoke-helper-regression.xml"
     },
     "backend/Dockerfile": {
-      "hash": "1f2a97c94f0a6b07",
+      "hash": "b94f25c02a1f48cf",
       "language": "dockerfile",
       "size": 537,
       "summary": "Docker image: Dockerfile"
     },
     "backend/RELEASE_STATUS.md": {
-      "hash": "aa41c0ad13c0882b",
+      "hash": "d9f0c458e1d306cd",
       "language": "markdown",
       "size": 5861,
       "summary": "markdown file: RELEASE_STATUS.md"
     },
     "backend/docker-compose.postgres-smoke.yml": {
-      "hash": "417fa08bd81edda4",
+      "hash": "ce7c1fecedbd5365",
       "language": "yaml",
       "size": 500,
       "summary": "Docker compose: docker-compose.postgres-smoke.yml"
     },
     "backend/docs/admin_support_internal_read_gate_runbook.md": {
-      "hash": "94c0aa241a19d554",
+      "hash": "a3f5c60c34c77b54",
       "language": "markdown",
       "size": 13471,
       "summary": "markdown file: admin_support_internal_read_gate_runbook.md"
     },
     "backend/docs/adr_billing_ingestion_audit_retention.md": {
-      "hash": "162bf47d536efe35",
+      "hash": "88aa7c3fd4bfc573",
       "language": "markdown",
       "size": 7435,
       "summary": "markdown file: adr_billing_ingestion_audit_retention.md"
     },
     "backend/docs/adr_slice1_retention_scheduled_job.md": {
-      "hash": "c2f380df6dbe3821",
+      "hash": "ec8fac3b3acabdc5",
       "language": "markdown",
       "size": 6424,
       "summary": "markdown file: adr_slice1_retention_scheduled_job.md"
     },
     "backend/docs/billing_normalized_ingest_runbook.md": {
-      "hash": "db81fa3719b5cec3",
+      "hash": "5076cc317c03f2ba",
       "language": "markdown",
       "size": 2269,
       "summary": "markdown file: billing_normalized_ingest_runbook.md"
     },
     "backend/docs/billing_operator_ingest_apply_runbook.md": {
-      "hash": "7598b15f96a5ad10",
+      "hash": "ec789122769ae5fb",
       "language": "markdown",
       "size": 8317,
       "summary": "markdown file: billing_operator_ingest_apply_runbook.md"
     },
     "backend/docs/billing_subscription_apply_runbook.md": {
-      "hash": "0ea71879c028137e",
+      "hash": "3b031e14ef9aab9a",
       "language": "markdown",
       "size": 1789,
       "summary": "markdown file: billing_subscription_apply_runbook.md"
     },
     "backend/docs/issuance_operator_runbook.md": {
-      "hash": "dc30383cf0e5a807",
+      "hash": "d3965251d20b52a7",
       "language": "markdown",
       "size": 3434,
       "summary": "markdown file: issuance_operator_runbook.md"
     },
     "backend/docs/mvp_release_artifact_manifest.md": {
-      "hash": "ac5afffde83e5388",
+      "hash": "3c4bdb0010d3f065",
       "language": "markdown",
       "size": 4229,
       "summary": "markdown file: mvp_release_artifact_manifest.md"
     },
     "backend/docs/mvp_release_ci_trigger_decision.md": {
-      "hash": "254627b4323ad569",
+      "hash": "b1228122535761bf",
       "language": "markdown",
       "size": 1219,
       "summary": "markdown file: mvp_release_ci_trigger_decision.md"
     },
     "backend/docs/mvp_release_readiness_runbook.md": {
-      "hash": "1e066235691f8da7",
+      "hash": "b6890ed4b0f4ea48",
       "language": "markdown",
       "size": 19826,
       "summary": "markdown file: mvp_release_readiness_runbook.md"
     },
     "backend/docs/mvp_release_staging_manifest.md": {
-      "hash": "1a6d11d53e2adae2",
+      "hash": "b187db9a2cf02f46",
       "language": "markdown",
       "size": 5488,
       "summary": "markdown file: mvp_release_staging_manifest.md"
     },
     "backend/docs/operator_environment_validation_bootstrap.md": {
-      "hash": "4da46582237d7228",
+      "hash": "f90bbb22606eeeba",
       "language": "markdown",
       "size": 12026,
       "summary": "markdown file: operator_environment_validation_bootstrap.md"
     },
     "backend/docs/plan_slice1_retention_scheduled_minimal_impl.md": {
-      "hash": "d7b156955524db5a",
+      "hash": "93458adf7b8cfc5f",
       "language": "markdown",
       "size": 6349,
       "summary": "markdown file: plan_slice1_retention_scheduled_minimal_impl.md"
     },
     "backend/docs/postgres_mvp_smoke_runbook.md": {
-      "hash": "2f1ce606bbeb6c5f",
+      "hash": "a38c78c99c0bad9e",
       "language": "markdown",
       "size": 25991,
       "summary": "markdown file: postgres_mvp_smoke_runbook.md"
     },
     "backend/docs/slice1_retention_dry_run_runbook.md": {
-      "hash": "f8c26faf1c9fe423",
+      "hash": "98261693ac67f5c1",
       "language": "markdown",
       "size": 3450,
       "summary": "markdown file: slice1_retention_dry_run_runbook.md"
     },
     "backend/docs/slice1_retention_manual_cleanup_runbook.md": {
-      "hash": "188e9fc96e31763e",
+      "hash": "af6a4bb81b42f626",
       "language": "markdown",
       "size": 7358,
       "summary": "markdown file: slice1_retention_manual_cleanup_runbook.md"
     },
     "backend/docs/slice1_retention_scheduled_runbook.md": {
-      "hash": "545ebf94f0162e78",
+      "hash": "36d4c2c90e5ae105",
       "language": "markdown",
       "size": 8005,
       "summary": "markdown file: slice1_retention_scheduled_runbook.md"
     },
     "backend/docs/telegram_access_resend_runbook.md": {
-      "hash": "a10e565ee3501eb4",
+      "hash": "6f5b825d85f85890",
       "language": "markdown",
       "size": 8389,
       "summary": "markdown file: telegram_access_resend_runbook.md"
     },
     "backend/docs/vpn_server_setup_guide.md": {
-      "hash": "08096f15f50db5b4",
+      "hash": "a245a7fc07b533a3",
       "language": "markdown",
       "size": 4173,
       "summary": "markdown file: vpn_server_setup_guide.md"
     },
     "backend/entrypoint.sh": {
-      "hash": "7b7b619cecdebf83",
+      "hash": "5e54d45c849f8002",
       "language": "shell",
       "size": 774,
       "summary": "shell file: entrypoint.sh"
@@ -4187,7 +4187,7 @@
       "exports": [
         "user_identities"
       ],
-      "hash": "36a207bdf985d3ad",
+      "hash": "3645843f204f9da9",
       "language": "sql",
       "size": 221,
       "summary": "Migration: 001_user_identities.sql",
@@ -4202,7 +4202,7 @@
       "exports": [
         "idempotency_records"
       ],
-      "hash": "239cf4b395e922e4",
+      "hash": "dd13c214a406decf",
       "language": "sql",
       "size": 205,
       "summary": "Migration: 002_idempotency_records.sql",
@@ -4217,7 +4217,7 @@
       "exports": [
         "subscription_snapshots"
       ],
-      "hash": "cf9e35c063a5b3eb",
+      "hash": "f33e402e8dbe104f",
       "language": "sql",
       "size": 233,
       "summary": "Migration: 003_subscription_snapshots.sql",
@@ -4232,7 +4232,7 @@
       "exports": [
         "slice1_audit_events"
       ],
-      "hash": "b56f2d0ff7916286",
+      "hash": "33ee46d632fb60c4",
       "language": "sql",
       "size": 296,
       "summary": "Migration: 004_slice1_audit_events.sql",
@@ -4250,7 +4250,7 @@
         "idx_idempotency_records_created_at_completed_true",
         "idx_slice1_audit_events_created_at"
       ],
-      "hash": "bc544065ff7a9a90",
+      "hash": "b939b3340759070f",
       "language": "sql",
       "size": 561,
       "summary": "Migration: 005_retention_timestamps.sql",
@@ -4277,7 +4277,7 @@
       "exports": [
         "slice1_uc01_outbound_deliveries"
       ],
-      "hash": "cdcbdecec9e8feaa",
+      "hash": "063291cb36d3d401",
       "language": "sql",
       "size": 486,
       "summary": "Migration: 006_slice1_uc01_outbound_deliveries.sql",
@@ -4292,7 +4292,7 @@
       "exports": [
         "idx_slice1_uc01_outbound_deliveries_sent_created_at"
       ],
-      "hash": "c850d07015cb6b69",
+      "hash": "dad7c00841397b80",
       "language": "sql",
       "size": 281,
       "summary": "Migration: 007_slice1_uc01_outbound_deliveries_sent_retention_index.sql",
@@ -4308,7 +4308,7 @@
         "billing_events_ledger",
         "idx_billing_events_ledger_user_accepted"
       ],
-      "hash": "0075c00dc14cb1c4",
+      "hash": "cae9d1f7a81ee1ef",
       "language": "sql",
       "size": 1082,
       "summary": "Migration: 008_billing_events_ledger.sql",
@@ -4330,7 +4330,7 @@
         "idx_billing_ingestion_audit_occurred_at",
         "idx_billing_ingestion_audit_provider_external"
       ],
-      "hash": "fd682107345fa444",
+      "hash": "a028e548f9ebd48e",
       "language": "sql",
       "size": 1334,
       "summary": "Migration: 009_billing_ingestion_audit_events.sql",
@@ -4363,7 +4363,7 @@
         "idx_billing_sub_apply_audit_user",
         "idx_billing_sub_apply_records_user"
       ],
-      "hash": "e85bdc8c480440fe",
+      "hash": "91274c4009a86433",
       "language": "sql",
       "size": 2060,
       "summary": "Migration: 010_billing_subscription_apply.sql",
@@ -4405,7 +4405,7 @@
         "idx_issuance_state_updated_at",
         "issuance_state"
       ],
-      "hash": "1d5730d16a3ed5bd",
+      "hash": "c490decbffb5bf55",
       "language": "sql",
       "size": 1540,
       "summary": "Migration: 011_issuance_state.sql",
@@ -4434,7 +4434,7 @@
         "idx_adm02_ensure_access_audit_created_at",
         "idx_adm02_ensure_access_audit_outcome_created"
       ],
-      "hash": "fd8d39c5cf90b1d2",
+      "hash": "e7d63c617d52da2b",
       "language": "sql",
       "size": 2309,
       "summary": "Migration: 012_adm02_ensure_access_audit_events.sql",
@@ -4458,7 +4458,7 @@
         "idx_telegram_update_dedup_expires_at",
         "telegram_update_dedup"
       ],
-      "hash": "b4f7ae16362e7d60",
+      "hash": "37693e54a84345ef",
       "language": "sql",
       "size": 992,
       "summary": "Migration: 013_telegram_update_dedup.sql",
@@ -4477,7 +4477,7 @@
       "exports": [
         "ALTER subscription_snapshots"
       ],
-      "hash": "a2853183e6c6113d",
+      "hash": "85409ffa04b00325",
       "language": "sql",
       "size": 294,
       "summary": "Migration: 014_subscription_lifecycle_v1.sql",
@@ -4497,7 +4497,7 @@
         "access_reconcile_runs",
         "idx_access_reconcile_runs_task_started_at"
       ],
-      "hash": "8e61fa93592dab76",
+      "hash": "f92bfbe816da30c1",
       "language": "sql",
       "size": 801,
       "summary": "Migration: 015_access_reconcile_runs.sql",
@@ -4516,7 +4516,7 @@
       "exports": [
         "subscription_plans"
       ],
-      "hash": "bab085dd2286f4c7",
+      "hash": "b36360868e69c9d6",
       "language": "sql",
       "size": 733,
       "summary": "Migration: 016_subscription_plans.sql",
@@ -4532,7 +4532,7 @@
         "idx_referral_codes_code",
         "referral_codes"
       ],
-      "hash": "5c2ec3736cbb06e9",
+      "hash": "635f9a6f22c0c948",
       "language": "sql",
       "size": 396,
       "summary": "Migration: 017_referral_codes.sql",
@@ -4553,7 +4553,7 @@
         "idx_referral_rel_referrer_of_referrer",
         "referral_relationships"
       ],
-      "hash": "aea5469e931ce2b8",
+      "hash": "8f0e4c18a988aad3",
       "language": "sql",
       "size": 647,
       "summary": "Migration: 018_referral_relationships.sql",
@@ -4578,7 +4578,7 @@
         "referral_balances",
         "referral_transactions"
       ],
-      "hash": "5019e5193e7a864b",
+      "hash": "89d5f7d79e2928bd",
       "language": "sql",
       "size": 813,
       "summary": "Migration: 019_referral_balances.sql",
@@ -4601,7 +4601,7 @@
       "exports": [
         "ALTER subscription_snapshots"
       ],
-      "hash": "e5590e66f1adb31b",
+      "hash": "04f727491b1b2275",
       "language": "sql",
       "size": 252,
       "summary": "Migration: 020_subscription_snapshots_extend.sql",
@@ -4621,7 +4621,7 @@
         "ALTER referral_relationships",
         "uq_referral_referred_user_level"
       ],
-      "hash": "ec1c3cde9c410ffd",
+      "hash": "38fd54cd29962a73",
       "language": "sql",
       "size": 277,
       "summary": "Migration: 021_referral_relationships_fix_unique.sql",
@@ -4642,7 +4642,7 @@
         "idx_user_emails_telegram_user_id",
         "user_emails"
       ],
-      "hash": "9c0cae2a9b07a760",
+      "hash": "189cdede00497f5f",
       "language": "sql",
       "size": 839,
       "summary": "Migration: 022_user_emails.sql",
@@ -4666,7 +4666,7 @@
         "email_verification_codes",
         "idx_email_verification_codes_email_purpose"
       ],
-      "hash": "b00c5adad32c5831",
+      "hash": "708916e48283d4eb",
       "language": "sql",
       "size": 657,
       "summary": "Migration: 023_email_verification_codes.sql",
@@ -4686,7 +4686,7 @@
         "idx_vpn_servers_active",
         "vpn_servers"
       ],
-      "hash": "e2be7cdd953f6e08",
+      "hash": "dd64c7d2926bd275",
       "language": "sql",
       "size": 759,
       "summary": "Migration: 024_vpn_servers.sql",
@@ -4706,7 +4706,7 @@
         "ALTER subscription_snapshots",
         "ALTER user_identities"
       ],
-      "hash": "77f39b3b5d694d34",
+      "hash": "87539c6ad335d10d",
       "language": "sql",
       "size": 419,
       "summary": "Migration: 025_trial_period.sql",
@@ -4732,7 +4732,7 @@
         "idx_notification_log_dedup",
         "notification_log"
       ],
-      "hash": "c10d048c0f7a767b",
+      "hash": "3554ac7c00322e75",
       "language": "sql",
       "size": 865,
       "summary": "Migration: 026_notification_state.sql",
@@ -4763,7 +4763,7 @@
       "exports": [
         "ALTER vpn_servers"
       ],
-      "hash": "86a18611964d8db3",
+      "hash": "642b7a196444dfde",
       "language": "sql",
       "size": 594,
       "summary": "Migration: 027_vpn_servers_reality.sql",
@@ -4787,7 +4787,7 @@
         "ALTER user_identities",
         "idx_user_identities_sub_token"
       ],
-      "hash": "09bf64ccb533ffc9",
+      "hash": "f2bffa0b228f7746",
       "language": "sql",
       "size": 305,
       "summary": "Migration: 028_subscription_tokens.sql",
@@ -4806,7 +4806,7 @@
       "exports": [
         "ALTER vpn_servers"
       ],
-      "hash": "467c9795cefae502",
+      "hash": "6ed7838708c68246",
       "language": "sql",
       "size": 318,
       "summary": "Migration: 029_vpn_servers_encrypted_password.sql",
@@ -4841,7 +4841,7 @@
       "exports": [
         "ALTER user_identities"
       ],
-      "hash": "0eedfd07bcf8fce5",
+      "hash": "8ca726bbaa49db3b",
       "language": "sql",
       "size": 516,
       "summary": "Migration: 031_subscription_token_ttl.sql",
@@ -4857,7 +4857,7 @@
         "idx_jwt_revocation_revoked_at",
         "jwt_revocation_list"
       ],
-      "hash": "2714d6e4a7f5756f",
+      "hash": "1663cd546b7075a1",
       "language": "sql",
       "size": 441,
       "summary": "Migration: 032_jwt_revocation.sql",
@@ -4880,7 +4880,7 @@
         "idx_snap_trial_expired",
         "idx_snap_trial_expiring"
       ],
-      "hash": "c3f08173b0783da8",
+      "hash": "dd9c2cd5be3420e9",
       "language": "sql",
       "size": 1675,
       "summary": "Migration: 033_notification_indexes.sql",
@@ -4945,13 +4945,13 @@
       "summary": "Migration: 035_update_plan_prices.sql"
     },
     "backend/pyproject.toml": {
-      "hash": "d0ef5d9ac8d2f4a1",
+      "hash": "f903a354fe9b13ee",
       "language": "toml",
       "size": 882,
       "summary": "Project config: pyproject.toml"
     },
     "backend/ruff.toml": {
-      "hash": "f56a6541e8e49c61",
+      "hash": "a5c93c6d79e41736",
       "language": "toml",
       "size": 2270,
       "summary": "Project config: ruff.toml"
@@ -4970,7 +4970,7 @@
         "main",
         "run_adm01_internal_http_entrypoint_smoke"
       ],
-      "hash": "6ee9ae9fda52d6d6",
+      "hash": "1e10186cab3990ff",
       "imports": [
         "__future__.annotations",
         "argparse",
@@ -5054,7 +5054,7 @@
       "exports": [
         "main"
       ],
-      "hash": "bcf3a380a0f8a43f",
+      "hash": "2a03c25c23088a0d",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_postgres_issuance_composition_check.run_adm01_postgres_issuance_composition_check",
@@ -5089,7 +5089,7 @@
       "exports": [
         "main"
       ],
-      "hash": "46c8be4f8ee2c874",
+      "hash": "c43d3df5b97c02ef",
       "imports": [
         "__future__.annotations",
         "app.admin_support.internal_read_gate_checks.run_admin_support_internal_read_gate_checks",
@@ -5136,7 +5136,7 @@
         "main",
         "run_customer_journey_e2e"
       ],
-      "hash": "58bbc4c8ff556f17",
+      "hash": "3a94cc7bf3753bf6",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_identity_resolve_adapter.Adm01IdentityResolveAdapter",
@@ -5402,7 +5402,7 @@
         "main",
         "run_issuance_operator_entrypoint_smoke"
       ],
-      "hash": "47583da24a3d5579",
+      "hash": "8a4a1835d1eff98d",
       "imports": [
         "__future__.annotations",
         "argparse",
@@ -5486,7 +5486,7 @@
         "main",
         "run_launch_preflight"
       ],
-      "hash": "82358b1d86d3d4c8",
+      "hash": "2be0463cf85aaf93",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_access_resend.TELEGRAM_ACCESS_RESEND_ENABLE",
@@ -5655,7 +5655,7 @@
         "main",
         "run_operator_billing_ingest_apply_e2e"
       ],
-      "hash": "e011979f48b70efe",
+      "hash": "069c150ef2df6484",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion_main.async_run_billing_ingest_from_parsed",
@@ -5810,7 +5810,7 @@
         "main",
         "run_postgres_mvp_access_fulfillment_e2e"
       ],
-      "hash": "99a21d3533c9e7a3",
+      "hash": "74b1b7ad5741fda3",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_endpoint.Adm01InboundRequest",
@@ -6148,7 +6148,7 @@
         "main",
         "run_reconcile_health_check"
       ],
-      "hash": "c59b32c35b4ee25e",
+      "hash": "aad9bcee8a4584fd",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_issuance_state.PostgresIssuanceStateRepository",
@@ -6232,7 +6232,7 @@
         "main",
         "run_configure_telegram_webhook"
       ],
-      "hash": "418a83eb922d72d8",
+      "hash": "fb10c7ab23e2e5a0",
       "imports": [
         "__future__.annotations",
         "app.security.public_url_policy.classify_public_https_url_host",
@@ -6351,7 +6351,7 @@
       "exports": [
         "main"
       ],
-      "hash": "af1bf1b5bd480ec7",
+      "hash": "3a3fd573caf044b4",
       "imports": [
         "__future__.annotations",
         "app.security.field_encryption.encrypt_field",
@@ -6384,7 +6384,7 @@
         "generate_handoff_summary",
         "main"
       ],
-      "hash": "166e86bfdbc326be",
+      "hash": "2b10ffdccac932eb",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -6447,7 +6447,7 @@
         "main",
         "run_reconcile_expired_access"
       ],
-      "hash": "56cd71dedfbd8c82",
+      "hash": "6412e9520a1f731a",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_issuance_state.PostgresIssuanceStateRepository",
@@ -6563,7 +6563,7 @@
         "main",
         "run_config_doctor"
       ],
-      "hash": "583f18a9fa8c04c3",
+      "hash": "f29edabd1e4a9fc2",
       "imports": [
         "__future__.annotations",
         "app.internal_admin.adm01_http_config.load_adm01_internal_http_config_from_env",
@@ -6673,7 +6673,7 @@
         "main",
         "run_final_static_handoff_check"
       ],
-      "hash": "343bf1280342a069",
+      "hash": "f321d93f48e31627",
       "imports": [
         "__future__.annotations",
         "pathlib.Path",
@@ -6729,7 +6729,7 @@
         "main",
         "run_release_checklist"
       ],
-      "hash": "ac73d84a7e54efc9",
+      "hash": "826254ad355a7a9e",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -6794,7 +6794,7 @@
         "main",
         "run_preflight"
       ],
-      "hash": "fa27c5d8e955db8f",
+      "hash": "043e954d0b2f7904",
       "imports": [
         "__future__.annotations",
         "collections.abc.Sequence",
@@ -6870,7 +6870,7 @@
         "main",
         "run_release_readiness"
       ],
-      "hash": "32629092049416f6",
+      "hash": "0c6fc0680600498f",
       "imports": [
         "__future__.annotations",
         "argparse",
@@ -6938,7 +6938,7 @@
         "main",
         "run_repo_release_health_check"
       ],
-      "hash": "a158fbca5dadc21c",
+      "hash": "43e254bc6ca0bea8",
       "imports": [
         "__future__.annotations",
         "collections.abc.Callable",
@@ -7021,7 +7021,7 @@
       "exports": [
         "main"
       ],
-      "hash": "92ce783f6315e14b",
+      "hash": "421e349b650abf9e",
       "imports": [
         "__future__.annotations",
         "os",
@@ -7101,7 +7101,7 @@
       "exports": [
         "main"
       ],
-      "hash": "9ebf7b595e7aa8e6",
+      "hash": "bc84317eb1840738",
       "imports": [
         "__future__.annotations",
         "argparse",
@@ -7230,7 +7230,7 @@
       "exports": [
         "main"
       ],
-      "hash": "18847c22138a8bf5",
+      "hash": "c32f742f29eea3a1",
       "imports": [
         "__future__.annotations",
         "os",
@@ -7283,7 +7283,7 @@
         "main",
         "run_release_candidate_validation"
       ],
-      "hash": "376dd42b50766cec",
+      "hash": "f87a54923804f9fe",
       "imports": [
         "__future__.annotations",
         "collections.abc.Mapping",
@@ -7380,7 +7380,7 @@
       ]
     },
     "backend/src/app/__init__.py": {
-      "hash": "93232aa8bebd39d0",
+      "hash": "df03d38be571e812",
       "language": "python",
       "size": 148,
       "summary": "Python module (__init__.py)"
@@ -7510,7 +7510,7 @@
         "execute_adm02_ensure_access_audit_lookup_endpoint",
         "execute_adm02_ensure_access_endpoint"
       ],
-      "hash": "146651d567ab2a6b",
+      "hash": "66ae26b99681e4d8",
       "imports": [
         "app.admin_support.adm01_endpoint.Adm01EndpointResponse",
         "app.admin_support.adm01_endpoint.Adm01InboundRequest",
@@ -7650,7 +7650,7 @@
         "Adm01OutboundSummary",
         "execute_adm01_endpoint"
       ],
-      "hash": "e51f2189d6c5e4f9",
+      "hash": "c4d265a1118f7b6b",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01LookupInput",
@@ -7783,7 +7783,7 @@
       "exports": [
         "Adm01IdentityResolveAdapter"
       ],
-      "hash": "b5e749d29ec1d1f2",
+      "hash": "c30e45261cc550d4",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01IdentityResolvePort",
@@ -7879,7 +7879,7 @@
         "adm01_endpoint_response_to_jsonable",
         "create_adm01_internal_http_app"
       ],
-      "hash": "787fdd9f9ef09856",
+      "hash": "e14ccd34b9b56b2f",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_endpoint.Adm01EndpointResponse",
@@ -7939,7 +7939,7 @@
       "exports": [
         "Adm01LookupHandler"
       ],
-      "hash": "c8d0c93dfc8c24cb",
+      "hash": "f67a1e443fe56261",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01AuthorizationPort",
@@ -8051,7 +8051,7 @@
         "assert_adm01_composition_http_text_safe",
         "run_adm01_postgres_issuance_composition_check"
       ],
-      "hash": "6caf64644247d130",
+      "hash": "0079117e75f364b9",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_internal_http.ADM01_INTERNAL_LOOKUP_PATH",
@@ -8269,7 +8269,7 @@
       "exports": [
         "Adm01PostgresIssuanceReadAdapter"
       ],
-      "hash": "36943d4e3aba01da",
+      "hash": "9332d2053468cfe4",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01IssuanceReadPort",
@@ -8363,7 +8363,7 @@
       "exports": [
         "Adm01PostgresSubscriptionReadAdapter"
       ],
-      "hash": "4bc6aafb6ac21ca9",
+      "hash": "90620b512a4188ef",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01SubscriptionReadPort",
@@ -8454,7 +8454,7 @@
       "exports": [
         "Adm01SubscriptionEntitlementReadAdapter"
       ],
-      "hash": "e77c6c7acc1dfab6",
+      "hash": "c9b2b68e0db5fc3f",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_state_mapping.Adm01SnapshotStateKind",
@@ -8549,7 +8549,7 @@
       "exports": [
         "Adm01SubscriptionPolicyReadAdapter"
       ],
-      "hash": "2c974561d5a26369",
+      "hash": "a0f74640457fafc2",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_state_mapping.Adm01SnapshotStateKind",
@@ -8644,7 +8644,7 @@
         "Adm01SnapshotStateKind",
         "classify_adm01_subscription_snapshot"
       ],
-      "hash": "29031e09519fb336",
+      "hash": "d3d3bc75e075b2ae",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -8695,7 +8695,7 @@
         "build_adm01_policy_read_from_postgres_snapshots",
         "build_adm01_subscription_read_from_postgres_snapshots"
       ],
-      "hash": "ae0983e997096fd0",
+      "hash": "661b61770218b19c",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_identity_resolve_adapter.Adm01IdentityResolveAdapter",
@@ -8789,7 +8789,7 @@
       "exports": [
         "Adm02BillingFactsLedgerReadAdapter"
       ],
-      "hash": "f26ed6741e56c88a",
+      "hash": "048b13e972a3041e",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02BillingFactsCategory",
@@ -8854,7 +8854,7 @@
         "ADM02_CAPABILITY_CLASS",
         "Adm02DiagnosticsHandler"
       ],
-      "hash": "b9c9e38bb6e64f49",
+      "hash": "b3cbaa1efef0bcaa",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01IdentityResolvePort",
@@ -8940,7 +8940,7 @@
         "Adm02OutboundSummary",
         "execute_adm02_endpoint"
       ],
-      "hash": "bf51ffbe0e45d84e",
+      "hash": "241ed46f7c0c5be4",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02DiagnosticsInput",
@@ -9073,7 +9073,7 @@
         "Adm02EnsureAccessHandler",
         "NoopAdm02EnsureAccessAuditSink"
       ],
-      "hash": "6a40da9fe173adb8",
+      "hash": "5413fc8910c0cc02",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01IdentityResolvePort",
@@ -9220,7 +9220,7 @@
         "FanoutAdm02EnsureAccessAuditSink",
         "StructuredLoggingAdm02EnsureAccessAuditSink"
       ],
-      "hash": "ac87c5c80f2ffb9a",
+      "hash": "a7a1d970d77f7a88",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02EnsureAccessAuditEvent",
@@ -9309,7 +9309,7 @@
       "exports": [
         "PostgresAdm02EnsureAccessAuditSink"
       ],
-      "hash": "41cab8169056e06c",
+      "hash": "57af9eb6e0038c78",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02EnsureAccessAuditEvent",
@@ -9371,7 +9371,7 @@
       "exports": [
         "Adm02EnsureAccessAuditLookupHandler"
       ],
-      "hash": "ae157d520051bc6f",
+      "hash": "a4a9358ffffc8689",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02EnsureAccessAuditLookupInput",
@@ -9444,7 +9444,7 @@
         "DEFAULT_AUDIT_EVIDENCE_LIMIT",
         "execute_adm02_ensure_access_audit_lookup_endpoint"
       ],
-      "hash": "b28a4f147aecd407",
+      "hash": "1f4a9789b682258a",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02EnsureAccessAuditLookupInput",
@@ -9553,7 +9553,7 @@
         "Adm02EnsureAccessOutboundSummary",
         "execute_adm02_ensure_access_endpoint"
       ],
-      "hash": "b8fd4de0c5d72e55",
+      "hash": "1c957a1d71a8d825",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02EnsureAccessInput",
@@ -9675,7 +9675,7 @@
         "Adm02EnsureAccessIssuanceMutationAdapter",
         "FixedAdm02MutationOptIn"
       ],
-      "hash": "dfb065a118161851",
+      "hash": "e5dc18a896e3a94e",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02MutationOptInPort",
@@ -9784,7 +9784,7 @@
       "exports": [
         "Adm02FactOfAccessPersistenceAuditAdapter"
       ],
-      "hash": "6421048f306d7753",
+      "hash": "3f90a976201be416",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02FactOfAccessAuditPort",
@@ -9849,7 +9849,7 @@
       "exports": [
         "Adm02IdentityResolveAdapter"
       ],
-      "hash": "40f1a277bf06e1db",
+      "hash": "3ccb0e48ff936ffe",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_identity_resolve_adapter.Adm01IdentityResolveAdapter"
@@ -9888,7 +9888,7 @@
         "adm02_ensure_access_endpoint_response_to_jsonable",
         "create_adm02_internal_http_app"
       ],
-      "hash": "61db03abaddb4ff3",
+      "hash": "aa2aa31e262a1c91",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_endpoint.Adm02DiagnosticsHandlerLike",
@@ -9986,7 +9986,7 @@
       "exports": [
         "Adm02PostgresEnsureAccessAuditReadAdapter"
       ],
-      "hash": "59b8cf318439b8e3",
+      "hash": "450649764f17f6c9",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm01SupportAccessReadinessBucket",
@@ -10067,7 +10067,7 @@
       "exports": [
         "Adm02QuarantineMismatchReadAdapter"
       ],
-      "hash": "8ea9467973d41cd5",
+      "hash": "217bc33311f2b84e",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02QuarantineDiagnostics",
@@ -10133,7 +10133,7 @@
       "exports": [
         "Adm02ReconciliationRunsReadAdapter"
       ],
-      "hash": "3f73bc98ad0552ca",
+      "hash": "9e54baa7b2a1341d",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02ReconciliationDiagnostics",
@@ -10202,7 +10202,7 @@
         "build_adm02_internal_diagnostics_http_app",
         "build_adm02_internal_support_http_app"
       ],
-      "hash": "478ec89d5019dc65",
+      "hash": "efb8c5be4b7ad1f4",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_diagnostics.Adm02DiagnosticsHandler",
@@ -10278,7 +10278,7 @@
         "AllowlistAdm01Authorization",
         "AllowlistAdm02Authorization"
       ],
-      "hash": "a5d1d8b04233d679",
+      "hash": "0b4d4c51637aaa33",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.AdminActorRef",
@@ -10457,7 +10457,7 @@
         "RedactionMarker",
         "TelegramUserTarget"
       ],
-      "hash": "ae59b0e59db4a89a",
+      "hash": "1ede3e3b9bafa9d6",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -11502,7 +11502,7 @@
       "exports": [
         "run_admin_support_internal_read_gate_checks"
       ],
-      "hash": "9f5a01ff6187bbc5",
+      "hash": "c7cade3a84c874de",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_internal_http.ADM01_INTERNAL_LOOKUP_PATH",
@@ -11712,7 +11712,7 @@
       "exports": [
         "DefaultInternalAdminPrincipalExtractor"
       ],
-      "hash": "ea36d755a0801899",
+      "hash": "14d7d9433c739bc6",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.AdminActorRef",
@@ -11756,7 +11756,7 @@
       ]
     },
     "backend/src/app/application/__init__.py": {
-      "hash": "301d58eae7d5cf35",
+      "hash": "f62a0a9b6d02a8a5",
       "language": "python",
       "size": 149,
       "summary": "Python module (__init__.py)"
@@ -11772,7 +11772,7 @@
         "ApplyAcceptedBillingFactInput",
         "ApplyAcceptedBillingFactResult"
       ],
-      "hash": "91858a1d93b849cb",
+      "hash": "68cf0f754fc309de",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_subscription_apply_contracts.BillingSubscriptionApplyOutcome",
@@ -11869,7 +11869,7 @@
         "build_ledger_record_for_ingest",
         "resolve_internal_fact_ref_for_ingest"
       ],
-      "hash": "9de62af39acbd243",
+      "hash": "29129d82a3a13b84",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_events_ledger_contracts.BillingEventAmountCurrency",
@@ -12040,7 +12040,7 @@
         "main",
         "parse_json_to_normalized_billing_input"
       ],
-      "hash": "8e2362a4455fa191",
+      "hash": "71387490a37cb7b0",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion.NormalizedBillingFactInput",
@@ -12211,7 +12211,7 @@
         "async_run_apply",
         "main"
       ],
-      "hash": "634e436f62ebc299",
+      "hash": "f13aaf0852d74464",
       "imports": [
         "__future__.annotations",
         "app.application.apply_billing_subscription.ApplyAcceptedBillingFactHandler",
@@ -12352,7 +12352,7 @@
         "Slice1Composition",
         "build_slice1_composition"
       ],
-      "hash": "d20fe5f0599900dc",
+      "hash": "ed7853a7d7a1fd07",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityHandler",
@@ -12441,7 +12441,7 @@
         "GetSubscriptionStatusInput",
         "GetSubscriptionStatusResult"
       ],
-      "hash": "aa2880f6f6a48757",
+      "hash": "cc31baab79f7f324",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.AuditAppender",
@@ -12650,7 +12650,7 @@
         "SubscriptionSnapshotWriter",
         "UserIdentityRepository"
       ],
-      "hash": "5f8f3a81c3a2245c",
+      "hash": "722fe186f89941a6",
       "imports": [
         "__future__.annotations",
         "app.security.errors.InternalErrorCategory",
@@ -12967,7 +12967,7 @@
         "async_main",
         "main"
       ],
-      "hash": "a4deaf027c6d6a40",
+      "hash": "c55a12c02dd2f5ef",
       "imports": [
         "__future__.annotations",
         "app.issuance.contracts.IssuanceOperationType",
@@ -13103,7 +13103,7 @@
         "build_purchase_summary",
         "get_available_plans"
       ],
-      "hash": "673db6a065e018d5",
+      "hash": "53b593493ad4f3ca",
       "imports": [
         "__future__.annotations",
         "app.domain.devices.extra_device_cost",
@@ -13187,7 +13187,7 @@
         "get_referral_balance",
         "get_referral_info"
       ],
-      "hash": "1c28ea35aa2b18a2",
+      "hash": "5b4d9684127a58ea",
       "imports": [
         "__future__.annotations",
         "app.domain.referral.rubles_from_kopecks",
@@ -13278,7 +13278,7 @@
         "build_telegram_resend_idempotency_key",
         "telegram_access_resend_enabled_from_env"
       ],
-      "hash": "1d9e43fcfdc99c12",
+      "hash": "86fda536adc4a0c8",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshotReader",
@@ -13619,7 +13619,7 @@
         "TelegramCommandRateLimitKey",
         "TelegramCommandRateLimiter"
       ],
-      "hash": "dab1423a661f1186",
+      "hash": "c4b08eb1cac5b955",
       "imports": [
         "__future__.annotations",
         "collections.abc.Callable",
@@ -13764,7 +13764,7 @@
         "command_bucket_from_key",
         "window_bucket_from_key"
       ],
-      "hash": "bba4c367843fe108",
+      "hash": "a40a81c01e3177ee",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_command_rate_limit.TelegramCommandRateLimitKey",
@@ -13894,7 +13894,7 @@
         "TelegramUpdateDedupGuard",
         "dedup_key_hash_for_update"
       ],
-      "hash": "8054ddecb1a643ea",
+      "hash": "302c9c1d995cce93",
       "imports": [
         "__future__.annotations",
         "collections.OrderedDict",
@@ -14090,7 +14090,7 @@
         "parse_slice1_transport",
         "render_telegram_outbound_plan"
       ],
-      "hash": "a05d78535b2c1e5e",
+      "hash": "ecf9da0afae0c404",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.dispatcher.Slice1Dispatcher",
@@ -14162,7 +14162,7 @@
         "Slice1Dispatcher",
         "dispatch_slice1_transport"
       ],
-      "hash": "2f516f29917efab9",
+      "hash": "2ec39d57af16f742",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -14318,7 +14318,7 @@
         "RenderedMessagePackage",
         "render_telegram_outbound_plan"
       ],
-      "hash": "8c8e2d95977ae5a6",
+      "hash": "1086e52e17dbf990",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.outbound.OutboundKeyboardMarker",
@@ -14484,7 +14484,7 @@
         "normalize_command_token",
         "parse_slice1_transport"
       ],
-      "hash": "9e829461c95b870c",
+      "hash": "6ce2c0795f031392",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityInput",
@@ -14709,7 +14709,7 @@
         "text_trial_expired",
         "text_trial_expiring"
       ],
-      "hash": "a7c88de5c61faa2a",
+      "hash": "3e4345fcc675d9d0",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.storefront_ui.CB_BUY_VPN",
@@ -14780,7 +14780,7 @@
         "build_subscription_active_recovery_confirmation_plan",
         "map_transport_safe_to_outbound_plan"
       ],
-      "hash": "20571b94ee7eaa46",
+      "hash": "de34a7e57f7b5006",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.presentation.TransportAccessResendCode",
@@ -14927,7 +14927,7 @@
         "map_slice1_storefront_to_transport",
         "map_slice1_support_to_transport"
       ],
-      "hash": "a000d14ff93d4463",
+      "hash": "72d813c5e5f3d8c2",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityResult",
@@ -15145,7 +15145,7 @@
         "Slice1TelegramRuntimeFacade",
         "handle_slice1_telegram_update_to_rendered_message"
       ],
-      "hash": "245bba06638ad08f",
+      "hash": "d037909dda19739a",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -15502,7 +15502,7 @@
         "extract_eligible_private_chat_id_from_telegram_like_update",
         "handle_slice1_telegram_update_to_runtime_action"
       ],
-      "hash": "fb548c6ad5e8a62a",
+      "hash": "a787ed67b5628c65",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -15632,7 +15632,7 @@
         "Slice1TelegramService",
         "handle_slice1_telegram_update"
       ],
-      "hash": "e6bd9262f23e97f4",
+      "hash": "6980c020589a7579",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -15711,7 +15711,7 @@
         "load_storefront_public_config",
         "validate_storefront_public_https_url"
       ],
-      "hash": "e0091e166f686faf",
+      "hash": "59e0100c739ec1b6",
       "imports": [
         "__future__.annotations",
         "collections.abc.Callable",
@@ -15922,7 +15922,7 @@
         "trial_offer_keyboard",
         "welcome_keyboard"
       ],
-      "hash": "5cb94a2a93c500a0",
+      "hash": "a6c8d1328e6d9dd3",
       "imports": [
         "__future__.annotations",
         "app.application.purchase_handler.PurchasePlanOption",
@@ -16547,7 +16547,7 @@
         "build_support_menu_text",
         "get_support_faq_items"
       ],
-      "hash": "263ffd5e2dab3c06",
+      "hash": "4d2526ade6350ed9",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.storefront_config.StorefrontPublicConfig"
@@ -16599,7 +16599,7 @@
         "TelegramAdapterRejected",
         "extract_slice1_envelope_from_telegram_update"
       ],
-      "hash": "211e8d7b917c0326",
+      "hash": "7a0d10244ccbe8cc",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.normalized.TransportIncomingEnvelope",
@@ -16685,7 +16685,7 @@
       ]
     },
     "backend/src/app/domain/__init__.py": {
-      "hash": "35c1ae07a81772ee",
+      "hash": "2201ead2f4695eab",
       "language": "python",
       "size": 59,
       "summary": "Python module (__init__.py)"
@@ -16698,7 +16698,7 @@
         "UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED",
         "UC05_NO_USER_SENTINEL"
       ],
-      "hash": "f655b3179f9ece66",
+      "hash": "5974ab5f2cda4c32",
       "imports": [
         "__future__.annotations"
       ],
@@ -16717,7 +16717,7 @@
         "extra_device_count",
         "validate_device_count"
       ],
-      "hash": "82cab0efb2e46525",
+      "hash": "696a8e76d23755d7",
       "imports": [
         "__future__.annotations",
         "app.domain.plans.DEFAULT_DEVICE_LIMIT",
@@ -16775,7 +16775,7 @@
         "make_custom_plan_id",
         "plan_display_name"
       ],
-      "hash": "a581e087e6f73e7c",
+      "hash": "9f3a878bc10155e7",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -16891,7 +16891,7 @@
         "resolve_direct_and_indirect_referrers",
         "rubles_from_kopecks"
       ],
-      "hash": "f0c9de8ede146d2a",
+      "hash": "a0edca0437767559",
       "imports": [
         "__future__.annotations",
         "app.domain.plans.PlanId",
@@ -16973,7 +16973,7 @@
       "exports": [
         "map_subscription_status_view"
       ],
-      "hash": "309a0f6907787935",
+      "hash": "351a26c247acb42c",
       "imports": [
         "__future__.annotations",
         "app.shared.types.SafeUserStatusCategory",
@@ -17008,7 +17008,7 @@
         "trial_expires_at",
         "trial_expires_soon"
       ],
-      "hash": "489016c4de1d2f28",
+      "hash": "c9a643aafaefe0bd",
       "imports": [
         "__future__.annotations",
         "datetime.UTC",
@@ -17065,7 +17065,7 @@
         "UC05PersistInstruction",
         "first_time_decision"
       ],
-      "hash": "e74fa213dffa4b20",
+      "hash": "d8db6473d0420c4b",
       "imports": [
         "__future__.annotations",
         "app.domain.billing_apply_rules.UC05_ALLOWLISTED_EVENT_TYPES",
@@ -17140,7 +17140,7 @@
         "load_smtp_config",
         "send_verification_code"
       ],
-      "hash": "a36adbab5d43e5ce",
+      "hash": "2564c7a60af21cd1",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -17193,7 +17193,7 @@
         "__future__",
         "app"
       ],
-      "hash": "cada59a57b1bec20",
+      "hash": "765ff118529c65dc",
       "imports": [
         "__future__.annotations",
         "app.internal_admin.adm01_http_main.main"
@@ -17228,7 +17228,7 @@
         "build_adm01_internal_lookup_starlette_app",
         "build_adm01_internal_lookup_starlette_app_with_postgres_issuance_state"
       ],
-      "hash": "2ca07419198c0b42",
+      "hash": "901f28fcb6f81e60",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_wiring.build_adm01_internal_lookup_http_app",
@@ -17301,7 +17301,7 @@
         "load_adm01_internal_http_config_from_env",
         "validate_adm01_internal_http_config"
       ],
-      "hash": "0535bf25f184fd0b",
+      "hash": "d465ec16dca6c64f",
       "imports": [
         "__future__.annotations",
         "app.security.config.ConfigurationError",
@@ -17400,7 +17400,7 @@
         "async_run_adm01_internal_http_from_env",
         "main"
       ],
-      "hash": "b221777b509bdf1b",
+      "hash": "1b32c9f265cb110d",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_wiring.build_adm01_entitlement_read_from_postgres_snapshots",
@@ -17514,7 +17514,7 @@
         "build_adm02_internal_diagnostics_starlette_app_with_persistence_audit",
         "build_adm02_internal_diagnostics_starlette_app_with_persistence_backing"
       ],
-      "hash": "99050873d1952e79",
+      "hash": "fca69e0bc7dcc7a1",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_billing_facts_ledger_adapter.Adm02BillingFactsLedgerReadAdapter",
@@ -17614,7 +17614,7 @@
       "exports": [
         "load_adm02_ensure_access_opt_in_from_env"
       ],
-      "hash": "73125c36e8013809",
+      "hash": "19aa6077a9affcd3",
       "imports": [
         "__future__.annotations",
         "app.security.config.ConfigurationError",
@@ -17653,7 +17653,7 @@
         "issue_resend_denial_category",
         "subscription_allows_issue_resend"
       ],
-      "hash": "9647dc57a0dc045a",
+      "hash": "db9c1ceae22d1e6f",
       "imports": [
         "app.issuance.contracts.IssuanceAuditRecord",
         "app.issuance.contracts.IssuanceOperationType",
@@ -17691,7 +17691,7 @@
         "ProviderRevokeResult",
         "RevokeAccessOutcome"
       ],
-      "hash": "3fe1a3bb1c951ab5",
+      "hash": "6db2dc040de18a53",
       "imports": [
         "__future__.annotations",
         "app.shared.types.SubscriptionSnapshotState",
@@ -17907,7 +17907,7 @@
         "issue_resend_denial_category",
         "subscription_allows_issue_resend"
       ],
-      "hash": "94951ea05e5255ca",
+      "hash": "f54923b15c06dbd9",
       "imports": [
         "__future__.annotations",
         "app.domain.status_view.map_subscription_status_view",
@@ -17950,7 +17950,7 @@
         "FakeIssuanceProvider",
         "FakeProviderMode"
       ],
-      "hash": "3d41fdbd5bba29c1",
+      "hash": "eed5c92bb318c764",
       "imports": [
         "__future__.annotations",
         "app.issuance.contracts.CreateAccessOutcome",
@@ -18049,7 +18049,7 @@
       "exports": [
         "IssuanceOperationalStatePort"
       ],
-      "hash": "6c9c936e4b9ec3e6",
+      "hash": "62ab4d1e16b43e46",
       "imports": [
         "__future__.annotations",
         "app.persistence.issuance_state_record.IssuanceStateRow",
@@ -18126,7 +18126,7 @@
       "exports": [
         "IssuanceService"
       ],
-      "hash": "2a965f76b20f81ed",
+      "hash": "118b54914efa4958",
       "imports": [
         "__future__.annotations",
         "app.issuance.contracts.CreateAccessOutcome",
@@ -18500,7 +18500,7 @@
         "build_subscription_url",
         "format_key_list"
       ],
-      "hash": "32ef6bae0faf990b",
+      "hash": "3128261cf4279bef",
       "imports": [
         "__future__.annotations",
         "base64",
@@ -18780,7 +18780,7 @@
         "XuiOutcome",
         "XuiServerConfig"
       ],
-      "hash": "75350da9f3baf757",
+      "hash": "d28267e2a1c99b33",
       "imports": [
         "__future__.annotations",
         "asyncio.sleep",
@@ -19068,7 +19068,7 @@
       "exports": [
         "XuiVlessProvider"
       ],
-      "hash": "c2303d005ae7479d",
+      "hash": "7ea88c9b7e6f55e4",
       "imports": [
         "__future__.annotations",
         "app.issuance.vless_provider.VlessProviderOutcome",
@@ -19317,7 +19317,7 @@
       ]
     },
     "backend/src/app/observability/__init__.py": {
-      "hash": "3cea6a9d64145cd2",
+      "hash": "a9a758235dd9914f",
       "language": "python",
       "size": 142,
       "summary": "Python module (__init__.py)"
@@ -19336,7 +19336,7 @@
         "JSONFormatter",
         "configure_logging"
       ],
-      "hash": "d4565a22c2e981bb",
+      "hash": "0d965dd08ab30989",
       "imports": [
         "__future__.annotations",
         "datetime.UTC",
@@ -19419,7 +19419,7 @@
       "exports": [
         "sanitize_structured_fields"
       ],
-      "hash": "edd83ad12bc931ab",
+      "hash": "00d9791df04c5fea",
       "imports": [
         "__future__.annotations",
         "re",
@@ -19502,7 +19502,7 @@
         "ReconciliationRunUserSummary",
         "ReconciliationRunsRepository"
       ],
-      "hash": "21dc915c15aa70ea",
+      "hash": "c9b86555d16e68c2",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_events_ledger_contracts.BillingEventAmountCurrency",
@@ -19570,7 +19570,7 @@
       "exports": [
         "main"
       ],
-      "hash": "5fb77cc40e9c7487",
+      "hash": "952a989a01e3c041",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.main"
@@ -19611,7 +19611,7 @@
       "exports": [
         "merge_web_account_if_needed"
       ],
-      "hash": "764a7a150c704073",
+      "hash": "1cbad349f48caaf9",
       "imports": [
         "__future__.annotations",
         "asyncpg",
@@ -19665,7 +19665,7 @@
         "Adm02FactOfAccessRecordAppender",
         "InMemoryAdm02FactOfAccessRecordAppender"
       ],
-      "hash": "feddcc596d95131e",
+      "hash": "49e5cef37ba0c923",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02FactOfAccessDisclosureCategory",
@@ -19786,7 +19786,7 @@
         "BillingEventsLedgerUserSummary",
         "BillingFactsPresenceCategory"
       ],
-      "hash": "582dd0a1cfe986f9",
+      "hash": "4ee3d4a54cd8b985",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -19919,7 +19919,7 @@
       "exports": [
         "InMemoryBillingEventsLedgerRepository"
       ],
-      "hash": "62dfe40df5154b4b",
+      "hash": "8353c62af336f2a7",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_events_ledger_contracts.BillingEventLedgerRecord",
@@ -20044,7 +20044,7 @@
         "BillingIngestionAuditRecord",
         "InMemoryBillingIngestionAuditAppender"
       ],
-      "hash": "3729efbf7170e2ba",
+      "hash": "bd0f9745937c7985",
       "imports": [
         "__future__.annotations",
         "asyncio",
@@ -20153,7 +20153,7 @@
         "BillingSubscriptionApplyOutcome",
         "BillingSubscriptionApplyReason"
       ],
-      "hash": "c76b6ad55678e95d",
+      "hash": "51c342e21da4833a",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -20220,7 +20220,7 @@
         "InMemorySubscriptionSnapshotReader",
         "InMemoryUserIdentityRepository"
       ],
-      "hash": "42da30ea8c14af11",
+      "hash": "fa10ae8acc307cd9",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.AuditEvent",
@@ -20783,7 +20783,7 @@
         "IssuanceStatePersistence",
         "IssuanceStateRow"
       ],
-      "hash": "5cf1e37a5fb98eb0",
+      "hash": "a00877b9f195ed92",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -20835,7 +20835,7 @@
         "MismatchQuarantineSummaryMarker",
         "MismatchQuarantineUserSummary"
       ],
-      "hash": "a3ef4fe044002436",
+      "hash": "00342d5b1d751a53",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -20966,7 +20966,7 @@
       "exports": [
         "InMemoryMismatchQuarantineRepository"
       ],
-      "hash": "cd7e7ed7ca03e6fa",
+      "hash": "bbe65fcb2337096c",
       "imports": [
         "__future__.annotations",
         "app.persistence.mismatch_quarantine_contracts.MismatchQuarantineReasonCode",
@@ -21079,7 +21079,7 @@
         "OperationalRetentionSqlConnection",
         "run_operational_retention_cleanup"
       ],
-      "hash": "09c69fd8d710468f",
+      "hash": "dbedb5463b2f13a3",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -21198,7 +21198,7 @@
         "main",
         "run_operational_retention_cleanup_from_env"
       ],
-      "hash": "695d610eff22da1b",
+      "hash": "717ecc1705cff0c5",
       "imports": [
         "__future__.annotations",
         "app.persistence.operational_retention_cleanup.ENV_ADM02_AUDIT_RETENTION_DAYS",
@@ -21271,7 +21271,7 @@
       "exports": [
         "PostgresAuditAppender"
       ],
-      "hash": "e3700b02259e6843",
+      "hash": "f5fb076daf37d8a0",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.AuditEvent",
@@ -21334,7 +21334,7 @@
       "exports": [
         "PostgresBillingEventsLedgerRepository"
       ],
-      "hash": "3853c6186cb32a19",
+      "hash": "b3bc88ababfc5960",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_events_ledger_contracts.BillingEventAmountCurrency",
@@ -21578,7 +21578,7 @@
       "exports": [
         "PostgresBillingIngestionAuditAppender"
       ],
-      "hash": "4b49547ad3015317",
+      "hash": "6717b2c31078674d",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_ingestion_audit_contracts.BillingIngestionAuditRecord",
@@ -21692,7 +21692,7 @@
         "PostgresAtomicUC05SubscriptionApply",
         "UC05PostgresApplyResult"
       ],
-      "hash": "dc9f450caaf452e8",
+      "hash": "a487db216983c7c0",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -21802,7 +21802,7 @@
       "exports": [
         "PostgresBillingSubscriptionApplyAuditAppender"
       ],
-      "hash": "4e8b9947c8d8614c",
+      "hash": "153efdb9286d5772",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_subscription_apply_contracts.BillingSubscriptionApplyAuditRecord",
@@ -21849,7 +21849,7 @@
       "exports": [
         "PostgresIdempotencyRepository"
       ],
-      "hash": "99ac1d7dd6d5a091",
+      "hash": "c1c4ddbe386126ff",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.IdempotencyRecord",
@@ -21938,7 +21938,7 @@
       "exports": [
         "PostgresIssuanceStateRepository"
       ],
-      "hash": "485cd3b8f4448d5b",
+      "hash": "d3aee0d8fa053783",
       "imports": [
         "__future__.annotations",
         "app.persistence.issuance_state_record.IssuanceStatePersistence",
@@ -22128,7 +22128,7 @@
         "default_migrations_directory",
         "sorted_migration_sql_paths"
       ],
-      "hash": "ddca668e026f31cc",
+      "hash": "70954a53483762b2",
       "imports": [
         "__future__.annotations",
         "collections.abc.Mapping",
@@ -22239,7 +22239,7 @@
         "main",
         "run_slice1_postgres_migrations_from_env"
       ],
-      "hash": "46181103249ceb68",
+      "hash": "012ac56bfd5734e0",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_runtime.apply_slice1_postgres_migrations_from_runtime_config",
@@ -22283,7 +22283,7 @@
         "RuntimePostgresPoolOpener",
         "apply_slice1_postgres_migrations_from_runtime_config"
       ],
-      "hash": "cc6f0147a38cc987",
+      "hash": "73bd9a3827918294",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations.apply_postgres_migrations",
@@ -22329,7 +22329,7 @@
       "exports": [
         "PostgresOutboundDeliveryLedger"
       ],
-      "hash": "5e037951f492753e",
+      "hash": "9dd2dc18f23dfb67",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.OutboundDeliveryRecord",
@@ -22424,7 +22424,7 @@
         "PostgresReferralRelationshipRepository",
         "PostgresReferralTransactionRepository"
       ],
-      "hash": "d502bbc7efa8f176",
+      "hash": "f07f36d988ba3acf",
       "imports": [
         "__future__.annotations",
         "app.persistence.referral_contracts.ReferralBalanceRecord",
@@ -22682,7 +22682,7 @@
       "exports": [
         "PostgresSubscriptionSnapshotReader"
       ],
-      "hash": "e1956cf2beaa269e",
+      "hash": "d67b47a2ef95fa8e",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -22783,7 +22783,7 @@
       "exports": [
         "PostgresTelegramUpdateDedupGuard"
       ],
-      "hash": "5c8701df7f5847c8",
+      "hash": "521e64d7087d257e",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_update_dedup.TELEGRAM_UPDATE_DEDUP_TTL_SECONDS_DEFAULT",
@@ -22848,7 +22848,7 @@
         "PostgresUserIdentityRepository",
         "internal_user_id_for_telegram"
       ],
-      "hash": "499f07348ebde836",
+      "hash": "e78edb8cdfa1d247",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.IdentityRecord",
@@ -22937,7 +22937,7 @@
         "ReconciliationRunUserSummary",
         "ReconciliationRunsRepository"
       ],
-      "hash": "1312d17c7d510ea6",
+      "hash": "1684d86b7aa96a4c",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -23045,7 +23045,7 @@
       "exports": [
         "InMemoryReconciliationRunsRepository"
       ],
-      "hash": "393cb186805d5a6e",
+      "hash": "ae20c1fae5141c80",
       "imports": [
         "__future__.annotations",
         "app.persistence.reconciliation_runs_contracts.ReconciliationRunOutcome",
@@ -23144,7 +23144,7 @@
         "ReferralTransactionRecord",
         "ReferralTransactionRepository"
       ],
-      "hash": "21749dd370b0c036",
+      "hash": "4cccc2dda001df0c",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -23392,7 +23392,7 @@
         "resolve_slice1_composition_for_runtime",
         "slice1_postgres_repos_requested"
       ],
-      "hash": "b5e02152a7e1fe43",
+      "hash": "ac36e089de8fe84f",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -23512,7 +23512,7 @@
         "run_slice1_retention_cleanup",
         "validate_retention_settings"
       ],
-      "hash": "aeac150d0e1be3a6",
+      "hash": "8a583261772c9b2e",
       "imports": [
         "__future__.annotations",
         "app.security.config.ConfigurationError",
@@ -23641,7 +23641,7 @@
         "main",
         "run_slice1_retention_cleanup_from_env"
       ],
-      "hash": "bd1450309e7cdfaf",
+      "hash": "5154590d652ee129",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_retention_manual_cleanup.ENV_BATCH",
@@ -23730,7 +23730,7 @@
         "main",
         "run_slice1_retention_scheduled_from_env"
       ],
-      "hash": "d742af698abc3db3",
+      "hash": "bc291ed574931831",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_retention_manual_cleanup.RetentionSettings",
@@ -23868,7 +23868,7 @@
         "run_slice1_httpx_raw_iterations",
         "run_slice1_httpx_raw_iterations_from_env"
       ],
-      "hash": "88393ba723fc06bf",
+      "hash": "ed7f762ebbdf7665",
       "imports": [
         "__future__.annotations",
         "app.runtime.binding.BoundRuntimeBatchResult",
@@ -23959,7 +23959,7 @@
       "exports": [
         "main"
       ],
-      "hash": "f1b82497f5ac43a4",
+      "hash": "3718f59a22be3406",
       "imports": [
         "__future__.annotations",
         "app.runtime.telegram_httpx_live_main.main"
@@ -24001,7 +24001,7 @@
         "BoundRuntimeBatchResult",
         "process_raw_updates_with_bridge"
       ],
-      "hash": "d33f30fdfa559b40",
+      "hash": "df234bcf09c4a322",
       "imports": [
         "__future__.annotations",
         "app.runtime.bridge.RuntimeUpdateBridge",
@@ -24050,7 +24050,7 @@
         "RuntimeUpdateBridge",
         "bridge_runtime_updates"
       ],
-      "hash": "9dc88ee3cdf1a101",
+      "hash": "7f93f58588d26d0d",
       "imports": [
         "__future__.annotations",
         "collections.abc.Callable",
@@ -24122,7 +24122,7 @@
       "exports": [
         "accept_mapping_runtime_update"
       ],
-      "hash": "ca006bd122767780",
+      "hash": "fe73d82739841f28",
       "imports": [
         "__future__.annotations",
         "collections.abc.Mapping",
@@ -24158,7 +24158,7 @@
         "run_live_polling_until_stopped",
         "run_live_raw_polling_until_stopped"
       ],
-      "hash": "1ac5669535c265b4",
+      "hash": "b8fa21155f20c689",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.Slice1PollingRuntime",
@@ -24303,7 +24303,7 @@
         "build_slice1_in_memory_live_raw_runtime_bundle",
         "build_slice1_in_memory_live_raw_runtime_bundle_with_default_bridge"
       ],
-      "hash": "280e3573267fdb72",
+      "hash": "a858340b5eb45b8e",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -24371,7 +24371,7 @@
         "NotificationScheduler",
         "start_notification_scheduler"
       ],
-      "hash": "7235441a3f1639fb",
+      "hash": "f723ab59d9dfe656",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.notification_texts.text_keys_deleted",
@@ -24593,7 +24593,7 @@
         "advance_polling_offset",
         "extract_next_offset_from_raw_updates"
       ],
-      "hash": "660bde4424f4271a",
+      "hash": "f143f7886d6ac6ec",
       "imports": [
         "__future__.annotations",
         "collections.abc.Mapping",
@@ -24668,7 +24668,7 @@
         "create_payment_fulfillment_ingress_app",
         "load_fulfillment_ingress_settings_from_env"
       ],
-      "hash": "14f8f718bb30d787",
+      "hash": "30c7f4fd48abf26a",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion.NormalizedBillingFactInput",
@@ -24973,7 +24973,7 @@
         "Slice1PollingRuntime",
         "TelegramPollingClient"
       ],
-      "hash": "ebb85b2b7be4d70b",
+      "hash": "ed7dfe41120d2875",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -25189,7 +25189,7 @@
         "TimeoutDecisionMode",
         "create_default_polling_policy"
       ],
-      "hash": "6127ecbc53393e1e",
+      "hash": "50515e5b4cd1821b",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -25428,7 +25428,7 @@
         "Slice1RawPollingRuntime",
         "TelegramRawPollingClient"
       ],
-      "hash": "11c0cea337b3f3b8",
+      "hash": "b559fffabf150737",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -25701,7 +25701,7 @@
         "Slice1RawPollingRunner",
         "run_raw_polling_iterations"
       ],
-      "hash": "53f22e8eed88a7e3",
+      "hash": "020a7bb8bf01bca9",
       "imports": [
         "__future__.annotations",
         "app.runtime.raw_polling.Slice1RawPollingRuntime",
@@ -25773,7 +25773,7 @@
         "build_slice1_in_memory_raw_runtime_bundle",
         "build_slice1_in_memory_raw_runtime_bundle_with_default_bridge"
       ],
-      "hash": "f59f4a79fde7f105",
+      "hash": "fb07d7e107cae69a",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -25834,7 +25834,7 @@
         "Slice1PollingRunner",
         "run_polling_iterations"
       ],
-      "hash": "66d71614977f938d",
+      "hash": "394b650e935d53bf",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.Slice1PollingRuntime",
@@ -25919,7 +25919,7 @@
         "Slice1InMemoryRuntimeBundle",
         "build_slice1_in_memory_runtime_bundle"
       ],
-      "hash": "ccb66742e488453d",
+      "hash": "3f7b85bab048df6b",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -25974,7 +25974,7 @@
         "Slice1HttpxLiveRuntimeApp",
         "build_slice1_httpx_live_runtime_app"
       ],
-      "hash": "12d06eff9aedfc3e",
+      "hash": "77c6a7fb802b39cd",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -26067,7 +26067,7 @@
         "build_slice1_httpx_live_runtime_app_from_config",
         "build_slice1_httpx_live_runtime_app_from_config_async"
       ],
-      "hash": "03513d1ed2aa0a17",
+      "hash": "e5c4feb1e2dac292",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_runtime.apply_slice1_postgres_migrations_from_runtime_config",
@@ -26117,7 +26117,7 @@
         "build_slice1_httpx_live_runtime_app_from_env",
         "build_slice1_httpx_live_runtime_app_from_env_async"
       ],
-      "hash": "f24c9bebcc29cc5d",
+      "hash": "9ec5a7fed4fad25b",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_postgres_wiring.slice1_postgres_repos_requested",
@@ -26161,7 +26161,7 @@
       "exports": [
         "run_slice1_httpx_live_until_stopped_from_env"
       ],
-      "hash": "b8cd47fedbcad1af",
+      "hash": "6f70682120a2bcf3",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -26195,7 +26195,7 @@
       "exports": [
         "run_slice1_httpx_live_iterations_from_env"
       ],
-      "hash": "b68c9f86d7c76026",
+      "hash": "161f5f57efc983c1",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26228,7 +26228,7 @@
       "exports": [
         "run_slice1_httpx_live_until_stopped"
       ],
-      "hash": "ae150daf13b771fa",
+      "hash": "17b52dd7e1b889c7",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -26269,7 +26269,7 @@
         "main",
         "run_slice1_httpx_live_from_env"
       ],
-      "hash": "6d0822cfe758d44d",
+      "hash": "b7c27f9beb1c390c",
       "imports": [
         "__future__.annotations",
         "app.observability.logging_policy.sanitize_structured_fields",
@@ -26341,7 +26341,7 @@
         "build_slice1_httpx_live_process_from_env",
         "build_slice1_httpx_live_process_from_env_async"
       ],
-      "hash": "9d7edbe0dac36a02",
+      "hash": "553a51f23a8d0ef8",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -26450,7 +26450,7 @@
       "exports": [
         "run_slice1_httpx_live_iterations"
       ],
-      "hash": "6284603cd1426300",
+      "hash": "c6b79a6e2aaf5bf8",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26490,7 +26490,7 @@
         "Slice1HttpxLiveRuntimeBundle",
         "build_slice1_httpx_live_runtime_bundle"
       ],
-      "hash": "461a93e2cd86c560",
+      "hash": "d0fdf6fc8bb059d0",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -26557,7 +26557,7 @@
         "Slice1HttpxRawRuntimeApp",
         "build_slice1_httpx_raw_runtime_app"
       ],
-      "hash": "fe85670cb40849a4",
+      "hash": "74ca14a44ba4d1d3",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26649,7 +26649,7 @@
       "exports": [
         "HttpxTelegramRawPollingClient"
       ],
-      "hash": "f40cc6afb6289062",
+      "hash": "464bef5757990d8b",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -26836,7 +26836,7 @@
       "exports": [
         "build_slice1_httpx_raw_runtime_app_from_config"
       ],
-      "hash": "50bded7bd279c8e3",
+      "hash": "04ec9557961ef71b",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26873,7 +26873,7 @@
       "exports": [
         "build_slice1_httpx_raw_runtime_app_from_env"
       ],
-      "hash": "4ae7ea48d3bacf46",
+      "hash": "0e89aa7fa2426d5e",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26907,7 +26907,7 @@
       "exports": [
         "run_slice1_httpx_raw_iterations_from_env"
       ],
-      "hash": "f37901af0c82ade5",
+      "hash": "ea3dfc820f5bfb46",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -26942,7 +26942,7 @@
         "Slice1HttpxRawProcess",
         "build_slice1_httpx_raw_process_from_env"
       ],
-      "hash": "b16d56851135ff26",
+      "hash": "2a6e32966192903b",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -27032,7 +27032,7 @@
       "exports": [
         "run_slice1_httpx_raw_iterations"
       ],
-      "hash": "34a4bdb3d09413d7",
+      "hash": "4762925e4a69c5fd",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -27071,7 +27071,7 @@
         "Slice1HttpxRawRuntimeBundle",
         "build_slice1_httpx_raw_runtime_bundle"
       ],
-      "hash": "b8233696676541e4",
+      "hash": "96046a821645e490",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -27147,7 +27147,7 @@
         "create_slice1_telegram_webhook_starlette_app",
         "load_telegram_webhook_ingress_settings_from_env"
       ],
-      "hash": "51a970956692f561",
+      "hash": "66971bc9a0b323b4",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.normalized.normalize_command_token",
@@ -27271,7 +27271,7 @@
         "TelegramWebhookIngressReasonBucket",
         "TelegramWebhookIngressTelemetry"
       ],
-      "hash": "059b43d8cb70a91d",
+      "hash": "b38762f5ea779287",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -27421,7 +27421,7 @@
         "app",
         "build_slice1_telegram_webhook_asgi_application_from_env"
       ],
-      "hash": "3e34b6b3db66edfe",
+      "hash": "b7fa3915d7cdcbcf",
       "imports": [
         "__future__.annotations",
         "app.observability.logging_config.configure_logging",
@@ -27631,7 +27631,7 @@
       ]
     },
     "backend/src/app/security/__init__.py": {
-      "hash": "5cf4861af71aed65",
+      "hash": "2ad9460f6e64ffe6",
       "language": "python",
       "size": 178,
       "summary": "Python module (__init__.py)"
@@ -27655,7 +27655,7 @@
         "create_signed_checkout_reference",
         "verify_signed_checkout_reference"
       ],
-      "hash": "6588f308693757bf",
+      "hash": "85cc0c6c3a808c7c",
       "imports": [
         "__future__.annotations",
         "app.security.validation.ValidationError",
@@ -27759,7 +27759,7 @@
         "load_runtime_config",
         "validate_runtime_config"
       ],
-      "hash": "bb218e2f46f29ebe",
+      "hash": "8795475298ff3749",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -27855,7 +27855,7 @@
         "UserSafeErrorCode",
         "map_internal_to_user_safe"
       ],
-      "hash": "8c991cd81928a6dc",
+      "hash": "23fef6fdf5f0a85e",
       "imports": [
         "__future__.annotations",
         "enum.StrEnum"
@@ -27933,7 +27933,7 @@
         "encrypt_field",
         "is_encryption_configured"
       ],
-      "hash": "5e619716b4592780",
+      "hash": "3b4867598c141746",
       "imports": [
         "__future__.annotations",
         "base64",
@@ -27997,7 +27997,7 @@
       "exports": [
         "build_bootstrap_idempotency_key"
       ],
-      "hash": "40cabc63af175db2",
+      "hash": "ef4e7ce8ed723561",
       "imports": [
         "__future__.annotations",
         "app.security.validation.ValidationError",
@@ -28033,7 +28033,7 @@
         "classify_public_https_url_host",
         "validate_public_https_operator_url"
       ],
-      "hash": "2f23ab8446432bfc",
+      "hash": "47681848e68ea011",
       "imports": [
         "__future__.annotations",
         "ipaddress",
@@ -28096,7 +28096,7 @@
         "redact_dsn_for_diagnostics",
         "redact_url_for_diagnostics"
       ],
-      "hash": "a0663c3841874811",
+      "hash": "3589848476e819b4",
       "imports": [
         "__future__.annotations",
         "urllib.parse.parse_qsl",
@@ -28150,7 +28150,7 @@
         "parse_webhook_allowed_updates",
         "validate_allowed_updates_for_command_bot"
       ],
-      "hash": "1543d0f998f9c9d2",
+      "hash": "23e4e21c4346c5db",
       "imports": [
         "__future__.annotations",
         "urllib.parse.urlsplit",
@@ -28200,7 +28200,7 @@
         "validate_telegram_update_id",
         "validate_telegram_user_id"
       ],
-      "hash": "042cb17a1a77b4bb",
+      "hash": "5ed911ac5f2233ac",
       "imports": [
         "__future__.annotations",
         "enum.StrEnum",
@@ -28283,7 +28283,7 @@
         "WebhookRateLimiter",
         "load_rate_limiter_from_env"
       ],
-      "hash": "7afdd160fc380039",
+      "hash": "714f2e6ce4882bfe",
       "imports": [
         "__future__.annotations",
         "collections.defaultdict",
@@ -28354,7 +28354,7 @@
       ]
     },
     "backend/src/app/shared/__init__.py": {
-      "hash": "6880067b4c7bd872",
+      "hash": "f43ff9a39b6eebdf",
       "language": "python",
       "size": 70,
       "summary": "Python module (__init__.py)"
@@ -28370,7 +28370,7 @@
         "new_correlation_id",
         "require_correlation_id"
       ],
-      "hash": "fbe9d4ce2e9b810c",
+      "hash": "3d86c0badefcf458",
       "imports": [
         "__future__.annotations",
         "re",
@@ -28414,7 +28414,7 @@
       "exports": [
         "run_async"
       ],
-      "hash": "241846c759e8f474",
+      "hash": "48adf63552cce9eb",
       "imports": [
         "__future__.annotations",
         "asyncio"
@@ -28448,7 +28448,7 @@
         "SafeUserStatusCategory",
         "SubscriptionSnapshotState"
       ],
-      "hash": "ade52f8aa8eccdbd",
+      "hash": "58d7760c0b691406",
       "imports": [
         "__future__.annotations",
         "dataclasses.dataclass",
@@ -28524,7 +28524,7 @@
         "ENV_INTERNAL_API_SECRET",
         "build_web_api_app"
       ],
-      "hash": "20e4a55ffa85724f",
+      "hash": "a8756303e276f01d",
       "imports": [
         "__future__.annotations",
         "app.web_api.auth.handle_logout",
@@ -28643,7 +28643,7 @@
         "handle_send_code",
         "handle_verify_code"
       ],
-      "hash": "044d52e863339062",
+      "hash": "65866bda42954b29",
       "imports": [
         "__future__.annotations",
         "app.email.sender.send_verification_code",
@@ -28748,7 +28748,7 @@
         "handle_bot_send_code",
         "handle_bot_verify_code"
       ],
-      "hash": "a62b40673a132fd2",
+      "hash": "9bd539f2a452316a",
       "imports": [
         "__future__.annotations",
         "app.email.sender.send_verification_code",
@@ -28803,7 +28803,7 @@
         "truthy",
         "validate_email"
       ],
-      "hash": "31e506c7fd31c6a4",
+      "hash": "2d5c94ac01cac39a",
       "imports": [
         "__future__.annotations",
         "hashlib",
@@ -28890,7 +28890,7 @@
         "require_csrf",
         "validate_csrf"
       ],
-      "hash": "4b09669ffae3d39e",
+      "hash": "afaecd5cb08ee7a7",
       "imports": [
         "__future__.annotations",
         "base64",
@@ -28983,7 +28983,7 @@
         "handle_get_payment_status",
         "plan_display_name_safe"
       ],
-      "hash": "04ff54c798250af4",
+      "hash": "6c2950a24c887a63",
       "imports": [
         "__future__.annotations",
         "app.domain.plans.calculate_total_price",
@@ -29064,7 +29064,7 @@
         "handle_reissue_keys",
         "handle_renew_subscription"
       ],
-      "hash": "73e22bb710305f8f",
+      "hash": "58cb8f761352729e",
       "imports": [
         "__future__.annotations",
         "app.web_api.middleware.require_auth",
@@ -29196,7 +29196,7 @@
         "pathlib",
         "uvicorn"
       ],
-      "hash": "02e515851330f482",
+      "hash": "ef8a25a215b88bf0",
       "imports": [
         "__future__.annotations",
         "app.web_api.app.build_web_api_app",
@@ -29232,7 +29232,7 @@
       "exports": [
         "handle_subscription"
       ],
-      "hash": "f7f58ca4b2452ecf",
+      "hash": "54953a05a6d05c89",
       "imports": [
         "__future__.annotations",
         "app.issuance.vless_provider.VlessProviderOutcome",
@@ -29275,25 +29275,25 @@
       ]
     },
     "backend/src/telegram_bot_vpn_backend.egg-info/PKG-INFO": {
-      "hash": "80095f945af96374",
+      "hash": "5a2f9a42cadecbc0",
       "language": "unknown",
       "size": 495,
       "summary": "unknown file: PKG-INFO"
     },
     "backend/src/telegram_bot_vpn_backend.egg-info/SOURCES.txt": {
-      "hash": "90f2f0a33556a1ac",
+      "hash": "744a9a637dfb7eca",
       "language": "text",
       "size": 17025,
       "summary": "text file: SOURCES.txt"
     },
     "backend/src/telegram_bot_vpn_backend.egg-info/dependency_links.txt": {
-      "hash": "7eb70257593da06f",
+      "hash": "01ba4719c80b6fe9",
       "language": "text",
       "size": 2,
       "summary": "text file: dependency_links.txt"
     },
     "backend/src/telegram_bot_vpn_backend.egg-info/requires.txt": {
-      "hash": "afd006f692edec11",
+      "hash": "56b26645bd1b8c73",
       "language": "text",
       "size": 154,
       "summary": "text file: requires.txt"
@@ -29317,7 +29317,7 @@
       "summary": "unknown file: backend-smoke-helper-regression.xml"
     },
     "backend/tests/__init__.py": {
-      "hash": "6bc74c2d6be8cfb1",
+      "hash": "01cd2dad6b813c41",
       "language": "python",
       "size": 58,
       "summary": "Test: __init__.py"
@@ -29326,7 +29326,7 @@
       "depends_on": [
         "__future__"
       ],
-      "hash": "1182aebd54b422dd",
+      "hash": "f180684f1878e6d3",
       "imports": [
         "__future__.annotations"
       ],
@@ -29345,7 +29345,7 @@
         "assert_no_retention_success_summary",
         "assert_retention_failure_output_safe"
       ],
-      "hash": "929c1a796ded33f8",
+      "hash": "c1a6d7d455125867",
       "imports": [
         "__future__.annotations",
         "collections.abc.Iterable"
@@ -29399,7 +29399,7 @@
         "SUBSCRIPTION_ACTIVE_ACCESS_READY_TEXT",
         "TELEGRAM_COMMAND_RATE_LIMITED_TEXT"
       ],
-      "hash": "dd1c5a8d5e739b1a",
+      "hash": "f03b3b12d7410b27",
       "language": "python",
       "size": 3406,
       "summary": "Test: slice1_expected_user_copy.py"
@@ -29414,7 +29414,7 @@
       "exports": [
         "TestInternalIdDerivation"
       ],
-      "hash": "f7375bbf19fda439",
+      "hash": "01a0db5a57e9a955",
       "imports": [
         "__future__.annotations",
         "app.persistence.account_merge._telegram_internal_id",
@@ -29515,7 +29515,7 @@
         "test_adm01_composition_deny_short_circuits_before_reads",
         "test_adm01_composition_happy_path_real_chain"
       ],
-      "hash": "466c815da0d6fe25",
+      "hash": "aebbee2d8c30a60d",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_endpoint.Adm01InboundRequest",
@@ -29766,7 +29766,7 @@
         "test_endpoint_with_real_extractor_tab_newline_principal_returns_invalid_input",
         "test_endpoint_with_real_extractor_trims_principal_and_calls_handler"
       ],
-      "hash": "f77c004312b2dbbb",
+      "hash": "e021e70bb92f25d3",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_endpoint.Adm01InboundRequest",
@@ -30171,7 +30171,7 @@
         "test_telegram_target_missing_identity_returns_none",
         "test_telegram_target_resolves_from_repository"
       ],
-      "hash": "d883709eae19cc04",
+      "hash": "ddc6dc4cfb9f5575",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_identity_resolve_adapter.Adm01IdentityResolveAdapter",
@@ -30268,7 +30268,7 @@
         "test_http_response_contract_low_cardinality_stable_and_deny_redacted",
         "test_http_unknown_telegram_user_safe_identity_unknown_response"
       ],
-      "hash": "3ea1b48944699a91",
+      "hash": "021a81ccc10b01a2",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_internal_http.ADM01_INTERNAL_LOOKUP_PATH",
@@ -30520,7 +30520,7 @@
         "test_adm01_internal_http_summary_marker_contract_locked",
         "test_validation_reports_artifact_path_still_covers_adm01_marker"
       ],
-      "hash": "ce673efd7825f57d",
+      "hash": "8eb151280610044f",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -30602,7 +30602,7 @@
         "test_port_out_of_range_rejected",
         "test_wildcard_ipv6_rejected_without_insecure_and_trust"
       ],
-      "hash": "15ae2480d097f24a",
+      "hash": "57a88ce8b2b8d40f",
       "imports": [
         "__future__.annotations",
         "app.internal_admin.adm01_http_config.Adm01InternalHttpConfig",
@@ -30809,7 +30809,7 @@
         "test_output_leak_guard_disabled_path",
         "test_startup_failure_after_pool_closes_pool"
       ],
-      "hash": "1499fb6be1939bcb",
+      "hash": "447bb1f736353b09",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_internal_http.ADM01_INTERNAL_LOOKUP_PATH",
@@ -31040,7 +31040,7 @@
         "test_adm01_lookup_success_with_redaction",
         "test_adm01_lookup_target_not_resolved"
       ],
-      "hash": "3f5cba2e98154a7f",
+      "hash": "73031239c3801693",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_lookup.Adm01LookupHandler",
@@ -31605,7 +31605,7 @@
         "test_leak_guard_forbidden_substring",
         "test_leak_guard_synthetic_marker"
       ],
-      "hash": "b1a52006ea7e3701",
+      "hash": "18f5b676ce797530",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_postgres_issuance_composition_check.adm01_postgres_issuance_composition_check_enabled",
@@ -31672,7 +31672,7 @@
         "test_summary_exposes_only_state_field",
         "test_unrecognized_state_fail_closed_unknown"
       ],
-      "hash": "49c4ca9a4297ac2e",
+      "hash": "5792bdd17099d78f",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_postgres_issuance_read_adapter.Adm01PostgresIssuanceReadAdapter",
@@ -31891,7 +31891,7 @@
         "test_missing_snapshot_returns_none",
         "test_persistence_dependency_error_propagates"
       ],
-      "hash": "21509643e2bb29ad",
+      "hash": "938bc4db81df3774",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_postgres_subscription_read_adapter.Adm01PostgresSubscriptionReadAdapter",
@@ -32020,7 +32020,7 @@
       "exports": [
         "test_adapters_mapping_equivalence_matrix"
       ],
-      "hash": "600751a0b942fb6c",
+      "hash": "85d43fa66bdff499",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_entitlement_read_adapter.Adm01SubscriptionEntitlementReadAdapter",
@@ -32108,7 +32108,7 @@
         "test_persistence_error_propagates",
         "test_unknown_snapshot_label_maps_to_unknown"
       ],
-      "hash": "068ce96eb53bcafa",
+      "hash": "9a35ad83b6998cfb",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_entitlement_read_adapter.Adm01SubscriptionEntitlementReadAdapter",
@@ -32280,7 +32280,7 @@
         "test_persistence_error_propagates",
         "test_unknown_snapshot_label_maps_to_unknown"
       ],
-      "hash": "1aa92ddd1c97855e",
+      "hash": "334198c5763f8889",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_policy_read_adapter.Adm01SubscriptionPolicyReadAdapter",
@@ -32439,7 +32439,7 @@
         "test_classify_adm01_subscription_snapshot_matrix",
         "test_state_kind_to_adapter_output_contract"
       ],
-      "hash": "01a0b3951a17a724",
+      "hash": "23e85795734a74d6",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_subscription_state_mapping.Adm01SnapshotStateKind",
@@ -32491,7 +32491,7 @@
         "test_adapter_returns_has_accepted_and_expected_refs_for_user_with_accepted_facts",
         "test_adapter_returns_none_category_and_empty_refs_for_user_without_accepted_facts"
       ],
-      "hash": "43481b5c6d9995e2",
+      "hash": "9283c173641ddbf5",
       "imports": [
         "__future__.annotations",
         "app.admin_support.Adm02BillingFactsCategory",
@@ -32662,7 +32662,7 @@
         "test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_redaction_partial_success",
         "test_build_adm02_internal_diagnostics_starlette_app_with_persistence_backing_wires_repos"
       ],
-      "hash": "106fcafc29fd9728",
+      "hash": "9af77350031e8aca",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_billing_facts_ledger_adapter.Adm02BillingFactsLedgerReadAdapter",
@@ -33130,7 +33130,7 @@
         "test_adm02_composition_redaction_failure_is_fail_closed",
         "test_adm02_composition_redaction_partial_success_real_chain"
       ],
-      "hash": "0c5bc0c1d4cce003",
+      "hash": "05cec68b2edec389",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_billing_facts_ledger_adapter.Adm02BillingFactsLedgerReadAdapter",
@@ -33522,7 +33522,7 @@
         "test_adm02_success_without_redaction_audit_unredacted",
         "test_adm02_target_not_resolved_no_reads_no_audit"
       ],
-      "hash": "d9c37396eaa795b9",
+      "hash": "6b77eb5d7b3b3678",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_diagnostics.ADM02_CAPABILITY_CLASS",
@@ -34039,7 +34039,7 @@
         "test_adm02_success_without_summary_response_summary_none",
         "test_adm02_target_not_resolved_passthrough"
       ],
-      "hash": "6444cdc82120c38e",
+      "hash": "0abfc8ddd07edccb",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_endpoint.Adm02InboundRequest",
@@ -34385,7 +34385,7 @@
         "test_sink_emits_only_bounded_safe_fields",
         "test_sink_omits_raw_principal_or_user_identifiers"
       ],
-      "hash": "40d1ba81f42e0901",
+      "hash": "030546708ec12d82",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_ensure_access_audit_logging.FanoutAdm02EnsureAccessAuditSink",
@@ -34453,7 +34453,7 @@
         "test_recent_query_clamps_to_hard_max_limit",
         "test_recent_query_uses_default_limit_when_non_positive"
       ],
-      "hash": "8be8c1c32ceb25c1",
+      "hash": "e758b37c8654b8cc",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_postgres_ensure_access_audit_read_adapter.Adm02PostgresEnsureAccessAuditReadAdapter",
@@ -34600,7 +34600,7 @@
         "test_endpoint_success_by_correlation_returns_safe_item_list",
         "test_endpoint_unauthorized_is_denied_without_items"
       ],
-      "hash": "27cc800ab72cec63",
+      "hash": "21427bfacfcffbdf",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_ensure_access_audit_read.Adm02EnsureAccessAuditLookupHandler",
@@ -34755,7 +34755,7 @@
         "test_repeated_call_idempotent_no_duplicate_mutation",
         "test_unknown_identity_safe_noop"
       ],
-      "hash": "758c46806428e8c3",
+      "hash": "91d17626e2a4509f",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_ensure_access.Adm02EnsureAccessHandler",
@@ -35146,7 +35146,7 @@
         "test_sink_persists_only_safe_bounded_fields",
         "test_sink_wraps_database_failures_without_leaking_details"
       ],
-      "hash": "b6c3420d54fbdfbb",
+      "hash": "4e9a36fa0cf03a6d",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_ensure_access_audit_postgres.PostgresAdm02EnsureAccessAuditSink",
@@ -35291,7 +35291,7 @@
         "test_adm02_adapter_maps_all_fields_and_uses_injected_now_provider",
         "test_adm02_adapter_writes_to_inmemory_appender"
       ],
-      "hash": "48fe6bf915b5eee2",
+      "hash": "9acfa3224b392c52",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_fact_of_access_audit_adapter.Adm02FactOfAccessPersistenceAuditAdapter",
@@ -35356,7 +35356,7 @@
         "test_in_memory_adm02_appender_is_append_only",
         "test_in_memory_adm02_appender_readback_isolated_from_mutated_source_reference"
       ],
-      "hash": "356024dd5e5504c7",
+      "hash": "d1479dc1f3579fc3",
       "imports": [
         "__future__.annotations",
         "app.admin_support.contracts.Adm02FactOfAccessDisclosureCategory",
@@ -35419,7 +35419,7 @@
         "test_http_success_summary_null",
         "test_http_target_not_resolved_passthrough"
       ],
-      "hash": "706241ccc2e13a1c",
+      "hash": "96962cc8b7a8b1d3",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_internal_http.ADM02_INTERNAL_DIAGNOSTICS_PATH",
@@ -35671,7 +35671,7 @@
         "test_load_adm02_ensure_access_opt_in_from_env_invalid_raises_configuration_error",
         "test_load_adm02_ensure_access_opt_in_from_env_truthy_convention"
       ],
-      "hash": "9d16bf4691d23899",
+      "hash": "74b512cbd08ba5d0",
       "imports": [
         "__future__.annotations",
         "app.internal_admin.adm02_mutation_opt_in_config.load_adm02_ensure_access_opt_in_from_env",
@@ -35718,7 +35718,7 @@
         "test_adapter_maps_none_none_summary",
         "test_adapter_maps_unknown_unknown_summary"
       ],
-      "hash": "3fcb61b9376c0c7e",
+      "hash": "294b77ed7ed5a7e6",
       "imports": [
         "__future__.annotations",
         "app.admin_support.Adm02QuarantineDiagnostics",
@@ -35891,7 +35891,7 @@
         "test_adapter_maps_no_changes_summary",
         "test_adapter_maps_unknown_summary"
       ],
-      "hash": "0c0a503ba9a5acb2",
+      "hash": "fd84b70d18b4ade1",
       "imports": [
         "__future__.annotations",
         "app.admin_support.Adm02ReconciliationDiagnostics",
@@ -36052,7 +36052,7 @@
         "test_build_adm02_internal_support_http_app_disables_mutation_path_when_opt_in_false",
         "test_build_adm02_internal_support_http_app_includes_ensure_access_route"
       ],
-      "hash": "378901ac0d77a9cf",
+      "hash": "477240d30e56e210",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm02_internal_http.ADM02_INTERNAL_AUDIT_EVENTS_PATH",
@@ -36111,7 +36111,7 @@
         "test_exact_match_no_case_fold_or_trim",
         "test_unknown_principal_denied"
       ],
-      "hash": "38a0f90bfced1407",
+      "hash": "8fe6228de300fb02",
       "imports": [
         "app.admin_support.authorization.AllowlistAdm01Authorization",
         "app.admin_support.authorization.AllowlistAdm02Authorization",
@@ -36211,7 +36211,7 @@
         "test_adm02_ensure_access_fanout_and_postgres_sinks_are_exported",
         "test_adm02_ensure_access_structured_logging_sink_is_exported_audit_port"
       ],
-      "hash": "917bc48b319fa9c9",
+      "hash": "b3f542620e571b47",
       "imports": [
         "app.admin_support.Adm01LookupInput",
         "app.admin_support.Adm01LookupSummary",
@@ -36313,7 +36313,7 @@
         "test_admin_support_internal_read_gate_summary_marker_contract_locked",
         "test_validation_reports_artifact_path_still_covers_admin_support_marker"
       ],
-      "hash": "09130016ddd8cd11",
+      "hash": "17911fcf2a722b1a",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -36374,7 +36374,7 @@
       "exports": [
         "test_internal_admin_principal_extraction_contract_construct"
       ],
-      "hash": "e75a9670bf9b20db",
+      "hash": "63837fa12f0ee672",
       "imports": [
         "app.admin_support.AdminActorRef",
         "app.admin_support.InternalAdminPrincipalExtractionInput",
@@ -36408,7 +36408,7 @@
         "test_default_extractor_success_trims_principal",
         "test_default_extractor_untrusted_source_short_circuit"
       ],
-      "hash": "92251dfb263277e7",
+      "hash": "0303951f745200e9",
       "imports": [
         "app.admin_support.contracts.InternalAdminPrincipalExtractionInput",
         "app.admin_support.contracts.InternalAdminPrincipalExtractionOutcome",
@@ -36475,7 +36475,7 @@
         "test_get_status_unknown_user_onboarding_outcome",
         "test_handlers_do_not_require_raw_payload"
       ],
-      "hash": "ab98ef05c8530615",
+      "hash": "116617acba526a4e",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityHandler",
@@ -36868,7 +36868,7 @@
         "test_billing_events_ledger_repository_protocol_surface",
         "test_billing_events_ledger_user_summary_shape"
       ],
-      "hash": "724c6f47e069dc83",
+      "hash": "52d2e77532d27de8",
       "imports": [
         "__future__.annotations",
         "app.persistence.billing_events_ledger_contracts.BillingEventAmountCurrency",
@@ -36930,7 +36930,7 @@
         "test_summary_for_user_without_records_is_none",
         "test_summary_ignores_non_accepted_status_for_now"
       ],
-      "hash": "b43754fda8139e89",
+      "hash": "47daa0006fb7065f",
       "imports": [
         "__future__.annotations",
         "app.persistence.BillingEventAmountCurrency",
@@ -37052,7 +37052,7 @@
         "test_rejects_naive_datetimes",
         "test_validation_failure_does_not_write_ledger_or_audit"
       ],
-      "hash": "db93d0a55b85814d",
+      "hash": "91204b148a3009b5",
       "imports": [
         "__future__.annotations",
         "app.admin_support.Adm02BillingFactsCategory",
@@ -37292,7 +37292,7 @@
         "test_reject_unsupported_schema_version",
         "test_success_one_summary_line"
       ],
-      "hash": "16fde40f11fc3f60",
+      "hash": "e0a165c75e06aabc",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion.IngestNormalizedBillingFactResult",
@@ -37443,7 +37443,7 @@
         "test_ok_stdout_does_not_echo_dsn",
         "test_success_one_summary_line"
       ],
-      "hash": "c0b8b6612d168e01",
+      "hash": "9f9300e435c71127",
       "imports": [
         "__future__.annotations",
         "app.application.apply_billing_subscription.ApplyAcceptedBillingFactResult",
@@ -37579,7 +37579,7 @@
         "test_snapshots_reader_rejected_without_explicit_identity_pair",
         "test_status_bootstrapped_no_snapshot_fail_closed"
       ],
-      "hash": "ffc440ba98524165",
+      "hash": "d39a96846c766c45",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -37812,7 +37812,7 @@
         "test_dispatcher_module_excludes_billing_issuance_admin_concepts",
         "test_slice1_dispatcher_class_delegates"
       ],
-      "hash": "41736e0be7dfca74",
+      "hash": "32739d8696f77759",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -38154,7 +38154,7 @@
         "test_try_again_later_retry_safe",
         "test_unknown_message_key_fail_closed_outage"
       ],
-      "hash": "a34d5532b93bef6a",
+      "hash": "7208d77398391997",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.message_catalog.RenderedMessagePackage",
@@ -38501,7 +38501,7 @@
         "test_storefront_commands_are_normalized",
         "test_unknown_command_rejected"
       ],
-      "hash": "2f82c3c3f57ef729",
+      "hash": "29fb1a9c49d600f9",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityInput",
@@ -38732,7 +38732,7 @@
         "test_subscription_active_access_ready_status_message_key",
         "test_subscription_active_status_message_key"
       ],
-      "hash": "e13a865e84143630",
+      "hash": "3eaa6ee77358af83",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityResult",
@@ -38967,7 +38967,7 @@
         "test_status_unknown_user_guidance",
         "test_transport_response_has_no_outcome_or_internal_fields"
       ],
-      "hash": "0fbcb07df16d4260",
+      "hash": "76c2239b5ad3db9f",
       "imports": [
         "__future__.annotations",
         "app.application.handlers.BootstrapIdentityResult",
@@ -39145,7 +39145,7 @@
         "test_facade_raw_status_unknown_user_onboarding_guidance_rendered",
         "test_slice1_telegram_runtime_facade_delegates"
       ],
-      "hash": "a8dede71685babe1",
+      "hash": "d96a1280f7ca7d6c",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -39430,7 +39430,7 @@
         "test_runtime_wrapper_private_unknown_slash_send_invalid_input",
         "test_slice1_telegram_runtime_wrapper_handle_and_dispatch"
       ],
-      "hash": "272c4fce0134b050",
+      "hash": "23ef0a4034c09ecc",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -39608,7 +39608,7 @@
         "test_service_valid_generated_correlation_id_when_not_provided",
         "test_slice1_telegram_service_delegates"
       ],
-      "hash": "bf2df6313a88ca2c",
+      "hash": "66fb506ca0a3d021",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -39779,7 +39779,7 @@
         "test_storefront_config_accepts_public_https_urls_and_handle",
         "test_storefront_config_rejects_non_https_and_secret_like_urls"
       ],
-      "hash": "dda9f4d223f038fa",
+      "hash": "429a3f69688afe0a",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.storefront_config.build_checkout_url_with_reference",
@@ -39868,7 +39868,7 @@
         "test_menu_text_contains_header_and_contact_hint",
         "test_support_contact_text_variants"
       ],
-      "hash": "41efb047364392f3",
+      "hash": "d25b2c15cff4efd9",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.storefront_config.StorefrontPublicConfig",
@@ -39935,7 +39935,7 @@
         "test_health_check_output_does_not_leak_sensitive_tokens",
         "test_health_check_passes_when_last_success_is_fresh"
       ],
-      "hash": "7119265074d4821a",
+      "hash": "25450ca785688e85",
       "imports": [
         "__future__.annotations",
         "datetime.UTC",
@@ -40048,7 +40048,7 @@
         "test_revoke_idempotent",
         "test_revoke_second_idempotency_key_ledger_only"
       ],
-      "hash": "678fd7fc74c2f689",
+      "hash": "c106c66b657d6f86",
       "imports": [
         "__future__.annotations",
         "app.domain.status_view.map_subscription_status_view",
@@ -40264,7 +40264,7 @@
         "test_verify_passes_when_url_and_allowed_updates_match",
         "test_verify_passes_when_url_trailing_slash_differs"
       ],
-      "hash": "27a08ffcd6516c0d",
+      "hash": "7f478aeebf5c98c3",
       "imports": [
         "__future__.annotations",
         "app.security.telegram_webhook_policy.normalize_webhook_url_for_compare",
@@ -40411,7 +40411,7 @@
         "test_validate_device_count_too_low",
         "test_validate_device_count_valid"
       ],
-      "hash": "948fccb89c702042",
+      "hash": "2d2022c45b3b0667",
       "imports": [
         "app.domain.devices.extra_device_cost",
         "app.domain.devices.extra_device_count",
@@ -40498,7 +40498,7 @@
         "test_plan_display_name",
         "test_plan_display_name_custom"
       ],
-      "hash": "5685427ba3c2a452",
+      "hash": "6788ccbb0f6a34e0",
       "imports": [
         "app.domain.plans.CUSTOM_DAY_PRICE_RUBLES",
         "app.domain.plans.DEFAULT_DEVICE_LIMIT",
@@ -40681,7 +40681,7 @@
         "test_six_months_commissions",
         "test_unknown_plan_rate"
       ],
-      "hash": "02941244022286a9",
+      "hash": "62d27931684fe46a",
       "imports": [
         "app.domain.referral.ReferralCommission",
         "app.domain.referral.build_commissions_for_payment",
@@ -40814,7 +40814,7 @@
         "test_full_backend_regression_summary_marker_contract_locked",
         "test_validation_reports_artifact_path_still_covers_full_regression_marker"
       ],
-      "hash": "8be97919ea295a6e",
+      "hash": "ff91137bd94f5e77",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -40879,7 +40879,7 @@
         "test_invalid_user_rejected",
         "test_update_id_zero_rejected"
       ],
-      "hash": "71b54f0db662c4cc",
+      "hash": "ed69e371b1f0f7e9",
       "imports": [
         "app.security.idempotency.build_bootstrap_idempotency_key",
         "app.security.validation.ValidationError",
@@ -40941,7 +40941,7 @@
         "test_snapshot_reader_configured_or_none",
         "test_snapshot_returns_copy_not_alias"
       ],
-      "hash": "083eb7275963fa44",
+      "hash": "4321e136878eaeb3",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.AuditEvent",
@@ -41024,7 +41024,7 @@
         "test_internal_read_gate_checks_passes",
         "test_internal_read_gate_checks_passes_anyio"
       ],
-      "hash": "a711fb06a33c5eda",
+      "hash": "86b6c02af691486e",
       "imports": [
         "__future__.annotations",
         "app.admin_support.internal_read_gate_checks.run_admin_support_internal_read_gate_checks",
@@ -41068,7 +41068,7 @@
         "test_issuance_operator_summary_marker_contract_locked",
         "test_validation_reports_artifact_path_still_covers_summary_markers"
       ],
-      "hash": "e6b0d54fe78e39f4",
+      "hash": "819cac9073eaaf95",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -41137,7 +41137,7 @@
         "test_invalid_correlation_id_maps_validation",
         "test_success_safe_stdout_contract"
       ],
-      "hash": "f3bf0d2067c5deda",
+      "hash": "94093c874f74b6eb",
       "imports": [
         "__future__.annotations",
         "app.application.issuance_operator_main.ISSUANCE_OPERATOR_ENABLE",
@@ -41264,7 +41264,7 @@
         "test_revoke_from_store_only_row_no_provider_second_time",
         "test_revoke_idempotent_when_store_already_revoked"
       ],
-      "hash": "0c88990bcdc2b806",
+      "hash": "b29857715db76561",
       "imports": [
         "__future__.annotations",
         "app.issuance.contracts.IssuanceOperationType",
@@ -41514,7 +41514,7 @@
         "test_strict_mode_passes_with_complete_safe_env",
         "test_strict_mode_passes_with_safe_access_reconcile_schedule"
       ],
-      "hash": "71e925083ecffa91",
+      "hash": "aa2074565746ae6d",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -41749,7 +41749,7 @@
         "test_non_primitive_redacted",
         "test_unknown_keys_dropped"
       ],
-      "hash": "2c0c970b1ff4f386",
+      "hash": "8da155aa587043e8",
       "imports": [
         "app.observability.logging_policy.ALLOWED_LOG_FIELDS",
         "app.observability.logging_policy.sanitize_structured_fields"
@@ -41806,7 +41806,7 @@
         "test_mismatch_quarantine_repository_protocol_shape",
         "test_mismatch_quarantine_user_summary_constructs"
       ],
-      "hash": "1950459005b7511c",
+      "hash": "62d043bff55cd6da",
       "imports": [
         "__future__.annotations",
         "app.persistence.mismatch_quarantine_contracts.MismatchQuarantineReasonCode",
@@ -41868,7 +41868,7 @@
         "test_summary_uses_reason_code_of_newest_active_record",
         "test_upsert_by_source_replaces_existing_record_without_duplicates"
       ],
-      "hash": "b6c24b9734b479a2",
+      "hash": "70681550a6887700",
       "imports": [
         "__future__.annotations",
         "app.persistence.InMemoryMismatchQuarantineRepository",
@@ -41983,7 +41983,7 @@
         "test_mvp_final_gate_workflow_paths_cover_root_handoff_and_final_markers",
         "test_mvp_final_gate_workflow_references_static_release_commands"
       ],
-      "hash": "ce63ff289a1faf2f",
+      "hash": "8f7be6278ed5ad83",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42079,7 +42079,7 @@
         "test_manifest_exists",
         "test_manifest_has_no_sensitive_examples_or_raw_identifier_fragments"
       ],
-      "hash": "3d96f996ea8f3703",
+      "hash": "188489a9da1a7789",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42151,7 +42151,7 @@
         "test_ci_trigger_decision_doc_exists",
         "test_ci_trigger_decision_doc_has_no_forbidden_fragments"
       ],
-      "hash": "c95e943a84163bc6",
+      "hash": "5c2f804e69463a81",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42229,7 +42229,7 @@
         "test_release_status_references_key_runbooks",
         "test_root_project_handoff_references_backend_release_status"
       ],
-      "hash": "d8e770e229994dd2",
+      "hash": "9c0cb39446af8974",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42345,7 +42345,7 @@
         "test_workflow_paths_cover_release_and_handoff_artifacts",
         "test_workflow_runs_repo_health_check_checklist_preflight_and_config_doctor_unit_tests"
       ],
-      "hash": "8c6933f8ca2c43e5",
+      "hash": "5d4f7f903f6667d4",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42433,7 +42433,7 @@
         "test_release_readiness_runbook_documents_required_commands_and_policies",
         "test_release_readiness_runbook_has_no_raw_secret_or_dsn_examples"
       ],
-      "hash": "ac6ea6898e6d64b9",
+      "hash": "6bd07ebc6d3bf4bd",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42499,7 +42499,7 @@
         "test_workflow_on_trigger_contains_push_and_pull_request_with_paths",
         "test_workflow_trigger_paths_cover_required_release_and_test_scope"
       ],
-      "hash": "f964eabdbf9fd2d0",
+      "hash": "b8ba0211ed7cfdd6",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42601,7 +42601,7 @@
         "test_release_helpers_do_not_invoke_docker_or_local_smoke_automatically",
         "test_static_scripts_do_not_delegate_to_pytest_or_other_helper_runners"
       ],
-      "hash": "0ef146a1e190974e",
+      "hash": "b1033256ce833593",
       "imports": [
         "__future__.annotations",
         "ast",
@@ -42746,7 +42746,7 @@
         "test_staging_manifest_exists",
         "test_staging_manifest_has_no_forbidden_fragments"
       ],
-      "hash": "2a20baadc870c814",
+      "hash": "8929b88b10e8f8ef",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -42823,7 +42823,7 @@
         "test_missing_or_falsey_delete_opt_in_semantics_via_settings_dry_run_true",
         "test_result_summary_is_counts_only_and_forbidden_fragments_absent"
       ],
-      "hash": "ef9de68e503dda39",
+      "hash": "de02db45692947c5",
       "imports": [
         "__future__.annotations",
         "app.persistence.operational_retention_cleanup.OperationalRetentionSettings",
@@ -42976,7 +42976,7 @@
         "test_main_wiring_prints_safe_counts_only",
         "test_missing_database_url_fails_without_leaky_output"
       ],
-      "hash": "2cd78b5a459d92fd",
+      "hash": "7a43a2c34bd07f02",
       "imports": [
         "__future__.annotations",
         "app.persistence.operational_retention_cleanup.ENV_ADM02_AUDIT_RETENTION_DAYS",
@@ -43118,7 +43118,7 @@
         "test_runpy_persistence_package_delegates_to_migrations_main",
         "test_runpy_runtime_package_delegates_to_live_main"
       ],
-      "hash": "fb811d4cf8c3dd3f",
+      "hash": "7af07edc86227766",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main",
@@ -43188,7 +43188,7 @@
         "test_valid_paid_event_applies_and_duplicate_is_idempotent",
         "test_valid_paid_event_persists_active_until_from_period_days"
       ],
-      "hash": "df3c88e47c6bc025",
+      "hash": "2e99acba5ada1959",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.message_catalog.render_telegram_outbound_plan",
@@ -43544,7 +43544,7 @@
         "test_package_main_delegates_to_migrations_entrypoint",
         "test_running_persistence_package_as_main_uses_same_delegate_path"
       ],
-      "hash": "b943dce95d9aee8c",
+      "hash": "5832ac4230905422",
       "imports": [
         "__future__.annotations",
         "app.persistence.__main__",
@@ -43594,7 +43594,7 @@
         "pg_url",
         "test_postgres_adm01_issuance_lifecycle_op_summary_no_leak"
       ],
-      "hash": "1a96843b472df799",
+      "hash": "f46476e19e65f967",
       "imports": [
         "__future__.annotations",
         "app.admin_support.adm01_postgres_issuance_read_adapter.Adm01PostgresIssuanceReadAdapter",
@@ -43667,7 +43667,7 @@
         "pg_url",
         "test_postgres_audit_appender_persists_row"
       ],
-      "hash": "f02abcec6dbd740b",
+      "hash": "1233410f860e5a4d",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.AuditEvent",
@@ -43747,7 +43747,7 @@
         "test_postgres_summary_user_with_accepted_records_has_accepted",
         "test_postgres_table_has_no_jsonb_and_expected_columns"
       ],
-      "hash": "cb251f9be5ddcf88",
+      "hash": "159e5596f1d79ead",
       "imports": [
         "__future__.annotations",
         "app.admin_support.Adm02BillingFactsCategory",
@@ -43910,7 +43910,7 @@
         "test_postgres_atomic_replay_audit_failure_leaves_prior_commits_unchanged",
         "test_postgres_ingest_handler_persists_and_idempotent_replay"
       ],
-      "hash": "4373f001006cb2de",
+      "hash": "e3081e04c4403149",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion.IngestNormalizedBillingFactHandler",
@@ -44015,7 +44015,7 @@
         "pg_url",
         "test_postgres_main_ingest_writes_ledger_and_audit"
       ],
-      "hash": "c57eecf44a84e779",
+      "hash": "0c0d9b1d71f8b6f7",
       "imports": [
         "__future__.annotations",
         "app.application.billing_ingestion_main.BILLING_NORMALIZED_INGEST_ENABLE",
@@ -44096,7 +44096,7 @@
         "test_ledger_row_used_by_main_matches_domain_allowlist",
         "test_postgres_apply_main_ledger_then_apply_idempotent"
       ],
-      "hash": "0f82adb679375963",
+      "hash": "1895ff6bcea941c4",
       "imports": [
         "__future__.annotations",
         "app.application.billing_subscription_apply_main.BILLING_SUBSCRIPTION_APPLY_ENABLE",
@@ -44194,7 +44194,7 @@
         "test_postgres_idempotency_complete_without_begin_or_get",
         "test_postgres_idempotency_concurrent_begin_or_get_same_key"
       ],
-      "hash": "57d1513fee66b04b",
+      "hash": "a62602273cb40a30",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_idempotency.PostgresIdempotencyRepository",
@@ -44285,7 +44285,7 @@
         "test_postgres_telegram_access_resend_inactive_subscription_not_eligible",
         "test_postgres_telegram_access_resend_revoked_issuance_state_not_ready"
       ],
-      "hash": "9d2dddd1ae527da7",
+      "hash": "7e0ab20a15416cf2",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -44460,7 +44460,7 @@
         "test_postgres_reconcile_expired_active_subscriptions_revokes_issued_rows_idempotently",
         "test_reject_ref_looks_like_secret"
       ],
-      "hash": "6ba5802a08ca77fb",
+      "hash": "c497b553d20a8611",
       "imports": [
         "__future__.annotations",
         "app.persistence.issuance_state_record.IssuanceStatePersistence",
@@ -44600,7 +44600,7 @@
         "pg_url",
         "test_postgres_migration_ledger_two_runs_idempotent"
       ],
-      "hash": "d8be11451d3749a7",
+      "hash": "883c0ea6d6436f55",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -44680,7 +44680,7 @@
         "test_subscription_lifecycle_migration_contract_safe_additive_columns",
         "test_telegram_update_dedup_migration_uses_only_safe_bounded_columns"
       ],
-      "hash": "fdaee5613014af74",
+      "hash": "eb496463fba9459c",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations",
@@ -44836,7 +44836,7 @@
         "pg_url",
         "test_postgres_migrations_env_entrypoint_creates_slice1_tables"
       ],
-      "hash": "935cd9b26d8bb3fb",
+      "hash": "c1a96a555ae6530d",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -44892,7 +44892,7 @@
         "test_run_slice1_postgres_migrations_from_env_delegates_with_same_config",
         "test_run_slice1_postgres_migrations_from_env_reraises_apply_exception"
       ],
-      "hash": "d2b16f2248749960",
+      "hash": "16f714ad952e2b6a",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main",
@@ -44954,7 +44954,7 @@
         "test_apply_slice1_postgres_migrations_raises_without_database_url_and_does_not_open",
         "test_postgres_migrations_runtime_avoids_env"
       ],
-      "hash": "731649e0b3eb1e96",
+      "hash": "ee37906eacebc963",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_runtime",
@@ -45047,7 +45047,7 @@
         "test_workflow_release_validator_step_remains_blocking_not_advisory",
         "test_workflow_uses_release_validator_as_blocking_final_gate"
       ],
-      "hash": "c68cafe8431bdab7",
+      "hash": "e7eadec6139af704",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -45244,7 +45244,7 @@
         "pg_url",
         "test_postgres_outbound_delivery_pending_sent_roundtrip"
       ],
-      "hash": "5617a72606094da5",
+      "hash": "6c70214c9bc6bb9a",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations.apply_postgres_migrations",
@@ -45304,7 +45304,7 @@
         "pg_url",
         "test_postgres_retention_cleanup_delete_removes_old_only"
       ],
-      "hash": "1eda4129e54af39a",
+      "hash": "bb898c94b9b0085c",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45366,7 +45366,7 @@
         "pg_url",
         "test_postgres_retention_cleanup_dry_run_counts_and_no_delete"
       ],
-      "hash": "c869f63201257f18",
+      "hash": "850e689d60cc7629",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45429,7 +45429,7 @@
         "test_postgres_retention_outbound_ledger_delete_sent_only_preserves_pending",
         "test_postgres_retention_outbound_ledger_dry_run_counts_old_sent_only"
       ],
-      "hash": "0576d1be65f4e19a",
+      "hash": "b430372baaa60bbc",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45517,7 +45517,7 @@
         "pg_url",
         "test_postgres_retention_scheduled_delete_path_requires_explicit_opt_in"
       ],
-      "hash": "83037e97d3997281",
+      "hash": "24fe1e85dbfa36db",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45583,7 +45583,7 @@
         "pg_url",
         "test_postgres_retention_scheduled_dry_run_default_forces_dry"
       ],
-      "hash": "7a60003fa9934530",
+      "hash": "b75e85628f3bc7db",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45649,7 +45649,7 @@
         "pg_url",
         "test_postgres_retention_scheduled_opt_in_delete_stays_dry_when_loaded_settings_dry_run"
       ],
-      "hash": "838179f9d62466e1",
+      "hash": "08c08cacbb9097c6",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45712,7 +45712,7 @@
         "pg_url",
         "test_postgres_retention_timestamps_migration_schema_effects"
       ],
-      "hash": "8fb95282583d97e1",
+      "hash": "e4e2719aab09cc01",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations_main.run_slice1_postgres_migrations_from_env",
@@ -45772,7 +45772,7 @@
         "test_postgres_slice1_composition_bootstrap_status_audit_idempotent_replay",
         "test_postgres_uc02_dispatch_status_transport_and_missing_snapshot_fail_closed"
       ],
-      "hash": "5e5c8805aabcf99d",
+      "hash": "d458ecfc06ee4366",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -45882,7 +45882,7 @@
         "pg_url",
         "test_postgres_slice1_env_async_process_run_until_stopped_writes_rows"
       ],
-      "hash": "2ee3b595f164a2ba",
+      "hash": "a0bf2025aa8024ad",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations.apply_postgres_migrations",
@@ -45967,7 +45967,7 @@
         "test_postgres_slice1_async_runtime_send_fail_then_replay_sends_once",
         "test_postgres_slice1_async_runtime_start_iteration_writes_rows"
       ],
-      "hash": "8eb572e0e26e13ac",
+      "hash": "4e2aeec96dc65201",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations.apply_postgres_migrations",
@@ -46067,7 +46067,7 @@
         "pg_url",
         "test_postgres_slice1_env_async_runtime_start_iteration_writes_rows"
       ],
-      "hash": "d41a93f71274315c",
+      "hash": "9da14f7eda290818",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_migrations.apply_postgres_migrations",
@@ -46154,7 +46154,7 @@
         "test_postgres_upsert_state_persists_active_until_timestamp",
         "test_postgres_upsert_state_updates_or_inserts"
       ],
-      "hash": "65a3b8989dd6f13e",
+      "hash": "891223b1e4c2001b",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.SubscriptionSnapshot",
@@ -46252,7 +46252,7 @@
         "test_postgres_dedup_same_update_different_bucket_independent",
         "test_postgres_dedup_storage_failure_raises_dependency_error"
       ],
-      "hash": "664c04509dbf744f",
+      "hash": "96ac7d5a41ddb4ed",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_update_dedup.dedup_key_hash_for_update",
@@ -46352,7 +46352,7 @@
         "test_postgres_audit_failure_rolls_back_all_writes",
         "test_postgres_no_activation_when_not_accepted"
       ],
-      "hash": "eb0ebd70f4f99af3",
+      "hash": "c76d7d8ef9474a44",
       "imports": [
         "__future__.annotations",
         "app.domain.billing_apply_rules.UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED",
@@ -46478,7 +46478,7 @@
         "test_postgres_identity_creates_once_and_reuses",
         "test_postgres_identity_find_returns_none_when_missing"
       ],
-      "hash": "aee35cc1954e7d51",
+      "hash": "639aef9bb5143194",
       "imports": [
         "__future__.annotations",
         "app.persistence.postgres_user_identity.PostgresUserIdentityRepository",
@@ -46553,7 +46553,7 @@
         "test_script_does_not_run_subprocess_commands",
         "test_success_output_contains_required_markers"
       ],
-      "hash": "e95a789af025328d",
+      "hash": "803f627ceb4389ed",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -46628,7 +46628,7 @@
         "test_project_handoff_exists",
         "test_project_handoff_has_no_forbidden_fragments"
       ],
-      "hash": "7f46ee7f424ffe57",
+      "hash": "e14c413b06d36537",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -46684,7 +46684,7 @@
         "test_billing_operator_mains_remain_cli_only_no_http_listener_signals",
         "test_production_runtime_http_entry_modules_have_no_public_billing_http_ingress_combo"
       ],
-      "hash": "24908f833f9fd70f",
+      "hash": "5b23c93aebb04468",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -46759,7 +46759,7 @@
         "test_build_purchase_summary_with_extra_devices",
         "test_get_available_plans"
       ],
-      "hash": "19dfdb113a15ec98",
+      "hash": "ea5975423c4f9bef",
       "imports": [
         "app.application.purchase_handler.PurchaseSummary",
         "app.application.purchase_handler.build_purchase_summary",
@@ -46842,7 +46842,7 @@
         "test_success_main_outputs_safe_markers",
         "test_unexpected_error_maps_to_failed_line_without_leak"
       ],
-      "hash": "c5677c972a806489",
+      "hash": "bb59771e523d90ac",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -46903,7 +46903,7 @@
         "test_run_records_failed_heartbeat_when_reconcile_raises",
         "test_run_records_started_and_completed_heartbeat"
       ],
-      "hash": "f726bc3a837571c9",
+      "hash": "dbd2105f646f68d8",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -46999,7 +46999,7 @@
         "test_reconciliation_run_user_summary_constructs",
         "test_reconciliation_runs_repository_protocol_shape"
       ],
-      "hash": "6b26edf2420ebdb7",
+      "hash": "14a921ed12c176a8",
       "imports": [
         "__future__.annotations",
         "app.persistence.reconciliation_runs_contracts.ReconciliationRunOutcome",
@@ -47058,7 +47058,7 @@
         "test_summary_ignores_other_users",
         "test_summary_uses_newest_started_at_outcome"
       ],
-      "hash": "69545fcb9c3243e5",
+      "hash": "034694be4fcb25e0",
       "imports": [
         "__future__.annotations",
         "app.persistence.InMemoryReconciliationRunsRepository",
@@ -47156,7 +47156,7 @@
         "test_smoke_failure_stops_and_fails_safely",
         "test_stdout_stderr_leak_guard_on_child_failure"
       ],
-      "hash": "b37d25d1faf4cc97",
+      "hash": "4d8c90994571f41e",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47249,7 +47249,7 @@
         "test_release_status_exists",
         "test_release_status_has_no_forbidden_fragments"
       ],
-      "hash": "26279947f52aeb01",
+      "hash": "2dcc6055a10058e0",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -47329,7 +47329,7 @@
         "test_assert_retention_failure_output_safe_rejects_mixed_case_forbidden_fragment_in_any_part",
         "test_assert_retention_failure_output_safe_rejects_summary_markers"
       ],
-      "hash": "9d080ded55484ea7",
+      "hash": "25b122111b06fc4c",
       "imports": [
         "__future__.annotations",
         "pytest",
@@ -47445,7 +47445,7 @@
         "test_retention_integration_job_exists",
         "test_retention_integration_junit_contract_locked"
       ],
-      "hash": "44aff3349938615d",
+      "hash": "c64e2eb8f6a26392",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -47530,7 +47530,7 @@
         "test_script_main_ok_and_fixed_line",
         "test_unexpected_exception_returns_failed_no_traceback"
       ],
-      "hash": "a425cb5ed08e1e46",
+      "hash": "6429b193c4c10650",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47615,7 +47615,7 @@
         "test_script_main_runtime_error_emits_fail_only",
         "test_script_main_unexpected_exception_hides_message_and_traceback"
       ],
-      "hash": "f6c06c100271d4a5",
+      "hash": "58f1f8ad84337f8a",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47683,7 +47683,7 @@
         "test_script_main_runtime_error_emits_fail_only",
         "test_script_main_unexpected_exception_hides_message_and_traceback"
       ],
-      "hash": "b7e115adcf568403",
+      "hash": "e5a474168bf39504",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47745,7 +47745,7 @@
         "test_success_main_outputs_exact_ok_line",
         "test_unexpected_exception_maps_to_failed_without_traceback_or_leak"
       ],
-      "hash": "a4c2282730d21a9f",
+      "hash": "037ff7ddf2cab516",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47825,7 +47825,7 @@
         "test_script_main_ok_and_fixed_line",
         "test_unexpected_exception_returns_failed_no_traceback"
       ],
-      "hash": "c1e8c76b97e74723",
+      "hash": "a114ce0c43db377f",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -47909,7 +47909,7 @@
         "test_webhook_local_with_insecure_opt_in_passes_without_printing_opt_in",
         "test_webhook_production_enabled_without_secret_fails_safely"
       ],
-      "hash": "480a8b5cb84fdf63",
+      "hash": "505e227032109a0c",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48037,7 +48037,7 @@
         "test_stage_order_and_commands_and_backend_cwd",
         "test_stop_on_first_failure_and_safe_stage_output"
       ],
-      "hash": "967e7530bd3bfba0",
+      "hash": "a6b3c52f8b4a10d4",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48117,7 +48117,7 @@
         "test_script_does_not_execute_referenced_scripts",
         "test_success_path_with_temp_fixture"
       ],
-      "hash": "bac907272262eec7",
+      "hash": "6dce5fdbe74bb9d3",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48206,7 +48206,7 @@
         "test_success_prints_ok",
         "test_wrapper_output_has_no_forbidden_fragments"
       ],
-      "hash": "900ddc25007a4b30",
+      "hash": "a3a53812bdb1511b",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48286,7 +48286,7 @@
         "test_unknown_config_profile_fails_before_subprocess",
         "test_with_config_profile_webhook_runs_doctor_after_preflight"
       ],
-      "hash": "87644045d47bb837",
+      "hash": "b752f7e9cebe94b6",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48420,7 +48420,7 @@
         "test_success_path_with_temp_fixture",
         "test_tracked_cursor_plan_status_returns_safe_issue_code"
       ],
-      "hash": "f394f78fa4f634b3",
+      "hash": "258dec8edb14279f",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48675,7 +48675,7 @@
         "test_synthetic_ids_use_required_prefix",
         "test_unexpected_exception_returns_failed_without_traceback"
       ],
-      "hash": "3fb16403ca421f6a",
+      "hash": "b40f316e98158f3e",
       "imports": [
         "__future__.annotations",
         "app.application.apply_billing_subscription.ApplyAcceptedBillingFactResult",
@@ -48830,7 +48830,7 @@
         "test_transport_surface_blobs_for_status_and_get_access_stay_leak_free",
         "test_unexpected_exception_maps_to_failed_without_traceback_or_leak"
       ],
-      "hash": "95fd09210c5af8ac",
+      "hash": "109f48eaea0eca91",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -48996,7 +48996,7 @@
         "test_runs_seven_commands_in_order_and_sets_expected_env",
         "test_truthy_opt_in_values_allow_run"
       ],
-      "hash": "3bc3461893cbfacb",
+      "hash": "183740470b79b66b",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -49124,7 +49124,7 @@
         "test_readiness_timeout_fails_fast_and_cleans_up_without_dsn_leak",
         "test_runs_compose_up_smoke_and_cleanup_in_order"
       ],
-      "hash": "fd27a3433af49889",
+      "hash": "bdffc612883a4338",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -49268,7 +49268,7 @@
         "test_raw_database_url_not_exposed_in_helper_error",
         "test_runs_single_subprocess_with_expected_argv_and_env"
       ],
-      "hash": "576d36af60a014de",
+      "hash": "74396d5476384c19",
       "imports": [
         "__future__.annotations",
         "importlib.util",
@@ -49364,7 +49364,7 @@
         "test_no_accepted_skips_runtime_zero_counters_no_send",
         "test_two_valid_raw_updates_identity_bridge_aggregates_counters"
       ],
-      "hash": "e136382a5bb0573b",
+      "hash": "c555d79cbaebd2ac",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -49521,7 +49521,7 @@
         "test_runtime_update_bridge_protocol_is_callable_contract",
         "test_two_valid_updates_two_accepted_mappings"
       ],
-      "hash": "33dab4577efbcc91",
+      "hash": "6eae48dd082bfef2",
       "imports": [
         "__future__.annotations",
         "app.runtime.BridgeRuntimeBatchResult",
@@ -49609,7 +49609,7 @@
         "test_non_mapping_returns_none",
         "test_returns_same_object_no_copy"
       ],
-      "hash": "ecd7d497a09cdb38",
+      "hash": "fb593427ca19b7e3",
       "imports": [
         "__future__.annotations",
         "app.runtime",
@@ -49706,7 +49706,7 @@
         "test_stop_requested_before_start_no_poll_once_polling",
         "test_stop_via_control_after_ticks_polling"
       ],
-      "hash": "766e70e779a805b3",
+      "hash": "0a6782132386743f",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -50052,7 +50052,7 @@
         "test_live_startup_module_excludes_forbidden_tokens",
         "test_runner_uses_same_runtime_instance"
       ],
-      "hash": "ac97e2a46bf35170",
+      "hash": "13dab0ae5ba800e3",
       "imports": [
         "__future__.annotations",
         "app.runtime",
@@ -50259,7 +50259,7 @@
         "test_offsets_source_has_no_forbidden_substrings",
         "test_package_exports"
       ],
-      "hash": "34b48e636330e0c6",
+      "hash": "6043792668de5f13",
       "imports": [
         "__future__.annotations",
         "app.runtime",
@@ -50404,7 +50404,7 @@
         "test_package_main_delegates_to_live_entrypoint",
         "test_running_runtime_package_as_main_uses_same_delegate_path"
       ],
-      "hash": "edc19bddf5c6b3a4",
+      "hash": "de1576d1d9d907b9",
       "imports": [
         "__future__.annotations",
         "app.runtime.__main__",
@@ -50465,7 +50465,7 @@
         "test_status_path_unchanged_with_ledger",
         "test_status_unknown_user_sends_onboarding"
       ],
-      "hash": "d418e3a6cc021918",
+      "hash": "b871189d0897a0a4",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -50750,7 +50750,7 @@
         "test_runtime_all_includes_polling_policy_boundary_names",
         "test_runtime_reexports_polling_policy_boundary_by_identity"
       ],
-      "hash": "da54350e0b20091f",
+      "hash": "4be82bafcb15de55",
       "imports": [
         "__future__.annotations",
         "importlib",
@@ -50929,7 +50929,7 @@
         "test_smaller_update_ids_do_not_decrease_offset",
         "test_success_maps_bound_counters_and_zero_fetch_failure"
       ],
-      "hash": "46330aa2c168b638",
+      "hash": "db922d187f56824d",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -51229,7 +51229,7 @@
         "test_runtime_package_exports_raw_runner",
         "test_zero_iterations_poll_once_not_called"
       ],
-      "hash": "745d8b1a63c4969b",
+      "hash": "cf22eb0946a66a79",
       "imports": [
         "__future__.annotations",
         "app.runtime.raw_polling.RawPollingBatchResult",
@@ -51413,7 +51413,7 @@
         "test_raw_status_after_bootstrap_no_snapshot_fail_closed",
         "test_runner_uses_same_runtime_instance"
       ],
-      "hash": "ed2480f36a5af75b",
+      "hash": "3f4dcfab2ccc141a",
       "imports": [
         "__future__.annotations",
         "app.runtime",
@@ -51619,7 +51619,7 @@
         "test_runtime_package_reexports_runner",
         "test_zero_iterations_poll_once_not_called"
       ],
-      "hash": "a433ad4e88d4fe0c",
+      "hash": "3e5d2562c1cbbff0",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -51830,7 +51830,7 @@
         "test_runtime_package_exports_bundle_api",
         "test_startup_module_source_excludes_forbidden_terms"
       ],
-      "hash": "5d53a888ad6a3722",
+      "hash": "1d4352d305fa0b98",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.storefront_ui.text_welcome",
@@ -52027,7 +52027,7 @@
         "test_run_until_stopped_uses_external_control",
         "test_same_app_twice_same_update_replay_second_noop_one_audit"
       ],
-      "hash": "364b3ee1543b2ff9",
+      "hash": "73edc085053f77b8",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -52247,7 +52247,7 @@
         "test_sync_config_builder_falsey_postgres_repos_env_does_not_trigger_sync_guard",
         "test_sync_config_builder_raises_when_postgres_repos_flag_on"
       ],
-      "hash": "2e9c697f53786f1d",
+      "hash": "c09a29cb5abb2401",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.Slice1Composition",
@@ -52505,7 +52505,7 @@
         "test_live_offset_not_rolled_back_after_success_then_fetch_failure",
         "test_live_process_run_until_stopped_getupdates_fails_counters_no_offset_no_audit"
       ],
-      "hash": "1e87de26928b46cb",
+      "hash": "ee3db1984518a06c",
       "imports": [
         "__future__.annotations",
         "app.runtime.telegram_httpx_live_app.build_slice1_httpx_live_runtime_app",
@@ -52622,7 +52622,7 @@
         "test_stop_requested_before_start_empty_summary",
         "test_uses_external_loop_control_instance"
       ],
-      "hash": "d162cd6727247cc1",
+      "hash": "13994486f024754b",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -52868,7 +52868,7 @@
         "test_loop_helper_send_fails_counters",
         "test_loop_helper_send_failure_is_not_fetch_failure"
       ],
-      "hash": "224cd81fd03f2586",
+      "hash": "24ceddae5bbbe1e0",
       "imports": [
         "__future__.annotations",
         "app.runtime.live_loop.LoopControl",
@@ -53012,7 +53012,7 @@
         "test_request_stop_before_run_empty_summary",
         "test_request_stop_idempotent"
       ],
-      "hash": "a0ce0bb110101c1f",
+      "hash": "342627cbedf7f07f",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -53295,7 +53295,7 @@
         "test_override_httpx_timeout_mode_passes_through_helper_to_get_updates_post",
         "test_returns_polling_run_summary"
       ],
-      "hash": "41e08a92ae639355",
+      "hash": "5815331231b41af2",
       "imports": [
         "__future__.annotations",
         "app.runtime",
@@ -53541,7 +53541,7 @@
         "test_runner_send_fails_counters_offset_audit",
         "test_runner_send_failure_is_not_fetch_failure"
       ],
-      "hash": "f3ddf3ee091c4190",
+      "hash": "bb011f15e51af506",
       "imports": [
         "__future__.annotations",
         "app.runtime.telegram_httpx_live_runner",
@@ -53674,7 +53674,7 @@
         "test_two_iterations_same_start_replay_second_noop_one_audit",
         "test_wrapper_aclose_idempotent"
       ],
-      "hash": "773c81c3122e89e4",
+      "hash": "c0ac01de1a44ad49",
       "imports": [
         "__future__.annotations",
         "app.runtime.accept_mapping_runtime_update",
@@ -53911,7 +53911,7 @@
         "test_run_iterations_zero_empty_summary",
         "test_same_app_twice_same_update_replay_second_noop_one_audit"
       ],
-      "hash": "380b6a66565e6015",
+      "hash": "560891f16e92169c",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -54072,7 +54072,7 @@
         "test_timeout_policy_lookup_request_kinds_and_happy_path_bodies_unchanged",
         "test_unsupported_polling_timeout_mode_raises_before_http"
       ],
-      "hash": "9fb81790e856412d",
+      "hash": "86d350977dbfd455",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -54439,7 +54439,7 @@
         "test_optional_polling_config_passed_through",
         "test_run_iterations_one_start_one_send"
       ],
-      "hash": "859fe2569a973fdb",
+      "hash": "edc10ca86a9b91f8",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling.PollingRuntimeConfig",
@@ -54543,7 +54543,7 @@
         "test_no_valid_update_id_offset_not_advanced",
         "test_second_getupdates_uses_max_update_id_plus_one"
       ],
-      "hash": "b544bbffc55a2421",
+      "hash": "aee545e33a1b2639",
       "imports": [
         "__future__.annotations",
         "app.runtime.telegram_httpx_raw_app.Slice1HttpxRawRuntimeApp",
@@ -54675,7 +54675,7 @@
         "test_run_iterations_zero_empty_summary",
         "test_two_poll_once_same_update_replay_second_noop_one_audit"
       ],
-      "hash": "729bd4e79d71cc05",
+      "hash": "7486d0256ea59188",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -54836,7 +54836,7 @@
         "test_two_helper_runs_same_update_id_one_audit_each_fresh_bundle",
         "test_zero_iterations_empty_summary"
       ],
-      "hash": "192a9fd794861cef",
+      "hash": "bca19a788ffd6bbf",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling_policy.DEFAULT_POLLING_POLICY",
@@ -55043,7 +55043,7 @@
         "test_httpx_raw_iterations_sendmessage_fails_summary_offset_audit",
         "test_httpx_raw_iterations_success_then_fetch_fail_second_getupdates_uses_offset_8"
       ],
-      "hash": "a4bff730abd69c48",
+      "hash": "7251db760cbf0168",
       "imports": [
         "__future__.annotations",
         "app.runtime.runner.PollingRunSummary",
@@ -55196,7 +55196,7 @@
         "test_owned_client_aclose_once_via_public_bundle_without_external_client",
         "test_two_polls_same_update_id_replay_second_noop_one_audit"
       ],
-      "hash": "9209d87d5993c42c",
+      "hash": "4b0b0e148d4231f2",
       "imports": [
         "__future__.annotations",
         "app.runtime.accept_mapping_runtime_update",
@@ -55369,7 +55369,7 @@
         "test_verify_too_long_reference_proof",
         "test_verify_wrong_secret"
       ],
-      "hash": "cf8fe0c6224cfcde",
+      "hash": "20bf0b80bb38d95e",
       "imports": [
         "__future__.annotations",
         "app.security.checkout_reference.DEFAULT_CHECKOUT_REFERENCE_MAX_AGE_SECONDS",
@@ -55591,7 +55591,7 @@
         "test_validate_runtime_config_accepts_production_postgres_with_sslmode_require",
         "test_validate_runtime_config_rejects_production_postgres_without_sslmode"
       ],
-      "hash": "81c8e703c0a3a6cb",
+      "hash": "37075f9e6ef42a31",
       "imports": [
         "__future__.annotations",
         "app.security.config.ConfigurationError",
@@ -55692,7 +55692,7 @@
         "test_slice1_postgres_repos_requested_falsey_when_env_set",
         "test_slice1_postgres_repos_requested_truthy_values"
       ],
-      "hash": "d93a0cbe22c8a22f",
+      "hash": "501ac1259fbe5bdb",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_update_dedup.InMemoryTelegramUpdateDedupGuard",
@@ -55821,7 +55821,7 @@
         "test_retention_cleanup_result_is_low_cardinality_fields_only",
         "test_validate_retention_settings_rejects_non_positive"
       ],
-      "hash": "b51a5e2d51723948",
+      "hash": "d14c282f3684d4b0",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_retention_manual_cleanup.ENV_BATCH",
@@ -56059,7 +56059,7 @@
         "test_run_slice1_retention_cleanup_from_env_dependency_failure_taxonomy",
         "test_run_slice1_retention_cleanup_from_env_wiring"
       ],
-      "hash": "b9b6f1844bdda175",
+      "hash": "e8f5aba438881bab",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_retention_manual_cleanup.ENV_BATCH",
@@ -56299,7 +56299,7 @@
         "test_scheduled_opt_in_truthy_preserves_loaded_settings_pass_through",
         "test_scheduled_opt_in_with_loaded_dry_run_true"
       ],
-      "hash": "90ec7c7b15e09c7c",
+      "hash": "4728a4435d8f7f6a",
       "imports": [
         "__future__.annotations",
         "app.persistence.slice1_retention_manual_cleanup.ENV_BATCH",
@@ -56439,7 +56439,7 @@
         "BACKEND_ROOT",
         "test_uc01_delivery_migration_has_no_message_or_raw_payload_columns"
       ],
-      "hash": "e17f7c2633a92988",
+      "hash": "0c5b914c143029be",
       "imports": [
         "__future__.annotations",
         "pathlib.Path"
@@ -56472,7 +56472,7 @@
         "test_subscription_active_when_billing_backed",
         "test_unknown_user_needs_bootstrap"
       ],
-      "hash": "8d1e619725520ee2",
+      "hash": "47cf436e60c4f4ed",
       "imports": [
         "app.domain.status_view.map_subscription_status_view",
         "app.shared.types.SafeUserStatusCategory",
@@ -56554,7 +56554,7 @@
         "test_settings_no_subscription",
         "test_settings_shows_tariff_devices_expiry"
       ],
-      "hash": "0de20803002eccd0",
+      "hash": "a133b03996ef616e",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -56762,7 +56762,7 @@
         "test_resend_idempotency_key_is_deterministic",
         "test_unknown_user_is_safe_denial_no_issuance_call"
       ],
-      "hash": "ccb11054dce0db9c",
+      "hash": "cf81a0c2ef6684e2",
       "imports": [
         "__future__.annotations",
         "app.application.interfaces.IdentityRecord",
@@ -57194,7 +57194,7 @@
         "test_update_without_message_rejected",
         "test_update_without_text_rejected"
       ],
-      "hash": "7099bc94856c0743",
+      "hash": "762bcdfed61c5ba6",
       "imports": [
         "__future__.annotations",
         "app.bot_transport.normalized.NormalizedSlice1Rejected",
@@ -57365,7 +57365,7 @@
         "test_in_memory_limiter_is_command_scoped",
         "test_noop_limiter_always_allows"
       ],
-      "hash": "1b584b1b2de44bfc",
+      "hash": "2f344d9a2541a9a9",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_command_rate_limit.InMemoryTelegramCommandRateLimiter",
@@ -57443,7 +57443,7 @@
         "test_in_memory_dedup_first_seen_then_duplicate",
         "test_in_memory_dedup_is_bucket_scoped"
       ],
-      "hash": "d037249893cd690a",
+      "hash": "209043b9c69b1695",
       "imports": [
         "__future__.annotations",
         "app.application.telegram_update_dedup.InMemoryTelegramUpdateDedupGuard",
@@ -57528,7 +57528,7 @@
         "test_wrong_secret_emits_unauthorized_telemetry_and_does_not_dispatch",
         "test_wrong_secret_header_rejects_and_pipeline_not_called"
       ],
-      "hash": "ac4215623b09b284",
+      "hash": "4b64c7f926fe8ad1",
       "imports": [
         "__future__.annotations",
         "app.application.bootstrap.build_slice1_composition",
@@ -57918,7 +57918,7 @@
         "test_readyz_telemetry_failure_does_not_change_response",
         "test_response_has_no_secret_echo"
       ],
-      "hash": "5b140e5a840047a3",
+      "hash": "a5d6d75d6861611c",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling",
@@ -58140,7 +58140,7 @@
         "test_unauthorized_path_emits_redacted_telemetry_and_no_dispatch",
         "test_webhook_main_defines_uvicorn_app_export"
       ],
-      "hash": "8e6ec1f75f4e23b2",
+      "hash": "a4a05b4447e4f60b",
       "imports": [
         "__future__.annotations",
         "app.runtime.polling",
@@ -58283,7 +58283,7 @@
         "test_in_memory_idempotent_second_apply_no_extra_audit",
         "test_in_memory_no_raw_payload_in_contracts"
       ],
-      "hash": "14317e230b41333d",
+      "hash": "4dcddab90f404ca7",
       "imports": [
         "__future__.annotations",
         "app.application.apply_billing_subscription.ApplyAcceptedBillingFactHandler",
@@ -58428,7 +58428,7 @@
         "test_unknown_intent_rejected",
         "test_user_id_bounds"
       ],
-      "hash": "04db3313e7c577fe",
+      "hash": "b7d1834a3a2a10b5",
       "imports": [
         "app.security.validation.NormalizedIntent",
         "app.security.validation.ValidationError",
@@ -58490,7 +58490,7 @@
         "test_stub_get_config_before_create",
         "test_stub_revoke"
       ],
-      "hash": "30e4c2c153309b93",
+      "hash": "1c2e2b8f85554bbe",
       "imports": [
         "app.issuance.vless_provider.StubVlessProvider",
         "app.issuance.vless_provider.VlessProviderOutcome",
@@ -58557,325 +58557,325 @@
       ]
     },
     "docker-compose.prod.yml": {
-      "hash": "b89b760364688d2b",
+      "hash": "140bd505ef25865e",
       "language": "yaml",
       "size": 4756,
       "summary": "Docker compose: docker-compose.prod.yml"
     },
     "docker-compose.yml": {
-      "hash": "4d3a7f90b592e832",
+      "hash": "4642f45da4d96da1",
       "language": "yaml",
       "size": 3986,
       "summary": "Docker compose: docker-compose.yml"
     },
     "docs/architecture/01-system-boundaries.md": {
-      "hash": "2730422fc619c5ae",
+      "hash": "21b28e34d07f2d43",
       "language": "markdown",
       "size": 27502,
       "summary": "markdown file: 01-system-boundaries.md"
     },
     "docs/architecture/02-repository-structure.md": {
-      "hash": "b772dd9f350319d5",
+      "hash": "166a3a0c55818de2",
       "language": "markdown",
       "size": 24514,
       "summary": "markdown file: 02-repository-structure.md"
     },
     "docs/architecture/03-domain-and-use-cases.md": {
-      "hash": "63074b75c96bc828",
+      "hash": "fff366d2c38e92e0",
       "language": "markdown",
       "size": 26599,
       "summary": "markdown file: 03-domain-and-use-cases.md"
     },
     "docs/architecture/04-domain-model.md": {
-      "hash": "7e9c7b1fb7df13cb",
+      "hash": "1ee9d383e827e0a9",
       "language": "markdown",
       "size": 21734,
       "summary": "markdown file: 04-domain-model.md"
     },
     "docs/architecture/05-persistence-model.md": {
-      "hash": "fe8490e0e3ba2437",
+      "hash": "bb953ec3bdffcd33",
       "language": "markdown",
       "size": 29886,
       "summary": "markdown file: 05-persistence-model.md"
     },
     "docs/architecture/06-database-schema.md": {
-      "hash": "cb61938897e42f16",
+      "hash": "4fa51c17c6e72c72",
       "language": "markdown",
       "size": 40973,
       "summary": "markdown file: 06-database-schema.md"
     },
     "docs/architecture/07-telegram-bot-application-boundary.md": {
-      "hash": "24076a1fc76297ca",
+      "hash": "65a67ad5a7e89ac0",
       "language": "markdown",
       "size": 24896,
       "summary": "markdown file: 07-telegram-bot-application-boundary.md"
     },
     "docs/architecture/08-billing-abstraction.md": {
-      "hash": "b8cf22ab1c5d0c61",
+      "hash": "6f3bf315eccf325a",
       "language": "markdown",
       "size": 42636,
       "summary": "markdown file: 08-billing-abstraction.md"
     },
     "docs/architecture/09-subscription-lifecycle.md": {
-      "hash": "858539ff34ae9dc2",
+      "hash": "583ef4235ad77626",
       "language": "markdown",
       "size": 36189,
       "summary": "markdown file: 09-subscription-lifecycle.md"
     },
     "docs/architecture/10-config-issuance-abstraction.md": {
-      "hash": "56fba5e0ba95d073",
+      "hash": "7578ff7382135e23",
       "language": "markdown",
       "size": 43229,
       "summary": "markdown file: 10-config-issuance-abstraction.md"
     },
     "docs/architecture/11-admin-support-and-audit-boundary.md": {
-      "hash": "402e0d821976477a",
+      "hash": "13ea03e0d2f0d0c6",
       "language": "markdown",
       "size": 40397,
       "summary": "markdown file: 11-admin-support-and-audit-boundary.md"
     },
     "docs/architecture/12-observability-boundary.md": {
-      "hash": "1ac3939cc8d8e503",
+      "hash": "da4b768b880ccd98",
       "language": "markdown",
       "size": 30363,
       "summary": "markdown file: 12-observability-boundary.md"
     },
     "docs/architecture/13-security-controls-baseline.md": {
-      "hash": "c52c4b72613647c7",
+      "hash": "426cdd80ce72aa0f",
       "language": "markdown",
       "size": 46847,
       "summary": "markdown file: 13-security-controls-baseline.md"
     },
     "docs/architecture/14-test-strategy-and-hardening.md": {
-      "hash": "984ecc9b88045c45",
+      "hash": "239e8b0064548ceb",
       "language": "markdown",
       "size": 37848,
       "summary": "markdown file: 14-test-strategy-and-hardening.md"
     },
     "docs/architecture/15-first-implementation-slice.md": {
-      "hash": "a59da483804fa01a",
+      "hash": "64cd5943d319307b",
       "language": "markdown",
       "size": 25837,
       "summary": "markdown file: 15-first-implementation-slice.md"
     },
     "docs/architecture/16-implementation-baseline-decision.md": {
-      "hash": "f6cbdc76c8cb4925",
+      "hash": "aff411b3fd8a297b",
       "language": "markdown",
       "size": 16184,
       "summary": "markdown file: 16-implementation-baseline-decision.md"
     },
     "docs/architecture/17-telegram-runtime-wrapper-boundary.md": {
-      "hash": "3c3e200fd1f31a9b",
+      "hash": "79dbbc6bd9517c3b",
       "language": "markdown",
       "size": 19364,
       "summary": "markdown file: 17-telegram-runtime-wrapper-boundary.md"
     },
     "docs/architecture/18-telegram-runtime-send-policy.md": {
-      "hash": "1689f5e0d5f9b36a",
+      "hash": "ab581703d66f9e44",
       "language": "markdown",
       "size": 16557,
       "summary": "markdown file: 18-telegram-runtime-send-policy.md"
     },
     "docs/architecture/19-telegram-runtime-binding-decision.md": {
-      "hash": "ec34b2e4612e22c6",
+      "hash": "bcdab612949213e6",
       "language": "markdown",
       "size": 19494,
       "summary": "markdown file: 19-telegram-runtime-binding-decision.md"
     },
     "docs/architecture/20-telegram-sdk-binding-and-bridge-contract.md": {
-      "hash": "b67a3f66cdb023bc",
+      "hash": "0196e7a0fada4aa5",
       "language": "markdown",
       "size": 21835,
       "summary": "markdown file: 20-telegram-sdk-binding-and-bridge-contract.md"
     },
     "docs/architecture/21-runtime-loop-and-cancellation-policy.md": {
-      "hash": "909bc6cf842146f3",
+      "hash": "db0b26c3dfa3bdcb",
       "language": "markdown",
       "size": 20872,
       "summary": "markdown file: 21-runtime-loop-and-cancellation-policy.md"
     },
     "docs/architecture/22-first-concrete-telegram-binding-slice.md": {
-      "hash": "112b5a9a649760a9",
+      "hash": "84b62d156419c292",
       "language": "markdown",
       "size": 13308,
       "summary": "markdown file: 22-first-concrete-telegram-binding-slice.md"
     },
     "docs/architecture/23-telegram-binding-dependency-choice.md": {
-      "hash": "eb99bf77611a9099",
+      "hash": "cf289c2387aaf271",
       "language": "markdown",
       "size": 15191,
       "summary": "markdown file: 23-telegram-binding-dependency-choice.md"
     },
     "docs/architecture/24-concrete-httpx-slice-stop-point.md": {
-      "hash": "06818f98871c1376",
+      "hash": "ae8bda7dd7563b85",
       "language": "markdown",
       "size": 3491,
       "summary": "markdown file: 24-concrete-httpx-slice-stop-point.md"
     },
     "docs/architecture/25-httpx-polling-timeout-and-backoff-boundary.md": {
-      "hash": "f68dbc4c43cb2279",
+      "hash": "03ada71be71e0bfa",
       "language": "markdown",
       "size": 5717,
       "summary": "markdown file: 25-httpx-polling-timeout-and-backoff-boundary.md"
     },
     "docs/architecture/26-httpx-polling-policy-adr-outline.md": {
-      "hash": "15e4cc271497fba8",
+      "hash": "816bb8eddb9039c2",
       "language": "markdown",
       "size": 5249,
       "summary": "markdown file: 26-httpx-polling-policy-adr-outline.md"
     },
     "docs/architecture/27-httpx-polling-policy-adr.md": {
-      "hash": "d261c96ea735167d",
+      "hash": "18cd83b3825a5f91",
       "language": "markdown",
       "size": 11016,
       "summary": "markdown file: 27-httpx-polling-policy-adr.md"
     },
     "docs/architecture/28-httpx-polling-policy-first-code-slice.md": {
-      "hash": "138aecc579e09f1a",
+      "hash": "e3dda460330bf649",
       "language": "markdown",
       "size": 5183,
       "summary": "markdown file: 28-httpx-polling-policy-first-code-slice.md"
     },
     "docs/architecture/29-mvp-admin-ingress-boundary-note.md": {
-      "hash": "633ee39ad0de3b68",
+      "hash": "eaed87a141ee3b46",
       "language": "markdown",
       "size": 1707,
       "summary": "markdown file: 29-mvp-admin-ingress-boundary-note.md"
     },
     "docs/architecture/30-uc-05-apply-billing-fact-to-subscription.md": {
-      "hash": "d471e11fcc460c19",
+      "hash": "0563215b8d34205c",
       "language": "markdown",
       "size": 12642,
       "summary": "markdown file: 30-uc-05-apply-billing-fact-to-subscription.md"
     },
     "docs/architecture/31-public-billing-ingress-security.md": {
-      "hash": "8d5fff6426a1f46c",
+      "hash": "584eb89557339b56",
       "language": "markdown",
       "size": 18917,
       "summary": "markdown file: 31-public-billing-ingress-security.md"
     },
     "docs/architecture/32-public-billing-ingress-decisions-adr.md": {
-      "hash": "7df1f877b4f06ced",
+      "hash": "b79836c65a1647a9",
       "language": "markdown",
       "size": 23605,
       "summary": "markdown file: 32-public-billing-ingress-decisions-adr.md"
     },
     "docs/architecture/33-config-issuance-v1-design.md": {
-      "hash": "8f3096c0e3fa7b33",
+      "hash": "5843780069189b3b",
       "language": "markdown",
       "size": 16504,
       "summary": "markdown file: 33-config-issuance-v1-design.md"
     },
     "docs/architecture/34-adm01-internal-http-production-boundary-adr.md": {
-      "hash": "d02c05c06aa1cd66",
+      "hash": "f0a2cc0f3a656b8d",
       "language": "markdown",
       "size": 18139,
       "summary": "markdown file: 34-adm01-internal-http-production-boundary-adr.md"
     },
     "docs/architecture/35-user-facing-safe-access-delivery-envelope.md": {
-      "hash": "0993c25d00a48d0f",
+      "hash": "5a738be6a360457e",
       "language": "markdown",
       "size": 11566,
       "summary": "markdown file: 35-user-facing-safe-access-delivery-envelope.md"
     },
     "docs/architecture/36-access-config-provider-and-storage-policy.md": {
-      "hash": "2ff69d057c2d756c",
+      "hash": "bb09c652ecfea33c",
       "language": "markdown",
       "size": 13248,
       "summary": "markdown file: 36-access-config-provider-and-storage-policy.md"
     },
     "docs/architecture/37-access-delivery-billing-ingress-decision-sequencing.md": {
-      "hash": "760cfc711b911f74",
+      "hash": "d33469da5218f876",
       "language": "markdown",
       "size": 6589,
       "summary": "markdown file: 37-access-delivery-billing-ingress-decision-sequencing.md"
     },
     "docs/architecture/38-subscription-lifecycle-expiry.md": {
-      "hash": "fa6f08c78bde86ef",
+      "hash": "cdf0abbe7541611b",
       "language": "markdown",
       "size": 6727,
       "summary": "markdown file: 38-subscription-lifecycle-expiry.md"
     },
     "docs/architecture/39-telegram-storefront-command-surface.md": {
-      "hash": "0f5e8eb658c80ebe",
+      "hash": "4e15079025929001",
       "language": "markdown",
       "size": 8469,
       "summary": "markdown file: 39-telegram-storefront-command-surface.md"
     },
     "docs/architecture/40-payment-fulfillment-ingress.md": {
-      "hash": "9593218387def21b",
+      "hash": "47a16264fe87e30f",
       "language": "markdown",
       "size": 12432,
       "summary": "markdown file: 40-payment-fulfillment-ingress.md"
     },
     "frontend/.dockerignore": {
-      "hash": "d7afde39289ec113",
+      "hash": "3c8591c09043e5ec",
       "language": "dockerignore",
       "size": 214,
       "summary": "dockerignore file: .dockerignore"
     },
     "frontend/.eslintrc.json": {
-      "hash": "677f6c4e85c78d47",
+      "hash": "1589a15e55fbebc6",
       "language": "json",
       "size": 43,
       "summary": "json file: .eslintrc.json"
     },
     "frontend/.gitignore": {
-      "hash": "88f8d817e7c781af",
+      "hash": "1f45a0bfef480510",
       "language": "gitignore",
       "size": 320,
       "summary": "gitignore file: .gitignore"
     },
     "frontend/Dockerfile": {
-      "hash": "3f526b64fe9dfeb6",
+      "hash": "7b791b2f111af9f5",
       "language": "dockerfile",
       "size": 826,
       "summary": "Docker image: Dockerfile"
     },
     "frontend/README.md": {
-      "hash": "dea59ff8ad404766",
+      "hash": "6285ba1a2425e037",
       "language": "markdown",
       "size": 7208,
       "summary": "markdown file: README.md"
     },
     "frontend/next-env.d.ts": {
-      "hash": "e462a655754db9df",
+      "hash": "9dd9d642cdb87d4d",
       "language": "typescript",
       "size": 233,
       "summary": "TS module (next-env.d.ts)"
     },
     "frontend/next.config.js": {
-      "hash": "9258f92a19b40673",
+      "hash": "8136f18dd4f87771",
       "language": "javascript",
       "size": 207,
       "summary": "JS module (next.config.js)"
     },
     "frontend/package.json": {
-      "hash": "3be59e2e0770739d",
+      "hash": "e4da3963f5ded214",
       "language": "json",
       "size": 722,
       "summary": "json file: package.json"
     },
     "frontend/postcss.config.js": {
-      "hash": "b78f5d0a0a449ecf",
+      "hash": "fa650b380adfabb1",
       "language": "javascript",
       "size": 89,
       "summary": "JS module (postcss.config.js)"
     },
     "frontend/public/apple-touch-icon.png": {
-      "hash": "d2c1b31d6c4a847c",
+      "hash": "546dd5935bc24a7f",
       "language": "unknown",
       "size": 43653,
       "summary": "unknown file: apple-touch-icon.png"
     },
     "frontend/public/favicon.ico": {
-      "hash": "398b8e40ea38a84a",
+      "hash": "efcd7b461d24e419",
       "language": "unknown",
       "size": 3754,
       "summary": "unknown file: favicon.ico"
     },
     "frontend/public/robots.txt": {
-      "hash": "30a3ce342bd1e749",
+      "hash": "cccadd3a209ae16a",
       "language": "text",
       "size": 73,
       "summary": "text file: robots.txt"
@@ -58889,7 +58889,7 @@
       "exports": [
         "DashboardPage"
       ],
-      "hash": "a49c8580117bab0e",
+      "hash": "0979740e9e9982d5",
       "imports": [
         "@/entities/tariff/helpers",
         "@/features/auth/api",
@@ -58917,7 +58917,7 @@
       "exports": [
         "ProtectedLayout"
       ],
-      "hash": "80c54046cf6d1145",
+      "hash": "7e59267bd4035466",
       "imports": [
         "@/shared/lib/auth"
       ],
@@ -58940,7 +58940,7 @@
       "exports": [
         "PaymentPage"
       ],
-      "hash": "6b3679deda5b6f74",
+      "hash": "efcdf283b29f7720",
       "imports": [
         "@/entities/payment/api",
         "@/entities/tariff/helpers",
@@ -58982,7 +58982,7 @@
         "ContactsPage",
         "metadata"
       ],
-      "hash": "ab9fc1d84634389e",
+      "hash": "dae852ed0b216389",
       "imports": [
         "@/shared/config/site",
         "@/shared/ui/PageHeader",
@@ -59007,7 +59007,7 @@
         "FailPage",
         "metadata"
       ],
-      "hash": "d78b313d13091d3a",
+      "hash": "243cc2a1ef6ba33a",
       "imports": [
         "@/shared/config/site",
         "next",
@@ -59024,7 +59024,7 @@
       ]
     },
     "frontend/src/app/globals.css": {
-      "hash": "11a61b5a9f4c118f",
+      "hash": "b95247b220f44515",
       "language": "css",
       "size": 218,
       "summary": "css file: globals.css"
@@ -59038,7 +59038,7 @@
         "RootLayout",
         "metadata"
       ],
-      "hash": "c4a011729e374d5e",
+      "hash": "f24892b2c8deeca7",
       "imports": [
         "@/shared/config/site",
         "@/shared/lib/auth",
@@ -59061,7 +59061,7 @@
       "depends_on": [
         "@"
       ],
-      "hash": "95c82c09f32d13f6",
+      "hash": "39a574c4e2941989",
       "imports": [
         "@/features/auth/LoginForm"
       ],
@@ -59078,7 +59078,7 @@
         "OfferPage",
         "metadata"
       ],
-      "hash": "41113ad4c7c022fd",
+      "hash": "229f391ac3c8637a",
       "imports": [
         "@/shared/config/site",
         "@/shared/ui/PageHeader",
@@ -59109,7 +59109,7 @@
       "exports": [
         "HomePage"
       ],
-      "hash": "8ae4943946f95bfa",
+      "hash": "089e0b048c60f3d0",
       "imports": [
         "@/shared/config/site",
         "@/widgets/landing/CtaSection",
@@ -59139,7 +59139,7 @@
         "PrivacyPage",
         "metadata"
       ],
-      "hash": "b5d428594d7dc9b9",
+      "hash": "31fb57c799b935d6",
       "imports": [
         "@/shared/config/site",
         "@/shared/ui/PageHeader",
@@ -59172,7 +59172,7 @@
         "RefundPage",
         "metadata"
       ],
-      "hash": "ddb9d345b69691bd",
+      "hash": "a2bbc57ff83e3dc7",
       "imports": [
         "@/shared/config/site",
         "@/shared/ui/PageHeader",
@@ -59195,7 +59195,7 @@
       "exports": [
         "sitemap"
       ],
-      "hash": "c04b3d474bd4a571",
+      "hash": "453bd441f513b3a6",
       "imports": [
         "next"
       ],
@@ -59218,7 +59218,7 @@
         "SuccessPage",
         "metadata"
       ],
-      "hash": "051171e5323e7269",
+      "hash": "9bd469380f16c8d4",
       "imports": [
         "@/shared/config/site",
         "next",
@@ -59235,7 +59235,7 @@
       ]
     },
     "frontend/src/entities/auth/types.ts": {
-      "hash": "b118a8f7be459641",
+      "hash": "6160c2436b393bac",
       "language": "typescript",
       "size": 226,
       "summary": "TS module (types.ts)"
@@ -59247,7 +59247,7 @@
       "exports": [
         "paymentApi"
       ],
-      "hash": "2bd34289a623f83e",
+      "hash": "c1e05206530ec24e",
       "imports": [
         "./types",
         "@/shared/api/client"
@@ -59257,7 +59257,7 @@
       "summary": "TS module (api.ts)"
     },
     "frontend/src/entities/payment/types.ts": {
-      "hash": "172df2c77c95f041",
+      "hash": "4d2780cbf9ca6bd8",
       "language": "typescript",
       "size": 270,
       "summary": "TS module (types.ts)"
@@ -59269,7 +59269,7 @@
       "exports": [
         "subscriptionApi"
       ],
-      "hash": "70e008606610238a",
+      "hash": "51e8d48d1b017d73",
       "imports": [
         "./types",
         "@/shared/api/client"
@@ -59279,7 +59279,7 @@
       "summary": "TS module (api.ts)"
     },
     "frontend/src/entities/subscription/types.ts": {
-      "hash": "3f7c182f857f303e",
+      "hash": "970cf7ba1a0d9fd9",
       "language": "typescript",
       "size": 158,
       "summary": "TS module (types.ts)"
@@ -59291,7 +59291,7 @@
         "normalizePlanId",
         "planName"
       ],
-      "hash": "533479433dfaa958",
+      "hash": "6e443e5604d09579",
       "language": "typescript",
       "size": 1562,
       "summary": "TS module (helpers.ts)",
@@ -59321,7 +59321,7 @@
       "exports": [
         "userApi"
       ],
-      "hash": "d94d27acaab7d763",
+      "hash": "15a988ae8f7bd90f",
       "imports": [
         "./types",
         "@/shared/api/client"
@@ -59331,7 +59331,7 @@
       "summary": "TS module (api.ts)"
     },
     "frontend/src/entities/user/types.ts": {
-      "hash": "cb70b4e98e9f5481",
+      "hash": "64f166f9ea2c23ef",
       "language": "typescript",
       "size": 662,
       "summary": "TS module (types.ts)"
@@ -59349,7 +59349,7 @@
         "LoginForm",
         "LoginPage"
       ],
-      "hash": "d5869f7cbf5d0835",
+      "hash": "50ad38a793c6c110",
       "imports": [
         "./api",
         "@/shared/config/site",
@@ -59383,7 +59383,7 @@
       "exports": [
         "authApi"
       ],
-      "hash": "0e75f4adf5e8a7dc",
+      "hash": "03a9b49b5b64e8bf",
       "imports": [
         "@/entities/auth/types",
         "@/shared/api/client"
@@ -59400,7 +59400,7 @@
       "exports": [
         "KeysModal"
       ],
-      "hash": "bc8cc8f7e4eb0963",
+      "hash": "c6e3953ff89699e8",
       "imports": [
         "@/entities/user/api",
         "@/entities/user/types",
@@ -59427,7 +59427,7 @@
       "exports": [
         "SubscriptionCard"
       ],
-      "hash": "236a4ae57747d9aa",
+      "hash": "9f87a9a68826e0ea",
       "imports": [
         "@/entities/subscription/api",
         "@/shared/config/site",
@@ -59453,7 +59453,7 @@
         "config",
         "middleware"
       ],
-      "hash": "c4d165fa652f7913",
+      "hash": "272acfb7e853aa78",
       "imports": [
         "next/server"
       ],
@@ -59471,7 +59471,7 @@
       "exports": [
         "apiFetch"
       ],
-      "hash": "213e58c5f7ab3f04",
+      "hash": "daff732b2456d4d9",
       "language": "typescript",
       "size": 1532,
       "summary": "TS module (client.ts)",
@@ -59486,7 +59486,7 @@
       "exports": [
         "siteConfig"
       ],
-      "hash": "18040fc95502f440",
+      "hash": "0ae6f9d88892ba8b",
       "language": "typescript",
       "size": 6322,
       "summary": "TS module (site.ts)"
@@ -59498,7 +59498,7 @@
       "exports": [
         "useCopyToClipboard"
       ],
-      "hash": "9f909a3e0b7f3466",
+      "hash": "5955b2736e37aaaa",
       "imports": [
         "react"
       ],
@@ -59519,7 +59519,7 @@
       "exports": [
         "useCountdown"
       ],
-      "hash": "24377a8be81c7b01",
+      "hash": "5f685342deeab86e",
       "imports": [
         "react"
       ],
@@ -59542,7 +59542,7 @@
         "AuthProvider",
         "useAuth"
       ],
-      "hash": "c41e6ecff458a0c0",
+      "hash": "facc7eefaa1a18ad",
       "imports": [
         "@/entities/user/api",
         "@/entities/user/types",
@@ -59566,7 +59566,7 @@
       "exports": [
         "Alert"
       ],
-      "hash": "54b316ef9ac8eaaf",
+      "hash": "0cdc536c725c1ea8",
       "language": "typescript",
       "size": 526,
       "summary": "React component: Alert",
@@ -59584,7 +59584,7 @@
       "exports": [
         "Modal"
       ],
-      "hash": "d95f474861754dd4",
+      "hash": "2238289945dd37dd",
       "imports": [
         "react"
       ],
@@ -59605,7 +59605,7 @@
       "exports": [
         "PageHeader"
       ],
-      "hash": "13942e62b609749c",
+      "hash": "d5d69e318b4326fd",
       "imports": [
         "next/link"
       ],
@@ -59624,7 +59624,7 @@
         "TelegramButton",
         "TelegramIcon"
       ],
-      "hash": "30ef6b1cfdb91508",
+      "hash": "c166893baecc8dd3",
       "language": "typescript",
       "size": 1491,
       "summary": "React component: TelegramButton, TelegramIcon",
@@ -59647,7 +59647,7 @@
       "exports": [
         "Footer"
       ],
-      "hash": "15e48c01bd865e2c",
+      "hash": "175a0a842f454fd8",
       "imports": [
         "@/shared/config/site",
         "next/link"
@@ -59671,7 +59671,7 @@
       "exports": [
         "Header"
       ],
-      "hash": "31a6b2c8e04e5f12",
+      "hash": "58c7e467ca0eddd4",
       "imports": [
         "@/shared/ui/TelegramButton",
         "next/link",
@@ -59702,7 +59702,7 @@
       "exports": [
         "CtaSection"
       ],
-      "hash": "d8a59d59303124a4",
+      "hash": "40607b00a1c1e0b0",
       "imports": [
         "@/shared/config/site"
       ],
@@ -59723,7 +59723,7 @@
       "exports": [
         "DeliverySection"
       ],
-      "hash": "7ac9f21e7fe1d017",
+      "hash": "779d48b9e49ce52d",
       "imports": [
         "@/shared/config/site"
       ],
@@ -59744,7 +59744,7 @@
       "exports": [
         "FaqSection"
       ],
-      "hash": "7fa3b641050f3ce5",
+      "hash": "30501825f40204d5",
       "imports": [
         "react"
       ],
@@ -59765,7 +59765,7 @@
       "exports": [
         "FeaturesSection"
       ],
-      "hash": "803bc0f8f4d2eab7",
+      "hash": "e07b8b39f7bccfb1",
       "imports": [
         "@/shared/ui/TelegramButton"
       ],
@@ -59783,7 +59783,7 @@
       "exports": [
         "HeroSection"
       ],
-      "hash": "f6c998bd48fb01bd",
+      "hash": "e2fc8762916a6a21",
       "language": "typescript",
       "size": 2031,
       "summary": "React component: HeroSection",
@@ -59798,7 +59798,7 @@
       "exports": [
         "HowItWorks"
       ],
-      "hash": "5aecd54610afe86b",
+      "hash": "97d4cc8bb662bbd1",
       "language": "typescript",
       "size": 1657,
       "summary": "React component: HowItWorks",
@@ -59818,7 +59818,7 @@
       "exports": [
         "TariffsSection"
       ],
-      "hash": "8722807091829ec5",
+      "hash": "0ef626dca832045a",
       "imports": [
         "@/shared/config/site",
         "next/link",
@@ -59850,7 +59850,7 @@
       "depends_on": [
         "tailwindcss"
       ],
-      "hash": "1c5e4557f0db4190",
+      "hash": "20ff053122bb2178",
       "imports": [
         "tailwindcss"
       ],
@@ -59859,7 +59859,7 @@
       "summary": "TS module (tailwind.config.ts)"
     },
     "frontend/tsconfig.json": {
-      "hash": "a9333af1b0689db6",
+      "hash": "53f96418e60724de",
       "language": "json",
       "size": 604,
       "summary": "json file: tsconfig.json"
@@ -59919,7 +59919,7 @@
         "cmd_summary",
         "main"
       ],
-      "hash": "d9df646986380f6f",
+      "hash": "ee25575265343869",
       "imports": [
         "__future__.annotations",
         "ast",
@@ -59933,7 +59933,7 @@
         "typing.Any"
       ],
       "language": "python",
-      "size": 34771,
+      "size": 34788,
       "summary": "Python module: functions _should_skip, _file_hash, _detect_language, _parse_python",
       "symbols": [
         {
@@ -59948,7 +59948,7 @@
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 102,
+          "line_end": 103,
           "line_start": 94,
           "name": "_file_hash"
         },
@@ -59956,152 +59956,152 @@
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 142,
-          "line_start": 135,
+          "line_end": 143,
+          "line_start": 136,
           "name": "_detect_language"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 270,
-          "line_start": 149,
+          "line_end": 271,
+          "line_start": 150,
           "name": "_parse_python"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 285,
-          "line_start": 273,
+          "line_end": 286,
+          "line_start": 274,
           "name": "_decorators"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 373,
-          "line_start": 319,
+          "line_end": 374,
+          "line_start": 320,
           "name": "_parse_js_ts"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 405,
-          "line_start": 385,
+          "line_end": 406,
+          "line_start": 386,
           "name": "_parse_sql"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 418,
-          "line_start": 412,
+          "line_end": 419,
+          "line_start": 413,
           "name": "_parse_generic"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 467,
-          "line_start": 425,
+          "line_end": 468,
+          "line_start": 426,
           "name": "_generate_summary"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 484,
-          "line_start": 474,
+          "line_end": 485,
+          "line_start": 475,
           "name": "_find_related_tests"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 595,
-          "line_start": 491,
+          "line_end": 596,
+          "line_start": 492,
           "name": "build_graph"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 613,
-          "line_start": 602,
+          "line_end": 614,
+          "line_start": 603,
           "name": "build_manifest"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 639,
-          "line_start": 620,
+          "line_end": 640,
+          "line_start": 621,
           "name": "cmd_build"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 663,
-          "line_start": 642,
+          "line_end": 664,
+          "line_start": 643,
           "name": "cmd_check"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 702,
-          "line_start": 666,
+          "line_end": 703,
+          "line_start": 667,
           "name": "cmd_summary"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 772,
-          "line_start": 705,
+          "line_end": 773,
+          "line_start": 706,
           "name": "cmd_search"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 830,
-          "line_start": 775,
+          "line_end": 831,
+          "line_start": 776,
           "name": "cmd_file"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 908,
-          "line_start": 833,
+          "line_end": 909,
+          "line_start": 834,
           "name": "cmd_related"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 927,
-          "line_start": 911,
+          "line_end": 928,
+          "line_start": 912,
           "name": "cmd_changed"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 956,
-          "line_start": 930,
+          "line_end": 957,
+          "line_start": 931,
           "name": "_detect_changed_files"
         },
         {
           "async": false,
           "decorators": [],
           "kind": "function",
-          "line_end": 1018,
-          "line_start": 977,
+          "line_end": 1019,
+          "line_start": 978,
           "name": "main"
         }
       ]
@@ -72268,8 +72268,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 285,
-        "line_start": 273
+        "line_end": 286,
+        "line_start": 274
       }
     ],
     "_default_base_url": [
@@ -72348,8 +72348,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 956,
-        "line_start": 930
+        "line_end": 957,
+        "line_start": 931
       }
     ],
     "_detect_compose_command": [
@@ -72364,8 +72364,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 142,
-        "line_start": 135
+        "line_end": 143,
+        "line_start": 136
       }
     ],
     "_deterministic_ensure_access_idempotency_key": [
@@ -72746,7 +72746,7 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 102,
+        "line_end": 103,
         "line_start": 94
       }
     ],
@@ -72762,8 +72762,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 484,
-        "line_start": 474
+        "line_end": 485,
+        "line_start": 475
       }
     ],
     "_forbidden_fragments": [
@@ -72874,8 +72874,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 467,
-        "line_start": 425
+        "line_end": 468,
+        "line_start": 426
       }
     ],
     "_get_code_ttl_minutes": [
@@ -74034,8 +74034,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 418,
-        "line_start": 412
+        "line_end": 419,
+        "line_start": 413
       }
     ],
     "_parse_iso_timestamp": [
@@ -74050,8 +74050,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 373,
-        "line_start": 319
+        "line_end": 374,
+        "line_start": 320
       }
     ],
     "_parse_json_object": [
@@ -74090,8 +74090,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 270,
-        "line_start": 149
+        "line_end": 271,
+        "line_start": 150
       }
     ],
     "_parse_ref_arg": [
@@ -74114,8 +74114,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 405,
-        "line_start": 385
+        "line_end": 406,
+        "line_start": 386
       }
     ],
     "_parse_start_param": [
@@ -76566,8 +76566,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 595,
-        "line_start": 491
+        "line_end": 596,
+        "line_start": 492
       }
     ],
     "build_ledger_record_for_ingest": [
@@ -76582,8 +76582,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 613,
-        "line_start": 602
+        "line_end": 614,
+        "line_start": 603
       }
     ],
     "build_purchase_summary": [
@@ -76878,56 +76878,56 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 639,
-        "line_start": 620
+        "line_end": 640,
+        "line_start": 621
       }
     ],
     "cmd_changed": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 927,
-        "line_start": 911
+        "line_end": 928,
+        "line_start": 912
       }
     ],
     "cmd_check": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 663,
-        "line_start": 642
+        "line_end": 664,
+        "line_start": 643
       }
     ],
     "cmd_file": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 830,
-        "line_start": 775
+        "line_end": 831,
+        "line_start": 776
       }
     ],
     "cmd_related": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 908,
-        "line_start": 833
+        "line_end": 909,
+        "line_start": 834
       }
     ],
     "cmd_search": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 772,
-        "line_start": 705
+        "line_end": 773,
+        "line_start": 706
       }
     ],
     "cmd_summary": [
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 702,
-        "line_start": 666
+        "line_end": 703,
+        "line_start": 667
       }
     ],
     "command_bucket_from_key": [
@@ -78170,8 +78170,8 @@
       {
         "file": "scripts/codegraph/index.py",
         "kind": "function",
-        "line_end": 1018,
-        "line_start": 977
+        "line_end": 1019,
+        "line_start": 978
       }
     ],
     "main_menu_keyboard": [
