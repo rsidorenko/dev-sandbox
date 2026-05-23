@@ -39,6 +39,7 @@ class XuiClientResult:
     outcome: XuiOutcome
     client_id: str | None = None
     user_uuid: str | None = None
+    panel_uuid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +223,33 @@ class XuiApiClient:
         return await self.update_client(
             user_uuid=user_uuid, email=email, enable=True, expiry_ts=expiry_ts, limit_ip=limit_ip
         )
+
+    async def resolve_client_uuid(self, *, email: str) -> str | None:
+        """Resolve actual client UUID from panel by email. Returns None if not found."""
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                client = await self._get_client()
+                if not await self._ensure_session():
+                    return None
+                resp = await client.get(
+                    f"{self._base}/panel/api/inbounds/getClientTraffics/{email}",
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+                if resp.status_code == 401 and attempt == 0:
+                    self._last_login_ts = 0.0
+                    continue
+                if resp.status_code == 404:
+                    return None
+                if resp.status_code >= 400:
+                    return None
+                body = resp.json()
+                if body.get("success") and body.get("obj"):
+                    return body["obj"].get("uuid")
+                return None
+            except Exception:
+                if attempt < _MAX_RETRIES:
+                    await asyncio_sleep(_RETRY_DELAY_SECONDS)
+        return None
 
     async def _do_client_op(
         self,
