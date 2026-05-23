@@ -219,7 +219,18 @@ class XuiVlessProvider(VlessProviderPort):
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        async def _add(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult]:
+        async def _add_or_update(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult, str]:
+            existing_uuid = await client.resolve_client_uuid(email=email)
+            if existing_uuid is not None:
+                # Client already exists — update settings using the panel UUID
+                result = await client.update_client(
+                    user_uuid=existing_uuid,
+                    email=email,
+                    enable=True,
+                    expiry_ts=expiry,
+                    limit_ip=limit_ip,
+                )
+                return client, result, existing_uuid
             result = await client.add_client(
                 user_uuid=user_uuid,
                 email=email,
@@ -227,18 +238,18 @@ class XuiVlessProvider(VlessProviderPort):
                 enable=True,
                 limit_ip=limit_ip,
             )
-            return client, result
+            return client, result, user_uuid
 
-        results = await asyncio.gather(*[_add(c) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(*[_add_or_update(c) for c in clients], return_exceptions=True)
 
-        successes: list[XuiApiClient] = []
+        successes: list[tuple[XuiApiClient, str]] = []
         for item in results:
             if isinstance(item, Exception):
                 _LOGGER.warning("xui add_client exception: %s", item)
                 continue
-            client, result = item
+            client, result, effective_uuid = item
             if result.outcome == XuiOutcome.SUCCESS:
-                successes.append(client)
+                successes.append((client, effective_uuid))
             else:
                 _LOGGER.warning(
                     "xui add_client failed server=%s outcome=%s",
@@ -249,18 +260,31 @@ class XuiVlessProvider(VlessProviderPort):
         if not successes:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
+        # Use the first panel's UUID as the canonical one; sync DB if needed
+        canonical_uuid = successes[0][1]
+        if canonical_uuid != user_uuid:
+            _LOGGER.info(
+                "syncing vless_uuid on create user=%s db=%s panel=%s",
+                internal_user_id, user_uuid, canonical_uuid,
+            )
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
+                canonical_uuid,
+                internal_user_id,
+            )
+
         servers = tuple(
             VlessServerConfig(
                 server_label=c.server_config.label,
                 country_code=c.server_config.country_code,
                 country_flag=c.server_config.country_flag,
-                vless_link=_build_vless_link(c.server_config, user_uuid),
+                vless_link=_build_vless_link(c.server_config, uuid),
             )
-            for c in successes
+            for c, uuid in successes
         )
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
-            user_uuid=user_uuid,
+            user_uuid=canonical_uuid,
             subscription_url=_web_sub_url(token),
             servers=servers,
         )
@@ -272,33 +296,52 @@ class XuiVlessProvider(VlessProviderPort):
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        async def _check(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult]:
-            result = await client.get_client_traffics(email=_email_from_internal(internal_user_id))
-            return client, result
+        email = _email_from_internal(internal_user_id)
 
-        results = await asyncio.gather(*[_check(c) for c in clients], return_exceptions=True)
+        async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
+            uuid = await client.resolve_client_uuid(email=email)
+            return client, uuid
+
+        results = await asyncio.gather(*[_resolve(c) for c in clients], return_exceptions=True)
 
         servers: list[VlessServerConfig] = []
+        panel_uuid: str | None = None
         for item in results:
             if isinstance(item, Exception):
+                _LOGGER.debug("resolve_client_uuid exception: %s", item)
                 continue
-            client, result = item
-            if result.outcome == XuiOutcome.SUCCESS:
+            client, uuid = item
+            if uuid is not None:
+                if panel_uuid is None:
+                    panel_uuid = uuid
                 servers.append(
                     VlessServerConfig(
                         server_label=client.server_config.label,
                         country_code=client.server_config.country_code,
                         country_flag=client.server_config.country_flag,
-                        vless_link=_build_vless_link(client.server_config, user_uuid),
+                        vless_link=_build_vless_link(client.server_config, uuid),
                     )
                 )
 
         if not servers:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
+        # Sync DB UUID with the actual panel UUID if they diverged
+        effective_uuid = panel_uuid or user_uuid
+        if panel_uuid and panel_uuid != user_uuid:
+            _LOGGER.info(
+                "syncing vless_uuid user=%s db=%s panel=%s",
+                internal_user_id, user_uuid, panel_uuid,
+            )
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
+                panel_uuid,
+                internal_user_id,
+            )
+
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
-            user_uuid=user_uuid,
+            user_uuid=effective_uuid,
             subscription_url=_web_sub_url(token),
             servers=tuple(servers),
         )
