@@ -308,6 +308,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
         nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool, scheduler, scheduler_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
+        composition = None
         if slice1_postgres_repos_requested():
             composition, pool = await resolve_slice1_composition_for_runtime(config)
             runtime._composition = composition
@@ -320,6 +321,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 pool=fulfillment_pool,
                 settings=fulfillment_settings,
                 activation_telegram_notifier=_FulfillmentActivationTelegramNotifier(raw_bundle.client),
+                vless_provider=composition.vless_provider if composition else None,
             )
         # Register bot menu commands (same as polling mode).
         with suppress(Exception):
@@ -371,6 +373,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     async def _lifespan_with_web_api(app: Starlette) -> AsyncIterator[None]:
         nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool, scheduler, scheduler_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
+        composition = None
         if slice1_postgres_repos_requested():
             composition, pool = await resolve_slice1_composition_for_runtime(config)
             runtime._composition = composition
@@ -383,6 +386,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 pool=fulfillment_pool,
                 settings=fulfillment_settings,
                 activation_telegram_notifier=_FulfillmentActivationTelegramNotifier(raw_bundle.client),
+                vless_provider=composition.vless_provider if composition else None,
             )
         if web_api_enabled:
             dsn = (config.database_url or "").strip()

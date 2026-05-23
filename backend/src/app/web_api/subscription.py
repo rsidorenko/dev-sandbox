@@ -50,18 +50,11 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     token = request.path_params["token"]
 
     row = await pool.fetchrow(
-        "SELECT internal_user_id, subscription_token_expires_at FROM user_identities WHERE subscription_token = $1",
+        "SELECT internal_user_id FROM user_identities WHERE subscription_token = $1",
         token,
     )
     if row is None:
         return PlainTextResponse("not found", status_code=404)
-
-    # Check token expiry — if expired, reject (new token will be issued on next get_user_config)
-    from datetime import UTC, datetime
-
-    expires_at = row["subscription_token_expires_at"]
-    if expires_at is not None and expires_at <= datetime.now(UTC):
-        return PlainTextResponse("token expired", status_code=410)
 
     provider = request.app.state.vless_provider
 

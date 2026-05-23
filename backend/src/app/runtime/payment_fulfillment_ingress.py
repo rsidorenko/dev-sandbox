@@ -392,6 +392,49 @@ async def _send_activation_notice_best_effort(
         return
 
 
+async def _ensure_vless_keys_after_payment(
+    *,
+    pool: asyncpg.Pool,
+    vless_provider: Any,
+    internal_user_id: str,
+) -> None:
+    """Best-effort VLESS key lifecycle management after successful payment.
+
+    Mirrors the logic in runtime_facade balance payment flow:
+    - keys_deleted_at set → create new user on all panels
+    - keys_deactivated_at set → re-enable existing user
+    - neither set → create user (new or already has keys)
+    Then resets both lifecycle flags.
+    """
+    import logging
+
+    from app.issuance.vless_provider import VlessProviderOutcome
+
+    _logger = logging.getLogger(__name__)
+    try:
+        snap_check = await pool.fetchrow(
+            """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
+               WHERE internal_user_id = $1""",
+            internal_user_id,
+        )
+        if snap_check is not None and snap_check["keys_deleted_at"] is not None:
+            await vless_provider.create_user(internal_user_id=internal_user_id)
+        elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
+            await vless_provider.activate_user(internal_user_id=internal_user_id)
+        else:
+            await vless_provider.create_user(internal_user_id=internal_user_id)
+
+        await pool.execute(
+            """UPDATE subscription_snapshots
+               SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
+               WHERE internal_user_id = $1""",
+            internal_user_id,
+        )
+        _logger.info("fulfillment vless keys ensured user=%s", internal_user_id)
+    except Exception:
+        _logger.warning("fulfillment vless key ensure failed user=%s", internal_user_id, exc_info=True)
+
+
 def _plan_id_from_period_days(period_days: int) -> str:
     _KNOWN: dict[int, str] = {
         1: "1d",
@@ -468,6 +511,7 @@ def create_payment_fulfillment_ingress_app(
     telemetry: FulfillmentTelemetry | None = None,
     now_utc_provider: Callable[[], datetime] | None = None,
     activation_telegram_notifier: FulfillmentActivationTelegramNotifier | None = None,
+    vless_provider: Any | None = None,
 ) -> Starlette:
     ingress_telemetry = telemetry or NoopFulfillmentTelemetry()
     resolve_now_utc = now_utc_provider or (lambda: datetime.now(UTC))
@@ -617,6 +661,18 @@ def create_payment_fulfillment_ingress_app(
                         payment_amount_kopecks=ref_amount_kopecks,
                         period_days=period_days,
                         correlation_id=correlation_id,
+                    )
+                # VLESS key lifecycle: create/activate keys on payment
+                if (
+                    vless_provider is not None
+                    and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
+                    and not apply_result.idempotent_replay
+                    and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
+                ):
+                    await _ensure_vless_keys_after_payment(
+                        pool=pool,
+                        vless_provider=vless_provider,
+                        internal_user_id=internal_user_id,
                     )
         except Exception:
             await _emit_best_effort(
