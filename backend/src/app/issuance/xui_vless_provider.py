@@ -33,7 +33,7 @@ _SUBSCRIPTION_BASE_URL = (
     or "https://bravada-connect.ru"
 ).rstrip("/")
 
-_CACHE_TTL_SECONDS = 300  # 5 minutes
+_CACHE_TTL_SECONDS = 600  # 10 minutes
 
 _LOGGER = logging.getLogger(__name__)
 

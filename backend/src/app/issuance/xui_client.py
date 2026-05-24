@@ -13,9 +13,9 @@ import httpx
 
 _LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT = 15.0
-_MAX_RETRIES = 2
-_RETRY_DELAY_SECONDS = 1.0
+_DEFAULT_TIMEOUT = 5.0
+_MAX_RETRIES = 1
+_RETRY_DELAY_SECONDS = 0.5
 _ENV_VERIFY_SSL = "XUI_VERIFY_SSL"
 _LOGIN_SESSION_TTL_SECONDS = 300  # re-login at most every 5 minutes
 
