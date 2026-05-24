@@ -224,11 +224,17 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
         if identity is None:
             return _safe_json_error(404, "identity_not_found")
 
+        internal_user_id = identity["internal_user_id"]
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
-        await provider.revoke_user(internal_user_id=identity["internal_user_id"])
-        result = await provider.create_user(internal_user_id=identity["internal_user_id"])
+        # Clear stored UUID so reissue generates a fresh random key
+        await pool.execute(
+            "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        await provider.revoke_user(internal_user_id=internal_user_id)
+        result = await provider.create_user(internal_user_id=internal_user_id)
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
             return _safe_json_error(500, "reissue_failed")
 

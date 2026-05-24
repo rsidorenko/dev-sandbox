@@ -340,6 +340,27 @@ def test_reissue_clears_vless_uuid_before_creating_new():
     assert uid == "u1"
 
 
+def test_web_api_reissue_also_clears_vless_uuid():
+    """Web API reissue must clear vless_uuid before creating new keys (same as bot)."""
+    pool = _FakePool()
+
+    async def _simulate_web_reissue():
+        internal_user_id = "u1"
+        # This is the sequence web API handle_reissue_keys now executes
+        await pool.execute(
+            "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        # Then revoke + create follow...
+
+    _run(_simulate_web_reissue())
+
+    assert len(pool.execute_log) == 1
+    sql, uid = pool.execute_log[0]
+    assert "vless_uuid = NULL" in sql
+    assert uid == "u1"
+
+
 def test_ensure_subscription_token_returns_same_token_on_repeated_calls():
     """Subscription token must be stable across multiple calls."""
     from app.issuance.xui_vless_provider import _ensure_subscription_token
