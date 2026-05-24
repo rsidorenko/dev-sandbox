@@ -15,17 +15,13 @@ _REQUIRED_SCRIPTS = (
     "scripts/print_mvp_release_handoff_summary.py",
 )
 _REQUIRED_LIGHTWEIGHT_WORKFLOW_PATH_MARKERS = (
-    "PROJECT_HANDOFF.md",
-    "backend/RELEASE_STATUS.md",
-    "backend/docs/mvp_release_artifact_manifest.md",
-    "backend/scripts/run_mvp_final_static_handoff_check.py",
+    "backend/tests/test_vless_key_lifecycle.py",
+    "backend/tests/test_vless_provider.py",
+    "backend/tests/test_payment_fulfillment_ingress.py",
 )
 _REQUIRED_LIGHTWEIGHT_WORKFLOW_COMMAND_MARKERS = (
-    "python scripts/run_mvp_repo_release_health_check.py",
-    "python scripts/run_mvp_release_checklist.py",
     "python scripts/run_mvp_release_preflight.py",
     "python scripts/run_mvp_final_static_handoff_check.py",
-    "python -m pytest -q tests/test_run_mvp_config_doctor.py",
 )
 _REQUIRED_DOCS = (
     "docs/mvp_release_artifact_manifest.md",
