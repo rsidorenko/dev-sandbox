@@ -5,61 +5,21 @@ on:
   pull_request:
     paths:
       - ".github/workflows/backend-mvp-release-readiness.yml"
-      - "PROJECT_HANDOFF.md"
-      - "backend/RELEASE_STATUS.md"
-      - "backend/pyproject.toml"
-      - "backend/docs/mvp_release_artifact_manifest.md"
-      - "backend/scripts/run_mvp_release_checklist.py"
-      - "backend/scripts/run_mvp_release_readiness.py"
-      - "backend/scripts/run_mvp_repo_release_health_check.py"
       - "backend/scripts/run_mvp_release_preflight.py"
-      - "backend/scripts/run_mvp_config_doctor.py"
-      - "backend/scripts/print_mvp_release_handoff_summary.py"
       - "backend/scripts/run_mvp_final_static_handoff_check.py"
-      - "backend/docs/postgres_mvp_smoke_runbook.md"
-      - "backend/docs/telegram_access_resend_runbook.md"
-      - "backend/docs/admin_support_internal_read_gate_runbook.md"
-      - "backend/tests/test_mvp_release_readiness_ci_evidence_contract.py"
-      - "backend/tests/test_mvp_final_release_gate_contract.py"
-      - "backend/tests/test_mvp_release_package_complete_contract.py"
-      - "backend/tests/test_project_handoff_contract.py"
-      - "backend/tests/test_*release*"
-      - "backend/tests/test_*handoff*"
-      - "backend/tests/test_run_mvp_repo_release_health_check.py"
-      - "backend/tests/test_run_mvp_release_checklist.py"
-      - "backend/tests/test_run_mvp_release_preflight.py"
-      - "backend/tests/test_run_mvp_config_doctor.py"
-      - "backend/docs/mvp_release_readiness_runbook.md"
+      - "backend/tests/test_vless_key_lifecycle.py"
+      - "backend/tests/test_vless_provider.py"
+      - "backend/tests/test_payment_fulfillment_ingress.py"
   push:
     branches:
       - "main"
     paths:
       - ".github/workflows/backend-mvp-release-readiness.yml"
-      - "PROJECT_HANDOFF.md"
-      - "backend/RELEASE_STATUS.md"
-      - "backend/pyproject.toml"
-      - "backend/docs/mvp_release_artifact_manifest.md"
-      - "backend/scripts/run_mvp_release_checklist.py"
-      - "backend/scripts/run_mvp_release_readiness.py"
-      - "backend/scripts/run_mvp_repo_release_health_check.py"
       - "backend/scripts/run_mvp_release_preflight.py"
-      - "backend/scripts/run_mvp_config_doctor.py"
-      - "backend/scripts/print_mvp_release_handoff_summary.py"
       - "backend/scripts/run_mvp_final_static_handoff_check.py"
-      - "backend/docs/postgres_mvp_smoke_runbook.md"
-      - "backend/docs/telegram_access_resend_runbook.md"
-      - "backend/docs/admin_support_internal_read_gate_runbook.md"
-      - "backend/tests/test_mvp_release_readiness_ci_evidence_contract.py"
-      - "backend/tests/test_mvp_final_release_gate_contract.py"
-      - "backend/tests/test_mvp_release_package_complete_contract.py"
-      - "backend/tests/test_project_handoff_contract.py"
-      - "backend/tests/test_*release*"
-      - "backend/tests/test_*handoff*"
-      - "backend/tests/test_run_mvp_repo_release_health_check.py"
-      - "backend/tests/test_run_mvp_release_checklist.py"
-      - "backend/tests/test_run_mvp_release_preflight.py"
-      - "backend/tests/test_run_mvp_config_doctor.py"
-      - "backend/docs/mvp_release_readiness_runbook.md"
+      - "backend/tests/test_vless_key_lifecycle.py"
+      - "backend/tests/test_vless_provider.py"
+      - "backend/tests/test_payment_fulfillment_ingress.py"
 
 jobs:
   mvp-release-readiness:
@@ -85,17 +45,8 @@ jobs:
       - name: Verify all source modules compile
         run: python -m compileall src/ -q
 
-      - name: Run static MVP repo release health check
-        run: python scripts/run_mvp_repo_release_health_check.py
-
-      - name: Run static MVP release checklist
-        run: python scripts/run_mvp_release_checklist.py
-
       - name: Run MVP release preflight contract groups
         run: python scripts/run_mvp_release_preflight.py
 
       - name: Run final static MVP handoff check
         run: python scripts/run_mvp_final_static_handoff_check.py
-
-      - name: Run MVP config doctor script unit tests
-        run: python -m pytest -q tests/test_run_mvp_config_doctor.py

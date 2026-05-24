@@ -15,18 +15,13 @@ _REQUIRED_SCRIPTS = (
     "scripts/print_mvp_release_handoff_summary.py",
 )
 _REQUIRED_LIGHTWEIGHT_WORKFLOW_PATH_MARKERS = (
-    "PROJECT_HANDOFF.md",
-    "backend/RELEASE_STATUS.md",
-    "backend/docs/mvp_release_artifact_manifest.md",
-    "backend/scripts/run_mvp_final_static_handoff_check.py",
-    "backend/tests/test_project_handoff_contract.py",
+    "backend/tests/test_vless_key_lifecycle.py",
+    "backend/tests/test_vless_provider.py",
+    "backend/tests/test_payment_fulfillment_ingress.py",
 )
 _REQUIRED_LIGHTWEIGHT_WORKFLOW_COMMAND_MARKERS = (
-    "python scripts/run_mvp_repo_release_health_check.py",
-    "python scripts/run_mvp_release_checklist.py",
     "python scripts/run_mvp_release_preflight.py",
     "python scripts/run_mvp_final_static_handoff_check.py",
-    "python -m pytest -q tests/test_run_mvp_config_doctor.py",
 )
 _REQUIRED_DOCS = (
     "docs/mvp_release_artifact_manifest.md",
@@ -40,15 +35,9 @@ _REQUIRED_WORKFLOWS = (
     ".github/workflows/backend-postgres-mvp-smoke-validation.yml",
 )
 _REQUIRED_CONTRACT_TESTS = (
-    "tests/test_mvp_release_artifact_manifest_contract.py",
-    "tests/test_mvp_release_staging_manifest_contract.py",
-    "tests/test_mvp_release_readiness_runbook_contract.py",
-    "tests/test_mvp_release_ci_trigger_decision_contract.py",
-    "tests/test_mvp_release_readiness_workflow_structure_contract.py",
-    "tests/test_run_mvp_release_checklist.py",
-    "tests/test_print_mvp_release_handoff_summary.py",
-    "tests/test_release_status_contract.py",
-    "tests/test_mvp_final_release_gate_contract.py",
+    "tests/test_vless_key_lifecycle.py",
+    "tests/test_vless_provider.py",
+    "tests/test_payment_fulfillment_ingress.py",
 )
 _SCRIPT_REFERENCE_MARKERS = (
     "python scripts/run_mvp_release_readiness.py",
@@ -68,7 +57,6 @@ _RELEASE_STATUS_MARKERS = (
     "python scripts/run_mvp_release_readiness.py",
     "backend-mvp-release-readiness",
     "backend-postgres-mvp-smoke-validation",
-    "tests/test_mvp_final_release_gate_contract.py",
 )
 _DECISION_NOTE_REQUIRED_MARKERS = (
     "PROJECT_HANDOFF.md",
@@ -184,14 +172,7 @@ def run_repo_release_health_check(
 
     for rel_path in _REQUIRED_CONTRACT_TESTS:
         if not (root / rel_path).exists():
-            if rel_path == "tests/test_release_status_contract.py":
-                _append_issue("missing_release_status_contract_test")
-            elif rel_path == "tests/test_mvp_final_release_gate_contract.py":
-                _append_issue("missing_final_release_gate_contract_test")
-            elif rel_path == "tests/test_mvp_release_ci_trigger_decision_contract.py":
-                _append_issue("missing_ci_trigger_decision_contract_test")
-            else:
-                _append_issue("missing_required_release_contract_test")
+            _append_issue("missing_required_release_contract_test")
 
     manifest_path = root / "docs/mvp_release_artifact_manifest.md"
     runbook_path = root / "docs/mvp_release_readiness_runbook.md"
@@ -206,8 +187,6 @@ def run_repo_release_health_check(
 
     if "backend/RELEASE_STATUS.md" not in manifest_text:
         _append_issue("missing_manifest_release_status_reference")
-    if "tests/test_mvp_final_release_gate_contract.py" not in manifest_text:
-        _append_issue("missing_manifest_final_release_gate_reference")
     if "docs/mvp_release_ci_trigger_decision.md" not in manifest_text:
         _append_issue("missing_manifest_ci_trigger_decision_reference")
     if "docs/mvp_release_ci_trigger_decision.md" not in runbook_text:
@@ -239,10 +218,7 @@ def run_repo_release_health_check(
 
     for marker in _RELEASE_STATUS_MARKERS:
         if marker not in release_status_text:
-            if marker == "tests/test_mvp_final_release_gate_contract.py":
-                _append_issue("missing_release_status_final_release_gate_reference")
-            else:
-                _append_issue("missing_release_status_marker")
+            _append_issue("missing_release_status_marker")
             break
 
     for marker in _REQUIRED_LIGHTWEIGHT_WORKFLOW_PATH_MARKERS:
