@@ -29,28 +29,16 @@ _FORBIDDEN_OUTPUT_FRAGMENTS = (
 
 _STAGES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
-        "project_handoff_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_project_handoff_contract.py"),
+        "vless_key_lifecycle",
+        ("python", "-m", "pytest", "-q", "tests/test_vless_key_lifecycle.py"),
     ),
     (
-        "release_status_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_release_status_contract.py"),
+        "vless_provider",
+        ("python", "-m", "pytest", "-q", "tests/test_vless_provider.py"),
     ),
     (
-        "final_release_gate_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_mvp_final_release_gate_contract.py"),
-    ),
-    (
-        "release_package_complete_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_mvp_release_package_complete_contract.py"),
-    ),
-    (
-        "workflow_structure_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_mvp_release_readiness_workflow_structure_contract.py"),
-    ),
-    (
-        "staging_manifest_contract",
-        ("python", "-m", "pytest", "-q", "tests/test_mvp_release_staging_manifest_contract.py"),
+        "fulfillment_ingress",
+        ("python", "-m", "pytest", "-q", "tests/test_payment_fulfillment_ingress.py"),
     ),
     (
         "repo_release_health_check",

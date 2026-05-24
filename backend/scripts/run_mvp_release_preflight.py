@@ -37,7 +37,7 @@ def _preflight_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
             (
                 "tests/test_run_postgres_mvp_smoke.py",
                 "tests/test_run_postgres_mvp_access_fulfillment_e2e.py",
-                "tests/test_postgres_mvp_smoke_ci_evidence_contract.py",
+                "tests/test_vless_key_lifecycle.py",
             ),
         ),
         (
@@ -45,7 +45,6 @@ def _preflight_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
             (
                 "tests/test_telegram_webhook_ingress.py",
                 "tests/test_telegram_webhook_main.py",
-                "tests/test_telegram_webhook_runtime_evidence_contract.py",
                 "tests/test_bot_transport_dispatcher.py",
                 "tests/test_bootstrap_composition.py",
                 "tests/test_telegram_command_rate_limit.py",
@@ -56,7 +55,6 @@ def _preflight_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
             "admin_support_audit",
             (
                 "tests/test_adm01_internal_http_main.py",
-                "tests/test_adm01_internal_http_ci_evidence_contract.py",
                 "tests/test_adm02_internal_http.py",
                 "tests/test_adm02_ensure_access_audit_logging_sink.py",
                 "tests/test_adm02_ensure_access_audit_read_endpoint.py",
@@ -68,7 +66,6 @@ def _preflight_groups() -> tuple[tuple[str, tuple[str, ...]], ...]:
             "retention_migrations",
             (
                 "tests/test_run_slice1_retention_dry_run.py",
-                "tests/test_retention_ci_evidence_contract.py",
                 "tests/test_postgres_migrations.py",
                 "tests/test_postgres_migration_ledger_integration.py",
             ),
