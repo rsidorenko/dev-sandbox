@@ -201,7 +201,7 @@ class XuiApiClient:
         }
         return await self._do_client_op(
             "POST",
-            f"{self._base}/panel/api/inbounds/updateClient/{self._config.inbound_id}",
+            f"{self._base}/panel/api/inbounds/updateClient/{user_uuid}",
             payload,
             user_uuid=user_uuid,
         )
@@ -304,6 +304,6 @@ def _map_response(resp: httpx.Response, *, user_uuid: str | None = None) -> XuiC
     except Exception:
         return XuiClientResult(outcome=XuiOutcome.ERROR)
     success = body.get("success", False)
-    if not success and resp.status_code >= 400:
+    if not success:
         return XuiClientResult(outcome=XuiOutcome.ERROR)
     return XuiClientResult(outcome=XuiOutcome.SUCCESS, client_id=user_uuid, user_uuid=user_uuid)
