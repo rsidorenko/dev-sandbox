@@ -13,11 +13,13 @@ from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
 
-_VALID_PLANS = {"1d", "7d", "14d", "365d"}
 _PLAN_DURATION_DAYS: dict[str, int] = {
     "1d": 1,
     "7d": 7,
     "14d": 14,
+    "1m": 30,
+    "3m": 90,
+    "6m": 180,
     "365d": 365,
 }
 
