@@ -13,14 +13,11 @@ from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
 
-_VALID_PLANS = {"1d", "7d", "14d", "1m", "3m", "6m", "365d"}
+_VALID_PLANS = {"1d", "7d", "14d", "365d"}
 _PLAN_DURATION_DAYS: dict[str, int] = {
     "1d": 1,
     "7d": 7,
     "14d": 14,
-    "1m": 30,
-    "3m": 90,
-    "6m": 180,
     "365d": 365,
 }
 
@@ -284,8 +281,7 @@ def _next_expiry(current_until: datetime | None, days: int) -> datetime:
     from datetime import timedelta
 
     base = current_until if current_until and current_until > datetime.now(UTC) else datetime.now(UTC)
-    result = base + timedelta(days=days)
-    return result.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base + timedelta(days=days)
 
 
 async def handle_renew_subscription(request: Request) -> JSONResponse:
@@ -347,6 +343,11 @@ async def handle_change_devices(request: Request) -> JSONResponse:
             device_count,
             internal_user_id,
         )
+
+        # Sync device limit to 3x-ui panels
+        provider = request.app.state.vless_provider
+        await provider.activate_user(internal_user_id=internal_user_id, device_count=device_count)
+
         return JSONResponse({"ok": True, "device_count": device_count})
     except Exception:
         _LOGGER.exception("change_devices_error")
@@ -366,6 +367,11 @@ async def handle_cancel_subscription(request: Request) -> JSONResponse:
                WHERE internal_user_id = $1""",
             internal_user_id,
         )
+
+        # Revoke VLESS keys on panel
+        provider = request.app.state.vless_provider
+        await provider.revoke_user(internal_user_id=internal_user_id)
+
         return JSONResponse({"ok": True, "state": "cancelled"})
     except Exception:
         _LOGGER.exception("cancel_error")
