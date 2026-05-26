@@ -51,22 +51,14 @@ def _web_sub_url(token: str) -> str:
 
 async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
     row = await pool.fetchrow(
-        "SELECT subscription_token FROM user_identities WHERE internal_user_id = $1",
+        "SELECT subscription_token, subscription_token_expires_at FROM user_identities WHERE internal_user_id = $1",
         internal_user_id,
     )
     if row and row["subscription_token"]:
-        return row["subscription_token"]
-    token = _generate_subscription_token()
-    await pool.execute(
-        "UPDATE user_identities SET subscription_token = $1 WHERE internal_user_id = $2",
-        token,
-        internal_user_id,
-    )
-    return token
-
-
-async def _rotate_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
-    """Generate a new subscription token, invalidating the old one."""
+        expires = row.get("subscription_token_expires_at")
+        if expires is None or expires > datetime.now(UTC):
+            return row["subscription_token"]
+    # Token missing or expired — generate fresh one
     token = _generate_subscription_token()
     expires_at = datetime.now(UTC) + timedelta(days=90)
     await pool.execute(
@@ -203,6 +195,18 @@ class XuiVlessProvider(VlessProviderPort):
         """Close all cached HTTP clients. Call on shutdown."""
         await self._close_clients()
 
+    async def _restart_xray_on_all(self) -> None:
+        """Restart xray on all panel clients to pick up config changes immediately."""
+        clients = self._clients
+        if not clients:
+            return
+        results = await asyncio.gather(
+            *[c.restart_xray() for c in clients], return_exceptions=True,
+        )
+        for client, ok in zip(clients, results):
+            if isinstance(ok, Exception) or not ok:
+                _LOGGER.debug("xray restart failed server=%s", client.server_id)
+
     async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         email = _email_from_internal(internal_user_id)
@@ -217,15 +221,18 @@ class XuiVlessProvider(VlessProviderPort):
         async def _add_or_update(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult, str]:
             existing_uuid = await client.resolve_client_uuid(email=email)
             if existing_uuid is not None:
-                # Client already exists — update settings using the panel UUID
-                result = await client.update_client(
-                    user_uuid=existing_uuid,
+                # Delete then re-add to avoid 3x-ui client_traffics.enable desync bug.
+                # updateClient only updates inbounds.settings but NOT client_traffics.enable,
+                # causing the client to vanish from xray config on restart.
+                await client.delete_client(user_uuid=existing_uuid)
+                result = await client.add_client(
+                    user_uuid=user_uuid,
                     email=email,
-                    enable=True,
                     expiry_ts=expiry,
+                    enable=True,
                     limit_ip=limit_ip,
                 )
-                return client, result, existing_uuid
+                return client, result, user_uuid
             result = await client.add_client(
                 user_uuid=user_uuid,
                 email=email,
@@ -283,6 +290,7 @@ class XuiVlessProvider(VlessProviderPort):
             subscription_url=_web_sub_url(token),
             servers=servers,
         )
+        await self._restart_xray_on_all()
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
@@ -363,6 +371,7 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_disabled:
+            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -377,12 +386,18 @@ class XuiVlessProvider(VlessProviderPort):
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-        async def _enable(client: XuiApiClient) -> XuiClientResult:
-            return await client.enable_client(
-                user_uuid=user_uuid, email=email, expiry_ts=expiry, limit_ip=limit_ip
+        # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
+        async def _reactivate(client: XuiApiClient) -> XuiClientResult:
+            await client.delete_client(user_uuid=user_uuid)
+            return await client.add_client(
+                user_uuid=user_uuid,
+                email=email,
+                expiry_ts=expiry,
+                enable=True,
+                limit_ip=limit_ip,
             )
 
-        results = await asyncio.gather(*[_enable(c) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(*[_reactivate(c) for c in clients], return_exceptions=True)
 
         any_enabled = any(
             not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
@@ -390,6 +405,7 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_enabled:
+            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -412,5 +428,6 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_deleted:
+            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)

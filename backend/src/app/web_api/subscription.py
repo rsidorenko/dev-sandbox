@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import time
+from datetime import UTC, datetime
 
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
@@ -50,11 +51,13 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     token = request.path_params["token"]
 
     row = await pool.fetchrow(
-        "SELECT internal_user_id FROM user_identities WHERE subscription_token = $1",
+        "SELECT internal_user_id, subscription_token_expires_at FROM user_identities WHERE subscription_token = $1",
         token,
     )
     if row is None:
         return PlainTextResponse("not found", status_code=404)
+    if row.get("subscription_token_expires_at") and row["subscription_token_expires_at"] < datetime.now(UTC):
+        return PlainTextResponse("token expired", status_code=410)
 
     provider = request.app.state.vless_provider
 
