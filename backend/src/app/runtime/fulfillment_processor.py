@@ -233,6 +233,11 @@ async def process_fulfillment(
 
         # --- DB-only transaction: ingest + apply + snapshot (fast, no HTTP) ---
         async with pool.acquire() as conn, conn.transaction():
+            # Read existing snapshot BEFORE apply (apply overwrites it)
+            existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
+                conn, inp.internal_user_id,
+            )
+
             atomic_ingest = PostgresAtomicBillingIngestion(pool)
             ingest_result = await atomic_ingest.ingest_in_connection(conn, ingest_input)
             apply = PostgresAtomicUC05SubscriptionApply(pool)
@@ -242,9 +247,6 @@ async def process_fulfillment(
                 OperationOutcomeCategory.IDEMPOTENT_NOOP,
             ):
                 # Extend from current active_until if subscription is still active
-                existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
-                    conn, inp.internal_user_id,
-                )
                 _LOGGER.info(
                     "fulfillment extend check user=%s existing=%s paid_at=%s",
                     inp.internal_user_id,
