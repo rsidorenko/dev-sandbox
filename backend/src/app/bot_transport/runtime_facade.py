@@ -770,7 +770,7 @@ async def _process_yookassa_payment(
     import logging
     import os
 
-    from app.domain.plans import calculate_total_price, get_plan
+    from app.domain.plans import calculate_total_price, get_plan, plan_display_name
     from app.yookassa.client import YooKassaClient
 
     _logger = logging.getLogger(__name__)
@@ -797,15 +797,16 @@ async def _process_yookassa_payment(
             device_count=device_count,
             telegram_user_id=uid,
             return_url=f"{return_url}/dashboard",
-            description=f"Bravada VPN — {plan.name}",
+            description=f"Bravada VPN — {plan_display_name(plan_id)}",
         )
     except Exception:
         _logger.exception("yookassa create_payment failed in bot flow")
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
+    display_name = plan_display_name(plan_id)
     text = (
         f"💳 <b>Оформление подписки</b>\n\n"
-        f"Тариф: <b>{plan.name}</b>\n"
+        f"Тариф: <b>{display_name}</b>\n"
         f"К оплате: <b>{total_rubles} ₽</b>\n\n"
         f"Нажмите кнопку ниже, чтобы перейти на страницу оплаты."
     )
