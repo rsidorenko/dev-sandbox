@@ -760,6 +760,64 @@ async def _get_internal_user_id(
     return id_rec.internal_user_id if id_rec is not None else None
 
 
+async def _process_yookassa_payment(
+    composition: Slice1Composition,
+    uid: int | None,
+    *,
+    plan_id: str,
+    device_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    import logging
+    import os
+
+    from app.domain.plans import calculate_total_price, get_plan
+    from app.yookassa.client import YooKassaClient
+
+    _logger = logging.getLogger(__name__)
+
+    if uid is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    plan = get_plan(plan_id)
+    if plan is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    total_rubles = calculate_total_price(plan, device_count)
+
+    client = YooKassaClient.from_env()
+    if client is None:
+        _logger.warning("yookassa not configured, cannot create bot payment")
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
+    try:
+        result = await client.create_payment(
+            amount_rubles=total_rubles,
+            plan_id=plan_id,
+            device_count=device_count,
+            telegram_user_id=uid,
+            return_url=f"{return_url}/dashboard",
+            description=f"Bravada VPN — {plan.name}",
+        )
+    except Exception:
+        _logger.exception("yookassa create_payment failed in bot flow")
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    text = (
+        f"💳 <b>Оформление подписки</b>\n\n"
+        f"Тариф: <b>{plan.name}</b>\n"
+        f"К оплате: <b>{total_rubles} ₽</b>\n\n"
+        f"Нажмите кнопку ниже, чтобы перейти на страницу оплаты."
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "💳 Перейти к оплате", "url": result.confirmation_url}],
+            [{"text": "↩️ Назад", "callback_data": CB_BUY_VPN}],
+        ],
+    }
+    return text, keyboard
+
+
 async def _process_balance_payment(
     composition: Slice1Composition,
     uid: int | None,
@@ -1466,8 +1524,20 @@ async def _render_storefront_response(
             keyboard = back_only_keyboard(CB_BUY_VPN)
 
     elif code.startswith(CB_DO_PAY):
-        text = text_payment_unavailable()
-        keyboard = back_only_keyboard(CB_BUY_VPN)
+        rest = code[len(CB_DO_PAY) :]
+        sep = rest.rfind(":")
+        if sep >= 0:
+            plan_id = rest[:sep]
+            try:
+                device_count = int(rest[sep + 1 :])
+            except ValueError:
+                device_count = DEVICES_DEFAULT
+        else:
+            plan_id = rest
+            device_count = DEVICES_DEFAULT
+        text, keyboard = await _process_yookassa_payment(
+            composition, uid, plan_id=plan_id, device_count=device_count,
+        )
 
     elif code.startswith(CB_PAY_BALANCE):
         rest = code[len(CB_PAY_BALANCE) :]
