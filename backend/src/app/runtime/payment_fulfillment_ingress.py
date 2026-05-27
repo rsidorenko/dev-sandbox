@@ -7,7 +7,6 @@ import hmac
 import json
 import os
 import time
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,17 +18,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from app.application.billing_ingestion import NormalizedBillingFactInput
-from app.application.interfaces import SubscriptionSnapshot
-from app.bot_transport.message_catalog import render_telegram_outbound_plan
-from app.bot_transport.outbound import build_fulfillment_success_notification_plan
-from app.domain.plans import DEFAULT_DEVICE_LIMIT, get_plan
-from app.persistence.billing_events_ledger_contracts import BillingEventLedgerStatus
-from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
-from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
-from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply
-from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
-from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
 from app.security.checkout_reference import (
     DEFAULT_CHECKOUT_REFERENCE_MAX_AGE_SECONDS,
     DEFAULT_CHECKOUT_REFERENCE_MAX_FUTURE_SECONDS,
@@ -38,6 +26,12 @@ from app.security.checkout_reference import (
 from app.security.config import ConfigurationError
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import OperationOutcomeCategory
+
+# Re-exported for test compatibility (tests patch on ingress_mod).
+from app.persistence.postgres_user_identity import PostgresUserIdentityRepository  # noqa: F401
+from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion  # noqa: F401
+from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply  # noqa: F401
+from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader  # noqa: F401
 
 ENV_PAYMENT_FULFILLMENT_HTTP_ENABLE = "PAYMENT_FULFILLMENT_HTTP_ENABLE"
 ENV_PAYMENT_FULFILLMENT_SECRET = "PAYMENT_FULFILLMENT_WEBHOOK_SECRET"
@@ -373,137 +367,6 @@ async def _emit_best_effort(telemetry: FulfillmentTelemetry, *, decision: str, r
         return
 
 
-async def _send_activation_notice_best_effort(
-    notifier: FulfillmentActivationTelegramNotifier,
-    *,
-    telegram_user_id: int,
-    text: str,
-    reply_markup: dict[str, Any] | None,
-    correlation_id: str,
-) -> None:
-    try:
-        await notifier.send_subscription_activated_notice(
-            telegram_user_id=telegram_user_id,
-            text=text,
-            reply_markup=reply_markup,
-            correlation_id=correlation_id,
-        )
-    except Exception:
-        return
-
-
-async def _ensure_vless_keys_after_payment(
-    *,
-    pool: asyncpg.Pool,
-    vless_provider: Any,
-    internal_user_id: str,
-) -> None:
-    """Best-effort VLESS key lifecycle management after successful payment.
-
-    Mirrors the logic in runtime_facade balance payment flow:
-    - keys_deleted_at set → create new user on all panels
-    - keys_deactivated_at set → re-enable existing user
-    - neither set → create user (new or already has keys)
-    Then resets both lifecycle flags.
-    """
-    import logging
-
-    from app.issuance.vless_provider import VlessProviderOutcome
-
-    _logger = logging.getLogger(__name__)
-    try:
-        snap_check = await pool.fetchrow(
-            """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
-               WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-            await vless_provider.create_user(internal_user_id=internal_user_id)
-        elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-            await vless_provider.activate_user(internal_user_id=internal_user_id)
-        else:
-            await vless_provider.create_user(internal_user_id=internal_user_id)
-
-        await pool.execute(
-            """UPDATE subscription_snapshots
-               SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
-               WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        _logger.info("fulfillment vless keys ensured user=%s", internal_user_id)
-    except Exception:
-        _logger.warning("fulfillment vless key ensure failed user=%s", internal_user_id, exc_info=True)
-
-
-def _plan_id_from_period_days(period_days: int) -> str:
-    _KNOWN: dict[int, str] = {
-        1: "1d",
-        7: "7d",
-        14: "14d",
-        30: "1m",
-        90: "3m",
-        180: "6m",
-        365: "365d",
-    }
-    return _KNOWN.get(period_days, f"custom:{period_days}")
-
-
-async def _process_referral_commissions_best_effort(
-    *,
-    pool: asyncpg.Pool,
-    payer_internal_user_id: str,
-    payment_amount_kopecks: int,
-    period_days: int,
-    correlation_id: str,
-) -> None:
-    """Look up referrers and credit commissions. Best-effort: never fails the payment."""
-    try:
-        from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
-        from app.persistence.postgres_referral import (
-            PostgresReferralBalanceRepository,
-            PostgresReferralRelationshipRepository,
-            PostgresReferralTransactionRepository,
-        )
-        from app.persistence.referral_contracts import ReferralTransactionRecord
-
-        rel_repo = PostgresReferralRelationshipRepository(pool)
-        bal_repo = PostgresReferralBalanceRepository(pool)
-        tx_repo = PostgresReferralTransactionRepository(pool)
-
-        referrers = await rel_repo.find_referrers(payer_internal_user_id)
-        if not referrers:
-            return
-
-        direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
-
-        plan_id = _plan_id_from_period_days(period_days)
-        commissions = build_commissions_for_payment(
-            payer_user_id=payer_internal_user_id,
-            direct_referrer_user_id=direct_referrer,
-            indirect_referrer_user_id=indirect_referrer,
-            plan_id=plan_id,
-            payment_amount_kopecks=payment_amount_kopecks,
-        )
-
-        for comm in commissions:
-            dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}"
-            tx_record = ReferralTransactionRecord(
-                transaction_id=f"ref-{uuid.uuid4()}",
-                internal_user_id=comm.referrer_user_id,
-                amount_kopecks=comm.amount_kopecks,
-                transaction_type="referral_credit",
-                related_user_id=comm.payer_user_id,
-                related_plan_id=comm.plan_id,
-                description=dedup_desc,
-                created_at=datetime.now(UTC),
-            )
-            inserted = await tx_repo.append_transaction_if_description_absent(tx_record)
-            if inserted:
-                await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
-    except Exception:
-        return
-
-
 def create_payment_fulfillment_ingress_app(
     *,
     pool: asyncpg.Pool,
@@ -513,9 +376,10 @@ def create_payment_fulfillment_ingress_app(
     activation_telegram_notifier: FulfillmentActivationTelegramNotifier | None = None,
     vless_provider: Any | None = None,
 ) -> Starlette:
+    from app.runtime.fulfillment_processor import FulfillmentInput, process_fulfillment
+
     ingress_telemetry = telemetry or NoopFulfillmentTelemetry()
     resolve_now_utc = now_utc_provider or (lambda: datetime.now(UTC))
-    notify_activation = activation_telegram_notifier
 
     async def _handler(request: Request) -> JSONResponse:
         ts_header = request.headers.get(PAYMENT_TIMESTAMP_HEADER, "")
@@ -576,7 +440,7 @@ def create_payment_fulfillment_ingress_app(
                 reason_bucket="invalid_checkout_reference",
             )
             return _safe_json_error(400, "invalid_payload")
-        received_at = datetime.now(UTC)
+
         period_days = parsed.period_days or settings.default_subscription_period_days
         if period_days is None:
             await _emit_best_effort(
@@ -585,119 +449,35 @@ def create_payment_fulfillment_ingress_app(
                 reason_bucket="missing_subscription_period",
             )
             return _safe_json_error(400, "invalid_payload")
-        active_until_utc = parsed.paid_at + timedelta(days=period_days)
-        correlation_id = f"fulfill-{uuid.uuid4()}"
-        ingest_input = NormalizedBillingFactInput(
-            billing_provider_key=settings.provider_key,
+
+        fulfillment_input = FulfillmentInput(
+            provider_key=settings.provider_key,
             external_event_id=parsed.external_event_id,
-            event_type=_EVENT_TYPE_SUBSCRIPTION_ACTIVATED,
-            event_effective_at=parsed.paid_at,
-            event_received_at=received_at,
-            status=BillingEventLedgerStatus.ACCEPTED,
-            ingestion_correlation_id=correlation_id,
+            external_payment_id=parsed.external_payment_id,
+            telegram_user_id=telegram_user_id,
             internal_user_id=internal_user_id,
-            checkout_attempt_id=parsed.external_payment_id,
-            amount_currency=None,
-            internal_fact_ref=None,
+            paid_at=parsed.paid_at,
+            period_days=period_days,
+            amount_kopecks=parsed.amount_kopecks,
         )
 
         try:
-            identity_repo = PostgresUserIdentityRepository(pool)
-            await identity_repo.create_if_absent(telegram_user_id)
-
-            async with pool.acquire() as conn, conn.transaction():
-                atomic_ingest = PostgresAtomicBillingIngestion(pool)
-                ingest_result = await atomic_ingest.ingest_in_connection(conn, ingest_input)
-                apply = PostgresAtomicUC05SubscriptionApply(pool)
-                apply_result = await apply.apply_in_connection(conn, ingest_result.record.internal_fact_ref)
-                if apply_result.operation_outcome in (
-                    OperationOutcomeCategory.SUCCESS,
-                    OperationOutcomeCategory.IDEMPOTENT_NOOP,
-                ):
-                    snapshot_plan_id = _plan_id_from_period_days(period_days)
-                    await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
-                        conn,
-                        SubscriptionSnapshot(
-                            internal_user_id=internal_user_id,
-                            state_label="active",
-                            active_until_utc=active_until_utc,
-                            plan_id=snapshot_plan_id,
-                            device_count=DEFAULT_DEVICE_LIMIT,
-                        ),
-                    )
-                if (
-                    notify_activation is not None
-                    and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                    and not apply_result.idempotent_replay
-                    and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-                ):
-                    plan = build_fulfillment_success_notification_plan(
-                        correlation_id=correlation_id,
-                        active_until_ymd=active_until_utc.date().isoformat(),
-                    )
-                    rendered = render_telegram_outbound_plan(plan)
-                    await _send_activation_notice_best_effort(
-                        notify_activation,
-                        telegram_user_id=telegram_user_id,
-                        text=rendered.message_text,
-                        reply_markup=rendered.reply_markup,
-                        correlation_id=correlation_id,
-                    )
-                # Referral commission processing (best-effort, after durable activation)
-                if (
-                    apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                    and not apply_result.idempotent_replay
-                    and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-                ):
-                    ref_plan_id = _plan_id_from_period_days(period_days)
-                    ref_plan = get_plan(ref_plan_id)
-                    if parsed.amount_kopecks is not None:
-                        ref_amount_kopecks = parsed.amount_kopecks
-                    else:
-                        ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
-                    await _process_referral_commissions_best_effort(
-                        pool=pool,
-                        payer_internal_user_id=internal_user_id,
-                        payment_amount_kopecks=ref_amount_kopecks,
-                        period_days=period_days,
-                        correlation_id=correlation_id,
-                    )
-                # VLESS key lifecycle: create/activate keys on payment
-                if (
-                    vless_provider is not None
-                    and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                    and not apply_result.idempotent_replay
-                    and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-                ):
-                    await _ensure_vless_keys_after_payment(
-                        pool=pool,
-                        vless_provider=vless_provider,
-                        internal_user_id=internal_user_id,
-                    )
-        except Exception:
-            await _emit_best_effort(
-                ingress_telemetry,
-                decision="rejected",
-                reason_bucket="dependency_failure",
+            result = await process_fulfillment(
+                pool=pool,
+                inp=fulfillment_input,
+                telemetry=ingress_telemetry,
+                activation_telegram_notifier=activation_telegram_notifier,
+                vless_provider=vless_provider,
             )
+        except Exception:
             return _safe_json_error(503, "temporarily_unavailable")
 
-        if apply_result.operation_outcome not in (
+        if result.operation_outcome not in (
             OperationOutcomeCategory.SUCCESS,
             OperationOutcomeCategory.IDEMPOTENT_NOOP,
         ):
-            await _emit_best_effort(
-                ingress_telemetry,
-                decision="rejected",
-                reason_bucket="apply_failed",
-            )
             return _safe_json_error(409, "rejected")
 
-        await _emit_best_effort(
-            ingress_telemetry,
-            decision="accepted",
-            reason_bucket="applied",
-        )
         return JSONResponse({"ok": True, "accepted": True}, status_code=200)
 
     return Starlette(routes=[Route(settings.http_path, _handler, methods=["POST"])])
