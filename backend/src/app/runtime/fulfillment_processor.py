@@ -222,10 +222,16 @@ async def process_fulfillment(
     )
 
     apply_result = None
+    should_notify = False
+    should_process_referral = False
+    should_ensure_vless = False
+    ref_amount_kopecks = 0
+
     try:
         identity_repo = PostgresUserIdentityRepository(pool)
         await identity_repo.create_if_absent(inp.telegram_user_id)
 
+        # --- DB-only transaction: ingest + apply + snapshot (fast, no HTTP) ---
         async with pool.acquire() as conn, conn.transaction():
             atomic_ingest = PostgresAtomicBillingIngestion(pool)
             ingest_result = await atomic_ingest.ingest_in_connection(conn, ingest_input)
@@ -246,56 +252,50 @@ async def process_fulfillment(
                         device_count=DEFAULT_DEVICE_LIMIT,
                     ),
                 )
-            # Telegram notification
-            if (
-                notify_activation is not None
-                and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                and not apply_result.idempotent_replay
-                and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-            ):
-                plan = build_fulfillment_success_notification_plan(
-                    correlation_id=correlation_id,
-                    active_until_ymd=active_until_utc.date().isoformat(),
-                )
-                rendered = render_telegram_outbound_plan(plan)
-                await _send_activation_notice_best_effort(
-                    notify_activation,
-                    telegram_user_id=inp.telegram_user_id,
-                    text=rendered.message_text,
-                    reply_markup=rendered.reply_markup,
-                    correlation_id=correlation_id,
-                )
-            # Referral commissions
-            if (
+            is_new_active = (
                 apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
                 and not apply_result.idempotent_replay
                 and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-            ):
+            )
+            if is_new_active:
+                should_notify = notify_activation is not None
+                should_process_referral = True
+                should_ensure_vless = vless_provider is not None
                 ref_plan_id = _plan_id_from_period_days(inp.period_days)
                 ref_plan = get_plan(ref_plan_id)
                 if inp.amount_kopecks is not None:
                     ref_amount_kopecks = inp.amount_kopecks
                 else:
                     ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
-                await _process_referral_commissions_best_effort(
-                    pool=pool,
-                    payer_internal_user_id=inp.internal_user_id,
-                    payment_amount_kopecks=ref_amount_kopecks,
-                    period_days=inp.period_days,
-                    correlation_id=correlation_id,
-                )
-            # VLESS key lifecycle
-            if (
-                vless_provider is not None
-                and apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                and not apply_result.idempotent_replay
-                and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-            ):
-                await _ensure_vless_keys_after_payment(
-                    pool=pool,
-                    vless_provider=vless_provider,
-                    internal_user_id=inp.internal_user_id,
-                )
+
+        # --- Post-transaction: HTTP calls (best-effort, won't block DB) ---
+        if should_notify:
+            plan = build_fulfillment_success_notification_plan(
+                correlation_id=correlation_id,
+                active_until_ymd=active_until_utc.date().isoformat(),
+            )
+            rendered = render_telegram_outbound_plan(plan)
+            await _send_activation_notice_best_effort(
+                notify_activation,
+                telegram_user_id=inp.telegram_user_id,
+                text=rendered.message_text,
+                reply_markup=rendered.reply_markup,
+                correlation_id=correlation_id,
+            )
+        if should_process_referral:
+            await _process_referral_commissions_best_effort(
+                pool=pool,
+                payer_internal_user_id=inp.internal_user_id,
+                payment_amount_kopecks=ref_amount_kopecks,
+                period_days=inp.period_days,
+                correlation_id=correlation_id,
+            )
+        if should_ensure_vless:
+            await _ensure_vless_keys_after_payment(
+                pool=pool,
+                vless_provider=vless_provider,
+                internal_user_id=inp.internal_user_id,
+            )
     except Exception:
         await _telemetry.emit(decision="rejected", reason_bucket="dependency_failure")
         raise
