@@ -805,10 +805,10 @@ async def _process_yookassa_payment(
 
     display_name = plan_display_name(plan_id)
     text = (
-        f"💳 <b>Оформление подписки</b>\n\n"
-        f"Тариф: <b>{display_name}</b>\n"
-        f"К оплате: <b>{total_rubles} ₽</b>\n\n"
-        f"Нажмите кнопку ниже, чтобы перейти на страницу оплаты."
+        f"📋 Оформление подписки\n\n"
+        f"🔹 Тариф: {display_name}\n"
+        f"💰 К оплате: {total_rubles} ₽\n\n"
+        f"Нажмите кнопку ниже для перехода на страницу оплаты 👇"
     )
     keyboard = {
         "inline_keyboard": [

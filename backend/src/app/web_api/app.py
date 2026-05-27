@@ -79,10 +79,15 @@ def _with_csrf(handler):
 
 
 async def _yookassa_webhook_handler(request: Request) -> JSONResponse:
-    """Thin adapter that delegates to the real handler, passing vless_provider from app.state."""
+    """Thin adapter that delegates to the real handler, passing vless_provider and notifier from app.state."""
     pool: asyncpg.Pool = request.app.state.pool
     vless_provider = getattr(request.app.state, "vless_provider", None)
-    handler = create_yookassa_webhook_handler(pool=pool, vless_provider=vless_provider)
+    notifier = getattr(request.app.state, "activation_notifier", None)
+    handler = create_yookassa_webhook_handler(
+        pool=pool,
+        activation_telegram_notifier=notifier,
+        vless_provider=vless_provider,
+    )
     return await handler(request)
 
 
@@ -129,6 +134,37 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         app.state.vless_provider = XuiVlessProvider(pool)
     else:
         app.state.vless_provider = StubVlessProvider()
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if bot_token:
+        from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
+
+        _raw_client = HttpxTelegramRawPollingClient(bot_token)
+
+        class _WebApiActivationNotifier:
+            __slots__ = ("_client",)
+
+            def __init__(self, client: HttpxTelegramRawPollingClient) -> None:
+                self._client = client
+
+            async def send_subscription_activated_notice(
+                self,
+                *,
+                telegram_user_id: int,
+                text: str,
+                reply_markup: dict | None,
+                correlation_id: str,
+            ) -> None:
+                await self._client.send_text_message(
+                    chat_id=telegram_user_id,
+                    text=text,
+                    correlation_id=correlation_id,
+                    reply_markup=reply_markup,
+                )
+
+        app.state.activation_notifier = _WebApiActivationNotifier(_raw_client)
+    else:
+        app.state.activation_notifier = None
 
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
