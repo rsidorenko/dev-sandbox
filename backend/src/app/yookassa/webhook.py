@@ -175,6 +175,51 @@ def create_yookassa_webhook_handler(
             internal_user_id,
             result.operation_outcome.value,
         )
+
+        # Edit the original bot payment message to show success
+        from app.bot_transport.payment_message_registry import pop_payment_message
+
+        msg_ref = pop_payment_message(payment_id)
+        if msg_ref is not None:
+            chat_id, message_id = msg_ref
+
+            active_until_str = "не указано"
+            try:
+                from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
+
+                snap = await PostgresSubscriptionSnapshotReader(pool).get_for_user(internal_user_id)
+                if snap and snap.active_until_utc:
+                    active_until_str = snap.active_until_utc.strftime("%d.%m.%Y")
+            except Exception:
+                pass
+            success_text = (
+                "✅ Оплата прошла успешно!\n\n"
+                f"Ваша подписка активна до {active_until_str}.\n"
+                "Приятного пользования!"
+            )
+            success_kb = {
+                "inline_keyboard": [
+                    [{"text": "📋 Моя подписка", "callback_data": "my_sub"}],
+                    [{"text": "🔑 Мои ключи", "callback_data": "my_keys"}],
+                ],
+            }
+            try:
+                if activation_telegram_notifier is not None and hasattr(activation_telegram_notifier, "_client"):
+                    await activation_telegram_notifier._client.edit_message_text(
+                        chat_id, message_id, success_text, reply_markup=success_kb,
+                    )
+                else:
+                    from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
+
+                    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
+                    if bot_token:
+                        client_for_edit = HttpxTelegramRawPollingClient(bot_token)
+                        await client_for_edit.edit_message_text(
+                            chat_id, message_id, success_text, reply_markup=success_kb,
+                        )
+            except Exception:
+                _LOGGER.debug("yookassa webhook: could not edit payment message id=%s", payment_id, exc_info=True)
+
         return JSONResponse({"ok": True, "accepted": True}, status_code=200)
 
     return handle_yookassa_webhook
