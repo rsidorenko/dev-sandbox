@@ -71,10 +71,11 @@ class YooKassaClient:
         metadata: dict[str, str] | None = None,
     ) -> YooKassaPaymentResult:
         idempotency_key = str(uuid.uuid4())
+        amount_str = f"{amount_rubles}.00"
 
         body: dict = {
             "amount": {
-                "value": f"{amount_rubles}.00",
+                "value": amount_str,
                 "currency": "RUB",
             },
             "confirmation": {
@@ -83,6 +84,24 @@ class YooKassaClient:
             },
             "capture": True,
             "description": description,
+            "receipt": {
+                "customer": {
+                    "email": f"u{telegram_user_id}@bravada-connect.ru",
+                },
+                "items": [
+                    {
+                        "description": description,
+                        "quantity": "1",
+                        "amount": {
+                            "value": amount_str,
+                            "currency": "RUB",
+                        },
+                        "vat_code": 1,
+                        "payment_mode": "full_payment",
+                        "payment_subject": "service",
+                    },
+                ],
+            },
             "metadata": {
                 "plan_id": plan_id,
                 "device_count": str(device_count),
