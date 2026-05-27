@@ -241,6 +241,20 @@ async def process_fulfillment(
                 OperationOutcomeCategory.SUCCESS,
                 OperationOutcomeCategory.IDEMPOTENT_NOOP,
             ):
+                # Extend from current active_until if subscription is still active
+                existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
+                    conn, inp.internal_user_id,
+                )
+                if (
+                    existing is not None
+                    and existing.active_until_utc is not None
+                    and existing.active_until_utc > inp.paid_at
+                ):
+                    extend_from = existing.active_until_utc
+                else:
+                    extend_from = inp.paid_at
+                active_until_utc = extend_from + timedelta(days=inp.period_days)
+
                 snapshot_plan_id = _plan_id_from_period_days(inp.period_days)
                 await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
                     conn,
