@@ -28,6 +28,7 @@ from app.web_api.profile import (
     handle_renew_subscription,
 )
 from app.web_api.subscription import handle_subscription
+from app.yookassa.webhook import create_yookassa_webhook_handler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +78,14 @@ def _with_csrf(handler):
     return _wrapped
 
 
+async def _yookassa_webhook_handler(request: Request) -> JSONResponse:
+    """Thin adapter that delegates to the real handler, passing vless_provider from app.state."""
+    pool: asyncpg.Pool = request.app.state.pool
+    vless_provider = getattr(request.app.state, "vless_provider", None)
+    handler = create_yookassa_webhook_handler(pool=pool, vless_provider=vless_provider)
+    return await handler(request)
+
+
 def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     cors_origins = os.environ.get("WEB_API_CORS_ORIGINS", "").strip()
 
@@ -106,6 +115,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),
         # Public subscription endpoint (no auth)
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
+        # YooKassa webhook (no auth — signature verified internally)
+        Route("/api/v1/payment/yookassa/webhook", _yookassa_webhook_handler, methods=["POST"]),
     ]
 
     app = Starlette(routes=routes)

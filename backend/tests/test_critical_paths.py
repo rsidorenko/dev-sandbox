@@ -265,7 +265,7 @@ def test_trial_period_is_3_days():
 
 def test_fulfillment_reactivates_deactivated_keys():
     """Payment after deactivation: activate_user called, flags reset."""
-    from app.runtime.payment_fulfillment_ingress import _ensure_vless_keys_after_payment
+    from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 
     pool = _FakePool()
     pool.set_fetch_result("keys_deactivated_at", [_Record(
@@ -282,7 +282,7 @@ def test_fulfillment_reactivates_deactivated_keys():
 
 def test_fulfillment_creates_new_keys_after_deletion():
     """Payment after key deletion (20-day grace expired): create_user called."""
-    from app.runtime.payment_fulfillment_ingress import _ensure_vless_keys_after_payment
+    from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 
     pool = _FakePool()
     pool.set_fetch_result("keys_deactivated_at", [_Record(

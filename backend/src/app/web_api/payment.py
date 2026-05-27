@@ -1,4 +1,4 @@
-"""Web API payment endpoints — create payment session, check status (stub for now, YooKassa later)."""
+"""Web API payment endpoints — create YooKassa payment session, check status."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from app.web_api.middleware import require_auth
 _LOGGER = logging.getLogger(__name__)
 
 ENV_YOOKASSA_ENABLED = "YOOKASSA_ENABLED"
+ENV_RETURN_URL = "NEXT_PUBLIC_SITE_URL"
 
 
 async def handle_create_payment(request: Request) -> JSONResponse:
@@ -62,12 +63,57 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             ),
         })
 
-    # When YooKassa is connected, create payment here and return payment_url
-    # payment_id = str(uuid.uuid4())
-    # ... YooKassa API call ...
-    # return JSONResponse({"ok": True, "status": "pending", "payment_url": url, "payment_id": payment_id})
+    return_url = os.environ.get(ENV_RETURN_URL, "").strip()
+    if not return_url:
+        return_url = "https://bravada-connect.ru"
+    return_url = f"{return_url.rstrip('/')}/payment/success"
 
-    return safe_json_error(501, "not_implemented", "Payment provider integration pending")
+    from app.yookassa.client import YooKassaClient
+    from app.security.checkout_reference import create_signed_checkout_reference
+
+    client = YooKassaClient.from_env()
+    if client is None:
+        _LOGGER.error("yookassa client not configured")
+        return safe_json_error(503, "payment_provider_not_configured")
+
+    checkout_secret = os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get(
+        "TELEGRAM_CHECKOUT_REFERENCE_SECRET", ""
+    ).strip()
+    checkout_metadata: dict[str, str] = {}
+    if checkout_secret:
+        signed = create_signed_checkout_reference(
+            telegram_user_id=telegram_user_id,
+            internal_user_id=f"u{telegram_user_id}",
+            secret=checkout_secret,
+        )
+        checkout_metadata["client_reference_id"] = signed.reference_id
+        checkout_metadata["client_reference_proof"] = signed.reference_proof
+
+    try:
+        result = await client.create_payment(
+            amount_rubles=total_rubles,
+            plan_id=plan_id,
+            device_count=device_count,
+            telegram_user_id=telegram_user_id,
+            return_url=return_url,
+            description=f"Bravada VPN — {plan_display_name_safe(plan_id)}",
+            metadata=checkout_metadata if checkout_metadata else None,
+        )
+    except Exception:
+        _LOGGER.exception("yookassa create_payment failed")
+        return safe_json_error(502, "payment_creation_failed")
+
+    return JSONResponse({
+        "ok": True,
+        "status": "pending",
+        "plan_id": plan_id,
+        "plan_name": plan_display_name_safe(plan_id),
+        "device_count": device_count,
+        "amount_rubles": total_rubles,
+        "amount_kopecks": total_kopecks,
+        "payment_url": result.confirmation_url,
+        "payment_id": result.payment_id,
+    })
 
 
 async def handle_get_payment_status(request: Request) -> JSONResponse:
@@ -79,7 +125,6 @@ async def handle_get_payment_status(request: Request) -> JSONResponse:
     if not payment_id:
         return safe_json_error(400, "missing_payment_id")
 
-    # Stub: always return unavailable until YooKassa is connected
     return JSONResponse({
         "ok": True,
         "payment_id": payment_id,

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from app.issuance.vless_provider import VlessProviderOutcome
-from app.runtime.payment_fulfillment_ingress import _ensure_vless_keys_after_payment
+from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 from app.shared.test_helpers import run_async as _run
 
 
