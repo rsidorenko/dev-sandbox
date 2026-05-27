@@ -1,4 +1,4 @@
-"""YooKassa API v3 client — create payments via HTTP with Basic Auth."""
+"""YooKassa API v3 client — create payments and verify payment status."""
 
 from __future__ import annotations
 
@@ -24,8 +24,16 @@ class YooKassaPaymentResult:
     confirmation_url: str
 
 
+@dataclass(frozen=True, slots=True)
+class YooKassaPaymentInfo:
+    payment_id: str
+    status: str
+    amount_value: str
+    metadata: dict[str, str]
+
+
 class YooKassaClient:
-    """Thin wrapper over YooKassa Payments API (create payment only)."""
+    """Thin wrapper over YooKassa Payments API."""
 
     def __init__(
         self,
@@ -46,6 +54,11 @@ class YooKassaClient:
             return None
         return cls(shop_id=shop_id, api_key=api_key)
 
+    def _auth_header(self) -> str:
+        return base64.b64encode(
+            f"{self._shop_id}:{self._api_key}".encode()
+        ).decode("ascii")
+
     async def create_payment(
         self,
         *,
@@ -58,9 +71,6 @@ class YooKassaClient:
         metadata: dict[str, str] | None = None,
     ) -> YooKassaPaymentResult:
         idempotency_key = str(uuid.uuid4())
-        auth_header = base64.b64encode(
-            f"{self._shop_id}:{self._api_key}".encode()
-        ).decode("ascii")
 
         body: dict = {
             "amount": {
@@ -85,7 +95,7 @@ class YooKassaClient:
             f"{_YOOKASSA_API_BASE}/payments",
             json=body,
             headers={
-                "Authorization": f"Basic {auth_header}",
+                "Authorization": f"Basic {self._auth_header()}",
                 "Idempotence-Key": idempotency_key,
                 "Content-Type": "application/json",
             },
@@ -111,4 +121,45 @@ class YooKassaClient:
         return YooKassaPaymentResult(
             payment_id=payment_id,
             confirmation_url=confirmation_url,
+        )
+
+    async def get_payment(self, payment_id: str) -> YooKassaPaymentInfo | None:
+        """Fetch payment details from YooKassa API to verify webhook authenticity."""
+        try:
+            resp = await self._client.get(
+                f"{_YOOKASSA_API_BASE}/payments/{payment_id}",
+                headers={
+                    "Authorization": f"Basic {self._auth_header()}",
+                },
+            )
+        except (httpx.HTTPError, OSError) as exc:
+            _LOGGER.warning("yookassa get_payment request failed: %s", exc)
+            return None
+
+        if resp.status_code == 404:
+            _LOGGER.warning("yookassa get_payment not found id=%s", payment_id)
+            return None
+
+        if resp.status_code >= 400:
+            _LOGGER.error(
+                "yookassa get_payment failed status=%d id=%s",
+                resp.status_code,
+                payment_id,
+            )
+            return None
+
+        data = resp.json()
+        metadata = {}
+        raw_meta = data.get("metadata")
+        if isinstance(raw_meta, dict):
+            metadata = {str(k): str(v) for k, v in raw_meta.items()}
+
+        amount_obj = data.get("amount", {})
+        amount_value = amount_obj.get("value", "0") if isinstance(amount_obj, dict) else "0"
+
+        return YooKassaPaymentInfo(
+            payment_id=data.get("id", payment_id),
+            status=data.get("status", ""),
+            amount_value=str(amount_value),
+            metadata=metadata,
         )

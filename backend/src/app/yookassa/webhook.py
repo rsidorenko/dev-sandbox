@@ -1,12 +1,11 @@
-"""YooKassa webhook handler — receive payment notifications and activate subscriptions."""
+"""YooKassa webhook handler — receive payment notifications, verify via API, activate subscriptions."""
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -23,31 +22,13 @@ from app.shared.types import OperationOutcomeCategory
 
 _LOGGER = logging.getLogger(__name__)
 
-ENV_YOOKASSA_WEBHOOK_SECRET = "YOOKASSA_WEBHOOK_SECRET"
 ENV_YOOKASSA_PROVIDER_KEY = "YOOKASSA_PROVIDER_KEY"
 
 _DEFAULT_PROVIDER_KEY = "yookassa_v1"
 
 
-def _truthy(raw: str | None) -> bool:
-    return raw is not None and raw.strip().lower() in ("1", "true", "yes")
-
-
-def _get_webhook_secret() -> str | None:
-    return os.environ.get(ENV_YOOKASSA_WEBHOOK_SECRET, "").strip() or None
-
-
 def _get_provider_key() -> str:
     return os.environ.get(ENV_YOOKASSA_PROVIDER_KEY, _DEFAULT_PROVIDER_KEY).strip() or _DEFAULT_PROVIDER_KEY
-
-
-def _compute_signature(secret: str, raw_body: bytes) -> str:
-    return hashlib.sha256(raw_body + secret.encode("utf-8")).hexdigest()
-
-
-def _verify_signature(secret: str, signature_header: str, raw_body: bytes) -> bool:
-    expected = _compute_signature(secret, raw_body)
-    return hmac.compare_digest(signature_header.strip().lower(), expected.lower())
 
 
 def _safe_json_error(status_code: int, error_code: str) -> JSONResponse:
@@ -66,13 +47,6 @@ def create_yookassa_webhook_handler(
     async def handle_yookassa_webhook(request: Request) -> JSONResponse:
         raw_body = await request.body()
 
-        secret = _get_webhook_secret()
-        if secret:
-            sig_header = request.headers.get("X-Request-Signature", "")
-            if not sig_header or not _verify_signature(secret, sig_header, raw_body):
-                _LOGGER.warning("yookassa webhook: invalid signature")
-                return _safe_json_error(401, "unauthorized")
-
         try:
             notification = json.loads(raw_body.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -89,14 +63,37 @@ def create_yookassa_webhook_handler(
         payment_id = payment_obj.get("id", "")
         status = payment_obj.get("status", "")
 
+        # Acknowledge all non-success events immediately
         if event != "payment.succeeded" or status != "succeeded":
-            _LOGGER.info("yookassa webhook: ignoring event=%s status=%s", event, status)
-            return JSONResponse({"ok": True, "ignored": True}, status_code=200)
+            _LOGGER.info(
+                "yookassa webhook: acknowledged event=%s status=%s id=%s",
+                event, status, payment_id,
+            )
+            return JSONResponse({"ok": True, "acknowledged": True}, status_code=200)
 
-        metadata = payment_obj.get("metadata", {})
-        if not isinstance(metadata, dict):
-            metadata = {}
+        # --- payment.succeeded: verify via API before processing ---
 
+        from app.yookassa.client import YooKassaClient
+
+        client = YooKassaClient.from_env()
+        if client is None:
+            _LOGGER.error("yookassa webhook: client not configured, cannot verify payment")
+            return _safe_json_error(503, "payment_provider_not_configured")
+
+        verified = await client.get_payment(payment_id)
+        if verified is None:
+            _LOGGER.error("yookassa webhook: verification failed, payment not found id=%s", payment_id)
+            return _safe_json_error(401, "verification_failed")
+
+        if verified.status != "succeeded":
+            _LOGGER.warning(
+                "yookassa webhook: status mismatch webhook=%s api=%s id=%s",
+                status, verified.status, payment_id,
+            )
+            return JSONResponse({"ok": True, "acknowledged": True}, status_code=200)
+
+        # Use metadata from the verified API response (authoritative)
+        metadata = verified.metadata
         plan_id = metadata.get("plan_id", "")
         device_count_raw = metadata.get("device_count", "5")
         try:
@@ -108,24 +105,22 @@ def create_yookassa_webhook_handler(
         try:
             telegram_user_id = int(telegram_user_id_raw)
         except (ValueError, TypeError):
-            _LOGGER.warning("yookassa webhook: missing or invalid telegram_user_id")
+            _LOGGER.warning("yookassa webhook: missing or invalid telegram_user_id id=%s", payment_id)
             return _safe_json_error(400, "invalid_payload")
 
         from app.domain.plans import get_plan
         plan = get_plan(plan_id)
         if plan is None:
-            _LOGGER.warning("yookassa webhook: unknown plan_id=%s", plan_id)
+            _LOGGER.warning("yookassa webhook: unknown plan_id=%s id=%s", plan_id, payment_id)
             return _safe_json_error(400, "invalid_plan")
 
-        amount_obj = payment_obj.get("amount", {})
-        amount_value_raw = amount_obj.get("value", "0")
+        amount_kopecks = None
         try:
-            amount_kopecks = int(float(amount_value_raw) * 100)
+            amount_kopecks = int(float(verified.amount_value) * 100)
         except (ValueError, TypeError):
-            amount_kopecks = None
+            pass
 
         paid_at_str = payment_obj.get("captured_at") or payment_obj.get("created_at", "")
-        from datetime import UTC, datetime
         try:
             if paid_at_str.endswith("Z"):
                 paid_at_str = paid_at_str[:-1] + "+00:00"
@@ -135,6 +130,11 @@ def create_yookassa_webhook_handler(
 
         internal_user_id = f"u{telegram_user_id}"
         period_days = plan.duration_days
+
+        _LOGGER.info(
+            "yookassa webhook: verified and processing id=%s user=%s plan=%s amount=%s",
+            payment_id, internal_user_id, plan_id, verified.amount_value,
+        )
 
         fulfillment_input = FulfillmentInput(
             provider_key=_get_provider_key(),
@@ -156,7 +156,7 @@ def create_yookassa_webhook_handler(
                 vless_provider=vless_provider,
             )
         except Exception:
-            _LOGGER.exception("yookassa webhook: fulfillment failed")
+            _LOGGER.exception("yookassa webhook: fulfillment failed id=%s", payment_id)
             return _safe_json_error(503, "temporarily_unavailable")
 
         if result.operation_outcome not in (
@@ -164,15 +164,16 @@ def create_yookassa_webhook_handler(
             OperationOutcomeCategory.IDEMPOTENT_NOOP,
         ):
             _LOGGER.warning(
-                "yookassa webhook: fulfillment rejected outcome=%s",
-                result.operation_outcome.value,
+                "yookassa webhook: fulfillment rejected outcome=%s id=%s",
+                result.operation_outcome.value, payment_id,
             )
             return _safe_json_error(409, "rejected")
 
         _LOGGER.info(
-            "yookassa webhook: payment processed id=%s user=%s",
+            "yookassa webhook: payment processed id=%s user=%s outcome=%s",
             payment_id,
             internal_user_id,
+            result.operation_outcome.value,
         )
         return JSONResponse({"ok": True, "accepted": True}, status_code=200)
 
