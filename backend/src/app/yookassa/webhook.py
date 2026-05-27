@@ -152,7 +152,7 @@ def create_yookassa_webhook_handler(
                 pool=pool,
                 inp=fulfillment_input,
                 telemetry=telemetry,
-                activation_telegram_notifier=activation_telegram_notifier,
+                activation_telegram_notifier=None,
                 vless_provider=vless_provider,
             )
         except Exception:
@@ -199,8 +199,10 @@ def create_yookassa_webhook_handler(
             )
             success_kb = {
                 "inline_keyboard": [
-                    [{"text": "📋 Моя подписка", "callback_data": "my_sub"}],
-                    [{"text": "🔑 Мои ключи", "callback_data": "my_keys"}],
+                    [
+                        {"text": "📋 Меню", "callback_data": "main_menu"},
+                        {"text": "🔑 Мои ключи", "callback_data": "my_keys"},
+                    ],
                 ],
             }
             try:
