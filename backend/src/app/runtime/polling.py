@@ -207,6 +207,14 @@ class Slice1PollingRuntime:
                         )
                     if first and idem_key is not None:
                         await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)
+                    if first:
+                        from app.bot_transport.payment_message_registry import (
+                            pop_pending_payment_for_user,
+                            register_payment_message,
+                        )
+                        pending_pid = pop_pending_payment_for_user(action.chat_id)
+                        if pending_pid is not None and msg_id is not None:
+                            register_payment_message(pending_pid, action.chat_id, msg_id)
                     first = False
                     send_ok += 1
             except Exception:

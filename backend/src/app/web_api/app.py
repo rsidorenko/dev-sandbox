@@ -135,7 +135,10 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     else:
         app.state.vless_provider = StubVlessProvider()
 
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    bot_token = (
+        os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        or os.environ.get("BOT_TOKEN", "").strip()
+    )
     if bot_token:
         from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
 

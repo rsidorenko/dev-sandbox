@@ -803,6 +803,9 @@ async def _process_yookassa_payment(
         _logger.exception("yookassa create_payment failed in bot flow")
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
+    from app.bot_transport.payment_message_registry import set_pending_payment_for_user
+    set_pending_payment_for_user(uid, result.payment_id)
+
     display_name = plan_display_name(plan_id)
     text = (
         f"📋 Оформление подписки\n\n"
