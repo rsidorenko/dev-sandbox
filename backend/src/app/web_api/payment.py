@@ -66,7 +66,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     return_url = os.environ.get(ENV_RETURN_URL, "").strip()
     if not return_url:
         return_url = "https://bravada-connect.ru"
-    return_url = f"{return_url.rstrip('/')}/payment/success"
+    return_url = f"{return_url.rstrip('/')}/dashboard"
 
     from app.yookassa.client import YooKassaClient
     from app.security.checkout_reference import create_signed_checkout_reference
