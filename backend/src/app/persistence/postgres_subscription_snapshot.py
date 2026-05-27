@@ -72,6 +72,32 @@ class PostgresSubscriptionSnapshotReader:
     """
 
     @staticmethod
+    async def get_for_user_in_connection(
+        conn: asyncpg.Connection,
+        internal_user_id: str,
+    ) -> SubscriptionSnapshot | None:
+        row = await conn.fetchrow(
+            """
+            SELECT internal_user_id, state_label, active_until_utc, plan_id, device_count,
+                   trial_started_at, trial_expires_at
+            FROM subscription_snapshots
+            WHERE internal_user_id = $1::text
+            """,
+            internal_user_id,
+        )
+        if row is None:
+            return None
+        return SubscriptionSnapshot(
+            internal_user_id=row["internal_user_id"],
+            state_label=row["state_label"],
+            active_until_utc=row["active_until_utc"],
+            plan_id=row.get("plan_id"),
+            device_count=row.get("device_count"),
+            trial_started_at=row.get("trial_started_at"),
+            trial_expires_at=row.get("trial_expires_at"),
+        )
+
+    @staticmethod
     async def upsert_state_in_connection(
         conn: asyncpg.Connection,
         snapshot: SubscriptionSnapshot,
