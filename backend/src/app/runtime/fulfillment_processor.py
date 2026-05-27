@@ -245,15 +245,23 @@ async def process_fulfillment(
                 existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
                     conn, inp.internal_user_id,
                 )
+                _LOGGER.info(
+                    "fulfillment extend check user=%s existing=%s paid_at=%s",
+                    inp.internal_user_id,
+                    existing.active_until_utc.isoformat() if existing and existing.active_until_utc else None,
+                    inp.paid_at.isoformat(),
+                )
                 if (
                     existing is not None
                     and existing.active_until_utc is not None
                     and existing.active_until_utc > inp.paid_at
                 ):
                     extend_from = existing.active_until_utc
+                    _LOGGER.info("fulfillment EXTENDING from existing end=%s", extend_from.isoformat())
                 else:
                     extend_from = inp.paid_at
                 active_until_utc = extend_from + timedelta(days=inp.period_days)
+                _LOGGER.info("fulfillment new active_until=%s", active_until_utc.isoformat())
 
                 snapshot_plan_id = _plan_id_from_period_days(inp.period_days)
                 await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
