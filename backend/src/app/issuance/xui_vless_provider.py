@@ -112,6 +112,15 @@ def _build_vless_link(
     host = server.server_host
     port = server.server_port
     label = f"{server.country_flag} {server.label}"
+    if server.transport_type == "grpc":
+        return (
+            f"vless://{user_uuid}@{host}:{port}"
+            f"?type=grpc&security=reality"
+            f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+            f"&sid={server.reality_sid}&spx=%2F"
+            f"&serviceName={server.grpc_service_name}&encryption=none"
+            f"#{label}"
+        )
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
@@ -134,7 +143,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
         """SELECT id, label, country_code, country_flag, server_host, server_port,
                   ws_path, tls_sni, panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
-                  inbound_id, reality_pbk, reality_sid, reality_sni
+                  inbound_id, reality_pbk, reality_sid, reality_sni,
+                  transport_type, grpc_service_name
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -154,6 +164,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_pbk=r["reality_pbk"],
             reality_sid=r["reality_sid"],
             reality_sni=r["reality_sni"],
+            transport_type=r["transport_type"],
+            grpc_service_name=r["grpc_service_name"],
         )
         for r in rows
     )

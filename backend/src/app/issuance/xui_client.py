@@ -61,6 +61,8 @@ class XuiServerConfig:
     reality_pbk: str = ""
     reality_sid: str = ""
     reality_sni: str = ""
+    transport_type: str = "tcp"
+    grpc_service_name: str = ""
 
 
 class XuiApiClient:
