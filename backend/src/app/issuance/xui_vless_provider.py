@@ -93,7 +93,7 @@ async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -
 
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
-    prefix = "x-" if transport_type == "xhttp" else ""
+    prefix = {"xhttp": "x-", "grpc": "grpc-"}.get(transport_type, "")
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
@@ -119,6 +119,27 @@ def _build_vless_link(
             f"?type=xhttp&security=reality&path=%2F{path}"
             f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
             f"&sid={server.reality_sid}&spx=%2F"
+            f"#{label}"
+        )
+
+    if server.transport_type == "grpc":
+        service = server.grpc_service_name or "grpc"
+        return (
+            f"vless://{user_uuid}@{host}:{port}"
+            f"?type=grpc&security=reality"
+            f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+            f"&sid={server.reality_sid}&spx=%2F"
+            f"&serviceName={service}&mode=multi"
+            f"#{label}"
+        )
+
+    if server.transport_type == "ws":
+        path = server.ws_path.strip("/")
+        ws_host = server.tls_sni or host
+        return (
+            f"vless://{user_uuid}@{ws_host}:{port}"
+            f"?type=ws&security=tls&path=%2F{path}"
+            f"&host={ws_host}&fp=chrome&sni={ws_host}"
             f"#{label}"
         )
 
