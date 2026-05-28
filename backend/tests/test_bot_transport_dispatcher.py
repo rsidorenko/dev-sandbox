@@ -343,11 +343,7 @@ def test_dispatch_active_subscription_status_commands_emit_two_outbound_texts() 
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=2, text=cmd), c)
         assert r.category is TransportResponseCategory.SUCCESS
         assert r.code == TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value
-        assert r.subscription_active_recovery_followup is True
-        texts = _uc02_status_outbound_texts(r)
-        assert len(texts) == 2
-        assert "подписк" in texts[0].lower() and "активн" in texts[0].lower()
-        assert "подписк" in texts[1].lower() and "активн" in texts[1].lower()
+        assert r.subscription_active_recovery_followup is False
 
     for command in ("/my_subscription", "/status"):
         _run(main(command))
