@@ -149,7 +149,7 @@ def _build_vless_link(
         return (
             f"vless://{user_uuid}@{cdn_host}:{port}"
             f"?type=ws&security=tls&path=%2F{path}"
-            f"&host={cdn_host}&fp=chrome&sni={cdn_host}"
+            f"&host={cdn_host}&sni={cdn_host}"
             f"#{label}"
         )
 

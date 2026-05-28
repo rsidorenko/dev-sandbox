@@ -517,6 +517,7 @@ def test_cdn_transport_vless_link_format():
     assert "host=fi.techno-channel.ru" in link
     assert "sni=fi.techno-channel.ru" in link
     assert "flow=" not in link
+    assert "fp=" not in link
 
 
 def test_cdn_email_prefix():
