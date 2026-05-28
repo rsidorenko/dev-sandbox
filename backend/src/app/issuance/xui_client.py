@@ -61,6 +61,8 @@ class XuiServerConfig:
     reality_pbk: str = ""
     reality_sid: str = ""
     reality_sni: str = ""
+    transport_type: str = "tcp"
+    grpc_service_name: str = ""
 
 
 class XuiApiClient:
@@ -143,7 +145,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "xtls-rprx-vision",
+            "flow": "xtls-rprx-vision" if self._config.transport_type == "tcp" else "",
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
@@ -189,7 +191,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "xtls-rprx-vision",
+            "flow": "xtls-rprx-vision" if self._config.transport_type == "tcp" else "",
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",

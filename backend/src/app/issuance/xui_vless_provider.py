@@ -92,8 +92,9 @@ async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -
     return new_uuid
 
 
-def _email_from_internal(internal_user_id: str) -> str:
-    return f"user-{internal_user_id[:16]}"
+def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
+    prefix = "x-" if transport_type == "xhttp" else ""
+    return f"{prefix}user-{internal_user_id[:16]}"
 
 
 def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
@@ -105,18 +106,28 @@ def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
 def _build_vless_link(
     server: XuiServerConfig,
     user_uuid: str,
-    *,
-    flow: str = "xtls-rprx-vision",
 ) -> str:
-    """Build a vless:// URI for a specific server with Reality TLS."""
+    """Build a vless:// URI for a specific server."""
     host = server.server_host
     port = server.server_port
     label = f"{server.country_flag} {server.label}"
+
+    if server.transport_type == "xhttp":
+        path = server.ws_path.strip("/")
+        return (
+            f"vless://{user_uuid}@{host}:{port}"
+            f"?type=xhttp&security=reality&path=%2F{path}"
+            f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+            f"&sid={server.reality_sid}&spx=%2F"
+            f"#{label}"
+        )
+
+    # Default: TCP + Reality
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
         f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
-        f"&sid={server.reality_sid}&spx=%2F&flow={flow}"
+        f"&sid={server.reality_sid}&spx=%2F&flow=xtls-rprx-vision"
         f"#{label}"
     )
 
@@ -134,7 +145,9 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
         """SELECT id, label, country_code, country_flag, server_host, server_port,
                   ws_path, tls_sni, panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
-                  inbound_id, reality_pbk, reality_sid, reality_sni
+                  inbound_id, reality_pbk, reality_sid, reality_sni,
+                  COALESCE(transport_type, 'tcp') AS transport_type,
+                  COALESCE(grpc_service_name, '') AS grpc_service_name
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -154,6 +167,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_pbk=r["reality_pbk"],
             reality_sid=r["reality_sid"],
             reality_sni=r["reality_sni"],
+            transport_type=r["transport_type"],
+            grpc_service_name=r["grpc_service_name"],
         )
         for r in rows
     )
@@ -209,7 +224,6 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-        email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -219,11 +233,9 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
         async def _add_or_update(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult, str]:
+            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             existing_uuid = await client.resolve_client_uuid(email=email)
             if existing_uuid is not None:
-                # Delete then re-add to avoid 3x-ui client_traffics.enable desync bug.
-                # updateClient only updates inbounds.settings but NOT client_traffics.enable,
-                # causing the client to vanish from xray config on restart.
                 await client.delete_client(user_uuid=existing_uuid)
                 result = await client.add_client(
                     user_uuid=user_uuid,
@@ -299,9 +311,8 @@ class XuiVlessProvider(VlessProviderPort):
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        email = _email_from_internal(internal_user_id)
-
         async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
+            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             uuid = await client.resolve_client_uuid(email=email)
             return client, uuid
 
@@ -353,7 +364,6 @@ class XuiVlessProvider(VlessProviderPort):
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-        email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
 
         clients = await self._get_clients()
@@ -361,6 +371,7 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         async def _disable(client: XuiApiClient) -> XuiClientResult:
+            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
         results = await asyncio.gather(*[_disable(c) for c in clients], return_exceptions=True)
@@ -378,7 +389,6 @@ class XuiVlessProvider(VlessProviderPort):
     async def activate_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-        email = _email_from_internal(internal_user_id)
         expiry = _expiry_timestamp()
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -388,6 +398,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
         async def _reactivate(client: XuiApiClient) -> XuiClientResult:
+            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             await client.delete_client(user_uuid=user_uuid)
             return await client.add_client(
                 user_uuid=user_uuid,
