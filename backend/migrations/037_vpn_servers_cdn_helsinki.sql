@@ -6,7 +6,7 @@ INSERT INTO vpn_servers (
     ws_path, tls_sni, panel_url, panel_username, panel_password,
     inbound_id, transport_type, is_active
 ) SELECT
-    'Helsinki CDN', 'FI', '🇫🇮', 'fi.techno-channel.ru', 2087,
+    'Хельсинки ☁️4.0', 'FI', '🇫🇮', 'fi.techno-channel.ru', 2087,
     '/ws', 'fi.techno-channel.ru', panel_url, panel_username, panel_password,
     5, 'cdn', TRUE
 FROM vpn_servers
