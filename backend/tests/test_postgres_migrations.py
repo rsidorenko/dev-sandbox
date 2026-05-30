@@ -78,6 +78,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "038_vpn_servers_remove_grpc.sql",
         "039_vpn_servers_rename_labels.sql",
         "040_vpn_servers_fix_tcp_label_emoji.sql",
+        "041_vpn_servers_remove_flag_prefix.sql",
     ]
 
 
