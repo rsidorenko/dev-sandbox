@@ -8,7 +8,7 @@ INSERT INTO vpn_servers (
 ) SELECT
     'Хельсинки ☁️4.0', 'FI', '🇫🇮', 'fi.techno-channel.ru', 443,
     '/ws', 'fi.techno-channel.ru', panel_url, panel_username, panel_password,
-    6, 'cdn', TRUE
+    7, 'cdn', TRUE
 FROM vpn_servers
 WHERE server_host = '77.221.159.106' AND transport_type = 'tcp'
 LIMIT 1;
