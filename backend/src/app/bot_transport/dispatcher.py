@@ -255,18 +255,6 @@ async def dispatch_slice1_transport(
             )
             result = await composition.get_status.handle(status_input)
             transport = map_get_subscription_status_to_transport(result)
-            if (
-                result.outcome is OperationOutcomeCategory.SUCCESS
-                and result.active_until_utc is not None
-                and result.active_until_utc > datetime.now(UTC)
-                and result.safe_status
-                in (
-                    SafeUserStatusCategory.SUBSCRIPTION_ACTIVE,
-                    SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY,
-                    SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_READY,
-                )
-            ):
-                return replace(transport, subscription_active_recovery_followup=True)
             return transport
         case NormalizedSlice1ResendAccess(input=resend_input):
             allowed = await composition.command_rate_limiter.allow(

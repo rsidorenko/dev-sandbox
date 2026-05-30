@@ -494,3 +494,34 @@ def test_vless_link_uses_reality_tls():
     assert "sid=test-sid" in link
     assert "sni=example.com" in link
     assert link.startswith("vless://user-uuid-123@nl1.vpn.example.com:443")
+
+
+def test_cdn_transport_vless_link_format():
+    """CDN transport must produce WS+TLS link through Cloudflare CDN domain."""
+    from app.issuance.xui_vless_provider import _build_vless_link
+    from app.issuance.xui_vless_provider import XuiServerConfig
+
+    server = XuiServerConfig(
+        server_id=10, label="Helsinki CDN", country_code="FI", country_flag="\U0001f1eb\U0001f1ee",
+        server_host="fi.techno-channel.ru", server_port=2087,
+        ws_path="/ws", tls_sni="fi.techno-channel.ru",
+        panel_url="", panel_username="", panel_password="",
+        inbound_id=5, transport_type="cdn",
+    )
+    link = _build_vless_link(server, "test-uuid-999")
+
+    assert link.startswith("vless://test-uuid-999@fi.techno-channel.ru:2087")
+    assert "type=ws" in link
+    assert "security=tls" in link
+    assert "path=%2Fws" in link
+    assert "host=fi.techno-channel.ru" in link
+    assert "sni=fi.techno-channel.ru" in link
+    assert "flow=" not in link
+    assert "fp=" not in link
+
+
+def test_cdn_email_prefix():
+    """CDN transport must use 'cdn-' email prefix in 3x-ui."""
+    from app.issuance.xui_vless_provider import _email_from_internal
+
+    assert _email_from_internal("abc123", transport_type="cdn") == "cdn-user-abc123"

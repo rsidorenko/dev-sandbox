@@ -93,7 +93,7 @@ async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -
 
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
-    prefix = {"xhttp": "x-", "grpc": "grpc-"}.get(transport_type, "")
+    prefix = {"xhttp": "x-", "cdn": "cdn-"}.get(transport_type, "")
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
@@ -122,17 +122,6 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    if server.transport_type == "grpc":
-        service = server.grpc_service_name or "grpc"
-        return (
-            f"vless://{user_uuid}@{host}:{port}"
-            f"?type=grpc&security=reality"
-            f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
-            f"&sid={server.reality_sid}&spx=%2F"
-            f"&serviceName={service}&mode=multi"
-            f"#{label}"
-        )
-
     if server.transport_type == "ws":
         path = server.ws_path.strip("/")
         ws_host = server.tls_sni or host
@@ -140,6 +129,16 @@ def _build_vless_link(
             f"vless://{user_uuid}@{ws_host}:{port}"
             f"?type=ws&security=tls&path=%2F{path}"
             f"&host={ws_host}&fp=chrome&sni={ws_host}"
+            f"#{label}"
+        )
+
+    if server.transport_type == "cdn":
+        path = server.ws_path.strip("/")
+        cdn_host = server.tls_sni or host
+        return (
+            f"vless://{user_uuid}@{cdn_host}:{port}"
+            f"?type=ws&security=tls&path=%2F{path}"
+            f"&host={cdn_host}&sni={cdn_host}"
             f"#{label}"
         )
 
@@ -167,8 +166,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   ws_path, tls_sni, panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, reality_pbk, reality_sid, reality_sni,
-                  COALESCE(transport_type, 'tcp') AS transport_type,
-                  COALESCE(grpc_service_name, '') AS grpc_service_name
+                  COALESCE(transport_type, 'tcp') AS transport_type
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -189,7 +187,6 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_sid=r["reality_sid"],
             reality_sni=r["reality_sni"],
             transport_type=r["transport_type"],
-            grpc_service_name=r["grpc_service_name"],
         )
         for r in rows
     )

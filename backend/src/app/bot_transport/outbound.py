@@ -134,7 +134,7 @@ def build_subscription_active_recovery_confirmation_plan(transport: TransportSaf
         category=OutboundPlanCategory.SUCCESS,
         message_key=OutboundMessageKey.SUBSCRIPTION_ACTIVE_CONFIRMATION.value,
         next_action_key=None,
-        keyboard_marker=OutboundKeyboardMarker.FULFILLMENT_SUCCESS.value,
+        keyboard_marker=OutboundKeyboardMarker.NONE.value,
         correlation_id=transport.correlation_id,
         active_until_ymd=transport.active_until_ymd,
     )
