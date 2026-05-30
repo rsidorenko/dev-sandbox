@@ -76,6 +76,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "036_vpn_servers_transport.sql",
         "037_vpn_servers_cdn_helsinki.sql",
         "038_vpn_servers_remove_grpc.sql",
+        "039_vpn_servers_rename_labels.sql",
     ]
 
 
