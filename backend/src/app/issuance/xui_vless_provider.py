@@ -194,11 +194,41 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
     )
 
 
+async def _run_sequential_per_panel(
+    clients: list[XuiApiClient],
+    fn,
+) -> list[tuple[XuiApiClient, object]]:
+    """Run *fn(client)* for each client, sequential within the same panel.
+
+    Different 3x-ui panels can run in parallel, but inbounds on the **same**
+    panel must be sequential — concurrent ``addClient`` calls to one panel
+    cause a read-modify-write race in 3x-ui's internal store, silently
+    dropping clients.
+    """
+    from collections import OrderedDict
+
+    by_panel: OrderedDict[str, list[XuiApiClient]] = OrderedDict()
+    for c in clients:
+        key = c.server_config.panel_url
+        by_panel.setdefault(key, []).append(c)
+
+    results: list[tuple[XuiApiClient, object]] = []
+
+    async def _run_panel(panel_clients: list[XuiApiClient]) -> None:
+        for c in panel_clients:
+            r = await fn(c)
+            results.append((c, r))
+
+    await asyncio.gather(*[_run_panel(pcs) for pcs in by_panel.values()])
+    return results
+
+
 class XuiVlessProvider(VlessProviderPort):
     """Real VLESS provider: manages users across all active 3x-ui panels.
 
     Caches XuiApiClient instances with a TTL to avoid recreating HTTP clients
-    on every operation. All panel requests run concurrently via asyncio.gather.
+    on every operation.  Write operations run sequential-per-panel (parallel
+    across different panels) to avoid 3x-ui read-modify-write races.
     """
 
     def __init__(self, pool: asyncpg.Pool) -> None:
@@ -252,7 +282,7 @@ class XuiVlessProvider(VlessProviderPort):
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        async def _add_or_update(client: XuiApiClient) -> tuple[XuiApiClient, XuiClientResult, str]:
+        async def _add_or_update(client: XuiApiClient) -> tuple[XuiClientResult, str]:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             existing_uuid = await client.resolve_client_uuid(email=email)
             if existing_uuid is not None:
@@ -264,7 +294,7 @@ class XuiVlessProvider(VlessProviderPort):
                     enable=True,
                     limit_ip=limit_ip,
                 )
-                return client, result, user_uuid
+                return result, user_uuid
             result = await client.add_client(
                 user_uuid=user_uuid,
                 email=email,
@@ -272,16 +302,16 @@ class XuiVlessProvider(VlessProviderPort):
                 enable=True,
                 limit_ip=limit_ip,
             )
-            return client, result, user_uuid
+            return result, user_uuid
 
-        results = await asyncio.gather(*[_add_or_update(c) for c in clients], return_exceptions=True)
+        raw = await _run_sequential_per_panel(clients, _add_or_update)
 
         successes: list[tuple[XuiApiClient, str]] = []
-        for item in results:
+        for client, item in raw:
             if isinstance(item, Exception):
                 _LOGGER.warning("xui add_client exception: %s", item)
                 continue
-            client, result, effective_uuid = item
+            result, effective_uuid = item
             if result.outcome == XuiOutcome.SUCCESS:
                 successes.append((client, effective_uuid))
             else:
@@ -394,11 +424,11 @@ class XuiVlessProvider(VlessProviderPort):
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
-        results = await asyncio.gather(*[_disable(c) for c in clients], return_exceptions=True)
+        raw = await _run_sequential_per_panel(clients, _disable)
 
         any_disabled = any(
             not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
-            for r in results
+            for _, r in raw
         )
 
         if any_disabled:
@@ -428,11 +458,11 @@ class XuiVlessProvider(VlessProviderPort):
                 limit_ip=limit_ip,
             )
 
-        results = await asyncio.gather(*[_reactivate(c) for c in clients], return_exceptions=True)
+        raw = await _run_sequential_per_panel(clients, _reactivate)
 
         any_enabled = any(
             not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
-            for r in results
+            for _, r in raw
         )
 
         if any_enabled:
@@ -451,11 +481,11 @@ class XuiVlessProvider(VlessProviderPort):
         async def _delete(client: XuiApiClient) -> XuiClientResult:
             return await client.delete_client(user_uuid=user_uuid)
 
-        results = await asyncio.gather(*[_delete(c) for c in clients], return_exceptions=True)
+        raw = await _run_sequential_per_panel(clients, _delete)
 
         any_deleted = any(
             not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND)
-            for r in results
+            for _, r in raw
         )
 
         if any_deleted:
