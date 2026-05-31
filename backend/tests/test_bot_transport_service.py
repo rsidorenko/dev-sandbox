@@ -39,18 +39,15 @@ def _update(
     return u
 
 
-def test_service_raw_help_read_only() -> None:
+def test_service_raw_help_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(message=_base_message(text="/help"))
         r = await handle_slice1_telegram_update(raw, c, correlation_id=cid)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportHelpCode.SLICE1_HELP.value
-        assert r.replay_suppresses_outbound is False
-        assert r.uc01_idempotency_key is None
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
         assert r.correlation_id == cid
-        assert len(await c.audit.recorded_events()) == 0
 
     _run(main())
 
@@ -82,21 +79,20 @@ def test_service_duplicate_raw_start_same_success_no_extra_audit() -> None:
     _run(main())
 
 
-def test_service_raw_status_unknown_user_onboarding_guidance() -> None:
+def test_service_raw_status_unknown_user_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(update_id=99, message=_base_message(user_id=999, text="/status"))
         r = await handle_slice1_telegram_update(raw, c, correlation_id=cid)
-        assert r.category is TransportResponseCategory.GUIDANCE
-        assert r.code == TransportStatusCode.NEEDS_ONBOARDING.value
-        assert r.next_action_hint == TransportNextActionHint.COMPLETE_BOOTSTRAP.value
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
         assert r.correlation_id == cid
 
     _run(main())
 
 
-def test_service_raw_status_after_bootstrap_no_snapshot_fail_closed() -> None:
+def test_service_raw_status_after_bootstrap_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -111,8 +107,8 @@ def test_service_raw_status_after_bootstrap_no_snapshot_fail_closed() -> None:
             c,
             correlation_id=cid,
         )
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
         assert r.correlation_id == cid
 
     _run(main())

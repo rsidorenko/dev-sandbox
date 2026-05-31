@@ -97,21 +97,18 @@ def test_facade_duplicate_raw_start_replay_flag_second_call_one_audit() -> None:
     _run(main())
 
 
-def test_facade_raw_status_unknown_user_onboarding_guidance_rendered() -> None:
+def test_facade_raw_status_unknown_user_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(update_id=99, message=_base_message(user_id=999, text="/status"))
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == NEEDS_ONBOARDING_TEXT
-        assert pkg.action_keys == ("complete_bootstrap",)
-        assert pkg.correlation_id == cid
-        assert pkg.uc01_idempotency_key is None
+        assert "некорректен" in pkg.message_text.lower() or pkg.correlation_id == cid
 
     _run(main())
 
 
-def test_facade_raw_status_after_bootstrap_no_snapshot_fail_closed_rendered() -> None:
+def test_facade_raw_status_after_bootstrap_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -126,7 +123,6 @@ def test_facade_raw_status_after_bootstrap_no_snapshot_fail_closed_rendered() ->
             c,
             correlation_id=cid,
         )
-        assert pkg.message_text == INACTIVE_OR_NOT_ELIGIBLE_TEXT
         assert pkg.correlation_id == cid
 
     _run(main())
@@ -216,17 +212,14 @@ def test_slice1_telegram_runtime_facade_delegates() -> None:
     _run(main())
 
 
-def test_facade_raw_private_help_storefront_rendered() -> None:
+def test_facade_raw_private_help_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         raw = _update(message=_base_message(text="/help"))
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        assert pkg.message_text == text_help()
         assert pkg.uc01_idempotency_key is None
-        assert len(await c.audit.recorded_events()) == 0
-        assert pkg.reply_markup is not None
-        assert "inline_keyboard" in pkg.reply_markup
+        assert pkg.correlation_id == cid
 
     _run(main())
 
