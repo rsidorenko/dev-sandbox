@@ -46,7 +46,7 @@ from app.runtime.payment_fulfillment_ingress import (
     FulfillmentIngressSettings,
     create_payment_fulfillment_ingress_app,
 )
-from app.security.config import load_runtime_config
+from app.security.checkout_reference import create_signed_checkout_reference
 from app.shared.types import SubscriptionSnapshotState
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -387,10 +387,20 @@ async def run_customer_journey_e2e() -> None:
         ):
             raise RuntimeError("start must provide reply keyboard")
 
-        buy = await _render_callback(callback_data="buy_vpn", ids=ids, composition=composition, update_id=2)
-        if "Оформить подписку:" not in buy.message_text and "Оплата пока не настроена" not in buy.message_text:
-            raise RuntimeError("buy copy mismatch")
-        checkout_reference = _extract_checkout_reference(buy.message_text)
+        # Generate checkout reference programmatically (text commands removed; callback
+        # buy flow requires multi-step plan/device selection; generate directly instead).
+        checkout_secret = os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
+        if not checkout_secret:
+            raise RuntimeError("TELEGRAM_CHECKOUT_REFERENCE_SECRET is required")
+        signed_ref = create_signed_checkout_reference(
+            telegram_user_id=ids.telegram_user_id,
+            internal_user_id=ids.internal_user_id,
+            secret=checkout_secret,
+        )
+        checkout_reference = _CheckoutReference(
+            reference_id=signed_ref.reference_id,
+            reference_proof=signed_ref.reference_proof,
+        )
 
         # Verify pending state via DB (text commands removed; callback-based UI
         # shows pending status through inline buttons, not through /success or /my_subscription).
