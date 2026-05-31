@@ -47,6 +47,7 @@ from app.runtime.payment_fulfillment_ingress import (
     create_payment_fulfillment_ingress_app,
 )
 from app.security.checkout_reference import create_signed_checkout_reference
+from app.security.config import load_runtime_config
 from app.shared.types import SubscriptionSnapshotState
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
