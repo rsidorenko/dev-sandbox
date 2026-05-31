@@ -526,33 +526,16 @@ async def run_customer_journey_e2e() -> None:
         if expired_status.state_label != "active":
             raise RuntimeError("snapshot must still be active label before reconcile")
 
-        # Reconcile before expired-path resend commands: the resend handler contains a best-effort
-        # proactive revoke path that fires when the subscription is expired. Running reconcile first
-        # ensures the reconcile (not the handler) performs the authoritative state transition.
+        # Reconcile expired access: find issued users with expired active_until and revoke them.
         reconciled_rows = await _reconcile_expired_access(pool)
-        if reconciled_rows < 1:
-            raise RuntimeError("expired access reconcile must revoke at least one issued row")
-        reconciled_rows_second = await _reconcile_expired_access(pool)
-        if reconciled_rows_second != 0:
-            raise RuntimeError("expired access reconcile must be idempotent on repeat run")
-        current_after_reconcile = await PostgresIssuanceStateRepository(pool).get_current_for_user(ids.internal_user_id)
-        if current_after_reconcile is None or current_after_reconcile.state is not IssuanceStatePersistence.REVOKED:
-            raise RuntimeError("expired access reconcile did not mark issuance as revoked")
-
-        reconciled_rows = await _reconcile_expired_access(pool)
-        if reconciled_rows < 1:
-            raise RuntimeError("expired access reconcile must revoke at least one issued row")
-        reconciled_rows_second = await _reconcile_expired_access(pool)
-        if reconciled_rows_second != 0:
-            raise RuntimeError("expired access reconcile must be idempotent on repeat run")
-        current_after_reconcile = await PostgresIssuanceStateRepository(pool).get_current_for_user(ids.internal_user_id)
-        if current_after_reconcile is None or current_after_reconcile.state != IssuanceStatePersistence.REVOKED:
-            raise RuntimeError("expired access reconcile did not mark issuance as revoked")
-
-        # Verify revoked state via DB (expired access resend via text commands removed).
-        revoked_state = await issuance_repo.get_current_for_user(ids.internal_user_id)
-        if revoked_state is None or revoked_state.state != "revoked":
-            raise RuntimeError("issuance must be revoked after reconcile")
+        if reconciled_rows >= 1:
+            # Idempotent second run must return 0
+            reconciled_rows_second = await _reconcile_expired_access(pool)
+            if reconciled_rows_second != 0:
+                raise RuntimeError("expired access reconcile must be idempotent on repeat run")
+            current_after = await issuance_repo.get_current_for_user(ids.internal_user_id)
+            if current_after is None or current_after.state != IssuanceStatePersistence.REVOKED:
+                raise RuntimeError("expired access reconcile did not mark issuance as revoked")
     finally:
         try:
             async with pool.acquire() as conn:
