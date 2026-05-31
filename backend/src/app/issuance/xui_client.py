@@ -62,12 +62,14 @@ class XuiServerConfig:
     reality_sid: str = ""
     reality_sni: str = ""
     transport_type: str = "tcp"
+    api_token: str = ""
 
 
 class XuiApiClient:
     """HTTP client for a single 3x-ui panel.
 
     Uses a lazily-created httpx.AsyncClient with connection pool limits.
+    Supports both session login (username/password) and Bearer token auth.
     Session cookies are cached — login is skipped if a recent session exists.
     """
 
@@ -104,6 +106,17 @@ class XuiApiClient:
 
         client = await self._get_client()
         try:
+            if self._config.api_token:
+                resp = await client.get(
+                    f"{self._base}/panel/api/inbounds/list",
+                    headers={"Authorization": f"Bearer {self._config.api_token}"},
+                    timeout=_DEFAULT_TIMEOUT,
+                )
+                if resp.status_code == 200:
+                    self._last_login_ts = time.monotonic()
+                    return True
+                return False
+            await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
             resp = await client.post(
                 f"{self._base}/login",
                 data={
@@ -227,6 +240,7 @@ class XuiApiClient:
 
     async def restart_xray(self) -> bool:
         """Force 3x-ui to regenerate xray config and restart xray-core."""
+        headers = self._auth_headers()
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 client = await self._get_client()
@@ -234,6 +248,7 @@ class XuiApiClient:
                     return False
                 resp = await client.post(
                     f"{self._base}/panel/setting/restartXray",
+                    headers=headers,
                     timeout=10.0,
                 )
                 if resp.status_code == 401 and attempt == 0:
@@ -254,6 +269,7 @@ class XuiApiClient:
 
     async def resolve_client_uuid(self, *, email: str) -> str | None:
         """Resolve actual client UUID from panel by email. Returns None if not found."""
+        headers = self._auth_headers()
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 client = await self._get_client()
@@ -261,6 +277,7 @@ class XuiApiClient:
                     return None
                 resp = await client.get(
                     f"{self._base}/panel/api/inbounds/getClientTraffics/{email}",
+                    headers=headers,
                     timeout=_DEFAULT_TIMEOUT,
                 )
                 if resp.status_code == 401 and attempt == 0:
@@ -279,6 +296,11 @@ class XuiApiClient:
                     await asyncio_sleep(_RETRY_DELAY_SECONDS)
         return None
 
+    def _auth_headers(self) -> dict[str, str]:
+        if self._config.api_token:
+            return {"Authorization": f"Bearer {self._config.api_token}"}
+        return {}
+
     async def _do_client_op(
         self,
         method: str,
@@ -288,6 +310,7 @@ class XuiApiClient:
         user_uuid: str | None = None,
     ) -> XuiClientResult:
         last_result = XuiClientResult(outcome=XuiOutcome.ERROR)
+        headers = self._auth_headers()
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 client = await self._get_client()
@@ -295,9 +318,9 @@ class XuiApiClient:
                 if not await self._ensure_session():
                     return XuiClientResult(outcome=XuiOutcome.UNAUTHORIZED)
                 if method == "GET":
-                    resp = await client.get(url, timeout=_DEFAULT_TIMEOUT)
+                    resp = await client.get(url, headers=headers, timeout=_DEFAULT_TIMEOUT)
                 else:
-                    resp = await client.post(url, json=payload, timeout=_DEFAULT_TIMEOUT)
+                    resp = await client.post(url, json=payload, headers=headers, timeout=_DEFAULT_TIMEOUT)
                 # If session expired mid-request, force re-login and retry once
                 if resp.status_code == 401 and attempt == 0:
                     self._last_login_ts = 0.0
