@@ -343,20 +343,11 @@ async def test_access_smoke_uses_billing_path_and_adm02_remediation_not_direct_i
         calls.append(f"dispatch:{envelope.normalized_command_text}")
 
         class _Resp:
-            category = script.TransportResponseCategory.SUCCESS
+            category = script.TransportResponseCategory.ERROR
+            code = "invalid_input"
             correlation_id = "c"
             next_action_hint = None
 
-        if envelope.normalized_command_text == "/status":
-            status_call_count = dispatched_commands.count("/status")
-            if status_call_count == 1:
-                _Resp.code = script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value
-            else:
-                _Resp.code = script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_READY.value
-        elif envelope.normalized_command_text == "/get_access":
-            _Resp.code = script.TransportAccessResendCode.RESEND_ACCEPTED.value
-        else:
-            _Resp.code = "unexpected_code"
         return _Resp()
 
     async def forbid_upsert(*args, **kwargs):
@@ -411,69 +402,44 @@ async def test_access_smoke_uses_billing_path_and_adm02_remediation_not_direct_i
     adm01_ready_idx = calls.index("adm01:active_access_ready:ask_user_to_use_get_access")
     get_access_idx = calls.index("dispatch:/get_access")
     assert first_status_idx < adm01_not_ready_idx < adm02_once_idx < adm02_repeat_idx
-    assert adm02_repeat_idx < adm02_audit_idx < second_status_idx < adm01_ready_idx < get_access_idx
+    assert adm02_repeat_idx < adm02_audit_idx < second_status_idx < adm01_ready_idx
+    assert adm01_ready_idx < get_access_idx
     assert calls.count("cleanup") == 2
     assert calls[-1] == "pool.close"
 
 
 @pytest.mark.asyncio
-async def test_transport_surface_blobs_for_status_and_get_access_stay_leak_free(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_transport_rejection_assertion_works_for_removed_commands() -> None:
     script = _load_script_module()
-    leaked: dict[str, str] = {}
 
-    def fake_assert_no_forbidden(text: str) -> None:
-        lowered = text.lower()
-        for forbidden in _FORBIDDEN:
-            assert forbidden.lower() not in lowered
-        leaked["ok"] = text
-
-    monkeypatch.setattr(script, "_assert_no_forbidden_output", fake_assert_no_forbidden)
-    script._assert_transport_success_code(
+    # ERROR response should pass _assert_transport_rejected
+    script._assert_transport_rejected(
         type(
             "_Response",
             (),
             {
-                "category": script.TransportResponseCategory.SUCCESS,
-                "code": script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value,
+                "category": script.TransportResponseCategory.ERROR,
+                "code": "invalid_input",
                 "correlation_id": "cid-1",
                 "next_action_hint": None,
             },
         )(),
-        expected_code=script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value,
     )
-    assert leaked["ok"] == "success|subscription_active_access_not_ready|cid-1|"
 
-    script._assert_transport_success_code(
-        type(
-            "_Response",
-            (),
-            {
-                "category": script.TransportResponseCategory.SUCCESS,
-                "code": script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_READY.value,
-                "correlation_id": "cid-2",
-                "next_action_hint": None,
-            },
-        )(),
-        expected_code=script.TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_READY.value,
-    )
-    assert leaked["ok"] == "success|subscription_active_access_ready|cid-2|"
-
-    script._assert_transport_success_code(
-        type(
-            "_Response",
-            (),
-            {
-                "category": script.TransportResponseCategory.SUCCESS,
-                "code": script.TransportAccessResendCode.RESEND_ACCEPTED.value,
-                "correlation_id": "cid-3",
-                "next_action_hint": None,
-            },
-        )(),
-        expected_code=script.TransportAccessResendCode.RESEND_ACCEPTED.value,
-    )
-    assert leaked["ok"] == "success|resend_access_accepted|cid-3|"
+    # SUCCESS response should fail _assert_transport_rejected
+    with pytest.raises(RuntimeError, match="expected transport rejection"):
+        script._assert_transport_rejected(
+            type(
+                "_Response",
+                (),
+                {
+                    "category": script.TransportResponseCategory.SUCCESS,
+                    "code": "some_code",
+                    "correlation_id": "cid-2",
+                    "next_action_hint": None,
+                },
+            )(),
+        )
 
 
 @pytest.mark.asyncio

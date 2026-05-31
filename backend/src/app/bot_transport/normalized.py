@@ -22,16 +22,6 @@ _MAX_COMMAND_TOKEN_LEN = 64
 _REF_START_RE = __import__("re").compile(r"^ref_([a-z0-9]{4,32})$", __import__("re").IGNORECASE)
 
 _SLICE1_BOOTSTRAP_COMMANDS: frozenset[str] = frozenset({"/start"})
-_SLICE1_STATUS_COMMANDS: frozenset[str] = frozenset({"/status", "/my_subscription"})
-_SLICE1_MENU_COMMANDS: frozenset[str] = frozenset({"/menu"})
-_SLICE1_HELP_COMMANDS: frozenset[str] = frozenset({"/help"})
-_SLICE1_RESEND_COMMANDS: frozenset[str] = frozenset({"/resend_access", "/get_access"})
-_SLICE1_PLANS_COMMANDS: frozenset[str] = frozenset({"/plans"})
-_SLICE1_BUY_COMMANDS: frozenset[str] = frozenset({"/buy", "/checkout"})
-_SLICE1_SUCCESS_COMMANDS: frozenset[str] = frozenset({"/success"})
-_SLICE1_RENEW_COMMANDS: frozenset[str] = frozenset({"/renew"})
-_SLICE1_SUPPORT_MENU_COMMANDS: frozenset[str] = frozenset({"/support"})
-_SLICE1_SUPPORT_CONTACT_COMMANDS: frozenset[str] = frozenset({"/support_contact"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,53 +217,5 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
             ),
             referral_code=ref_code,
         )
-
-    if token in _SLICE1_STATUS_COMMANDS:
-        return NormalizedSlice1Status(
-            input=GetSubscriptionStatusInput(
-                telegram_user_id=envelope.telegram_user_id,
-                correlation_id=envelope.correlation_id,
-            ),
-        )
-
-    if token in _SLICE1_RESEND_COMMANDS:
-        if envelope.telegram_update_id is None:
-            return NormalizedSlice1Rejected(
-                reason=NormalizationRejectReason.MISSING_EVENT_ID_FOR_RESEND,
-            )
-        try:
-            validate_telegram_update_id(envelope.telegram_update_id)
-        except ValidationError:
-            return NormalizedSlice1Rejected(reason=NormalizationRejectReason.INVALID_INPUT)
-        source_command = (
-            TelegramAccessResendSourceCommand.RESEND_ACCESS
-            if token == "/resend_access"
-            else TelegramAccessResendSourceCommand.GET_ACCESS
-        )
-        return NormalizedSlice1ResendAccess(
-            input=TelegramAccessResendInput(
-                telegram_user_id=envelope.telegram_user_id,
-                telegram_update_id=envelope.telegram_update_id,
-                correlation_id=envelope.correlation_id,
-                source_command=source_command,
-            ),
-        )
-
-    if token in _SLICE1_MENU_COMMANDS:
-        return NormalizedSlice1Menu(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_HELP_COMMANDS:
-        return NormalizedSlice1Help(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_PLANS_COMMANDS:
-        return NormalizedSlice1Plans(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_BUY_COMMANDS:
-        return NormalizedSlice1Buy(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_SUCCESS_COMMANDS:
-        return NormalizedSlice1Success(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_RENEW_COMMANDS:
-        return NormalizedSlice1Renew(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_SUPPORT_MENU_COMMANDS:
-        return NormalizedSlice1SupportMenu(correlation_id=envelope.correlation_id)
-    if token in _SLICE1_SUPPORT_CONTACT_COMMANDS:
-        return NormalizedSlice1SupportContact(correlation_id=envelope.correlation_id)
 
     return NormalizedSlice1Rejected(reason=NormalizationRejectReason.UNKNOWN_COMMAND)

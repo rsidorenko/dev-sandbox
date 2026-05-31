@@ -117,39 +117,32 @@ def test_dispatch_duplicate_start_idempotent_same_success_no_extra_audit() -> No
     _run(main())
 
 
-def test_dispatch_status_bootstrapped_no_snapshot_fail_closed() -> None:
+def test_dispatch_status_bootstrapped_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         uid = 77
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=2, text="/start"), c)
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
         assert r.correlation_id == cid
-        _assert_uc02_transport_has_no_sensitive_leaks(r, forbidden_substrings=(internal,))
 
     _run(main())
 
 
-def test_dispatch_status_unknown_user_onboarding_guidance() -> None:
+def test_dispatch_status_unknown_user_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         r = await dispatch_slice1_transport(_env(cid=cid, uid=999, text="/status"), c)
-        assert r.category is TransportResponseCategory.GUIDANCE
-        assert r.code == TransportStatusCode.NEEDS_ONBOARDING.value
-        assert r.next_action_hint == TransportNextActionHint.COMPLETE_BOOTSTRAP.value
-        assert r.correlation_id == cid
-        _assert_uc02_transport_has_no_sensitive_leaks(r, forbidden_substrings=("u999",))
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_status_needs_review_when_snapshot_requires_review() -> None:
-    """Persisted-style snapshot label maps to transport UC-02 code (deterministic, in-memory)."""
-
+def test_dispatch_status_needs_review_rejected_as_unknown() -> None:
     async def main() -> None:
         snaps = InMemorySubscriptionSnapshotReader()
         c = build_slice1_composition(
@@ -160,24 +153,19 @@ def test_dispatch_status_needs_review_when_snapshot_requires_review() -> None:
         )
         cid = new_correlation_id()
         uid = 42
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=3, text="/start"), c)
         await snaps.upsert_for_tests(
-            internal,
-            SubscriptionSnapshot(internal_user_id=internal, state_label="needs_review"),
+            f"u{uid}",
+            SubscriptionSnapshot(internal_user_id=f"u{uid}", state_label="needs_review"),
         )
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.NEEDS_REVIEW.value
-        assert r.correlation_id == cid
-        _assert_uc02_transport_has_no_sensitive_leaks(r, forbidden_substrings=(internal,))
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_status_known_user_missing_snapshot_row_fail_closed() -> None:
-    """Known identity + absent snapshot row => same fail-closed inactive transport as default inactive."""
-
+def test_dispatch_status_known_user_missing_snapshot_rejected_as_unknown() -> None:
     async def main() -> None:
         snaps = InMemorySubscriptionSnapshotReader()
         c = build_slice1_composition(
@@ -188,80 +176,54 @@ def test_dispatch_status_known_user_missing_snapshot_row_fail_closed() -> None:
         )
         cid = new_correlation_id()
         uid = 55
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=4, text="/start"), c)
-        await snaps.upsert_for_tests(internal, None)
+        await snaps.upsert_for_tests(f"u{uid}", None)
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
-        assert r.correlation_id == cid
-        _assert_uc02_transport_has_no_sensitive_leaks(r, forbidden_substrings=(internal,))
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_help_read_only_no_handlers() -> None:
+def test_dispatch_help_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         r = await dispatch_slice1_transport(_env(cid=cid, text="/help"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportHelpCode.SLICE1_HELP.value
-        assert r.replay_suppresses_outbound is False
-        assert r.uc01_idempotency_key is None
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
         assert r.correlation_id == cid
-        assert len(await c.audit.recorded_events()) == 0
 
     _run(main())
 
 
-def test_dispatch_support_renders_safe_text_and_hides_checkout_secret(monkeypatch) -> None:
-    """Transport codes only; rendered copy must not echo unrelated secrets from env."""
-
+def test_dispatch_support_rejected_as_unknown(monkeypatch) -> None:
     async def main() -> None:
-        monkeypatch.setenv(
-            "TELEGRAM_CHECKOUT_REFERENCE_SECRET",
-            "MustNeverAppearInSupportCopy123",
-        )
-        monkeypatch.delenv("TELEGRAM_STOREFRONT_SUPPORT_URL", raising=False)
-        monkeypatch.delenv("TELEGRAM_STOREFRONT_SUPPORT_HANDLE", raising=False)
         c = build_slice1_composition()
         cid = new_correlation_id()
         r_menu = await dispatch_slice1_transport(_env(cid=cid, text="/support"), c)
         r_contact = await dispatch_slice1_transport(_env(cid=cid, text="/support_contact"), c)
-        pkg_menu = render_telegram_outbound_plan(map_transport_safe_to_outbound_plan(r_menu))
-        pkg_contact = render_telegram_outbound_plan(map_transport_safe_to_outbound_plan(r_contact))
-        assert "Помощь и поддержка" in pkg_menu.message_text
-        assert "MustNeverAppearInSupportCopy123" not in pkg_menu.message_text
-        assert "MustNeverAppearInSupportCopy123" not in pkg_contact.message_text
-        assert "Поддержка временно недоступна" in pkg_contact.message_text
+        assert r_menu.category is TransportResponseCategory.ERROR
+        assert r_menu.code == TransportErrorCode.INVALID_INPUT.value
+        assert r_contact.category is TransportResponseCategory.ERROR
+        assert r_contact.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_storefront_commands_success_codes() -> None:
+def test_dispatch_storefront_commands_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
-        plans = await dispatch_slice1_transport(_env(cid=cid, text="/plans"), c)
-        buy = await dispatch_slice1_transport(_env(cid=cid, text="/buy"), c)
-        checkout = await dispatch_slice1_transport(_env(cid=cid, text="/checkout"), c)
-        success = await dispatch_slice1_transport(_env(cid=cid, text="/success"), c)
-        renew = await dispatch_slice1_transport(_env(cid=cid, text="/renew"), c)
-        support = await dispatch_slice1_transport(_env(cid=cid, text="/support"), c)
-        support_contact = await dispatch_slice1_transport(_env(cid=cid, text="/support_contact"), c)
-        assert plans.code == TransportStorefrontCode.STORE_PLANS.value
-        assert buy.code == TransportStorefrontCode.STORE_BUY.value
-        assert checkout.code == TransportStorefrontCode.STORE_BUY.value
-        assert success.code == TransportStorefrontCode.STORE_SUCCESS.value
-        assert renew.code == TransportStorefrontCode.STORE_RENEW.value
-        assert support.code == TransportSupportCode.SUPPORT_MENU.value
-        assert support_contact.code == TransportSupportCode.SUPPORT_CONTACT.value
+        for cmd in ("/plans", "/buy", "/checkout", "/success", "/renew", "/support", "/support_contact"):
+            r = await dispatch_slice1_transport(_env(cid=cid, text=cmd), c)
+            assert r.category is TransportResponseCategory.ERROR, f"{cmd} should be rejected"
+            assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_success_shows_active_code_only_for_active_snapshot() -> None:
+def test_dispatch_success_rejected_as_unknown() -> None:
     async def main() -> None:
         snaps = InMemorySubscriptionSnapshotReader()
         c = build_slice1_composition(
@@ -272,23 +234,15 @@ def test_dispatch_success_shows_active_code_only_for_active_snapshot() -> None:
         )
         cid = new_correlation_id()
         uid = 707
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
-
-        pending = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/success"), c)
-        assert pending.code == TransportStorefrontCode.STORE_SUCCESS.value
-
-        await snaps.upsert_for_tests(
-            internal,
-            SubscriptionSnapshot(internal_user_id=internal, state_label="active"),
-        )
-        active = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/success"), c)
-        assert active.code == TransportStorefrontCode.STORE_SUCCESS_ACTIVE.value
+        r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/success"), c)
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_status_expired_when_active_window_is_past() -> None:
+def test_dispatch_my_subscription_rejected_as_unknown() -> None:
     async def main() -> None:
         snaps = InMemorySubscriptionSnapshotReader()
         c = build_slice1_composition(
@@ -299,27 +253,23 @@ def test_dispatch_status_expired_when_active_window_is_past() -> None:
         )
         cid = new_correlation_id()
         uid = 808
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         await snaps.upsert_for_tests(
-            internal,
+            f"u{uid}",
             SubscriptionSnapshot(
-                internal_user_id=internal,
+                internal_user_id=f"u{uid}",
                 state_label="active",
                 active_until_utc=datetime.now(UTC) - timedelta(days=1),
             ),
         )
         expired = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/my_subscription"), c)
-        assert expired.code == TransportStatusCode.SUBSCRIPTION_EXPIRED.value
-        assert expired.subscription_active_recovery_followup is False
-        assert len(_uc02_status_outbound_texts(expired)) == 1
+        assert expired.category is TransportResponseCategory.ERROR
+        assert expired.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_active_subscription_status_commands_emit_two_outbound_texts() -> None:
-    """Active window + billing-backed active snapshot → status copy plus recovery confirmation."""
-
+def test_dispatch_active_subscription_status_commands_rejected_as_unknown() -> None:
     async def main(cmd: str) -> None:
         snaps = InMemorySubscriptionSnapshotReader()
         c = build_slice1_composition(
@@ -330,47 +280,45 @@ def test_dispatch_active_subscription_status_commands_emit_two_outbound_texts() 
         )
         cid = new_correlation_id()
         uid = 909
-        internal = f"u{uid}"
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         await snaps.upsert_for_tests(
-            internal,
+            f"u{uid}",
             SubscriptionSnapshot(
-                internal_user_id=internal,
+                internal_user_id=f"u{uid}",
                 state_label="active",
                 active_until_utc=datetime.now(UTC) + timedelta(days=30),
             ),
         )
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=2, text=cmd), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value
-        assert r.subscription_active_recovery_followup is False
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     for command in ("/my_subscription", "/status"):
         _run(main(command))
 
 
-def test_dispatch_inactive_subscription_status_single_outbound_text() -> None:
+def test_dispatch_inactive_subscription_status_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         uid = 910
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=2, text="/status"), c)
-        assert r.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
-        assert r.subscription_active_recovery_followup is False
-        assert len(_uc02_status_outbound_texts(r)) == 1
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
 def test_dispatch_help_then_start_only_bootstrap_audit() -> None:
-    """Help must not run UC-01; first audit event appears only on /start."""
+    """Help is rejected; first audit event appears only on /start."""
 
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         h = await dispatch_slice1_transport(_env(cid=cid, uid=11, text="/help"), c)
-        assert h.code == TransportHelpCode.SLICE1_HELP.value
+        assert h.category is TransportResponseCategory.ERROR
+        assert h.code == TransportErrorCode.INVALID_INPUT.value
         s = await dispatch_slice1_transport(
             _env(cid=cid, uid=11, text="/start", update_id=1),
             c,
@@ -381,29 +329,28 @@ def test_dispatch_help_then_start_only_bootstrap_audit() -> None:
     _run(main())
 
 
-def test_dispatch_resend_access_command_routes_to_resend_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dispatch_resend_access_rejected_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_ACCESS_RESEND_ENABLE", raising=False)
 
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         r = await dispatch_slice1_transport(_env(cid=cid, uid=22, update_id=9, text="/resend_access"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportAccessResendCode.NOT_ENABLED.value
-        assert r.correlation_id == cid
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_get_access_alias_routes_to_resend_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dispatch_get_access_alias_rejected_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_ACCESS_RESEND_ENABLE", raising=False)
 
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         r = await dispatch_slice1_transport(_env(cid=cid, uid=22, update_id=10, text="/get_access"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportAccessResendCode.NOT_ENABLED.value
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
@@ -424,7 +371,7 @@ def test_dispatch_invalid_telegram_user_id_rejected() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
-        r = await dispatch_slice1_transport(_env(cid=cid, uid=0, text="/status"), c)
+        r = await dispatch_slice1_transport(_env(cid=cid, uid=0, text="/start", update_id=1), c)
         assert r.category is TransportResponseCategory.ERROR
         assert r.code == TransportErrorCode.INVALID_INPUT.value
 
@@ -468,7 +415,7 @@ def test_slice1_dispatcher_class_delegates() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
         d = Slice1Dispatcher(c)
-        r = await d.dispatch(_env(cid=cid, text="/status"))
+        r = await d.dispatch(_env(cid=cid, text="/start", update_id=1))
         assert r.correlation_id == cid
 
     _run(main())
@@ -484,7 +431,7 @@ def test_dispatcher_module_excludes_billing_issuance_admin_concepts() -> None:
     assert "admin" not in lower
 
 
-def test_dispatch_status_rate_limited_after_window_exhausted() -> None:
+def test_dispatch_status_rejected_consistently() -> None:
     async def main() -> None:
         limiter = InMemoryTelegramCommandRateLimiter(
             status_limit=2,
@@ -500,18 +447,15 @@ def test_dispatch_status_rate_limited_after_window_exhausted() -> None:
         cid = new_correlation_id()
         uid = 501
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
-        r1 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        r2 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        r3 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r1.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
-        assert r2.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
-        assert r3.category is TransportResponseCategory.ERROR
-        assert r3.code == TransportErrorCode.TELEGRAM_COMMAND_RATE_LIMITED.value
+        for _ in range(3):
+            r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
+            assert r.category is TransportResponseCategory.ERROR
+            assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_my_subscription_alias_shares_status_bucket() -> None:
+def test_dispatch_my_subscription_alias_rejected_like_status() -> None:
     async def main() -> None:
         limiter = InMemoryTelegramCommandRateLimiter(
             status_limit=1,
@@ -529,13 +473,15 @@ def test_dispatch_my_subscription_alias_shares_status_bucket() -> None:
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         s = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
         ms = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/my_subscription"), c)
-        assert s.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
-        assert ms.code == TransportErrorCode.TELEGRAM_COMMAND_RATE_LIMITED.value
+        assert s.category is TransportResponseCategory.ERROR
+        assert s.code == TransportErrorCode.INVALID_INPUT.value
+        assert ms.category is TransportResponseCategory.ERROR
+        assert ms.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_get_access_and_resend_share_access_resend_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dispatch_get_access_and_resend_both_rejected_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_ACCESS_RESEND_ENABLE", raising=False)
 
     async def main() -> None:
@@ -554,14 +500,15 @@ def test_dispatch_get_access_and_resend_share_access_resend_bucket(monkeypatch: 
         uid = 502
         g = await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/get_access"), c)
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=2, text="/resend_access"), c)
-        assert g.code == TransportAccessResendCode.NOT_ENABLED.value
+        assert g.category is TransportResponseCategory.ERROR
+        assert g.code == TransportErrorCode.INVALID_INPUT.value
         assert r.category is TransportResponseCategory.ERROR
-        assert r.code == TransportErrorCode.TELEGRAM_COMMAND_RATE_LIMITED.value
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_rate_limit_telemetry_failure_does_not_block_allowed_status() -> None:
+def test_dispatch_telemetry_failure_does_not_block_status_rejection() -> None:
     class _BoomTelemetry(NoopTelegramCommandRateLimitTelemetry):
         async def emit_decision(self, event: TelegramCommandRateLimitDecisionEvent) -> None:
             _ = event
@@ -575,13 +522,13 @@ def test_dispatch_rate_limit_telemetry_failure_does_not_block_allowed_status() -
         uid = 503
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         r = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r.category is TransportResponseCategory.SUCCESS
-        assert r.code == TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
+        assert r.category is TransportResponseCategory.ERROR
+        assert r.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_rate_limited_still_emits_limited_when_telemetry_fails() -> None:
+def test_dispatch_status_rejected_even_when_telemetry_fails() -> None:
     class _BoomTelemetry(NoopTelegramCommandRateLimitTelemetry):
         async def emit_decision(self, event: TelegramCommandRateLimitDecisionEvent) -> None:
             _ = event
@@ -604,12 +551,13 @@ def test_dispatch_rate_limited_still_emits_limited_when_telemetry_fails() -> Non
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
         r2 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert r2.code == TransportErrorCode.TELEGRAM_COMMAND_RATE_LIMITED.value
+        assert r2.category is TransportResponseCategory.ERROR
+        assert r2.code == TransportErrorCode.INVALID_INPUT.value
 
     _run(main())
 
 
-def test_dispatch_rate_limit_emits_telemetry_events() -> None:
+def test_dispatch_status_no_rate_limit_events_since_command_rejected() -> None:
     class _Spy(NoopTelegramCommandRateLimitTelemetry):
         def __init__(self) -> None:
             self.events: list[TelegramCommandRateLimitDecisionEvent] = []
@@ -630,11 +578,11 @@ def test_dispatch_rate_limit_emits_telemetry_events() -> None:
         cid = new_correlation_id()
         uid = 505
         await dispatch_slice1_transport(_env(cid=cid, uid=uid, update_id=1, text="/start"), c)
-        await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
-        assert [e.decision for e in spy.events] == ["allowed", "limited"]
-        assert spy.events[0].command_bucket == "status"
-        assert spy.events[0].principal_marker == "telegram_user_redacted"
-        assert spy.events[0].correlation_id == cid
+        r1 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
+        r2 = await dispatch_slice1_transport(_env(cid=cid, uid=uid, text="/status"), c)
+        # Both /status calls are rejected before rate limiter is consulted
+        assert r1.category is TransportResponseCategory.ERROR
+        assert r2.category is TransportResponseCategory.ERROR
+        assert len(spy.events) == 0
 
     _run(main())

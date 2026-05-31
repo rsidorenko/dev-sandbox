@@ -127,7 +127,7 @@ def test_duplicate_start_same_update_id_one_send_one_audit() -> None:
     _run(main())
 
 
-def test_status_unknown_user_sends_onboarding() -> None:
+def test_status_unknown_user_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()
@@ -136,7 +136,7 @@ def test_status_unknown_user_sends_onboarding() -> None:
         r = await rt.process_batch([raw], correlation_id=new_correlation_id())
         assert r.send_count == 1
         assert client.send_calls[0][0] == 999
-        assert "/start" in client.send_calls[0][1]
+        assert "некорректен" in client.send_calls[0][1].lower()
 
     _run(main())
 
@@ -364,7 +364,7 @@ def test_start_send_failure_then_replay_sends_once_and_marks_sent() -> None:
     _run(main())
 
 
-def test_status_path_unchanged_with_ledger() -> None:
+def test_status_path_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()
@@ -372,6 +372,6 @@ def test_status_path_unchanged_with_ledger() -> None:
         raw = _update(update_id=20, message=_base_message(user_id=500, text="/status"))
         r = await rt.process_batch([raw], correlation_id=new_correlation_id())
         assert r.send_count == 1
-        assert "/start" in client.send_calls[0][1]
+        assert "некорректен" in client.send_calls[0][1].lower()
 
     _run(main())

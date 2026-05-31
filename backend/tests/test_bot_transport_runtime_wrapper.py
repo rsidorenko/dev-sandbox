@@ -81,7 +81,7 @@ def test_runtime_wrapper_duplicate_private_start_first_send_second_noop_one_audi
     _run(main())
 
 
-def test_runtime_wrapper_private_status_unknown_user_send_onboarding() -> None:
+def test_runtime_wrapper_private_status_unknown_user_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -89,14 +89,13 @@ def test_runtime_wrapper_private_status_unknown_user_send_onboarding() -> None:
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
         assert action.chat_id == 999
-        assert action.message_text == NEEDS_ONBOARDING_TEXT
-        assert action.action_keys == ("complete_bootstrap",)
+        assert action.message_text == "❌ Ввод некорректен. Попробуйте снова."
         assert action.correlation_id == cid
 
     _run(main())
 
 
-def test_runtime_wrapper_private_status_after_bootstrap_no_snapshot_inactive_send() -> None:
+def test_runtime_wrapper_private_status_after_bootstrap_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -113,15 +112,13 @@ def test_runtime_wrapper_private_status_after_bootstrap_no_snapshot_inactive_sen
         )
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
         assert action.chat_id == uid
-        assert action.message_text == INACTIVE_OR_NOT_ELIGIBLE_TEXT
+        assert action.message_text == "❌ Ввод некорректен. Попробуйте снова."
         assert action.correlation_id == cid
 
     _run(main())
 
 
-def test_runtime_wrapper_private_help_send_message_no_uc01_ledger() -> None:
-    """read-only /help: one send, no UC-01 idempotency key, no delivery ledger handoff."""
-
+def test_runtime_wrapper_private_help_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         cid = new_correlation_id()
@@ -131,12 +128,9 @@ def test_runtime_wrapper_private_help_send_message_no_uc01_ledger() -> None:
         )
         action = await handle_slice1_telegram_update_to_runtime_action(raw, c, correlation_id=cid)
         assert action.kind is TelegramRuntimeActionKind.SEND_MESSAGE
-        assert action.message_text == text_help()
-        assert action.action_keys == ()
-        assert action.reply_markup is not None
+        assert action.message_text == "❌ Ввод некорректен. Попробуйте снова."
         assert action.uc01_idempotency_key is None
         assert action.chat_id == 33
-        assert len(await c.audit.recorded_events()) == 0
 
     _run(main())
 

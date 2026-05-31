@@ -147,12 +147,11 @@ def test_e2e_live_one_iteration_one_start_one_send() -> None:
     _run(main())
 
 
-def test_e2e_two_live_iterations_start_then_status_fail_closed_inactive() -> None:
+def test_e2e_two_live_iterations_start_then_status_rejected() -> None:
     uid = 99
     start_u = _update(update_id=1, message=_base_message(user_id=uid, text="/start"))
     status_u = _update(update_id=2, message=_base_message(user_id=uid, text="/status"))
     client = FakeRawClient(rounds=[[start_u], [status_u]])
-    inactive = INACTIVE_OR_NOT_ELIGIBLE_TEXT
 
     async def main() -> None:
         b = build_slice1_in_memory_live_raw_runtime_bundle(client, accept_mapping_runtime_update)
@@ -168,7 +167,8 @@ def test_e2e_two_live_iterations_start_then_status_fail_closed_inactive() -> Non
         )
         assert s1.send_count == 1 and s2.send_count == 1
         assert len(client.send_calls) == 2
-        assert client.send_calls[1][1] == inactive
+        # /status is now rejected as unknown command
+        assert "некорректен" in client.send_calls[1][1].lower()
 
     _run(main())
 
