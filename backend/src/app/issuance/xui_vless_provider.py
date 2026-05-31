@@ -166,7 +166,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   ws_path, tls_sni, panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, reality_pbk, reality_sid, reality_sni,
-                  COALESCE(transport_type, 'tcp') AS transport_type
+                  COALESCE(transport_type, 'tcp') AS transport_type,
+                  COALESCE(api_token, '') AS api_token
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -187,6 +188,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_sid=r["reality_sid"],
             reality_sni=r["reality_sni"],
             transport_type=r["transport_type"],
+            api_token=r["api_token"],
         )
         for r in rows
     )
