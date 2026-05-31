@@ -1,4 +1,4 @@
-"""PostgreSQL MVP e2e smoke: synthetic active user -> ADM-02 ensure-access -> /get_access resend accepted."""
+"""PostgreSQL MVP e2e smoke: synthetic active user -> ADM-02 ensure-access via admin endpoints."""
 
 from __future__ import annotations
 
@@ -59,9 +59,7 @@ from app.application.billing_subscription_apply_main import async_run_apply
 from app.bot_transport.dispatcher import dispatch_slice1_transport
 from app.bot_transport.normalized import TransportIncomingEnvelope
 from app.bot_transport.presentation import (
-    TransportAccessResendCode,
     TransportResponseCategory,
-    TransportStatusCode,
 )
 from app.domain.billing_apply_rules import UC05_ALLOWLISTED_EVENT_TYPE_SUBSCRIPTION_ACTIVATED
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
@@ -335,6 +333,12 @@ def _assert_transport_success_code(response, *, expected_code: str) -> None:
         raise RuntimeError("transport response code mismatch")
 
 
+def _assert_transport_rejected(response) -> None:
+    if response.category is TransportResponseCategory.ERROR:
+        return
+    raise RuntimeError("expected transport rejection for removed text command")
+
+
 def _build_adm01_lookup_handler_with_existing_pool(pool: asyncpg.Pool):
     identities = PostgresUserIdentityRepository(pool)
     snapshots = PostgresSubscriptionSnapshotReader(pool)
@@ -593,10 +597,9 @@ async def run_postgres_mvp_access_fulfillment_e2e() -> None:
             ids=ids,
             composition=composition,
         )
-        _assert_transport_success_code(
-            status_before_issue,
-            expected_code=TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_NOT_READY.value,
-        )
+        # /status text command is removed; verify it's rejected before checking ADM-01
+        _assert_transport_rejected(status_before_issue)
+
         await _assert_adm01_support_readiness(
             handler=adm01_lookup_handler,
             ids=ids,
@@ -624,10 +627,8 @@ async def run_postgres_mvp_access_fulfillment_e2e() -> None:
             ids=ids,
             composition=composition,
         )
-        _assert_transport_success_code(
-            status_after_issue,
-            expected_code=TransportStatusCode.SUBSCRIPTION_ACTIVE_ACCESS_READY.value,
-        )
+        _assert_transport_rejected(status_after_issue)
+
         await _assert_adm01_support_readiness(
             handler=adm01_lookup_handler,
             ids=ids,
@@ -640,10 +641,7 @@ async def run_postgres_mvp_access_fulfillment_e2e() -> None:
             ids=ids,
             composition=composition,
         )
-        _assert_transport_success_code(
-            response,
-            expected_code=TransportAccessResendCode.RESEND_ACCEPTED.value,
-        )
+        _assert_transport_rejected(response)
     finally:
         try:
             async with pool.acquire() as conn:
