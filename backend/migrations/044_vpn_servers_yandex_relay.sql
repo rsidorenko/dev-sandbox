@@ -7,7 +7,7 @@ INSERT INTO vpn_servers (
     inbound_id, reality_pbk, reality_sid, reality_sni,
     transport_type, api_token, is_active
 ) VALUES (
-    'Франкфурт (Relay)', 'DE', '🇩🇪', '51.250.65.51', 443,
+    'Франкфурт 📶 LTE', 'DE', '🇷🇺🇩🇪', '51.250.65.51', 443,
     '/ws', NULL,
     'https://51.250.65.51:54023/Cq6xxAccNLaSEBcR0L',
     'qRyulczB26', 'GdHso7dQaX',
