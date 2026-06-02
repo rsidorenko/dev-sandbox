@@ -82,6 +82,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "042_vpn_servers_frankfurt.sql",
         "043_vpn_servers_api_token.sql",
         "044_vpn_servers_yandex_relay.sql",
+        "045_vpn_servers_yandex_ip_update.sql",
     ]
 
 
