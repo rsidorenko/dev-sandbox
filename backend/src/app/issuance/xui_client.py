@@ -71,6 +71,9 @@ class XuiApiClient:
     Uses a lazily-created httpx.AsyncClient with connection pool limits.
     Supports both session login (username/password) and Bearer token auth.
     Session cookies are cached — login is skipped if a recent session exists.
+
+    Handles both legacy API (addClient endpoint) and v3+ API (update-based
+    read-modify-write) automatically.
     """
 
     def __init__(self, config: XuiServerConfig) -> None:
@@ -78,6 +81,7 @@ class XuiApiClient:
         self._base = config.panel_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
         self._last_login_ts: float = 0.0
+        self._v3_mode: bool | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -163,16 +167,17 @@ class XuiApiClient:
             "tgId": "",
             "subId": "",
         }
-        payload = {
-            "id": self._config.inbound_id,
-            "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}',
-        }
-        return await self._do_client_op(
+        result = await self._do_client_op(
             "POST",
             f"{self._base}/panel/api/inbounds/addClient",
-            payload,
+            {"id": self._config.inbound_id, "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}'},
             user_uuid=user_uuid,
         )
+        if result.outcome != XuiOutcome.NOT_FOUND:
+            return result
+        # Fallback: v3+ panels lack addClient — use read-modify-write via update
+        self._v3_mode = True
+        return await self._add_client_via_update(settings)
 
     async def get_client(self, *, email: str) -> XuiClientResult:
         return await self._do_client_op(
@@ -240,6 +245,8 @@ class XuiApiClient:
 
     async def restart_xray(self) -> bool:
         """Force 3x-ui to regenerate xray config and restart xray-core."""
+        if self._v3_mode:
+            return True  # v3 panels may lack this endpoint; wrapper handles config
         headers = self._auth_headers()
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -269,6 +276,8 @@ class XuiApiClient:
 
     async def resolve_client_uuid(self, *, email: str) -> str | None:
         """Resolve actual client UUID from panel by email. Returns None if not found."""
+        if self._v3_mode:
+            return await self._resolve_client_uuid_v3(email=email)
         headers = self._auth_headers()
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -284,7 +293,9 @@ class XuiApiClient:
                     self._last_login_ts = 0.0
                     continue
                 if resp.status_code == 404:
-                    return None
+                    # Might be v3 panel — try fallback
+                    self._v3_mode = True
+                    return await self._resolve_client_uuid_v3(email=email)
                 if resp.status_code >= 400:
                     return None
                 body = resp.json()
@@ -294,6 +305,70 @@ class XuiApiClient:
             except Exception:
                 if attempt < _MAX_RETRIES:
                     await asyncio_sleep(_RETRY_DELAY_SECONDS)
+        return None
+
+    async def _get_inbound(self) -> dict | None:
+        """Fetch full inbound object from panel (v3 compatible)."""
+        headers = self._auth_headers()
+        try:
+            client = await self._get_client()
+            if not await self._ensure_session():
+                return None
+            resp = await client.get(
+                f"{self._base}/panel/api/inbounds/get/{self._config.inbound_id}",
+                headers=headers, timeout=_DEFAULT_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                body = resp.json()
+                if body.get("success"):
+                    return body["obj"]
+        except Exception:
+            _LOGGER.debug("get_inbound failed server=%s", self._config.server_id, exc_info=True)
+        return None
+
+    async def _add_client_via_update(self, client_settings: dict) -> XuiClientResult:
+        """Add client via inbound update (v3 panels without addClient endpoint)."""
+        inbound = await self._get_inbound()
+        if not inbound:
+            return XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
+        settings = inbound.get("settings", {})
+        if isinstance(settings, str):
+            settings = json.loads(settings)
+        settings.setdefault("clients", []).append(client_settings)
+        payload = {
+            "id": inbound["id"],
+            "settings": json.dumps(settings),
+            "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
+            "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
+            "protocol": inbound["protocol"],
+            "port": inbound["port"],
+            "listen": inbound.get("listen", ""),
+            "tag": inbound.get("tag", ""),
+            "remark": inbound.get("remark", ""),
+            "enable": inbound.get("enable", True),
+            "expiryTime": inbound.get("expiryTime", 0),
+            "total": inbound.get("total", 0),
+            "up": inbound.get("up", 0),
+            "down": inbound.get("down", 0),
+        }
+        return await self._do_client_op(
+            "POST",
+            f"{self._base}/panel/api/inbounds/update/{self._config.inbound_id}",
+            payload,
+            user_uuid=client_settings.get("id"),
+        )
+
+    async def _resolve_client_uuid_v3(self, *, email: str) -> str | None:
+        """Resolve client UUID by fetching inbound and searching clients (v3 fallback)."""
+        inbound = await self._get_inbound()
+        if not inbound:
+            return None
+        settings = inbound.get("settings", {})
+        if isinstance(settings, str):
+            settings = json.loads(settings)
+        for c in settings.get("clients", []):
+            if c.get("email") == email:
+                return c.get("id")
         return None
 
     def _auth_headers(self) -> dict[str, str]:
