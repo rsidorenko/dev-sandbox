@@ -49,6 +49,19 @@ class FakeTelegramPollingClient:
         text: str,
         *,
         correlation_id: str,
+        disable_web_page_preview: bool = False,
+    ) -> int:
+        return 1
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
     ) -> int:
         return 1
 

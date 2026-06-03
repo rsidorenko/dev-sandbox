@@ -50,11 +50,49 @@ class TelegramPollingClient(Protocol):
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
     ) -> int:
         """Send one outbound text message; failures are reported via exceptions.
 
         Returns Telegram ``message_id`` from a successful Bot API ``sendMessage`` response.
         """
+        ...
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        """Send a video file to the chat. Returns Telegram ``message_id``."""
+        ...
+
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        """Send a photo file to the chat. Returns Telegram ``message_id``."""
+        ...
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        """Send a document file to the chat. Returns Telegram ``message_id``."""
         ...
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
@@ -152,6 +190,8 @@ class Slice1PollingRuntime:
                 noop += 1
                 continue
             idem_key = action.uc01_idempotency_key
+            media_type = action.media_type
+            media_path = action.media_path
             sends: list[tuple[str, Mapping[str, Any] | None, str | None]] = [
                 (action.message_text or "", action.reply_markup, action.parse_mode),
             ]
@@ -161,9 +201,43 @@ class Slice1PollingRuntime:
                     await self._composition.outbound_delivery.ensure_pending(idem_key)
                 first = True
                 for text, markup, pmode in sends:
-                    if not text.strip():
+                    if not text.strip() and not (first and media_path):
                         continue
-                    if first and cb_origin is not None:
+                    # Media attachment: video, photo, or document
+                    if first and media_type and media_path:
+                        _send_method = {
+                            "video": self._client.send_video,
+                            "photo": self._client.send_photo,
+                            "document": self._client.send_document,
+                        }.get(media_type, self._client.send_photo)
+                        try:
+                            msg_id = await _send_method(
+                                action.chat_id,
+                                media_path,
+                                caption=text if text.strip() else None,
+                                reply_markup=markup,
+                                parse_mode=pmode,
+                            )
+                            _LOGGER.info(
+                                "polling.send_%s_ok chat_id=%s msg_id=%s",
+                                media_type,
+                                action.chat_id,
+                                msg_id,
+                            )
+                        except Exception:
+                            _LOGGER.warning(
+                                "polling.send_%s_failed chat_id=%s -> fallback text",
+                                media_type,
+                                action.chat_id,
+                            )
+                            msg_id = await self._client.send_text_message(
+                                action.chat_id,
+                                text,
+                                correlation_id=action.correlation_id,
+                                reply_markup=markup,
+                                parse_mode=pmode,
+                            )
+                    elif first and cb_origin is not None:
                         origin_chat_id, origin_msg_id = cb_origin
                         try:
                             msg_id = await self._client.edit_message_text(
@@ -191,6 +265,7 @@ class Slice1PollingRuntime:
                                 correlation_id=action.correlation_id,
                                 reply_markup=markup,
                                 parse_mode=pmode,
+                                disable_web_page_preview=action.disable_web_page_preview,
                             )
                     else:
                         if first and cb_origin is None and cb_qid is not None:
@@ -204,6 +279,7 @@ class Slice1PollingRuntime:
                             correlation_id=action.correlation_id,
                             reply_markup=markup,
                             parse_mode=pmode,
+                            disable_web_page_preview=action.disable_web_page_preview,
                         )
                     if first and idem_key is not None:
                         await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)
@@ -212,6 +288,7 @@ class Slice1PollingRuntime:
                             pop_pending_payment_for_user,
                             register_payment_message,
                         )
+
                         pending_pid = pop_pending_payment_for_user(action.chat_id)
                         if pending_pid is not None and msg_id is not None:
                             register_payment_message(pending_pid, action.chat_id, msg_id)

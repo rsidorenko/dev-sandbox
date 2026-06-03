@@ -65,9 +65,36 @@ class FakeRawClient:
         correlation_id: str,
         reply_markup: object | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
     ) -> int:
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return 1
+
+    async def answer_callback_query(self, callback_query_id: str) -> None:
+        pass
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return message_id
 
 
 def test_bundle_builds_with_fake_client_and_bridge() -> None:
