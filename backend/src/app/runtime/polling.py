@@ -173,16 +173,35 @@ class Slice1PollingRuntime:
             try:
                 if idem_key is not None:
                     await self._composition.outbound_delivery.ensure_pending(idem_key)
-                # Send video first if present
+                # Video + caption as single message
                 if action.video_path is not None and action.chat_id is not None:
-                    await self._client.send_video(
-                        action.chat_id,
-                        action.video_path,
-                        correlation_id=action.correlation_id,
-                    )
-                    send_ok += 1
-                first = True
-                for text, markup, pmode in sends:
+                    cap_text, cap_markup, cap_pmode = sends[0] if sends else ("", None, None)
+                    if cap_text.strip():
+                        msg_id = await self._client.send_video(
+                            action.chat_id,
+                            action.video_path,
+                            correlation_id=action.correlation_id,
+                            caption=cap_text,
+                            reply_markup=cap_markup,
+                            parse_mode=cap_pmode,
+                        )
+                        if idem_key is not None:
+                            await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)
+                        from app.bot_transport.payment_message_registry import (
+                            pop_pending_payment_for_user,
+                            register_payment_message,
+                        )
+                        pending_pid = pop_pending_payment_for_user(action.chat_id)
+                        if pending_pid is not None and msg_id is not None:
+                            register_payment_message(pending_pid, action.chat_id, msg_id)
+                        send_ok += 1
+                    # Skip first text entry (sent as video caption), send follow-ups
+                    first = False
+                    remaining = sends[1:]
+                else:
+                    first = True
+                    remaining = sends
+                for text, markup, pmode in remaining:
                     if not text.strip():
                         continue
                     if first and cb_origin is not None:
