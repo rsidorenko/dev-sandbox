@@ -46,6 +46,8 @@ class TelegramRuntimeAction:
     uc01_idempotency_key: str | None = None
     follow_ups: tuple[TelegramRuntimeFollowUpSend, ...] = ()
     parse_mode: str | None = None
+    video_path: str | None = None
+    disable_web_page_preview: bool = False
 
 
 def extract_eligible_private_chat_id_from_telegram_like_update(
@@ -176,6 +178,8 @@ async def handle_slice1_telegram_update_to_runtime_action(
         uc01_idempotency_key=idem_key,
         follow_ups=follow_ups,
         parse_mode=rendered.parse_mode,
+        video_path=rendered.video_path,
+        disable_web_page_preview=rendered.disable_web_page_preview,
     )
 
 

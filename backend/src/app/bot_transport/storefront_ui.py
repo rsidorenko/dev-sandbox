@@ -390,6 +390,8 @@ _PLATFORM_TEXTS: dict[str, str] = {
         "https://github.com/KaringX/karing/releases\n\n"
         "🔹 Happ\n"
         "https://play.google.com/store/apps/details?id=com.happproxy\n\n"
+        "🔹 v2rayTune\n"
+        "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru\n\n"
         "Скачайте, установите и нажмите «Далее»."
     ),
     "ios": (

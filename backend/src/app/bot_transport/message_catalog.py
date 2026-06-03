@@ -31,6 +31,8 @@ class RenderedMessagePackage:
     uc01_idempotency_key: str | None = None
     follow_up_messages: tuple[RenderedMessagePackage, ...] = ()
     parse_mode: str | None = None
+    video_path: str | None = None
+    disable_web_page_preview: bool = False
 
 
 def _text_service_unavailable() -> str:

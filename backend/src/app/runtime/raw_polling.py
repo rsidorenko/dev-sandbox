@@ -50,6 +50,18 @@ class TelegramRawPollingClient(Protocol):
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
+    ) -> int: ...
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> int: ...
 
     async def answer_callback_query(self, callback_query_id: str) -> None: ...
@@ -94,11 +106,32 @@ class _PollingClientFromRaw:
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
     ) -> int:
         return await self._raw.send_text_message(
             chat_id,
             text,
             correlation_id=correlation_id,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+            disable_web_page_preview=disable_web_page_preview,
+        )
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return await self._raw.send_video(
+            chat_id,
+            video_path,
+            correlation_id=correlation_id,
+            caption=caption,
             reply_markup=reply_markup,
             parse_mode=parse_mode,
         )

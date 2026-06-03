@@ -1261,6 +1261,20 @@ async def _render_storefront_response(
     elif code in (CB_CONNECT_WIN, CB_CONNECT_ANDROID, CB_CONNECT_IOS, CB_CONNECT_MAC):
         text = text_connect_platform(code)
         keyboard = connect_platform_keyboard()
+        # Android: send instruction video + links without link previews
+        if code == CB_CONNECT_ANDROID:
+            import pathlib
+            _android_video = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "videos" / "Android.mp4"
+            if _android_video.exists():
+                return RenderedMessagePackage(
+                    message_text=text,
+                    action_keys=(),
+                    correlation_id=cid,
+                    reply_markup=keyboard,
+                    parse_mode=parse_mode,
+                    video_path=str(_android_video),
+                    disable_web_page_preview=True,
+                )
 
     elif code == CB_CONNECT_NEXT:
         if uid is not None and composition.vless_provider is not None:

@@ -137,6 +137,7 @@ class HttpxTelegramRawPollingClient:
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
     ) -> int:
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
         post_kw = _httpx_post_timeout_kwargs(td)
@@ -146,6 +147,8 @@ class HttpxTelegramRawPollingClient:
             body["parse_mode"] = parse_mode
         if reply_markup is not None:
             body["reply_markup"] = dict(reply_markup)
+        if disable_web_page_preview:
+            body["disable_web_page_preview"] = True
         response = await self._client.post(f"{self._base}sendMessage", json=body, **post_kw)
         response.raise_for_status()
         data = _parse_json_object(response)
@@ -156,6 +159,42 @@ class HttpxTelegramRawPollingClient:
         mid = result.get("message_id")
         if type(mid) is not int:
             raise RuntimeError("telegram API sendMessage result missing message_id")
+        return mid
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        _ = correlation_id
+        data: dict[str, Any] = {"chat_id": chat_id}
+        if caption is not None:
+            data["caption"] = caption
+        if parse_mode is not None:
+            data["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            data["reply_markup"] = dict(reply_markup)
+        with open(video_path, "rb") as vf:
+            files = {"video": (video_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1], vf, "video/mp4")}
+            response = await self._client.post(
+                f"{self._base}sendVideo", data=data, files=files, **post_kw,
+            )
+        response.raise_for_status()
+        resp_data = _parse_json_object(response)
+        _raise_if_not_ok(resp_data)
+        result = resp_data.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("telegram API sendVideo result is not an object")
+        mid = result.get("message_id")
+        if type(mid) is not int:
+            raise RuntimeError("telegram API sendVideo result missing message_id")
         return mid
 
     async def answer_callback_query(self, callback_query_id: str) -> None:

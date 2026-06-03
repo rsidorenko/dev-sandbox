@@ -50,11 +50,25 @@ class TelegramPollingClient(Protocol):
         correlation_id: str,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
+        disable_web_page_preview: bool = False,
     ) -> int:
         """Send one outbound text message; failures are reported via exceptions.
 
         Returns Telegram ``message_id`` from a successful Bot API ``sendMessage`` response.
         """
+        ...
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video_path: str,
+        *,
+        correlation_id: str,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        """Send a video file to the chat. Returns Telegram ``message_id``."""
         ...
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
@@ -159,6 +173,14 @@ class Slice1PollingRuntime:
             try:
                 if idem_key is not None:
                     await self._composition.outbound_delivery.ensure_pending(idem_key)
+                # Send video first if present
+                if action.video_path is not None and action.chat_id is not None:
+                    await self._client.send_video(
+                        action.chat_id,
+                        action.video_path,
+                        correlation_id=action.correlation_id,
+                    )
+                    send_ok += 1
                 first = True
                 for text, markup, pmode in sends:
                     if not text.strip():
@@ -191,6 +213,7 @@ class Slice1PollingRuntime:
                                 correlation_id=action.correlation_id,
                                 reply_markup=markup,
                                 parse_mode=pmode,
+                                disable_web_page_preview=action.disable_web_page_preview,
                             )
                     else:
                         if first and cb_origin is None and cb_qid is not None:
@@ -204,6 +227,7 @@ class Slice1PollingRuntime:
                             correlation_id=action.correlation_id,
                             reply_markup=markup,
                             parse_mode=pmode,
+                            disable_web_page_preview=action.disable_web_page_preview,
                         )
                     if first and idem_key is not None:
                         await self._composition.outbound_delivery.mark_sent(idem_key, msg_id)
