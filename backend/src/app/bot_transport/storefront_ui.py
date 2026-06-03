@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote as _url_quote
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
@@ -52,6 +53,27 @@ CB_TRIAL = "start_trial"
 CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
 CB_CUSTOM_DAYS = "custom_days"
+CB_IOS_STEP = "ios_step:"
+CB_IOS_YES = "ios_yes"
+CB_IOS_NO = "ios_no"
+CB_IOS_RETRY = "ios_retry"
+CB_IOS_DID_WORK = "ios_did_work"
+CB_MAC_STEP = "mac_step:"
+CB_MAC_YES = "mac_yes"
+CB_MAC_NO = "mac_no"
+CB_MAC_RETRY = "mac_retry"
+CB_MAC_DID_WORK = "mac_did_work"
+CB_CONNECT_TV = "connect_tv"
+CB_TV_STEP = "tv_step:"
+CB_TV_YES = "tv_yes"
+CB_TV_NO = "tv_no"
+CB_TV_RETRY = "tv_retry"
+CB_TV_DID_WORK = "tv_did_work"
+CB_WIN_STEP = "win_step:"
+CB_WIN_YES = "win_yes"
+CB_WIN_NO = "win_no"
+CB_WIN_RETRY = "win_retry"
+CB_WIN_DID_WORK = "win_did_work"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -434,9 +456,10 @@ def connect_device_keyboard() -> dict[str, Any]:
                 {"text": "🤖 Android", "callback_data": CB_CONNECT_ANDROID},
             ],
             [
-                {"text": "🍎 iOS", "callback_data": CB_CONNECT_IOS},
-                {"text": "💻 macOS", "callback_data": CB_CONNECT_MAC},
+                {"text": "📱 iPhone", "callback_data": CB_CONNECT_IOS},
+                {"text": "💻 Mac", "callback_data": CB_CONNECT_MAC},
             ],
+            [{"text": "📺 Телевизор", "callback_data": CB_CONNECT_TV}],
             [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
         ]
     )
@@ -496,6 +519,608 @@ def connect_done_keyboard() -> dict[str, Any]:
     return _inline_kb(
         [
             [{"text": "↩️ В главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+
+
+# ─── iPhone (iOS) connection steps ─────────────────────────────────
+
+_IOS_TOTAL_STEPS = 6
+
+_IOS_KARING_APPSTORE_URL = "https://apps.apple.com/app/karing/id6472431552"
+_IOS_CHANNEL_URL = "https://t.me/bravada_vpn"
+_IOS_BYPASS_INSTRUCTIONS_URL = "https://t.me/bravada_instructions/2"
+_SUPPORT_URL = "https://t.me/bravada_support"
+
+
+def text_ios_step(step: int) -> str:
+    return f"📱 *Шаг {step} из {_IOS_TOTAL_STEPS}*\n\nПожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+
+
+def ios_step_1_text() -> str:
+    return text_ios_step(1) + 'Установите Karing (нажмите ниже  "Скачать приложение Karing", или перейдите по ссылке)'
+
+
+def ios_step_1_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "Скачать приложение Karing", "url": _IOS_KARING_APPSTORE_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}2"},
+            ],
+        ]
+    )
+
+
+def ios_step_2_text() -> str:
+    return (
+        text_ios_step(2) + "Открываем Karing\n"
+        'Нажимаем голубую кнопку "Accept and continue"\n'
+        "Выбираем русский язык и сверху справа нажимаем «Дальше»\n"
+        "Опять нажимаем «Дальше»\n"
+        "Снова нажимаем «Дальше»\n"
+        "Нажимаем «Готово»"
+    )
+
+
+def ios_step_2_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}1"},
+                {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}3"},
+            ],
+        ]
+    )
+
+
+def ios_step_3_text(subscription_url: str) -> str:
+    return (
+        text_ios_step(3)
+        + 'Нажмите ниже "Загрузить ключи в приложение", в открывшемся окне нажмите перейти в Приложение\n\n'
+        "Когда откроется приложение — нажмите галочку сверху справа.\n\n"
+        "Для ручного добавления:\n"
+        "🔗 Ссылка для подключения VPN (ключ, нажмите чтобы скопировать):\n"
+        f"`{subscription_url}`"
+    )
+
+
+def ios_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {
+                    "text": "Загрузить ключи в приложение (Karing)",
+                    "url": f"karing://add/{_url_quote(subscription_url, safe='')}",
+                }
+            ],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}2"},
+                {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}4"},
+            ],
+        ]
+    )
+
+
+def ios_step_4_text() -> str:
+    return (
+        text_ios_step(4) + "Готово, перейдите в приложение Karing, и включите VPN красной кнопкой с значком щита\n\n"
+        "⚠️ ВНИМАНИЕ — НА СЛЕДУЮЩЕМ ШАГЕ ИНСТРУКЦИЯ ПО ОБХОДУ ГЛУШИЛОК СВЯЗИ"
+    )
+
+
+def ios_step_4_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}3"},
+                {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}5"},
+            ],
+        ]
+    )
+
+
+def ios_step_5_text() -> str:
+    return (
+        text_ios_step(5)
+        + "В большинстве случаев приложение Karing стоит в автовыборе и во время блокировок само подставляет нужный сервер для обхода\n\n"
+        f"На всякий случай по ссылке показана инструкция как установить сервера для обхода вручную:\n{_IOS_BYPASS_INSTRUCTIONS_URL}\n\n"
+        "⚠️ ВНИМАНИЕ, СЕРВЕРА ДЛЯ ОБХОДА НЕ БЕЗЛИМИТНЫЕ, В ТАРИФ ВХОДИТ 80ГБ В МЕСЯЦ\n"
+        "ПОЖАЛУЙСТА ИСПОЛЬЗУЙТЕ ИХ ТОЛЬКО ПРИ НЕОБХОДИМОСТИ"
+    )
+
+
+def ios_step_5_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}4"},
+                {"text": "➡️ Далее", "callback_data": f"{CB_IOS_STEP}6"},
+            ],
+        ]
+    )
+
+
+def ios_step_6_text() -> str:
+    return (
+        text_ios_step(6) + "Пожалуйста подпишитесь на наш канал чтобы не пропускать важные уведомления и обновления!\n"
+        "Наш канал: @bravada_vpn"
+    )
+
+
+def ios_step_6_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "⭐ Наш канал", "url": _IOS_CHANNEL_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}5"},
+                {"text": "➡️ Далее", "callback_data": CB_IOS_DID_WORK},
+            ],
+        ]
+    )
+
+
+def ios_did_work_text() -> str:
+    return "Заработал ли у вас VPN?"
+
+
+def ios_did_work_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🎉 Да, всё получилось", "callback_data": CB_IOS_YES},
+                {"text": "Нет, есть проблемы", "callback_data": CB_IOS_NO},
+            ],
+            [{"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}6"}],
+        ]
+    )
+
+
+def ios_success_text() -> str:
+    return "🎉 Поздравляем! У вас всё получилось!"
+
+
+def ios_problem_text() -> str:
+    return (
+        "Хмм, видимо что-то пошло не так…\n"
+        "Можете попробовать начать настройку сначала, либо напишите в поддержку, мы вам обязательно поможем!"
+    )
+
+
+def ios_problem_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🔄 Попробовать сначала", "callback_data": CB_IOS_RETRY},
+                {"text": "🆘 Написать в поддержку", "url": _SUPPORT_URL},
+            ],
+            [{"text": "↩️ Назад", "callback_data": CB_IOS_DID_WORK}],
+        ]
+    )
+
+
+# ─── Mac connection steps (identical flow to iPhone) ────────────────
+
+
+def mac_step_1_text() -> str:
+    return ios_step_1_text()
+
+
+def mac_step_1_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "Скачать приложение Karing", "url": _IOS_KARING_APPSTORE_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}2"},
+            ],
+        ]
+    )
+
+
+def mac_step_2_text() -> str:
+    return ios_step_2_text().replace("📱", "💻", 1)
+
+
+def mac_step_2_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}1"},
+                {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}3"},
+            ],
+        ]
+    )
+
+
+def mac_step_3_text(subscription_url: str) -> str:
+    return ios_step_3_text(subscription_url).replace("📱", "💻", 1)
+
+
+def mac_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {
+                    "text": "Загрузить ключи в приложение (Karing)",
+                    "url": f"karing://add/{_url_quote(subscription_url, safe='')}",
+                }
+            ],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}2"},
+                {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}4"},
+            ],
+        ]
+    )
+
+
+def mac_step_4_text() -> str:
+    return ios_step_4_text().replace("📱", "💻", 1)
+
+
+def mac_step_4_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}3"},
+                {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}5"},
+            ],
+        ]
+    )
+
+
+def mac_step_5_text() -> str:
+    return ios_step_5_text().replace("📱", "💻", 1)
+
+
+def mac_step_5_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}4"},
+                {"text": "➡️ Далее", "callback_data": f"{CB_MAC_STEP}6"},
+            ],
+        ]
+    )
+
+
+def mac_step_6_text() -> str:
+    return ios_step_6_text().replace("📱", "💻", 1)
+
+
+def mac_step_6_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "⭐ Наш канал", "url": _IOS_CHANNEL_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}5"},
+                {"text": "➡️ Далее", "callback_data": CB_MAC_DID_WORK},
+            ],
+        ]
+    )
+
+
+def mac_did_work_text() -> str:
+    return ios_did_work_text()
+
+
+def mac_did_work_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🎉 Да, всё получилось", "callback_data": CB_MAC_YES},
+                {"text": "Нет, есть проблемы", "callback_data": CB_MAC_NO},
+            ],
+            [{"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}6"}],
+        ]
+    )
+
+
+def mac_success_text() -> str:
+    return ios_success_text()
+
+
+def mac_problem_text() -> str:
+    return ios_problem_text()
+
+
+def mac_problem_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🔄 Попробовать сначала", "callback_data": CB_MAC_RETRY},
+                {"text": "🆘 Написать в поддержку", "url": _SUPPORT_URL},
+            ],
+            [{"text": "↩️ Назад", "callback_data": CB_MAC_DID_WORK}],
+        ]
+    )
+
+
+# ─── TV (Smart TV / Android TV) connection steps ────────────────────
+
+_TV_TOTAL_STEPS = 5
+_TV_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happproxy"
+
+
+def tv_step_1_text() -> str:
+    return (
+        "📺 *Инструкция для Smart TV*\n\n"
+        "⚠️ Важно! Только для телевизоров на Android TV!\n\n"
+        f"📺 *Шаг 1 из {_TV_TOTAL_STEPS}*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Скачиваем Happ Proxy Utility в Play Store"
+    )
+
+
+def tv_step_1_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "Скачать Happ Proxy Utility", "url": _TV_HAPP_PLAYSTORE_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "✅ Готово", "callback_data": f"{CB_TV_STEP}2"},
+            ],
+        ]
+    )
+
+
+def tv_step_2_text() -> str:
+    return (
+        f"📺 *Шаг 2 из {_TV_TOTAL_STEPS}*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Открываем Happ и жмём на эту кнопку"
+    )
+
+
+def tv_step_2_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}1"},
+                {"text": "✅ Готово", "callback_data": f"{CB_TV_STEP}3"},
+            ],
+        ]
+    )
+
+
+def tv_step_3_text(subscription_url: str) -> str:
+    return (
+        f"📺 *Шаг 3 из {_TV_TOTAL_STEPS}*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Скопируйте эту ссылку:\n"
+        f"`{subscription_url}`\n\n"
+        "После чего наведите камеру на этот QR и откройте его"
+    )
+
+
+def tv_step_3_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}2"},
+                {"text": "✅ Готово", "callback_data": f"{CB_TV_STEP}4"},
+            ],
+        ]
+    )
+
+
+def tv_step_4_text() -> str:
+    return (
+        f"📺 *Шаг 4 из {_TV_TOTAL_STEPS}*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Вставляем скопированную ранее ссылку и нажимаем отправить данные\n\n"
+        "На TV должен появиться список ключей"
+    )
+
+
+def tv_step_4_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}3"},
+                {"text": "✅ Готово", "callback_data": f"{CB_TV_STEP}5"},
+            ],
+        ]
+    )
+
+
+def tv_step_5_text() -> str:
+    return (
+        f"📺 *Шаг 5 из {_TV_TOTAL_STEPS}*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Слева выбираем сервер\n"
+        "Для ютуба отлично подойдет YouTube NoAds\n\n"
+        "Включаем и выключаем кнопкой справа"
+    )
+
+
+def tv_step_5_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}4"},
+                {"text": "➡️ Далее", "callback_data": CB_TV_DID_WORK},
+            ],
+        ]
+    )
+
+
+def tv_did_work_text() -> str:
+    return ios_did_work_text()
+
+
+def tv_did_work_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🎉 Да, всё получилось", "callback_data": CB_TV_YES},
+                {"text": "Нет, есть проблемы", "callback_data": CB_TV_NO},
+            ],
+            [{"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}5"}],
+        ]
+    )
+
+
+def tv_success_text() -> str:
+    return ios_success_text()
+
+
+def tv_problem_text() -> str:
+    return ios_problem_text()
+
+
+def tv_problem_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🔄 Попробовать сначала", "callback_data": CB_TV_RETRY},
+                {"text": "🆘 Написать в поддержку", "url": _SUPPORT_URL},
+            ],
+            [{"text": "↩️ Назад", "callback_data": CB_TV_DID_WORK}],
+        ]
+    )
+
+
+# ─── Windows connection steps ──────────────────────────────────────
+
+_WIN_KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases"
+
+
+def win_step_1_text() -> str:
+    return (
+        "🖥 *Шаг 1 из 6*\n\n"
+        "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
+        "Установите Karing (нажмите на прикрепленный файл, или перейдите по ссылке 🔥Github)"
+    )
+
+
+def win_step_1_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "🔥 Github", "url": _WIN_KARING_GITHUB_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}2"},
+            ],
+        ]
+    )
+
+
+def win_step_2_text() -> str:
+    return ios_step_2_text().replace("📱", "🖥", 1)
+
+
+def win_step_2_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}1"},
+                {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}3"},
+            ],
+        ]
+    )
+
+
+def win_step_3_text(subscription_url: str) -> str:
+    return ios_step_3_text(subscription_url).replace("📱", "🖥", 1)
+
+
+def win_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {
+                    "text": "Загрузить ключи в приложение (Karing)",
+                    "url": f"karing://add/{_url_quote(subscription_url, safe='')}",
+                }
+            ],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}2"},
+                {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}4"},
+            ],
+        ]
+    )
+
+
+def win_step_4_text() -> str:
+    return ios_step_4_text().replace("📱", "🖥", 1)
+
+
+def win_step_4_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}3"},
+                {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}5"},
+            ],
+        ]
+    )
+
+
+def win_step_5_text() -> str:
+    return ios_step_5_text().replace("📱", "🖥", 1)
+
+
+def win_step_5_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}4"},
+                {"text": "➡️ Далее", "callback_data": f"{CB_WIN_STEP}6"},
+            ],
+        ]
+    )
+
+
+def win_step_6_text() -> str:
+    return ios_step_6_text().replace("📱", "🖥", 1)
+
+
+def win_step_6_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "⭐ Наш канал", "url": _IOS_CHANNEL_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}5"},
+                {"text": "➡️ Далее", "callback_data": CB_WIN_DID_WORK},
+            ],
+        ]
+    )
+
+
+def win_did_work_text() -> str:
+    return ios_did_work_text()
+
+
+def win_did_work_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🎉 Да, всё получилось", "callback_data": CB_WIN_YES},
+                {"text": "Нет, есть проблемы", "callback_data": CB_WIN_NO},
+            ],
+            [{"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}6"}],
+        ]
+    )
+
+
+def win_success_text() -> str:
+    return ios_success_text()
+
+
+def win_problem_text() -> str:
+    return ios_problem_text()
+
+
+def win_problem_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "🔄 Попробовать сначала", "callback_data": CB_WIN_RETRY},
+                {"text": "🆘 Написать в поддержку", "url": _SUPPORT_URL},
+            ],
+            [{"text": "↩️ Назад", "callback_data": CB_WIN_DID_WORK}],
         ]
     )
 

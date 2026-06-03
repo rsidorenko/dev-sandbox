@@ -45,3 +45,6 @@ Thumbs.db
 image.png
 *.log
 tmp_*.py
+
+# Media files (deployed separately to server)
+backend/media/

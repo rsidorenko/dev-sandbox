@@ -115,6 +115,28 @@ class FakeTelegramRawPollingClient:
     ) -> int:
         return 1
 
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return 1
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return 1
+
     async def answer_callback_query(self, callback_query_id: str) -> None:
         pass
 
@@ -200,14 +222,48 @@ def test_mixed_batch_accepted_rejected_bridge_exception() -> None:
                 return await fetch_raw_updates(limit=limit, offset=offset)
 
             async def send_text_message(
-                self, chat_id: int, text: str, *, correlation_id: str, reply_markup: object | None = None,
-                parse_mode: str | None = None, disable_web_page_preview: bool = False,
+                self,
+                chat_id: int,
+                text: str,
+                *,
+                correlation_id: str,
+                reply_markup: object | None = None,
+                parse_mode: str | None = None,
+                disable_web_page_preview: bool = False,
             ) -> int:
                 return await client.send_text_message(chat_id, text, correlation_id=correlation_id)
 
             async def send_video(
-                self, chat_id: int, video_path: str, *, correlation_id: str,
-                caption: str | None = None, reply_markup=None, parse_mode: str | None = None,
+                self,
+                chat_id: int,
+                video_path: str,
+                *,
+                correlation_id: str,
+                caption: str | None = None,
+                reply_markup=None,
+                parse_mode: str | None = None,
+            ) -> int:
+                return 1
+
+            async def send_photo(
+                self,
+                chat_id: int,
+                photo_path: str,
+                *,
+                caption: str | None = None,
+                reply_markup=None,
+                parse_mode: str | None = None,
+            ) -> int:
+                return 1
+
+            async def send_document(
+                self,
+                chat_id: int,
+                document_path: str,
+                *,
+                caption: str | None = None,
+                reply_markup=None,
+                parse_mode: str | None = None,
             ) -> int:
                 return 1
 
@@ -215,8 +271,13 @@ def test_mixed_batch_accepted_rejected_bridge_exception() -> None:
                 pass
 
             async def edit_message_text(
-                self, chat_id: int, message_id: int, text: str, *,
-                reply_markup=None, parse_mode: str | None = None,
+                self,
+                chat_id: int,
+                message_id: int,
+                text: str,
+                *,
+                reply_markup=None,
+                parse_mode: str | None = None,
             ) -> int:
                 return message_id
 

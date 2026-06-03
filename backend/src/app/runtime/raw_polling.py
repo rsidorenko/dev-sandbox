@@ -64,6 +64,26 @@ class TelegramRawPollingClient(Protocol):
         parse_mode: str | None = None,
     ) -> int: ...
 
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int: ...
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int: ...
+
     async def answer_callback_query(self, callback_query_id: str) -> None: ...
 
     async def edit_message_text(
@@ -131,6 +151,40 @@ class _PollingClientFromRaw:
             chat_id,
             video_path,
             correlation_id=correlation_id,
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return await self._raw.send_photo(
+            chat_id,
+            photo_path,
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return await self._raw.send_document(
+            chat_id,
+            document_path,
             caption=caption,
             reply_markup=reply_markup,
             parse_mode=parse_mode,

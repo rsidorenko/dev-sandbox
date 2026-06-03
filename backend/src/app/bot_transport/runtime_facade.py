@@ -35,12 +35,23 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_IOS,
     CB_CONNECT_MAC,
     CB_CONNECT_NEXT,
+    CB_CONNECT_TV,
     CB_CONNECT_WIN,
     CB_CUSTOM_DAYS,
     CB_DEVICES,
     CB_DO_PAY,
     CB_HELP,
+    CB_IOS_DID_WORK,
+    CB_IOS_NO,
+    CB_IOS_RETRY,
+    CB_IOS_STEP,
+    CB_IOS_YES,
     CB_LINK_EMAIL,
+    CB_MAC_DID_WORK,
+    CB_MAC_NO,
+    CB_MAC_RETRY,
+    CB_MAC_STEP,
+    CB_MAC_YES,
     CB_MAIN_MENU,
     CB_MY_KEYS,
     CB_MY_SUB,
@@ -55,6 +66,17 @@ from app.bot_transport.storefront_ui import (
     CB_SERVER,
     CB_SETTINGS,
     CB_TRIAL,
+    CB_TV_DID_WORK,
+    CB_TV_NO,
+    CB_TV_RETRY,
+    CB_TV_STEP,
+    CB_TV_YES,
+    CB_WIN_DID_WORK,
+    CB_WIN_NO,
+    CB_WIN_RETRY,
+    CB_WIN_STEP,
+    CB_WIN_YES,
+    _platform_from_cb,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
     all_keys_list_keyboard,
@@ -68,9 +90,40 @@ from app.bot_transport.storefront_ui import (
     connect_platform_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
+    ios_did_work_keyboard,
+    ios_did_work_text,
+    ios_problem_keyboard,
+    ios_problem_text,
+    ios_step_1_keyboard,
+    ios_step_1_text,
+    ios_step_2_keyboard,
+    ios_step_2_text,
+    ios_step_3_keyboard,
+    ios_step_3_text,
+    ios_step_4_keyboard,
+    ios_step_4_text,
+    ios_step_5_keyboard,
+    ios_step_5_text,
+    ios_step_6_keyboard,
+    ios_step_6_text,
+    ios_success_text,
     keys_keyboard,
     link_email_code_keyboard,
     link_email_keyboard,
+    mac_did_work_keyboard,
+    mac_problem_keyboard,
+    mac_step_1_keyboard,
+    mac_step_1_text,
+    mac_step_2_keyboard,
+    mac_step_2_text,
+    mac_step_3_keyboard,
+    mac_step_3_text,
+    mac_step_4_keyboard,
+    mac_step_4_text,
+    mac_step_5_keyboard,
+    mac_step_5_text,
+    mac_step_6_keyboard,
+    mac_step_6_text,
     main_menu_keyboard,
     my_keys_menu_keyboard,
     no_subscription_keyboard,
@@ -91,7 +144,6 @@ from app.bot_transport.storefront_ui import (
     text_connect_device,
     text_connect_done,
     text_connect_platform,
-    _platform_from_cb,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -121,7 +173,33 @@ from app.bot_transport.storefront_ui import (
     text_trial_activated,
     text_welcome,
     trial_activated_keyboard,
+    tv_did_work_keyboard,
+    tv_problem_keyboard,
+    tv_step_1_keyboard,
+    tv_step_1_text,
+    tv_step_2_keyboard,
+    tv_step_2_text,
+    tv_step_3_keyboard,
+    tv_step_3_text,
+    tv_step_4_keyboard,
+    tv_step_4_text,
+    tv_step_5_keyboard,
+    tv_step_5_text,
     welcome_keyboard,
+    win_did_work_keyboard,
+    win_problem_keyboard,
+    win_step_1_keyboard,
+    win_step_1_text,
+    win_step_2_keyboard,
+    win_step_2_text,
+    win_step_3_keyboard,
+    win_step_3_text,
+    win_step_4_keyboard,
+    win_step_4_text,
+    win_step_5_keyboard,
+    win_step_5_text,
+    win_step_6_keyboard,
+    win_step_6_text,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
@@ -132,6 +210,181 @@ from app.shared.types import SafeUserStatusCategory
 
 _awaiting_custom_days: dict[int, bool] = {}
 _last_connect_platform: dict[int, str] = {}
+
+_INMEMORY_DICT_MAX = 10_000
+
+
+def _trim_inmemory_dict(d: dict[int, Any], *, max_size: int = _INMEMORY_DICT_MAX) -> None:
+    """Evict oldest entries when an in-memory dict exceeds max_size."""
+    if len(d) > max_size:
+        # dict preserves insertion order in Python 3.7+; drop the first 20%.
+        evict = max_size // 5
+        for _ in range(evict):
+            d.pop(next(iter(d)), None)
+
+
+# ─── Media path constants per platform/step ──────────────────────────
+
+_STEP_MEDIA: dict[tuple[str, int], tuple[str | None, str | None]] = {
+    # iOS
+    ("ios", 2): ("video", "media/ios_step2.mp4"),
+    ("ios", 3): ("video", "media/ios_step3.mp4"),
+    ("ios", 4): ("photo", "media/ios_step4.jpg"),
+    # Mac (reuses same media as iOS for steps 2-4)
+    ("mac", 2): ("video", "media/ios_step2.mp4"),
+    ("mac", 3): ("video", "media/ios_step3.mp4"),
+    ("mac", 4): ("photo", "media/ios_step4.jpg"),
+    # TV
+    ("tv", 2): ("photo", "media/tv_step2.jpeg"),
+    ("tv", 3): ("photo", "media/tv_step3.jpeg"),
+    ("tv", 4): ("photo", "media/tv_step4.jpeg"),
+    ("tv", 5): ("photo", "media/tv_step5.jpeg"),
+    # Windows
+    ("win", 1): ("document", "media/karing_windows_x64.exe"),
+    ("win", 2): ("video", "media/ios_step2.mp4"),
+    ("win", 3): ("video", "media/ios_step3.mp4"),
+    ("win", 4): ("photo", "media/ios_step4.jpg"),
+}
+
+
+def _did_work_kb_for(code: str) -> dict[str, Any]:
+    if code in (CB_MAC_DID_WORK,):
+        return mac_did_work_keyboard()
+    if code in (CB_TV_DID_WORK,):
+        return tv_did_work_keyboard()
+    if code in (CB_WIN_DID_WORK,):
+        return win_did_work_keyboard()
+    return ios_did_work_keyboard()
+
+
+def _problem_kb_for(code: str) -> dict[str, Any]:
+    if code in (CB_MAC_NO, CB_MAC_RETRY):
+        return mac_problem_keyboard()
+    if code in (CB_TV_NO, CB_TV_RETRY):
+        return tv_problem_keyboard()
+    if code in (CB_WIN_NO, CB_WIN_RETRY):
+        return win_problem_keyboard()
+    return ios_problem_keyboard()
+
+
+def _step_1_for_retry(code: str) -> tuple[str, dict[str, Any] | None]:
+    if code == CB_MAC_RETRY:
+        return mac_step_1_text(), mac_step_1_keyboard()
+    if code == CB_TV_RETRY:
+        return tv_step_1_text(), tv_step_1_keyboard()
+    if code == CB_WIN_RETRY:
+        return win_step_1_text(), win_step_1_keyboard()
+    return ios_step_1_text(), ios_step_1_keyboard()
+
+
+async def _render_platform_step(
+    code: str,
+    uid: int | None,
+    composition: Slice1Composition,
+) -> tuple[str, dict[str, Any] | None, str | None, str | None]:
+    """Render a platform step (ios/mac/tv/win) and return (text, keyboard, media_type, media_path)."""
+    # Parse "ios_step:3" → ("ios", 3)
+    platform: str | None = None
+    step_str: str | None = None
+    for prefix, _plat in (
+        (CB_IOS_STEP, "ios"),
+        (CB_MAC_STEP, "mac"),
+        (CB_TV_STEP, "tv"),
+        (CB_WIN_STEP, "win"),
+    ):
+        if code.startswith(prefix):
+            platform = _plat
+            step_str = code[len(prefix) :]
+            break
+    if platform is None or step_str is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU), None, None
+
+    try:
+        step = int(step_str)
+    except (ValueError, TypeError):
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU), None, None
+
+    # Fetch subscription URL for step 3
+    subscription_url: str | None = None
+    if step == 3 and uid is not None and composition.vless_provider is not None:
+        from app.issuance.vless_provider import VlessProviderOutcome
+
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is not None:
+            vless_result = await composition.vless_provider.get_user_config(
+                internal_user_id=id_rec.internal_user_id,
+            )
+            if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                subscription_url = vless_result.config.subscription_url
+
+    # Dispatch to step text/keyboard functions
+    if platform == "ios":
+        if step == 1:
+            text, keyboard = ios_step_1_text(), ios_step_1_keyboard()
+        elif step == 2:
+            text, keyboard = ios_step_2_text(), ios_step_2_keyboard()
+        elif step == 3:
+            url = subscription_url or ""
+            text, keyboard = ios_step_3_text(url), ios_step_3_keyboard(url)
+        elif step == 4:
+            text, keyboard = ios_step_4_text(), ios_step_4_keyboard()
+        elif step == 5:
+            text, keyboard = ios_step_5_text(), ios_step_5_keyboard()
+        elif step == 6:
+            text, keyboard = ios_step_6_text(), ios_step_6_keyboard()
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    elif platform == "mac":
+        if step == 1:
+            text, keyboard = mac_step_1_text(), mac_step_1_keyboard()
+        elif step == 2:
+            text, keyboard = mac_step_2_text(), mac_step_2_keyboard()
+        elif step == 3:
+            url = subscription_url or ""
+            text, keyboard = mac_step_3_text(url), mac_step_3_keyboard(url)
+        elif step == 4:
+            text, keyboard = mac_step_4_text(), mac_step_4_keyboard()
+        elif step == 5:
+            text, keyboard = mac_step_5_text(), mac_step_5_keyboard()
+        elif step == 6:
+            text, keyboard = mac_step_6_text(), mac_step_6_keyboard()
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    elif platform == "tv":
+        if step == 1:
+            text, keyboard = tv_step_1_text(), tv_step_1_keyboard()
+        elif step == 2:
+            text, keyboard = tv_step_2_text(), tv_step_2_keyboard()
+        elif step == 3:
+            url = subscription_url or ""
+            text, keyboard = tv_step_3_text(url), tv_step_3_keyboard()
+        elif step == 4:
+            text, keyboard = tv_step_4_text(), tv_step_4_keyboard()
+        elif step == 5:
+            text, keyboard = tv_step_5_text(), tv_step_5_keyboard()
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    elif platform == "win":
+        if step == 1:
+            text, keyboard = win_step_1_text(), win_step_1_keyboard()
+        elif step == 2:
+            text, keyboard = win_step_2_text(), win_step_2_keyboard()
+        elif step == 3:
+            url = subscription_url or ""
+            text, keyboard = win_step_3_text(url), win_step_3_keyboard(url)
+        elif step == 4:
+            text, keyboard = win_step_4_text(), win_step_4_keyboard()
+        elif step == 5:
+            text, keyboard = win_step_5_text(), win_step_5_keyboard()
+        elif step == 6:
+            text, keyboard = win_step_6_text(), win_step_6_keyboard()
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    else:
+        text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    media_type, media_path = _STEP_MEDIA.get((platform, step), (None, None))
+    return text, keyboard, media_type, media_path
 
 
 def _handle_custom_days_input(
@@ -236,6 +489,23 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_REISSUE_KEYS,
         CB_REISSUE_CONFIRM,
         CB_RESEND_EMAIL_CODE,
+        CB_IOS_DID_WORK,
+        CB_IOS_YES,
+        CB_IOS_NO,
+        CB_IOS_RETRY,
+        CB_MAC_DID_WORK,
+        CB_MAC_YES,
+        CB_MAC_NO,
+        CB_MAC_RETRY,
+        CB_CONNECT_TV,
+        CB_TV_DID_WORK,
+        CB_TV_YES,
+        CB_TV_NO,
+        CB_TV_RETRY,
+        CB_WIN_DID_WORK,
+        CB_WIN_YES,
+        CB_WIN_NO,
+        CB_WIN_RETRY,
         "add_device",
         "remove_device",
         "store_plans",
@@ -263,6 +533,10 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_ADD_DEV_BALANCE,
                     CB_ADD_DEV,
                     CB_SERVER,
+                    CB_IOS_STEP,
+                    CB_MAC_STEP,
+                    CB_TV_STEP,
+                    CB_WIN_STEP,
                     "add_dev_pay:",
                     "remove_dev",
                 )
@@ -806,6 +1080,7 @@ async def _process_yookassa_payment(
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
     from app.bot_transport.payment_message_registry import set_pending_payment_for_user
+
     set_pending_payment_for_user(uid, result.payment_id)
 
     display_name = plan_display_name(plan_id)
@@ -1208,6 +1483,9 @@ async def _render_storefront_response(
 
     text: str = text_error_generic()
     keyboard: dict[str, Any] | None = None
+    media_type: str | None = None
+    media_path: str | None = None
+    follow_up_main_menu: bool = False
 
     if code in (CB_MAIN_MENU, "store_menu"):
         # Auto-activate trial for new users who haven't used it yet
@@ -1260,23 +1538,39 @@ async def _render_storefront_response(
     elif code == CB_CONNECT_DEVICE:
         text, keyboard = text_connect_device(), connect_device_keyboard()
 
-    elif code in (CB_CONNECT_WIN, CB_CONNECT_ANDROID, CB_CONNECT_IOS, CB_CONNECT_MAC):
+    elif code == CB_CONNECT_WIN:
+        text = win_step_1_text()
+        keyboard = win_step_1_keyboard()
+        media_type = "document"
+        media_path = "media/karing_windows_x64.exe"
+
+    elif code == CB_CONNECT_ANDROID:
         text = text_connect_platform(code)
         keyboard = connect_platform_keyboard()
         if uid is not None:
             platform = _platform_from_cb(code)
             if platform is not None:
                 _last_connect_platform[uid] = platform
-        # Android: disable link previews for download links
-        if code == CB_CONNECT_ANDROID:
-            return RenderedMessagePackage(
-                message_text=text,
-                action_keys=(),
-                correlation_id=cid,
-                reply_markup=keyboard,
-                parse_mode=parse_mode,
-                disable_web_page_preview=True,
-            )
+                _trim_inmemory_dict(_last_connect_platform)
+        return RenderedMessagePackage(
+            message_text=text,
+            action_keys=(),
+            correlation_id=cid,
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+
+    elif code == CB_CONNECT_IOS:
+        text = ios_step_1_text()
+        keyboard = ios_step_1_keyboard()
+
+    elif code == CB_CONNECT_MAC:
+        text = mac_step_1_text()
+        keyboard = mac_step_1_keyboard()
+
+    elif code == CB_CONNECT_TV:
+        text = tv_step_1_text()
+        keyboard = tv_step_1_keyboard()
 
     elif code == CB_CONNECT_NEXT:
         if uid is not None and composition.vless_provider is not None:
@@ -1293,15 +1587,20 @@ async def _render_storefront_response(
                     platform = _last_connect_platform.pop(uid, None)
                     if platform is not None:
                         import pathlib
-                        video_file = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "videos" / f"{platform.capitalize()}.mp4"
+
+                        video_file = (
+                            pathlib.Path(__file__).resolve().parent.parent.parent.parent
+                            / "videos"
+                            / f"{platform.capitalize()}.mp4"
+                        )
                         if video_file.exists():
                             return RenderedMessagePackage(
                                 message_text=text,
                                 action_keys=(),
                                 correlation_id=cid,
                                 reply_markup=keyboard,
-                                parse_mode=parse_mode,
-                                video_path=str(video_file),
+                                media_type="video",
+                                media_path=str(video_file),
                             )
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
@@ -1312,6 +1611,29 @@ async def _render_storefront_response(
 
     elif code == CB_CONNECT_DONE:
         text, keyboard = text_connect_done(), connect_done_keyboard()
+
+    elif code.startswith((CB_IOS_STEP, CB_MAC_STEP, CB_TV_STEP, CB_WIN_STEP)):
+        text, keyboard, media_type, media_path = await _render_platform_step(
+            code,
+            uid,
+            composition,
+        )
+
+    elif code in (CB_IOS_DID_WORK, CB_MAC_DID_WORK, CB_TV_DID_WORK, CB_WIN_DID_WORK):
+        text = ios_did_work_text()
+        keyboard = _did_work_kb_for(code)
+
+    elif code in (CB_IOS_YES, CB_MAC_YES, CB_TV_YES, CB_WIN_YES):
+        text = ios_success_text()
+        keyboard = main_menu_keyboard()
+        follow_up_main_menu = True
+
+    elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO):
+        text = ios_problem_text()
+        keyboard = _problem_kb_for(code)
+
+    elif code in (CB_IOS_RETRY, CB_MAC_RETRY, CB_TV_RETRY, CB_WIN_RETRY):
+        text, keyboard = _step_1_for_retry(code)
 
     elif code == CB_MY_KEYS:
         has_sub = await _has_active_subscription(composition, uid)
@@ -1493,6 +1815,7 @@ async def _render_storefront_response(
     elif code == CB_CUSTOM_DAYS:
         if uid is not None:
             _awaiting_custom_days[uid] = True
+            _trim_inmemory_dict(_awaiting_custom_days)
         text = text_custom_days_prompt()
         keyboard = custom_days_prompt_keyboard()
 
@@ -1570,7 +1893,10 @@ async def _render_storefront_response(
             plan_id = rest
             device_count = DEVICES_DEFAULT
         text, keyboard = await _process_yookassa_payment(
-            composition, uid, plan_id=plan_id, device_count=device_count,
+            composition,
+            uid,
+            plan_id=plan_id,
+            device_count=device_count,
         )
 
     elif code.startswith(CB_PAY_BALANCE):
@@ -1638,6 +1964,36 @@ async def _render_storefront_response(
             keyboard = back_only_keyboard(CB_SETTINGS)
 
     parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
+    # iOS/Mac steps use Markdown for formatted links
+    if code.startswith(CB_IOS_STEP) or code == CB_IOS_RETRY:
+        parse_mode = "Markdown"
+    if code.startswith(CB_MAC_STEP) or code == CB_MAC_RETRY:
+        parse_mode = "Markdown"
+    if code.startswith(CB_TV_STEP) or code == CB_TV_RETRY:
+        parse_mode = "Markdown"
+    if code.startswith(CB_WIN_STEP) or code == CB_WIN_RETRY:
+        parse_mode = "Markdown"
+
+    if follow_up_main_menu:
+        return RenderedMessagePackage(
+            message_text=text,
+            action_keys=(),
+            correlation_id=cid,
+            reply_markup=keyboard,
+            replay_suppresses_outbound=transport.replay_suppresses_outbound,
+            uc01_idempotency_key=transport.uc01_idempotency_key,
+            parse_mode=parse_mode,
+            media_type=media_type,
+            media_path=media_path,
+            follow_up_messages=(
+                RenderedMessagePackage(
+                    message_text=text_main_menu(),
+                    action_keys=(),
+                    correlation_id=cid + "_menu",
+                    reply_markup=main_menu_keyboard(),
+                ),
+            ),
+        )
 
     return RenderedMessagePackage(
         message_text=text,
@@ -1647,12 +2003,12 @@ async def _render_storefront_response(
         replay_suppresses_outbound=transport.replay_suppresses_outbound,
         uc01_idempotency_key=transport.uc01_idempotency_key,
         parse_mode=parse_mode,
+        media_type=media_type,
+        media_path=media_path,
     )
 
 
-# ─── Main facade function ────────────────────────────────────────────
-
-
+# ─── Main facade function
 async def handle_slice1_telegram_update_to_rendered_message(
     update: Mapping[str, Any],
     composition: Slice1Composition,

@@ -81,6 +81,28 @@ class FakeTelegramPollingClient:
     ) -> int:
         return 1
 
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return 1
+
+    async def send_document(
+        self,
+        chat_id: int,
+        document_path: str,
+        *,
+        caption: str | None = None,
+        reply_markup=None,
+        parse_mode: str | None = None,
+    ) -> int:
+        return 1
+
     async def answer_callback_query(self, callback_query_id: str) -> None:
         pass
 
