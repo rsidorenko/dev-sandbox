@@ -91,6 +91,7 @@ from app.bot_transport.storefront_ui import (
     text_connect_device,
     text_connect_done,
     text_connect_platform,
+    _platform_from_cb,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -130,6 +131,7 @@ from app.shared.types import SafeUserStatusCategory
 # ─── Custom days input state ────────────────────────────────────────
 
 _awaiting_custom_days: dict[int, bool] = {}
+_last_connect_platform: dict[int, str] = {}
 
 
 def _handle_custom_days_input(
@@ -1261,20 +1263,20 @@ async def _render_storefront_response(
     elif code in (CB_CONNECT_WIN, CB_CONNECT_ANDROID, CB_CONNECT_IOS, CB_CONNECT_MAC):
         text = text_connect_platform(code)
         keyboard = connect_platform_keyboard()
-        # Android: send instruction video + links without link previews
+        if uid is not None:
+            platform = _platform_from_cb(code)
+            if platform is not None:
+                _last_connect_platform[uid] = platform
+        # Android: disable link previews for download links
         if code == CB_CONNECT_ANDROID:
-            import pathlib
-            _android_video = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "videos" / "Android.mp4"
-            if _android_video.exists():
-                return RenderedMessagePackage(
-                    message_text=text,
-                    action_keys=(),
-                    correlation_id=cid,
-                    reply_markup=keyboard,
-                    parse_mode=parse_mode,
-                    video_path=str(_android_video),
-                    disable_web_page_preview=True,
-                )
+            return RenderedMessagePackage(
+                message_text=text,
+                action_keys=(),
+                correlation_id=cid,
+                reply_markup=keyboard,
+                parse_mode=parse_mode,
+                disable_web_page_preview=True,
+            )
 
     elif code == CB_CONNECT_NEXT:
         if uid is not None and composition.vless_provider is not None:
@@ -1287,6 +1289,20 @@ async def _render_storefront_response(
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
                     text, keyboard = text_connect_config(vless_result.config), connect_config_keyboard()
+                    # Attach platform-specific instruction video
+                    platform = _last_connect_platform.pop(uid, None)
+                    if platform is not None:
+                        import pathlib
+                        video_file = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "videos" / f"{platform.capitalize()}.mp4"
+                        if video_file.exists():
+                            return RenderedMessagePackage(
+                                message_text=text,
+                                action_keys=(),
+                                correlation_id=cid,
+                                reply_markup=keyboard,
+                                parse_mode=parse_mode,
+                                video_path=str(video_file),
+                            )
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
             else:
