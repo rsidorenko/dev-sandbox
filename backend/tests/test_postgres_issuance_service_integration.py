@@ -333,6 +333,12 @@ def test_postgres_composition_access_resend_enabled_uses_durable_state_happy_pat
 
             monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", "1")
             monkeypatch.setenv("TELEGRAM_ACCESS_RESEND_ENABLE", "1")
+
+            # Clear VPN servers so resolve_slice1_composition_for_runtime
+            # picks StubVlessProvider instead of XuiVlessProvider.
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM vpn_servers")
+
             cfg = RuntimeConfig(
                 bot_token="1234567890tok",
                 database_url=pg_url,
@@ -410,6 +416,12 @@ def test_postgres_composition_access_resend_enabled_without_durable_state_not_re
 
             monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", "1")
             monkeypatch.setenv("TELEGRAM_ACCESS_RESEND_ENABLE", "1")
+
+            # Clear VPN servers so resolve_slice1_composition_for_runtime
+            # picks StubVlessProvider instead of XuiVlessProvider.
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM vpn_servers")
+
             cfg = RuntimeConfig(
                 bot_token="1234567890tok",
                 database_url=pg_url,
@@ -492,6 +504,12 @@ def test_postgres_telegram_access_resend_revoked_issuance_state_not_ready(
 
             monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", "1")
             monkeypatch.setenv("TELEGRAM_ACCESS_RESEND_ENABLE", "1")
+
+            # Clear VPN servers so resolve_slice1_composition_for_runtime
+            # picks StubVlessProvider instead of XuiVlessProvider.
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM vpn_servers")
+
             cfg = RuntimeConfig(
                 bot_token="1234567890tok",
                 database_url=pg_url,
@@ -569,6 +587,12 @@ def test_postgres_telegram_access_resend_inactive_subscription_not_eligible(
 
             monkeypatch.setenv("SLICE1_USE_POSTGRES_REPOS", "1")
             monkeypatch.setenv("TELEGRAM_ACCESS_RESEND_ENABLE", "1")
+
+            # Clear VPN servers so resolve_slice1_composition_for_runtime
+            # picks StubVlessProvider instead of XuiVlessProvider.
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM vpn_servers")
+
             cfg = RuntimeConfig(
                 bot_token="1234567890tok",
                 database_url=pg_url,
