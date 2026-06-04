@@ -139,10 +139,17 @@ class TestBuildSingboxConfig:
         parsed = json.loads(result)
 
         vless_outbounds = [ob for ob in parsed["outbounds"] if ob["type"] == "vless"]
-        assert len(vless_outbounds) == 3
+        # xhttp is excluded — only tcp and ws remain
+        assert len(vless_outbounds) == 2
 
         selector = next(ob for ob in parsed["outbounds"] if ob["type"] == "selector")
-        assert len(selector["outbounds"]) == 3
+        assert len(selector["outbounds"]) == 2
+
+    def test_all_xhttp_servers_excluded(self):
+        servers = _make_servers(_XHTTP_REALITY_LINK)
+        result = build_singbox_config(servers)
+        parsed = json.loads(result)
+        assert parsed["outbounds"] == []
 
     def test_russian_domain_bypass_rules(self):
         servers = _make_servers(_TCP_REALITY_LINK)
