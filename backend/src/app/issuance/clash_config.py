@@ -1,8 +1,8 @@
 """Clash Meta YAML config builder for subscription endpoint.
 
-Generates a Clash Meta configuration with routing rules that bypass VPN
-for Russian domains (.ru, .su, .рф), sending them directly via the
-user's local ISP instead of through the VLESS proxy.
+Generates a Clash Meta configuration that routes all traffic through the
+VLESS proxy. Split routing (Russian domains via Russian server, everything
+else via foreign servers) is handled at the VPN server level, not client-side.
 """
 
 from __future__ import annotations
@@ -107,11 +107,9 @@ def build_clash_config(servers: tuple[VlessServerConfig, ...]) -> str:
     for name in proxy_names:
         lines.append(f'      - "{name}"')
 
-    # Rules
+    # Rules — all traffic through proxy; server handles split routing
     lines.append("")
     lines.append("rules:")
-    for suffix in (".ru", ".su", ".рф"):
-        lines.append(f"  - DOMAIN-SUFFIX,{suffix},DIRECT")
     lines.append("  - MATCH,proxy")
 
     return "\n".join(lines) + "\n"
