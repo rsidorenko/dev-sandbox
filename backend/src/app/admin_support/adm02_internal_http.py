@@ -30,6 +30,7 @@ from app.admin_support.adm02_ensure_access_endpoint import (
     execute_adm02_ensure_access_endpoint,
 )
 from app.admin_support.contracts import InternalAdminPrincipalExtractor
+from app.admin_support.internal_auth import verify_internal_admin_secret
 
 ADM02_INTERNAL_DIAGNOSTICS_PATH = "/internal/admin/adm02/diagnostics"
 ADM02_INTERNAL_ENSURE_ACCESS_PATH = "/internal/admin/adm02/ensure-access"
@@ -147,6 +148,9 @@ def create_adm02_internal_http_app(
     ensure_access_audit_lookup_handler: Adm02EnsureAccessAuditLookupHandlerLike | None = None,
 ) -> Starlette:
     async def adm02_diagnostics(request: Request) -> JSONResponse:
+        auth_err = verify_internal_admin_secret(request)
+        if auth_err is not None:
+            return auth_err
         raw = await request.body()
         try:
             data = json.loads(raw.decode("utf-8"))
@@ -160,6 +164,9 @@ def create_adm02_internal_http_app(
         return JSONResponse(adm02_endpoint_response_to_jsonable(resp), status_code=200)
 
     async def adm02_ensure_access(request: Request) -> JSONResponse:
+        auth_err = verify_internal_admin_secret(request)
+        if auth_err is not None:
+            return auth_err
         if ensure_access_handler is None:
             return JSONResponse({"error": "not_found"}, status_code=404)
         raw = await request.body()
@@ -178,6 +185,9 @@ def create_adm02_internal_http_app(
         return JSONResponse(adm02_ensure_access_endpoint_response_to_jsonable(resp), status_code=200)
 
     async def adm02_audit_events(request: Request) -> JSONResponse:
+        auth_err = verify_internal_admin_secret(request)
+        if auth_err is not None:
+            return auth_err
         if ensure_access_audit_lookup_handler is None:
             return JSONResponse({"error": "not_found"}, status_code=404)
         raw = await request.body()

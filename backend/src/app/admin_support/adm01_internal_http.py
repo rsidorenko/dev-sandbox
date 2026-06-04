@@ -17,6 +17,7 @@ from app.admin_support.adm01_endpoint import (
     execute_adm01_endpoint,
 )
 from app.admin_support.contracts import InternalAdminPrincipalExtractor
+from app.admin_support.internal_auth import verify_internal_admin_secret
 
 ADM01_INTERNAL_LOOKUP_PATH = "/internal/admin/adm01/lookup"
 
@@ -57,6 +58,9 @@ def create_adm01_internal_http_app(
     principal_extractor: InternalAdminPrincipalExtractor,
 ) -> Starlette:
     async def adm01_lookup(request: Request) -> JSONResponse:
+        auth_err = verify_internal_admin_secret(request)
+        if auth_err is not None:
+            return auth_err
         raw = await request.body()
         try:
             data = json.loads(raw.decode("utf-8"))

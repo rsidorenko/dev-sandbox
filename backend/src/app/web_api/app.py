@@ -15,7 +15,7 @@ from starlette.routing import Route
 
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
-from app.web_api.middleware import require_csrf
+from app.web_api.middleware import require_auth, require_csrf
 from app.web_api.payment import handle_create_payment, handle_get_payment_status
 from app.web_api.profile import (
     handle_activate_trial,
@@ -78,6 +78,17 @@ def _with_csrf(handler):
     return _wrapped
 
 
+def _with_auth(handler):
+    """Wrap a handler to enforce JWT auth at routing level."""
+    async def _wrapped(request: Request) -> JSONResponse:
+        auth_result = await require_auth(request)
+        if isinstance(auth_result, JSONResponse):
+            return auth_result
+        request.state.user = auth_result
+        return await handler(request)
+    return _wrapped
+
+
 async def _yookassa_webhook_handler(request: Request) -> JSONResponse:
     """Thin adapter that delegates to the real handler, passing vless_provider and notifier from app.state."""
     pool: asyncpg.Pool = request.app.state.pool
@@ -101,20 +112,20 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/auth/email/verify", handle_verify_code, methods=["POST"]),
         Route("/api/v1/auth/logout", handle_logout, methods=["POST"]),
         # Profile
-        Route("/api/v1/user/profile", handle_get_profile, methods=["GET"]),
+        Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
         # Keys
-        Route("/api/v1/user/keys", handle_get_keys, methods=["GET"]),
-        Route("/api/v1/user/keys/reissue", _with_csrf(handle_reissue_keys), methods=["POST"]),
-        # Subscription management (CSRF-protected)
-        Route("/api/v1/user/subscription/renew", _with_csrf(handle_renew_subscription), methods=["POST"]),
-        Route("/api/v1/user/subscription/change-plan", _with_csrf(handle_change_plan), methods=["POST"]),
-        Route("/api/v1/user/subscription/change-devices", _with_csrf(handle_change_devices), methods=["POST"]),
-        Route("/api/v1/user/subscription/cancel", _with_csrf(handle_cancel_subscription), methods=["POST"]),
+        Route("/api/v1/user/keys", _with_auth(handle_get_keys), methods=["GET"]),
+        Route("/api/v1/user/keys/reissue", _with_auth(_with_csrf(handle_reissue_keys)), methods=["POST"]),
+        # Subscription management (auth + CSRF-protected)
+        Route("/api/v1/user/subscription/renew", _with_auth(_with_csrf(handle_renew_subscription)), methods=["POST"]),
+        Route("/api/v1/user/subscription/change-plan", _with_auth(_with_csrf(handle_change_plan)), methods=["POST"]),
+        Route("/api/v1/user/subscription/change-devices", _with_auth(_with_csrf(handle_change_devices)), methods=["POST"]),
+        Route("/api/v1/user/subscription/cancel", _with_auth(_with_csrf(handle_cancel_subscription)), methods=["POST"]),
         # Trial
-        Route("/api/v1/user/trial/activate", _with_csrf(handle_activate_trial), methods=["POST"]),
+        Route("/api/v1/user/trial/activate", _with_auth(_with_csrf(handle_activate_trial)), methods=["POST"]),
         # Payment
-        Route("/api/v1/payment/create", _with_csrf(handle_create_payment), methods=["POST"]),
-        Route("/api/v1/payment/{payment_id}/status", handle_get_payment_status, methods=["GET"]),
+        Route("/api/v1/payment/create", _with_auth(_with_csrf(handle_create_payment)), methods=["POST"]),
+        Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
         # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
         Route("/api/v1/internal/email/send-code", _wrap_internal(handle_bot_send_code), methods=["POST"]),
         Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),

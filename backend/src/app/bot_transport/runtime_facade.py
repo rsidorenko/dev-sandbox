@@ -1110,6 +1110,8 @@ async def _process_balance_payment(
 
     from app.application.interfaces import SubscriptionSnapshot
     from app.domain.plans import calculate_total_price_kopecks
+    from app.persistence.postgres_referral import PostgresReferralBalanceRepository
+    from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
     from app.persistence.referral_contracts import ReferralTransactionRecord
 
     plan = get_plan(plan_id)
@@ -1121,65 +1123,67 @@ async def _process_balance_payment(
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
     total_kopecks = calculate_total_price_kopecks(plan, device_count)
-
-    balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
-    balance_kopecks = balance_record.balance_kopecks if balance_record else 0
-
-    if balance_kopecks < total_kopecks:
-        return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
-
-    debit_result = await composition.referral_balance_repo.debit(internal_user_id, total_kopecks)
-    if debit_result is None:
-        return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+    pool = _get_pool_from_composition(composition)
 
     now = datetime.now(UTC)
-    try:
-        existing_snap = await composition.snapshots.get_for_user(internal_user_id)
-        base_date = now
-        if (
-            existing_snap is not None
-            and existing_snap.active_until_utc is not None
-            and existing_snap.active_until_utc > now
-        ):
-            base_date = existing_snap.active_until_utc
-        active_until = base_date + timedelta(days=plan.duration_days)
-        active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
-        await composition.snapshots.upsert_state(
-            SubscriptionSnapshot(
-                internal_user_id=internal_user_id,
-                state_label="active",
-                active_until_utc=active_until,
-                plan_id=plan_id,
-                device_count=device_count,
-            )
-        )
-    except Exception:
-        # Компенсирующая транзакция: вернуть списанные средства при ошибке активации
-        with contextlib.suppress(Exception):
-            await composition.referral_balance_repo.credit(internal_user_id, total_kopecks)
-        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    active_until: datetime | None = None
 
-    if composition.vless_provider is not None:
-        with contextlib.suppress(Exception):
-            pool = _get_pool_from_composition(composition)
-            if pool is not None:
+    if pool is not None:
+        # Production path: atomic debit + upsert in a single transaction
+        try:
+            async with pool.acquire() as conn, conn.transaction():
+                balance_record = await PostgresReferralBalanceRepository.get_balance_in_connection(
+                    conn, internal_user_id,
+                )
+                balance_kopecks = balance_record.balance_kopecks if balance_record else 0
+                if balance_kopecks < total_kopecks:
+                    return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+                debit_result = await PostgresReferralBalanceRepository.debit_in_connection(
+                    conn, internal_user_id, total_kopecks,
+                )
+                if debit_result is None:
+                    return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+                existing_snap = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
+                    conn, internal_user_id,
+                )
+                base_date = now
+                if (
+                    existing_snap is not None
+                    and existing_snap.active_until_utc is not None
+                    and existing_snap.active_until_utc > now
+                ):
+                    base_date = existing_snap.active_until_utc
+                active_until = base_date + timedelta(days=plan.duration_days)
+                active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
+                await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
+                    conn,
+                    SubscriptionSnapshot(
+                        internal_user_id=internal_user_id,
+                        state_label="active",
+                        active_until_utc=active_until,
+                        plan_id=plan_id,
+                        device_count=device_count,
+                    ),
+                )
+        except Exception:
+            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+        # Best-effort: VLESS key creation (outside transaction, HTTP-dependent)
+        if composition.vless_provider is not None:
+            with contextlib.suppress(Exception):
                 snap_check = await pool.fetchrow(
                     """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
                        WHERE internal_user_id = $1""",
                     internal_user_id,
                 )
                 if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                    # Keys were deleted — create new ones
                     await composition.vless_provider.create_user(internal_user_id=internal_user_id)
                 elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                    # Keys were deactivated — re-enable
                     await composition.vless_provider.activate_user(internal_user_id=internal_user_id)
                 else:
                     await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-            else:
-                await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-        # Reset lifecycle tracking
-        if pool is not None:
             with contextlib.suppress(Exception):
                 await pool.execute(
                     """UPDATE subscription_snapshots
@@ -1187,6 +1191,45 @@ async def _process_balance_payment(
                        WHERE internal_user_id = $1""",
                     internal_user_id,
                 )
+    else:
+        # Test path: in-memory repositories (no transaction support)
+        balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
+        balance_kopecks = balance_record.balance_kopecks if balance_record else 0
+        if balance_kopecks < total_kopecks:
+            return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+        debit_result = await composition.referral_balance_repo.debit(internal_user_id, total_kopecks)
+        if debit_result is None:
+            return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+
+        try:
+            existing_snap = await composition.snapshots.get_for_user(internal_user_id)
+            base_date = now
+            if (
+                existing_snap is not None
+                and existing_snap.active_until_utc is not None
+                and existing_snap.active_until_utc > now
+            ):
+                base_date = existing_snap.active_until_utc
+            active_until = base_date + timedelta(days=plan.duration_days)
+            active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
+            await composition.snapshots.upsert_state(
+                SubscriptionSnapshot(
+                    internal_user_id=internal_user_id,
+                    state_label="active",
+                    active_until_utc=active_until,
+                    plan_id=plan_id,
+                    device_count=device_count,
+                ),
+            )
+        except Exception:
+            with contextlib.suppress(Exception):
+                await composition.referral_balance_repo.credit(internal_user_id, total_kopecks)
+            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+        if composition.vless_provider is not None:
+            with contextlib.suppress(Exception):
+                await composition.vless_provider.create_user(internal_user_id=internal_user_id)
 
     correlation_id = f"bal-pay-{uuid.uuid4()}"
     await composition.referral_transaction_repo.append_transaction(
@@ -1210,7 +1253,7 @@ async def _process_balance_payment(
         correlation_prefix="bal",
     )
 
-    active_until_str = active_until.date().isoformat()
+    active_until_str = (active_until or now).date().isoformat()
     return text_balance_payment_success(active_until_str), main_menu_keyboard()
 
 

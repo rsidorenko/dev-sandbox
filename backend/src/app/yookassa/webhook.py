@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -23,8 +25,29 @@ from app.shared.types import OperationOutcomeCategory
 _LOGGER = logging.getLogger(__name__)
 
 ENV_YOOKASSA_PROVIDER_KEY = "YOOKASSA_PROVIDER_KEY"
+ENV_YOOKASSA_WEBHOOK_SECRET = "YOOKASSA_WEBHOOK_SECRET"
 
 _DEFAULT_PROVIDER_KEY = "yookassa_v1"
+
+
+def _verify_yookassa_signature(raw_body: bytes, request: Request) -> JSONResponse | None:
+    """Verify YooKassa webhook HMAC-SHA256 signature. Returns error response or None if OK."""
+    secret = os.environ.get(ENV_YOOKASSA_WEBHOOK_SECRET, "").strip()
+    if not secret:
+        _LOGGER.warning(
+            "yookassa webhook: %s not configured — skipping signature verification",
+            ENV_YOOKASSA_WEBHOOK_SECRET,
+        )
+        return None
+    sig_header = request.headers.get("X-Request-Signature-SHA256", "").strip()
+    if not sig_header:
+        _LOGGER.warning("yookassa webhook: missing signature header")
+        return _safe_json_error(401, "invalid_signature")
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig_header, expected):
+        _LOGGER.warning("yookassa webhook: signature mismatch")
+        return _safe_json_error(401, "invalid_signature")
+    return None
 
 
 def _get_provider_key() -> str:
@@ -46,6 +69,10 @@ def create_yookassa_webhook_handler(
 
     async def handle_yookassa_webhook(request: Request) -> JSONResponse:
         raw_body = await request.body()
+
+        sig_err = _verify_yookassa_signature(raw_body, request)
+        if sig_err is not None:
+            return sig_err
 
         try:
             notification = json.loads(raw_body.decode("utf-8"))
@@ -116,9 +143,18 @@ def create_yookassa_webhook_handler(
 
         amount_kopecks = None
         try:
-            amount_kopecks = int(float(verified.amount_value) * 100)
+            amount_kopecks = round(float(verified.amount_value) * 100)
         except (ValueError, TypeError):
             pass
+
+        expected_kopecks = plan.price_rubles * 100
+        if amount_kopecks is not None and abs(amount_kopecks - expected_kopecks) > 1:
+            _LOGGER.warning(
+                "yookassa webhook: amount mismatch expected=%d got=%d id=%s",
+                expected_kopecks, amount_kopecks, payment_id,
+            )
+            return _safe_json_error(409, "amount_mismatch")
+        amount_kopecks = expected_kopecks
 
         paid_at_str = payment_obj.get("captured_at") or payment_obj.get("created_at", "")
         try:

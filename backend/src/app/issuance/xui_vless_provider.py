@@ -153,11 +153,18 @@ def _build_vless_link(
 
 
 def _resolve_panel_password(row: asyncpg.Record) -> str:
-    """Resolve panel password: prefer encrypted column, fallback to plaintext."""
+    """Resolve panel password: encrypted column preferred, plaintext fallback with warning."""
     encrypted = row.get("encrypted_password", "")
     if encrypted:
         return decrypt_field(encrypted)
-    return row["panel_password"]
+    plain = row.get("panel_password", "")
+    if plain:
+        _LOGGER.critical(
+            "SECURITY: server id=%s has plaintext panel_password — "
+            "run scripts/migrate_encrypt_passwords.py to encrypt and clear",
+            row.get("id"),
+        )
+    return plain
 
 
 async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...]:
@@ -235,10 +242,26 @@ class XuiVlessProvider(VlessProviderPort):
         self._pool = pool
         self._clients: list[XuiApiClient] | None = None
         self._clients_ts: float = 0.0
+        self._plaintext_warning_logged = False
+
+    async def _check_plaintext_passwords(self) -> None:
+        if self._plaintext_warning_logged:
+            return
+        row = await self._pool.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM vpn_servers WHERE is_active = TRUE AND panel_password != ''"
+        )
+        if row and row["cnt"] > 0:
+            _LOGGER.critical(
+                "SECURITY: %d active vpn_servers have non-empty panel_password — "
+                "run scripts/migrate_encrypt_passwords.py to encrypt and clear plaintext",
+                row["cnt"],
+            )
+        self._plaintext_warning_logged = True
 
     async def _get_clients(self) -> list[XuiApiClient]:
         if self._clients is not None and time.monotonic() - self._clients_ts < _CACHE_TTL_SECONDS:
             return self._clients
+        await self._check_plaintext_passwords()
         # Close old clients before creating new ones
         if self._clients is not None:
             await self._close_clients()

@@ -37,6 +37,9 @@ frontend/.env.*.local
 .DS_Store
 Thumbs.db
 
+# SSH keys (never commit)
+.ssh/
+
 # Claude Code local config
 .claude/settings.local.json
 .claude/worktrees/
