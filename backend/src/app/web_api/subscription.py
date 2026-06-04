@@ -1,8 +1,4 @@
-"""Public subscription endpoint: /sub/{token} → Clash Meta YAML config.
-
-Returns Clash Meta YAML by default (with routing rules for Russian domain bypass).
-Use ?format=singbox for SING-BOX JSON, ?format=plain for base64 VLESS links.
-"""
+"""Public subscription endpoint: /sub/{token} → base64-encoded VLESS links."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ from datetime import UTC, datetime
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
-from app.issuance.clash_config import build_clash_config
-from app.issuance.singbox_config import build_singbox_config
 from app.issuance.vless_provider import VlessProviderOutcome
 
 _SUB_RATE_LIMIT_MAX = 30
@@ -27,12 +21,10 @@ _sub_last_cleanup: float = 0.0
 def _check_sub_rate_limit(client_ip: str) -> bool:
     global _sub_last_cleanup
     now = time.monotonic()
-    # Periodic cleanup: remove old entries every 60s
     if now - _sub_last_cleanup > _SUB_RATE_LIMIT_WINDOW:
         expired = [k for k, v in _sub_rate_limit_store.items() if not v or now - v[-1] > _SUB_RATE_LIMIT_WINDOW]
         for k in expired:
             del _sub_rate_limit_store[k]
-        # Cap total entries
         if len(_sub_rate_limit_store) > _SUB_RATE_LIMIT_MAX_ENTRIES:
             oldest = sorted(_sub_rate_limit_store, key=lambda k: _sub_rate_limit_store[k][-1] if _sub_rate_limit_store[k] else 0)
             for k in oldest[: len(_sub_rate_limit_store) - _SUB_RATE_LIMIT_MAX_ENTRIES]:
@@ -71,16 +63,6 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)
 
-    fmt = request.query_params.get("format", "clash")
-
-    if fmt == "plain":
-        links = "\n".join(s.vless_link for s in result.config.servers)
-        encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
-        return PlainTextResponse(encoded, media_type="text/plain")
-
-    if fmt == "singbox":
-        singbox_json = build_singbox_config(result.config.servers)
-        return Response(singbox_json, media_type="application/json")
-
-    clash_yaml = build_clash_config(result.config.servers)
-    return PlainTextResponse(clash_yaml, media_type="text/yaml")
+    links = "\n".join(s.vless_link for s in result.config.servers)
+    encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
+    return PlainTextResponse(encoded, media_type="text/plain")
