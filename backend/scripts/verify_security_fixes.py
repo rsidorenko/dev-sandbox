@@ -280,22 +280,15 @@ print("\n--- Fix C3+H4: Encrypt panel passwords + remove plaintext fallback ---"
 
 from app.issuance.xui_vless_provider import _resolve_panel_password
 
-# Test 1: Empty encrypted_password → raises RuntimeError
+# Test 1: Empty encrypted_password + plaintext → logs CRITICAL, returns plaintext (not crash)
 mock_row_empty = {"id": 1, "encrypted_password": "", "panel_password": "plain123"}
-try:
-    _resolve_panel_password(mock_row_empty)
-    _result("Empty encrypted_password raises RuntimeError", False)
-except RuntimeError as e:
-    _result("Empty encrypted_password raises RuntimeError", True)
-    _result("Error message mentions encrypt script", "encrypt_panel_passwords" in str(e) or "migrate_encrypt_passwords" in str(e))
+result_val = _resolve_panel_password(mock_row_empty)
+_result("Empty encrypted_password falls back to plaintext (not crash)", result_val == "plain123")
 
-# Test 2: No encrypted_password key → raises RuntimeError
+# Test 2: No encrypted_password key + plaintext → falls back to plaintext
 mock_row_no_key = {"id": 2, "panel_password": "plain123"}
-try:
-    _resolve_panel_password(mock_row_no_key)
-    _result("Missing encrypted_password key raises RuntimeError", False)
-except RuntimeError:
-    _result("Missing encrypted_password key raises RuntimeError", True)
+result_val2 = _resolve_panel_password(mock_row_no_key)
+_result("Missing encrypted_password key falls back to plaintext", result_val2 == "plain123")
 
 # Test 3: Valid encrypted password → decrypts correctly
 from app.security.field_encryption import encrypt_field, decrypt_field
@@ -306,11 +299,12 @@ mock_row_encrypted = {"id": 3, "encrypted_password": encrypted}
 result = _resolve_panel_password(mock_row_encrypted)
 _result("Valid encrypted_password decrypts correctly", result == "my_secret_password")
 
-# Test 4: panel_password removed from SQL SELECT
+# Test 4: _resolve_panel_password prefers encrypted, falls back to plaintext with CRITICAL log
 xui_source = inspect.getsource(
-    __import__("app.issuance.xui_vless_provider", fromlist=["_load_server_configs"])
+    __import__("app.issuance.xui_vless_provider", fromlist=["_resolve_panel_password"])
 )
-_result("panel_password removed from SQL SELECT", "panel_password" not in xui_source or "COALESCE(encrypted_password" in xui_source)
+_result("_resolve_panel_password logs CRITICAL on plaintext", "_LOGGER.critical" in xui_source)
+_result("_resolve_panel_password uses encrypted first", "if encrypted:" in xui_source)
 
 # Test 5: Startup warning check exists
 from app.issuance.xui_vless_provider import XuiVlessProvider

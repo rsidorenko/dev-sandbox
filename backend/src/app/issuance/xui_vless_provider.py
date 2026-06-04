@@ -153,20 +153,24 @@ def _build_vless_link(
 
 
 def _resolve_panel_password(row: asyncpg.Record) -> str:
-    """Resolve panel password from encrypted column. Raises if not encrypted."""
+    """Resolve panel password: encrypted column preferred, plaintext fallback with warning."""
     encrypted = row.get("encrypted_password", "")
-    if not encrypted:
-        raise RuntimeError(
-            f"server id={row.get('id')}: encrypted_password is empty — "
-            "run encrypt_panel_passwords.py or migrate_encrypt_passwords.py"
+    if encrypted:
+        return decrypt_field(encrypted)
+    plain = row.get("panel_password", "")
+    if plain:
+        _LOGGER.critical(
+            "SECURITY: server id=%s has plaintext panel_password — "
+            "run scripts/migrate_encrypt_passwords.py to encrypt and clear",
+            row.get("id"),
         )
-    return decrypt_field(encrypted)
+    return plain
 
 
 async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...]:
     rows = await pool.fetch(
         """SELECT id, label, country_code, country_flag, server_host, server_port,
-                  ws_path, tls_sni, panel_url, panel_username,
+                  ws_path, tls_sni, panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, reality_pbk, reality_sid, reality_sni,
                   COALESCE(transport_type, 'tcp') AS transport_type,
