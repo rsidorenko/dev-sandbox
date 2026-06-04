@@ -47,6 +47,8 @@ def _vless_link_to_clash_proxy(link: str) -> dict:
             ws_opts["headers"] = {"Host": p["host_header"]}
         proxy["network"] = "ws"
         proxy["ws-opts"] = ws_opts
+    else:
+        proxy["network"] = "tcp"
 
     return proxy
 
@@ -86,16 +88,15 @@ def build_clash_config(servers: tuple[VlessServerConfig, ...]) -> str:
             lines.append(f'      short-id: {p["reality-opts"]["short-id"]}')
         if "flow" in p:
             lines.append(f"    flow: {p['flow']}")
-        if p.get("network") == "ws":
-            lines.append("    network: ws")
+        lines.append(f"    network: {p.get('network', 'tcp')}")
+        if p.get("network") == "ws" and "ws-opts" in p:
             lines.append("    ws-opts:")
-            if "ws-opts" in p:
-                if "path" in p["ws-opts"]:
-                    lines.append(f"      path: {p['ws-opts']['path']}")
-                if "headers" in p["ws-opts"]:
-                    lines.append("      headers:")
-                    for k, v in p["ws-opts"]["headers"].items():
-                        lines.append(f"        {k}: {v}")
+            if "path" in p["ws-opts"]:
+                lines.append(f"      path: {p['ws-opts']['path']}")
+            if "headers" in p["ws-opts"]:
+                lines.append("      headers:")
+                for k, v in p["ws-opts"]["headers"].items():
+                    lines.append(f"        {k}: {v}")
 
     # Proxy groups
     lines.append("")
