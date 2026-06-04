@@ -153,17 +153,20 @@ def _build_vless_link(
 
 
 def _resolve_panel_password(row: asyncpg.Record) -> str:
-    """Resolve panel password: prefer encrypted column, fallback to plaintext."""
+    """Resolve panel password from encrypted column. Raises if not encrypted."""
     encrypted = row.get("encrypted_password", "")
-    if encrypted:
-        return decrypt_field(encrypted)
-    return row["panel_password"]
+    if not encrypted:
+        raise RuntimeError(
+            f"server id={row.get('id')}: encrypted_password is empty — "
+            "run encrypt_panel_passwords.py or migrate_encrypt_passwords.py"
+        )
+    return decrypt_field(encrypted)
 
 
 async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...]:
     rows = await pool.fetch(
         """SELECT id, label, country_code, country_flag, server_host, server_port,
-                  ws_path, tls_sni, panel_url, panel_username, panel_password,
+                  ws_path, tls_sni, panel_url, panel_username,
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, reality_pbk, reality_sid, reality_sni,
                   COALESCE(transport_type, 'tcp') AS transport_type,
@@ -235,10 +238,26 @@ class XuiVlessProvider(VlessProviderPort):
         self._pool = pool
         self._clients: list[XuiApiClient] | None = None
         self._clients_ts: float = 0.0
+        self._plaintext_warning_logged = False
+
+    async def _check_plaintext_passwords(self) -> None:
+        if self._plaintext_warning_logged:
+            return
+        row = await self._pool.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM vpn_servers WHERE is_active = TRUE AND panel_password != ''"
+        )
+        if row and row["cnt"] > 0:
+            _LOGGER.critical(
+                "SECURITY: %d active vpn_servers have non-empty panel_password — "
+                "run scripts/migrate_encrypt_passwords.py to encrypt and clear plaintext",
+                row["cnt"],
+            )
+        self._plaintext_warning_logged = True
 
     async def _get_clients(self) -> list[XuiApiClient]:
         if self._clients is not None and time.monotonic() - self._clients_ts < _CACHE_TTL_SECONDS:
             return self._clients
+        await self._check_plaintext_passwords()
         # Close old clients before creating new ones
         if self._clients is not None:
             await self._close_clients()

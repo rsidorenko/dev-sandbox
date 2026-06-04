@@ -133,10 +133,16 @@ class PostgresReferralBalanceRepository:
 
     async def get_balance(self, internal_user_id: str) -> ReferralBalanceRecord | None:
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT internal_user_id, balance_kopecks, updated_at FROM referral_balances WHERE internal_user_id = $1",
-                internal_user_id,
-            )
+            return await self.get_balance_in_connection(conn, internal_user_id)
+
+    @staticmethod
+    async def get_balance_in_connection(
+        conn: asyncpg.Connection, internal_user_id: str,
+    ) -> ReferralBalanceRecord | None:
+        row = await conn.fetchrow(
+            "SELECT internal_user_id, balance_kopecks, updated_at FROM referral_balances WHERE internal_user_id = $1",
+            internal_user_id,
+        )
         if row is None:
             return None
         return ReferralBalanceRecord(
@@ -163,13 +169,19 @@ class PostgresReferralBalanceRepository:
 
     async def debit(self, internal_user_id: str, amount_kopecks: int) -> ReferralBalanceRecord | None:
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "UPDATE referral_balances SET balance_kopecks = balance_kopecks - $2, updated_at = now() "
-                "WHERE internal_user_id = $1 AND balance_kopecks >= $2 "
-                "RETURNING internal_user_id, balance_kopecks, updated_at",
-                internal_user_id,
-                amount_kopecks,
-            )
+            return await self.debit_in_connection(conn, internal_user_id, amount_kopecks)
+
+    @staticmethod
+    async def debit_in_connection(
+        conn: asyncpg.Connection, internal_user_id: str, amount_kopecks: int,
+    ) -> ReferralBalanceRecord | None:
+        row = await conn.fetchrow(
+            "UPDATE referral_balances SET balance_kopecks = balance_kopecks - $2, updated_at = now() "
+            "WHERE internal_user_id = $1 AND balance_kopecks >= $2 "
+            "RETURNING internal_user_id, balance_kopecks, updated_at",
+            internal_user_id,
+            amount_kopecks,
+        )
         if row is None:
             return None
         return ReferralBalanceRecord(
