@@ -14,6 +14,9 @@ from app.issuance.vless_provider import VlessServerConfig
 
 _DIRECT_DOMAIN_SUFFIXES = (".ru", ".su", ".рф")
 
+# Transport types not supported by sing-box — excluded from JSON config.
+_UNSUPPORTED_TRANSPORTS = frozenset({"xhttp"})
+
 
 def _parse_vless_link(link: str) -> dict:
     """Parse a vless:// URI into connection parameters."""
@@ -100,7 +103,15 @@ def build_singbox_config(servers: tuple[VlessServerConfig, ...]) -> str:
     if not servers:
         return json.dumps({"outbounds": [], "route": {}})
 
-    proxy_outbounds = [_vless_link_to_outbound(s.vless_link) for s in servers]
+    # Filter out unsupported transport types (e.g. xhttp not supported by sing-box)
+    supported_servers = tuple(
+        s for s in servers
+        if _parse_vless_link(s.vless_link)["type"] not in _UNSUPPORTED_TRANSPORTS
+    )
+    if not supported_servers:
+        return json.dumps({"outbounds": [], "route": {}})
+
+    proxy_outbounds = [_vless_link_to_outbound(s.vless_link) for s in supported_servers]
     server_tags = [ob["tag"] for ob in proxy_outbounds]
 
     selector: dict = {
