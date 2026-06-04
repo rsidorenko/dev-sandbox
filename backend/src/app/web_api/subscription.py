@@ -1,19 +1,19 @@
-"""Public subscription endpoint: /sub/{token} → SING-BOX JSON config.
+"""Public subscription endpoint: /sub/{token} → Clash Meta YAML config.
 
-Returns SING-BOX JSON by default (with routing rules for Russian domain bypass).
-Use ?format=plain to get legacy base64-encoded VLESS links.
+Returns Clash Meta YAML by default (with routing rules for Russian domain bypass).
+Use ?format=singbox for SING-BOX JSON, ?format=plain for base64 VLESS links.
 """
 
 from __future__ import annotations
 
 import base64
-import json
 import time
 from datetime import UTC, datetime
 
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
+from app.issuance.clash_config import build_clash_config
 from app.issuance.singbox_config import build_singbox_config
 from app.issuance.vless_provider import VlessProviderOutcome
 
@@ -71,12 +71,16 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)
 
-    fmt = request.query_params.get("format", "singbox")
+    fmt = request.query_params.get("format", "clash")
 
     if fmt == "plain":
         links = "\n".join(s.vless_link for s in result.config.servers)
         encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
         return PlainTextResponse(encoded, media_type="text/plain")
 
-    singbox_json = build_singbox_config(result.config.servers)
-    return Response(singbox_json, media_type="application/json")
+    if fmt == "singbox":
+        singbox_json = build_singbox_config(result.config.servers)
+        return Response(singbox_json, media_type="application/json")
+
+    clash_yaml = build_clash_config(result.config.servers)
+    return PlainTextResponse(clash_yaml, media_type="text/yaml")
