@@ -1,8 +1,8 @@
 """SING-BOX JSON config builder for subscription endpoint.
 
-Generates a SING-BOX configuration with routing rules that bypass VPN
-for Russian domains (.ru, .su, .рф), sending them directly via the
-user's local ISP instead of through the VLESS proxy.
+Generates a SING-BOX configuration that routes all traffic through the
+VLESS proxy. Split routing (Russian domains via Russian server, everything
+else via foreign servers) is handled at the VPN server level, not client-side.
 """
 
 from __future__ import annotations
@@ -11,8 +11,6 @@ import json
 from urllib.parse import unquote, urlparse
 
 from app.issuance.vless_provider import VlessServerConfig
-
-_DIRECT_DOMAIN_SUFFIXES = (".ru", ".su", ".рф")
 
 _UNSUPPORTED_TRANSPORTS = frozenset({"xhttp"})
 
@@ -129,7 +127,6 @@ def build_singbox_config(servers: tuple[VlessServerConfig, ...]) -> str:
         "route": {
             "rules": [
                 {"protocol": "dns", "outbound": "dns-out"},
-                {"domain_suffix": list(_DIRECT_DOMAIN_SUFFIXES), "outbound": "direct"},
             ],
             "final": "proxy",
             "auto_detect_interface": True,

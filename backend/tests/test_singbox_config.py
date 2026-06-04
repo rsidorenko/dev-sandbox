@@ -150,7 +150,7 @@ class TestBuildSingboxConfig:
         parsed = json.loads(result)
         assert parsed["outbounds"] == []
 
-    def test_russian_domain_bypass_rules(self):
+    def test_no_domain_bypass_rules(self):
         servers = _make_servers(_TCP_REALITY_LINK)
         result = build_singbox_config(servers)
         parsed = json.loads(result)
@@ -160,11 +160,8 @@ class TestBuildSingboxConfig:
             (r for r in rules if "domain_suffix" in r),
             None,
         )
-        assert domain_rule is not None
-        assert ".ru" in domain_rule["domain_suffix"]
-        assert ".su" in domain_rule["domain_suffix"]
-        assert ".рф" in domain_rule["domain_suffix"]
-        assert domain_rule["outbound"] == "direct"
+        # No domain bypass — all traffic goes through proxy; server handles split routing
+        assert domain_rule is None
 
     def test_dns_rule(self):
         servers = _make_servers(_TCP_REALITY_LINK)
