@@ -105,7 +105,7 @@ class TestVlessLinkToOutbound:
         ob = _vless_link_to_outbound(_XHTTP_REALITY_LINK)
         assert ob["type"] == "vless"
         assert ob["server"] == "5.6.7.8"
-        assert ob["transport"]["type"] == "http"
+        assert ob["transport"]["type"] == "splithttp"
         assert ob["transport"]["path"] == "/xhttp-path"
         assert ob["tls"]["reality"]["enabled"] is True
         assert ob["tls"]["reality"]["public_key"] == "xhttp-pbk"
@@ -139,17 +139,18 @@ class TestBuildSingboxConfig:
         parsed = json.loads(result)
 
         vless_outbounds = [ob for ob in parsed["outbounds"] if ob["type"] == "vless"]
-        # xhttp is excluded — only tcp and ws remain
-        assert len(vless_outbounds) == 2
+        assert len(vless_outbounds) == 3
 
         selector = next(ob for ob in parsed["outbounds"] if ob["type"] == "selector")
-        assert len(selector["outbounds"]) == 2
+        assert len(selector["outbounds"]) == 3
 
-    def test_all_xhttp_servers_excluded(self):
+    def test_xhttp_uses_splithttp_transport(self):
         servers = _make_servers(_XHTTP_REALITY_LINK)
         result = build_singbox_config(servers)
         parsed = json.loads(result)
-        assert parsed["outbounds"] == []
+        vless_outbounds = [ob for ob in parsed["outbounds"] if ob["type"] == "vless"]
+        assert len(vless_outbounds) == 1
+        assert vless_outbounds[0]["transport"]["type"] == "splithttp"
 
     def test_russian_domain_bypass_rules(self):
         servers = _make_servers(_TCP_REALITY_LINK)
