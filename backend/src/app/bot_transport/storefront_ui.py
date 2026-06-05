@@ -1052,14 +1052,24 @@ def android_step_3_text(subscription_url: str) -> str:
 
 
 def android_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
-    karing_url = subscription_url + ("&" if "?" in subscription_url else "?") + "open=karing"
+    sep = "&" if "?" in subscription_url else "?"
+    karing_url = subscription_url + sep + "open=karing"
+    v2raytun_url = subscription_url + sep + "open=v2raytun"
     return _inline_kb(
         [
             [
                 {
-                    "text": "🔑 Загрузить ключи в Karing",
+                    "text": "🔑 Karing",
                     "url": karing_url,
-                }
+                },
+                {
+                    "text": "🔑 Happ",
+                    "url": subscription_url,
+                },
+                {
+                    "text": "🔑 v2rayTune",
+                    "url": v2raytun_url,
+                },
             ],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_ANDROID_STEP}2"},

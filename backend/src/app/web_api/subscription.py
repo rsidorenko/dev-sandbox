@@ -49,15 +49,18 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     pool = request.app.state.pool
     token = request.path_params["token"]
 
-    # ?open=karing → redirect to karing://install-config?url=<sub_url> for auto-import
+    # ?open=karing|v2raytun → redirect to app URL scheme for auto-import
     open_action = request.query_params.get("open")
-    if open_action == "karing":
+    if open_action in ("karing", "v2raytun"):
         sub_url = str(request.url.replace(query=None))
-        karing_url = f"karing://install-config?url={quote(sub_url, safe='')}&name=Bravada%20VPN"
+        if open_action == "karing":
+            app_url = f"karing://install-config?url={quote(sub_url, safe='')}&name=Bravada%20VPN"
+        else:
+            app_url = f"v2raytun://import/{quote(sub_url, safe='')}"
         return HTMLResponse(
-            f'<html><head><meta http-equiv="refresh" content="0;url={karing_url}">'
-            f'</head><body><p>Opening Karing...</p>'
-            f'<p><a href="{karing_url}">Tap here if nothing happens</a></p></body></html>'
+            f'<html><head><meta http-equiv="refresh" content="0;url={app_url}">'
+            f'</head><body><p>Opening {open_action}...</p>'
+            f'<p><a href="{app_url}">Tap here if nothing happens</a></p></body></html>'
         )
 
     row = await pool.fetchrow(
