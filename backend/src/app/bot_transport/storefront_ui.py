@@ -591,12 +591,13 @@ def ios_step_3_text(subscription_url: str) -> str:
 
 
 def ios_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    karing_url = subscription_url + ("&" if "?" in subscription_url else "?") + "open=karing"
     return _inline_kb(
         [
             [
                 {
                     "text": "🔑 Загрузить ключи в Karing",
-                    "url": subscription_url,
+                    "url": karing_url,
                 }
             ],
             [
@@ -743,12 +744,13 @@ def mac_step_3_text(subscription_url: str) -> str:
 
 
 def mac_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    karing_url = subscription_url + ("&" if "?" in subscription_url else "?") + "open=karing"
     return _inline_kb(
         [
             [
                 {
                     "text": "🔑 Загрузить ключи в Karing",
-                    "url": subscription_url,
+                    "url": karing_url,
                 }
             ],
             [
@@ -1050,12 +1052,13 @@ def android_step_3_text(subscription_url: str) -> str:
 
 
 def android_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    karing_url = subscription_url + ("&" if "?" in subscription_url else "?") + "open=karing"
     return _inline_kb(
         [
             [
                 {
                     "text": "🔑 Загрузить ключи в Karing",
-                    "url": subscription_url,
+                    "url": karing_url,
                 }
             ],
             [
@@ -1209,12 +1212,13 @@ def win_step_3_text(subscription_url: str) -> str:
 
 
 def win_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
+    karing_url = subscription_url + ("&" if "?" in subscription_url else "?") + "open=karing"
     return _inline_kb(
         [
             [
                 {
                     "text": "🔑 Загрузить ключи в Karing",
-                    "url": subscription_url,
+                    "url": karing_url,
                 }
             ],
             [

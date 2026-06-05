@@ -5,9 +5,10 @@ from __future__ import annotations
 import base64
 import time
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from app.issuance.vless_provider import VlessProviderOutcome
 
@@ -47,6 +48,17 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
 
     pool = request.app.state.pool
     token = request.path_params["token"]
+
+    # ?open=karing → redirect to karing://add/<sub_url> for auto-import
+    open_action = request.query_params.get("open")
+    if open_action == "karing":
+        sub_url = str(request.url.replace(query=None))
+        karing_url = f"karing://add/{quote(sub_url, safe='')}"
+        return HTMLResponse(
+            f'<html><head><meta http-equiv="refresh" content="0;url={karing_url}">'
+            f'</head><body><p>Opening Karing...</p>'
+            f'<p><a href="{karing_url}">Tap here if nothing happens</a></p></body></html>'
+        )
 
     row = await pool.fetchrow(
         "SELECT internal_user_id, subscription_token_expires_at FROM user_identities WHERE subscription_token = $1",
