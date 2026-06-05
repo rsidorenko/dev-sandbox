@@ -49,11 +49,11 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     pool = request.app.state.pool
     token = request.path_params["token"]
 
-    # ?open=karing → redirect to karing://add/<sub_url> for auto-import
+    # ?open=karing → redirect to karing://install-config?url=<sub_url> for auto-import
     open_action = request.query_params.get("open")
     if open_action == "karing":
         sub_url = str(request.url.replace(query=None))
-        karing_url = f"karing://add/{quote(sub_url, safe='')}"
+        karing_url = f"karing://install-config?url={quote(sub_url, safe='')}&name=Bravada%20VPN"
         return HTMLResponse(
             f'<html><head><meta http-equiv="refresh" content="0;url={karing_url}">'
             f'</head><body><p>Opening Karing...</p>'
