@@ -586,6 +586,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_MAC_STEP,
                     CB_TV_STEP,
                     CB_WIN_STEP,
+                    CB_ANDROID_STEP,
                     "add_dev_pay:",
                     "remove_dev",
                 )
