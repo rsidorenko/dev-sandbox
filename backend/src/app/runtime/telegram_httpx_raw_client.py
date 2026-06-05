@@ -18,6 +18,7 @@ from app.runtime.polling_policy import (
 )
 
 _DEFAULT_OWNED_ASYNC_CLIENT_TIMEOUT = httpx.Timeout(35.0)
+_MEDIA_UPLOAD_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
 
 
 def _default_base_url(bot_token: str) -> str:
@@ -171,6 +172,16 @@ class HttpxTelegramRawPollingClient:
         data = _parse_json_object(response)
         _raise_if_not_ok(data)
 
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        """Call Telegram ``deleteMessage`` to remove a message."""
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        body: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id}
+        response = await self._client.post(f"{self._base}deleteMessage", json=body, **post_kw)
+        response.raise_for_status()
+        data = _parse_json_object(response)
+        _raise_if_not_ok(data)
+
     async def edit_message_text(
         self,
         chat_id: int,
@@ -205,7 +216,7 @@ class HttpxTelegramRawPollingClient:
     ) -> int:
         """Call Telegram ``sendVideo`` with a local file."""
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td)
+        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
         data: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
             data["caption"] = caption
@@ -238,7 +249,7 @@ class HttpxTelegramRawPollingClient:
     ) -> int:
         """Call Telegram ``sendPhoto`` with a local file."""
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td)
+        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
         data: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
             data["caption"] = caption
@@ -271,7 +282,7 @@ class HttpxTelegramRawPollingClient:
     ) -> int:
         """Call Telegram ``sendDocument`` with a local file."""
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td)
+        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
         data: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
             data["caption"] = caption
