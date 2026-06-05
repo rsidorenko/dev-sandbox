@@ -76,6 +76,11 @@ from app.bot_transport.storefront_ui import (
     CB_WIN_RETRY,
     CB_WIN_STEP,
     CB_WIN_YES,
+    CB_ANDROID_DID_WORK,
+    CB_ANDROID_NO,
+    CB_ANDROID_RETRY,
+    CB_ANDROID_STEP,
+    CB_ANDROID_YES,
     _platform_from_cb,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
@@ -200,6 +205,21 @@ from app.bot_transport.storefront_ui import (
     win_step_5_text,
     win_step_6_keyboard,
     win_step_6_text,
+    android_did_work_keyboard,
+    android_problem_keyboard,
+    android_step_1_keyboard,
+    android_step_1_text,
+    android_step_2_keyboard,
+    android_step_2_text,
+    android_step_3_keyboard,
+    android_step_3_text,
+    android_step_4_keyboard,
+    android_step_4_text,
+    android_step_5_keyboard,
+    android_step_5_text,
+    android_step_6_keyboard,
+    android_step_6_text,
+    android_success_text,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
@@ -234,6 +254,8 @@ _STEP_MEDIA: dict[tuple[str, int], tuple[str | None, str | None]] = {
     ("mac", 2): ("video", "media/ios_step2.mp4"),
     ("mac", 3): ("video", "media/ios_step3.mp4"),
     ("mac", 4): ("photo", "media/ios_step4.jpg"),
+    # Android
+    ("android", 3): ("video", "videos/Android.mp4"),
     # TV
     ("tv", 2): ("photo", "media/tv_step2.jpeg"),
     ("tv", 3): ("photo", "media/tv_step3.jpeg"),
@@ -254,6 +276,8 @@ def _did_work_kb_for(code: str) -> dict[str, Any]:
         return tv_did_work_keyboard()
     if code in (CB_WIN_DID_WORK,):
         return win_did_work_keyboard()
+    if code in (CB_ANDROID_DID_WORK,):
+        return android_did_work_keyboard()
     return ios_did_work_keyboard()
 
 
@@ -264,6 +288,8 @@ def _problem_kb_for(code: str) -> dict[str, Any]:
         return tv_problem_keyboard()
     if code in (CB_WIN_NO, CB_WIN_RETRY):
         return win_problem_keyboard()
+    if code in (CB_ANDROID_NO, CB_ANDROID_RETRY):
+        return android_problem_keyboard()
     return ios_problem_keyboard()
 
 
@@ -274,6 +300,8 @@ def _step_1_for_retry(code: str) -> tuple[str, dict[str, Any] | None]:
         return tv_step_1_text(), tv_step_1_keyboard()
     if code == CB_WIN_RETRY:
         return win_step_1_text(), win_step_1_keyboard()
+    if code == CB_ANDROID_RETRY:
+        return android_step_1_text(), android_step_1_keyboard()
     return ios_step_1_text(), ios_step_1_keyboard()
 
 
@@ -291,6 +319,7 @@ async def _render_platform_step(
         (CB_MAC_STEP, "mac"),
         (CB_TV_STEP, "tv"),
         (CB_WIN_STEP, "win"),
+        (CB_ANDROID_STEP, "android"),
     ):
         if code.startswith(prefix):
             platform = _plat
@@ -378,6 +407,22 @@ async def _render_platform_step(
             text, keyboard = win_step_5_text(), win_step_5_keyboard()
         elif step == 6:
             text, keyboard = win_step_6_text(), win_step_6_keyboard()
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+    elif platform == "android":
+        if step == 1:
+            text, keyboard = android_step_1_text(), android_step_1_keyboard()
+        elif step == 2:
+            text, keyboard = android_step_2_text(), android_step_2_keyboard()
+        elif step == 3:
+            url = subscription_url or ""
+            text, keyboard = android_step_3_text(url), android_step_3_keyboard(url)
+        elif step == 4:
+            text, keyboard = android_step_4_text(), android_step_4_keyboard()
+        elif step == 5:
+            text, keyboard = android_step_5_text(), android_step_5_keyboard()
+        elif step == 6:
+            text, keyboard = android_step_6_text(), android_step_6_keyboard()
         else:
             text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
     else:
@@ -506,6 +551,10 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_WIN_YES,
         CB_WIN_NO,
         CB_WIN_RETRY,
+        CB_ANDROID_DID_WORK,
+        CB_ANDROID_YES,
+        CB_ANDROID_NO,
+        CB_ANDROID_RETRY,
         "add_device",
         "remove_device",
         "store_plans",
@@ -1588,20 +1637,8 @@ async def _render_storefront_response(
         media_path = "media/karing_windows_x64.exe"
 
     elif code == CB_CONNECT_ANDROID:
-        text = text_connect_platform(code)
-        keyboard = connect_platform_keyboard()
-        if uid is not None:
-            platform = _platform_from_cb(code)
-            if platform is not None:
-                _last_connect_platform[uid] = platform
-                _trim_inmemory_dict(_last_connect_platform)
-        return RenderedMessagePackage(
-            message_text=text,
-            action_keys=(),
-            correlation_id=cid,
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+        text = android_step_1_text()
+        keyboard = android_step_1_keyboard()
 
     elif code == CB_CONNECT_IOS:
         text = ios_step_1_text()
@@ -1615,67 +1652,27 @@ async def _render_storefront_response(
         text = tv_step_1_text()
         keyboard = tv_step_1_keyboard()
 
-    elif code == CB_CONNECT_NEXT:
-        if uid is not None and composition.vless_provider is not None:
-            from app.issuance.vless_provider import VlessProviderOutcome
-
-            id_rec = await composition.identity.find_by_telegram_user_id(uid)
-            if id_rec is not None:
-                vless_result = await composition.vless_provider.get_user_config(
-                    internal_user_id=id_rec.internal_user_id,
-                )
-                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    text, keyboard = text_connect_config(vless_result.config), connect_config_keyboard()
-                    # Attach platform-specific instruction video
-                    platform = _last_connect_platform.pop(uid, None)
-                    if platform is not None:
-                        import pathlib
-
-                        video_file = (
-                            pathlib.Path(__file__).resolve().parent.parent.parent.parent
-                            / "videos"
-                            / f"{platform.capitalize()}.mp4"
-                        )
-                        if video_file.exists():
-                            return RenderedMessagePackage(
-                                message_text=text,
-                                action_keys=(),
-                                correlation_id=cid,
-                                reply_markup=keyboard,
-                                media_type="video",
-                                media_path=str(video_file),
-                            )
-                else:
-                    text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
-            else:
-                text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
-        else:
-            text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)
-
-    elif code == CB_CONNECT_DONE:
-        text, keyboard = text_connect_done(), connect_done_keyboard()
-
-    elif code.startswith((CB_IOS_STEP, CB_MAC_STEP, CB_TV_STEP, CB_WIN_STEP)):
+    elif code.startswith((CB_IOS_STEP, CB_MAC_STEP, CB_TV_STEP, CB_WIN_STEP, CB_ANDROID_STEP)):
         text, keyboard, media_type, media_path = await _render_platform_step(
             code,
             uid,
             composition,
         )
 
-    elif code in (CB_IOS_DID_WORK, CB_MAC_DID_WORK, CB_TV_DID_WORK, CB_WIN_DID_WORK):
+    elif code in (CB_IOS_DID_WORK, CB_MAC_DID_WORK, CB_TV_DID_WORK, CB_WIN_DID_WORK, CB_ANDROID_DID_WORK):
         text = ios_did_work_text()
         keyboard = _did_work_kb_for(code)
 
-    elif code in (CB_IOS_YES, CB_MAC_YES, CB_TV_YES, CB_WIN_YES):
+    elif code in (CB_IOS_YES, CB_MAC_YES, CB_TV_YES, CB_WIN_YES, CB_ANDROID_YES):
         text = ios_success_text()
         keyboard = main_menu_keyboard()
         follow_up_main_menu = True
 
-    elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO):
+    elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO, CB_ANDROID_NO):
         text = ios_problem_text()
         keyboard = _problem_kb_for(code)
 
-    elif code in (CB_IOS_RETRY, CB_MAC_RETRY, CB_TV_RETRY, CB_WIN_RETRY):
+    elif code in (CB_IOS_RETRY, CB_MAC_RETRY, CB_TV_RETRY, CB_WIN_RETRY, CB_ANDROID_RETRY):
         text, keyboard = _step_1_for_retry(code)
 
     elif code == CB_MY_KEYS:
@@ -2015,6 +2012,8 @@ async def _render_storefront_response(
     if code.startswith(CB_TV_STEP) or code == CB_TV_RETRY:
         parse_mode = "Markdown"
     if code.startswith(CB_WIN_STEP) or code == CB_WIN_RETRY:
+        parse_mode = "Markdown"
+    if code.startswith(CB_ANDROID_STEP) or code == CB_ANDROID_RETRY:
         parse_mode = "Markdown"
 
     if follow_up_main_menu:
