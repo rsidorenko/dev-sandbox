@@ -52,7 +52,9 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     # ?open=karing|v2raytun → redirect to app URL scheme for auto-import
     open_action = request.query_params.get("open")
     if open_action in ("karing", "v2raytun"):
-        sub_url = str(request.url.replace(query=None))
+        # Build https URL — behind nginx the scheme is http
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        sub_url = f"{forwarded_proto}://{request.url.netloc}{request.url.path}"
         if open_action == "karing":
             app_url = f"karing://install-config?url={quote(sub_url, safe='')}&name=Bravada%20VPN"
         else:
