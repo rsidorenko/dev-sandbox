@@ -9,8 +9,40 @@ from __future__ import annotations
 
 from urllib.parse import unquote, urlparse
 
-from app.issuance.singbox_config import _UNSUPPORTED_TRANSPORTS, _parse_vless_link
 from app.issuance.vless_provider import VlessServerConfig
+
+_UNSUPPORTED_TRANSPORTS = frozenset({"xhttp"})
+
+
+def _parse_vless_link(link: str) -> dict:
+    """Parse a vless:// URI into connection parameters."""
+    parsed = urlparse(link)
+    uuid = parsed.username or ""
+    host = parsed.hostname or ""
+    port = parsed.port or 443
+    fragment = unquote(parsed.fragment)
+
+    params: dict[str, str] = {}
+    for pair in parsed.query.split("&"):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            params[k] = unquote(v)
+
+    return {
+        "uuid": uuid,
+        "host": host,
+        "port": port,
+        "label": fragment,
+        "type": params.get("type", "tcp"),
+        "security": params.get("security", ""),
+        "pbk": params.get("pbk", ""),
+        "sid": params.get("sid", ""),
+        "sni": params.get("sni", ""),
+        "fp": params.get("fp", "chrome"),
+        "flow": params.get("flow", ""),
+        "path": params.get("path", ""),
+        "host_header": params.get("host", ""),
+    }
 
 
 def _vless_link_to_clash_proxy(link: str) -> dict:
