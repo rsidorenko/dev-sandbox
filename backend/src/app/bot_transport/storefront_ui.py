@@ -1046,8 +1046,8 @@ def android_step_3_text(subscription_url: str) -> str:
     return _android_step_header(3) + (
         "1. 🔑 Нажмите \"Загрузить ключи\" ниже — откроется Karing\n"
         "2. ✅ Нажмите галочку справа вверху\n\n"
-        "Ручное добавление:\n"
-        f"{subscription_url}"
+        "Ручное добавление — скопируйте ссылку:\n"
+        f"`{subscription_url}`"
     )
 
 

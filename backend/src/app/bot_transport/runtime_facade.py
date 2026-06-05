@@ -2014,7 +2014,7 @@ async def _render_storefront_response(
     if code.startswith(CB_WIN_STEP) or code == CB_WIN_RETRY:
         parse_mode = "Markdown"
     if code.startswith(CB_ANDROID_STEP) or code == CB_ANDROID_RETRY:
-        parse_mode = None
+        parse_mode = "Markdown" if code == f"{CB_ANDROID_STEP}3" else None
     if follow_up_main_menu:
         return RenderedMessagePackage(
             message_text=text,
