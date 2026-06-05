@@ -241,14 +241,29 @@ class Slice1PollingRuntime:
                                 "polling.send_%s_failed chat_id=%s -> fallback text",
                                 media_type,
                                 action.chat_id,
+                                exc_info=True,
                             )
-                            msg_id = await self._client.send_text_message(
-                                action.chat_id,
-                                text,
-                                correlation_id=action.correlation_id,
-                                reply_markup=markup,
-                                parse_mode=pmode,
-                            )
+                            try:
+                                msg_id = await self._client.send_text_message(
+                                    action.chat_id,
+                                    text,
+                                    correlation_id=action.correlation_id,
+                                    reply_markup=markup,
+                                    parse_mode=pmode,
+                                )
+                            except Exception:
+                                _LOGGER.warning(
+                                    "polling.send_%s_fallback_also_failed chat_id=%s -> retry without parse_mode",
+                                    media_type,
+                                    action.chat_id,
+                                    exc_info=True,
+                                )
+                                msg_id = await self._client.send_text_message(
+                                    action.chat_id,
+                                    text,
+                                    correlation_id=action.correlation_id,
+                                    reply_markup=markup,
+                                )
                     elif first and cb_origin is not None:
                         origin_chat_id, origin_msg_id = cb_origin
                         try:

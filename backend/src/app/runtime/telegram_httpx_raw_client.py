@@ -152,6 +152,11 @@ class HttpxTelegramRawPollingClient:
         if disable_web_page_preview:
             body["disable_web_page_preview"] = True
         response = await self._client.post(f"{self._base}sendMessage", json=body, **post_kw)
+        if response.status_code >= 400:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "sendMessage failed status=%s body=%s", response.status_code, response.text[:500]
+            )
         response.raise_for_status()
         data = _parse_json_object(response)
         _raise_if_not_ok(data)
