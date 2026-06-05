@@ -1667,7 +1667,6 @@ async def _render_storefront_response(
     elif code in (CB_IOS_YES, CB_MAC_YES, CB_TV_YES, CB_WIN_YES, CB_ANDROID_YES):
         text = ios_success_text()
         keyboard = main_menu_keyboard()
-        follow_up_main_menu = True
 
     elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO, CB_ANDROID_NO):
         text = ios_problem_text()
