@@ -221,6 +221,11 @@ class Slice1PollingRuntime:
                             "photo": self._client.send_photo,
                             "document": self._client.send_document,
                         }.get(media_type, self._client.send_photo)
+                        _LOGGER.info(
+                            "polling.send_media chat_id=%s media_type=%s media_path=%s method=%s caption=%s pmode=%s",
+                            action.chat_id, media_type, media_path, _send_method,
+                            type(text if text.strip() else None), pmode,
+                        )
                         try:
                             msg_id = await _send_method(
                                 action.chat_id,
