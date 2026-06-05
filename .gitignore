@@ -49,5 +49,10 @@ image.png
 *.log
 tmp_*.py
 
-# Media files (deployed separately to server)
-backend/media/
+# Media files — keep directory tracked, ignore large binaries
+backend/media/*.mp4
+backend/media/*.exe
+backend/media/*.jpg
+backend/media/*.jpeg
+backend/media/*.png
+backend/media/*.gif

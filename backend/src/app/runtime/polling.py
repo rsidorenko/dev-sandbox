@@ -99,6 +99,14 @@ class TelegramPollingClient(Protocol):
         """Dismiss the inline button loading indicator via Telegram ``answerCallbackQuery``."""
         ...
 
+    async def delete_message(
+        self,
+        chat_id: int,
+        message_id: int,
+    ) -> None:
+        """Delete a message via Telegram ``deleteMessage``."""
+        ...
+
     async def edit_message_text(
         self,
         chat_id: int,
@@ -205,6 +213,10 @@ class Slice1PollingRuntime:
                         continue
                     # Media attachment: video, photo, or document
                     if first and media_type and media_path:
+                        # Delete old callback message to avoid clutter
+                        if cb_origin is not None:
+                            with contextlib.suppress(Exception):
+                                await self._client.delete_message(cb_origin[0], cb_origin[1])
                         _send_method = {
                             "video": self._client.send_video,
                             "photo": self._client.send_photo,

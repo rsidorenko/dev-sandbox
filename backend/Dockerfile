@@ -16,6 +16,7 @@ COPY --from=builder /install /usr/local
 # resolves parents[3] to /app/ correctly (not site-packages).
 COPY src/ src/
 COPY videos/ videos/
+COPY media/ media/
 COPY migrations/ migrations/
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
