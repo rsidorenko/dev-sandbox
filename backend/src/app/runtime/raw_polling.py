@@ -58,7 +58,6 @@ class TelegramRawPollingClient(Protocol):
         chat_id: int,
         video_path: str,
         *,
-        correlation_id: str,
         caption: str | None = None,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
@@ -85,6 +84,8 @@ class TelegramRawPollingClient(Protocol):
     ) -> int: ...
 
     async def answer_callback_query(self, callback_query_id: str) -> None: ...
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None: ...
 
     async def edit_message_text(
         self,
@@ -142,7 +143,6 @@ class _PollingClientFromRaw:
         chat_id: int,
         video_path: str,
         *,
-        correlation_id: str,
         caption: str | None = None,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
@@ -150,7 +150,6 @@ class _PollingClientFromRaw:
         return await self._raw.send_video(
             chat_id,
             video_path,
-            correlation_id=correlation_id,
             caption=caption,
             reply_markup=reply_markup,
             parse_mode=parse_mode,
@@ -192,6 +191,9 @@ class _PollingClientFromRaw:
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
         await self._raw.answer_callback_query(callback_query_id)
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        await self._raw.delete_message(chat_id, message_id)
 
     async def edit_message_text(
         self,

@@ -594,6 +594,12 @@ def ios_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
     return _inline_kb(
         [
             [
+                {
+                    "text": "🔑 Загрузить ключи в Karing",
+                    "url": subscription_url,
+                }
+            ],
+            [
                 {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}2"},
                 {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}4"},
             ],
@@ -739,6 +745,12 @@ def mac_step_3_text(subscription_url: str) -> str:
 def mac_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
     return _inline_kb(
         [
+            [
+                {
+                    "text": "🔑 Загрузить ключи в Karing",
+                    "url": subscription_url,
+                }
+            ],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}2"},
                 {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}4"},
@@ -1041,6 +1053,12 @@ def android_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
     return _inline_kb(
         [
             [
+                {
+                    "text": "🔑 Загрузить ключи в Karing",
+                    "url": subscription_url,
+                }
+            ],
+            [
                 {"text": "↩️ Назад", "callback_data": f"{CB_ANDROID_STEP}2"},
                 {"text": "✅ Готово", "callback_data": f"{CB_ANDROID_STEP}4"},
             ],
@@ -1193,6 +1211,12 @@ def win_step_3_text(subscription_url: str) -> str:
 def win_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
     return _inline_kb(
         [
+            [
+                {
+                    "text": "🔑 Загрузить ключи в Karing",
+                    "url": subscription_url,
+                }
+            ],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}2"},
                 {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}4"},
