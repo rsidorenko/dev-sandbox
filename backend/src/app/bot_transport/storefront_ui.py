@@ -997,7 +997,7 @@ _ANDROID_V2RAYTUNE_URL = "https://play.google.com/store/apps/details?id=com.v2ra
 
 
 def _android_step_header(step: int) -> str:
-    return f"🤖 *Шаг {step} из {_ANDROID_TOTAL_STEPS}*\n\nПосле каждого шага возвращайтесь в бота и нажимайте «Готово».\n\n"
+    return f"🤖 Шаг {step} из {_ANDROID_TOTAL_STEPS}\n\nПосле каждого шага возвращайтесь в бота и нажимайте \"Готово\".\n\n"
 
 
 def android_step_1_text() -> str:
@@ -1044,10 +1044,10 @@ def android_step_2_keyboard() -> dict[str, Any]:
 
 def android_step_3_text(subscription_url: str) -> str:
     return _android_step_header(3) + (
-        "1. 🔑 Нажмите «Загрузить ключи» ниже — откроется Karing\n"
+        "1. 🔑 Нажмите \"Загрузить ключи\" ниже — откроется Karing\n"
         "2. ✅ Нажмите галочку справа вверху\n\n"
-        "_Ручное добавление:_\n"
-        f"`{subscription_url}`"
+        "Ручное добавление:\n"
+        f"{subscription_url}"
     )
 
 
