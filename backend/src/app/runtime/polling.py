@@ -63,7 +63,6 @@ class TelegramPollingClient(Protocol):
         chat_id: int,
         video_path: str,
         *,
-        correlation_id: str,
         caption: str | None = None,
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
