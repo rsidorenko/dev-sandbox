@@ -58,7 +58,7 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
         if open_action == "karing":
             app_url = f"karing://install-config?url={quote(sub_url, safe='')}&name=Bravada%20VPN"
         else:
-            app_url = f"v2raytun://import/{quote(sub_url, safe='')}"
+            app_url = f"v2raytun://import/{sub_url}"
         return HTMLResponse(
             f'<html><head><meta http-equiv="refresh" content="0;url={app_url}">'
             f'</head><body><p>Opening {open_action}...</p>'
