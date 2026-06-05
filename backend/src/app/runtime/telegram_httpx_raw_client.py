@@ -60,7 +60,7 @@ def _httpx_post_timeout_kwargs(decision: PollingTimeoutDecision) -> dict[str, ht
 
 
 class HttpxTelegramRawPollingClient:
-    __slots__ = ("_base", "_client", "_closed", "_owns", "_polling_policy")
+    __slots__ = ("_base", "_client", "_closed", "_file_id_cache", "_owns", "_polling_policy")
 
     def __init__(
         self,
@@ -81,6 +81,7 @@ class HttpxTelegramRawPollingClient:
             self._client = client
             self._owns = False
         self._closed = False
+        self._file_id_cache: dict[str, str] = {}
         self._polling_policy = polling_policy
 
     @property
@@ -214,25 +215,40 @@ class HttpxTelegramRawPollingClient:
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
     ) -> int:
-        """Call Telegram ``sendVideo`` with a local file."""
-        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
-        data: dict[str, Any] = {"chat_id": chat_id}
+        """Call Telegram ``sendVideo`` — uses cached file_id when available."""
+        body: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
-            data["caption"] = caption
+            body["caption"] = caption
         if parse_mode is not None:
-            data["parse_mode"] = parse_mode
+            body["parse_mode"] = parse_mode
         if reply_markup is not None:
-            data["reply_markup"] = dict(reply_markup)
-        with open(video_path, "rb") as vf:
-            files = {"video": (video_path.rsplit("/", 1)[-1], vf, "video/mp4")}
-            response = await self._client.post(f"{self._base}sendVideo", data=data, files=files, **post_kw)
+            body["reply_markup"] = dict(reply_markup)
+
+        cached = self._file_id_cache.get(video_path)
+        if cached is not None:
+            body["video"] = cached
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td)
+            response = await self._client.post(f"{self._base}sendVideo", json=body, **post_kw)
+        else:
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            with open(video_path, "rb") as vf:
+                files = {"video": (video_path.rsplit("/", 1)[-1], vf, "video/mp4")}
+                response = await self._client.post(f"{self._base}sendVideo", data=body, files=files, **post_kw)
+
         response.raise_for_status()
         result_data = _parse_json_object(response)
         _raise_if_not_ok(result_data)
         result = result_data.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("telegram API sendVideo result is not an object")
+
+        # Cache file_id for future instant sends
+        video_obj = result.get("video")
+        if isinstance(video_obj, dict) and "file_id" in video_obj:
+            self._file_id_cache[video_path] = video_obj["file_id"]
+
         mid = result.get("message_id")
         if type(mid) is not int:
             raise RuntimeError("telegram API sendVideo result missing message_id")
@@ -247,25 +263,41 @@ class HttpxTelegramRawPollingClient:
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
     ) -> int:
-        """Call Telegram ``sendPhoto`` with a local file."""
-        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
-        data: dict[str, Any] = {"chat_id": chat_id}
+        """Call Telegram ``sendPhoto`` — uses cached file_id when available."""
+        body: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
-            data["caption"] = caption
+            body["caption"] = caption
         if parse_mode is not None:
-            data["parse_mode"] = parse_mode
+            body["parse_mode"] = parse_mode
         if reply_markup is not None:
-            data["reply_markup"] = dict(reply_markup)
-        with open(photo_path, "rb") as pf:
-            files = {"photo": (photo_path.rsplit("/", 1)[-1], pf, "image/jpeg")}
-            response = await self._client.post(f"{self._base}sendPhoto", data=data, files=files, **post_kw)
+            body["reply_markup"] = dict(reply_markup)
+
+        cached = self._file_id_cache.get(photo_path)
+        if cached is not None:
+            body["photo"] = cached
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td)
+            response = await self._client.post(f"{self._base}sendPhoto", json=body, **post_kw)
+        else:
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            with open(photo_path, "rb") as pf:
+                files = {"photo": (photo_path.rsplit("/", 1)[-1], pf, "image/jpeg")}
+                response = await self._client.post(f"{self._base}sendPhoto", data=body, files=files, **post_kw)
+
         response.raise_for_status()
         result_data = _parse_json_object(response)
         _raise_if_not_ok(result_data)
         result = result_data.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("telegram API sendPhoto result is not an object")
+
+        photo_obj = result.get("photo")
+        if isinstance(photo_obj, list) and photo_obj:
+            fid = photo_obj[-1].get("file_id")
+            if isinstance(fid, str):
+                self._file_id_cache[photo_path] = fid
+
         mid = result.get("message_id")
         if type(mid) is not int:
             raise RuntimeError("telegram API sendPhoto result missing message_id")
@@ -280,25 +312,39 @@ class HttpxTelegramRawPollingClient:
         reply_markup: Mapping[str, Any] | None = None,
         parse_mode: str | None = None,
     ) -> int:
-        """Call Telegram ``sendDocument`` with a local file."""
-        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-        post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
-        data: dict[str, Any] = {"chat_id": chat_id}
+        """Call Telegram ``sendDocument`` — uses cached file_id when available."""
+        body: dict[str, Any] = {"chat_id": chat_id}
         if caption is not None:
-            data["caption"] = caption
+            body["caption"] = caption
         if parse_mode is not None:
-            data["parse_mode"] = parse_mode
+            body["parse_mode"] = parse_mode
         if reply_markup is not None:
-            data["reply_markup"] = dict(reply_markup)
-        with open(document_path, "rb") as df:
-            files = {"document": (document_path.rsplit("/", 1)[-1], df, "application/octet-stream")}
-            response = await self._client.post(f"{self._base}sendDocument", data=data, files=files, **post_kw)
+            body["reply_markup"] = dict(reply_markup)
+
+        cached = self._file_id_cache.get(document_path)
+        if cached is not None:
+            body["document"] = cached
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td)
+            response = await self._client.post(f"{self._base}sendDocument", json=body, **post_kw)
+        else:
+            td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            with open(document_path, "rb") as df:
+                files = {"document": (document_path.rsplit("/", 1)[-1], df, "application/octet-stream")}
+                response = await self._client.post(f"{self._base}sendDocument", data=body, files=files, **post_kw)
+
         response.raise_for_status()
         result_data = _parse_json_object(response)
         _raise_if_not_ok(result_data)
         result = result_data.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("telegram API sendDocument result is not an object")
+
+        doc_obj = result.get("document")
+        if isinstance(doc_obj, dict) and "file_id" in doc_obj:
+            self._file_id_cache[document_path] = doc_obj["file_id"]
+
         mid = result.get("message_id")
         if type(mid) is not int:
             raise RuntimeError("telegram API sendDocument result missing message_id")
