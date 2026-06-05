@@ -15,6 +15,7 @@ COPY --from=builder /install /usr/local
 # Source must be on PYTHONPATH so that default_migrations_directory()
 # resolves parents[3] to /app/ correctly (not site-packages).
 COPY src/ src/
+COPY videos/ videos/
 COPY migrations/ migrations/
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
