@@ -39,39 +39,39 @@ class _FakePool:
 
 
 def test_keys_deleted_calls_create_user():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC)))
+    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5))
     provider = AsyncMock()
     provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1")
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5)
     provider.activate_user.assert_not_called()
 
 
 def test_keys_deactivated_calls_activate_user():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None))
+    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None, device_count=5))
     provider = AsyncMock()
     provider.activate_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.activate_user.assert_called_once_with(internal_user_id="u1")
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=5)
     provider.create_user.assert_not_called()
 
 
 def test_no_lifecycle_flags_calls_create_user():
-    pool = _FakePool(row=_Record(keys_deactivated_at=None, keys_deleted_at=None))
+    pool = _FakePool(row=_Record(keys_deactivated_at=None, keys_deleted_at=None, device_count=5))
     provider = AsyncMock()
     provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1")
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5)
 
 
 def test_resets_lifecycle_flags():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC)))
+    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5))
     provider = AsyncMock()
     provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
@@ -81,7 +81,7 @@ def test_resets_lifecycle_flags():
 
 
 def test_provider_failure_does_not_raise():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None))
+    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None, device_count=5))
     provider = AsyncMock()
     provider.activate_user = AsyncMock(side_effect=RuntimeError("panel down"))
 
@@ -96,7 +96,40 @@ def test_no_snapshot_creates_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1")
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
+
+
+def test_device_count_propagated_to_create_user():
+    """device_count from subscription_snapshots is passed to create_user."""
+    pool = _FakePool(row=_Record(keys_deactivated_at=None, keys_deleted_at=None, device_count=10))
+    provider = AsyncMock()
+    provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
+
+    _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
+
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=10)
+
+
+def test_device_count_propagated_to_activate_user():
+    """device_count from subscription_snapshots is passed to activate_user."""
+    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None, device_count=3))
+    provider = AsyncMock()
+    provider.activate_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
+
+    _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
+
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=3)
+
+
+def test_device_count_null_falls_back_to_zero():
+    """NULL device_count in DB falls back to 0 (provider uses trial default)."""
+    pool = _FakePool(row=_Record(keys_deactivated_at=None, keys_deleted_at=None, device_count=None))
+    provider = AsyncMock()
+    provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
+
+    _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
+
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
 
 
 # ─── Permanent subscription URL ───────────────────────────────────────

@@ -114,16 +114,17 @@ async def _ensure_vless_keys_after_payment(
 
     try:
         snap_check = await pool.fetchrow(
-            """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
+            """SELECT keys_deactivated_at, keys_deleted_at, device_count FROM subscription_snapshots
                WHERE internal_user_id = $1""",
             internal_user_id,
         )
+        dc = (snap_check.get("device_count") or 0) if snap_check else 0
         if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-            await vless_provider.create_user(internal_user_id=internal_user_id)
+            await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
         elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-            await vless_provider.activate_user(internal_user_id=internal_user_id)
+            await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
         else:
-            await vless_provider.create_user(internal_user_id=internal_user_id)
+            await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
 
         await pool.execute(
             """UPDATE subscription_snapshots

@@ -269,13 +269,13 @@ def test_fulfillment_reactivates_deactivated_keys():
 
     pool = _FakePool()
     pool.set_fetch_result("keys_deactivated_at", [_Record(
-        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None,
+        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None, device_count=0,
     )])
     provider = _make_provider()
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.activate_user.assert_called_once_with(internal_user_id="u1")
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=0)
     provider.create_user.assert_not_called()
     assert any("keys_deactivated_at = NULL" in sql for sql, *_ in pool.execute_log)
 
@@ -286,13 +286,13 @@ def test_fulfillment_creates_new_keys_after_deletion():
 
     pool = _FakePool()
     pool.set_fetch_result("keys_deactivated_at", [_Record(
-        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC),
+        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=0,
     )])
     provider = _make_provider()
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1")
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
     provider.activate_user.assert_not_called()
     assert any("keys_deleted_at = NULL" in sql for sql, *_ in pool.execute_log)
 
