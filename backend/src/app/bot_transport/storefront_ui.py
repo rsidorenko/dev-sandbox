@@ -647,7 +647,7 @@ def ios_step_5_keyboard() -> dict[str, Any]:
 
 def ios_step_6_text() -> str:
     return (
-        "📱 Шаг 6 из 6\n\n"
+        "📱 *Шаг 6 из 6*\n\n"
         "✅ VPN настроен!\n\n"
         "💡 Советы:\n"
         "• Оставьте Karing включённым для постоянной работы VPN\n"
@@ -1121,7 +1121,7 @@ def android_step_5_keyboard() -> dict[str, Any]:
 
 def android_step_6_text() -> str:
     return (
-        "🤖 Шаг 6 из 6\n\n"
+        "🤖 *Шаг 6 из 6*\n\n"
         "✅ VPN настроен!\n\n"
         "💡 Советы:\n"
         "• Оставьте Karing включённым для постоянной работы VPN\n"
