@@ -1000,7 +1000,7 @@ _ANDROID_V2RAYTUNE_URL = "https://play.google.com/store/apps/details?id=com.v2ra
 
 
 def _android_step_header(step: int) -> str:
-    return f"🤖 Шаг {step} из {_ANDROID_TOTAL_STEPS}\n\nПосле каждого шага возвращайтесь в бота и нажимайте \"Готово\".\n\n"
+    return f"🤖 <b>Шаг {step} из {_ANDROID_TOTAL_STEPS}</b>\n\nПосле каждого шага возвращайтесь в бота и нажимайте \"Готово\".\n\n"
 
 
 def android_step_1_text() -> str:
