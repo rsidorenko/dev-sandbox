@@ -136,6 +136,8 @@ jobs:
                 "ALTER TABLE user_identities ADD COLUMN IF NOT EXISTS vless_uuid TEXT NULL;" 2>&1 || echo "  Column already exists"
               docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_vless_uuid ON user_identities (vless_uuid) WHERE vless_uuid IS NOT NULL;" 2>&1 || echo "  Index already exists"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_tx_user_desc ON referral_transactions (internal_user_id, description);" 2>&1 || echo "  Index already exists"
 
               echo "--- Step 3: Encrypt panel passwords ---"
               cd /opt/bravada
