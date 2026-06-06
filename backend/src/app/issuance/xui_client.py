@@ -61,6 +61,7 @@ class XuiServerConfig:
     reality_pbk: str = ""
     reality_sid: str = ""
     reality_sni: str = ""
+    reality_fp: str = "chrome"
     transport_type: str = "tcp"
     api_token: str = ""
 
