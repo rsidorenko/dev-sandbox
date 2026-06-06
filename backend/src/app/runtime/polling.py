@@ -290,6 +290,8 @@ class Slice1PollingRuntime:
                                 origin_msg_id,
                                 exc,
                             )
+                            with contextlib.suppress(Exception):
+                                await self._client.delete_message(origin_chat_id, origin_msg_id)
                             try:
                                 msg_id = await self._client.send_text_message(
                                     action.chat_id,
