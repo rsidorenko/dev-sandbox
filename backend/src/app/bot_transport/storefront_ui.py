@@ -630,7 +630,7 @@ def ios_step_5_text() -> str:
     return text_ios_step(5) + (
         "🔄 Karing автоматически выбирает сервер для обхода блокировок.\n\n"
         "📋 Если нужно выбрать вручную:\n"
-        f"{_IOS_BYPASS_INSTRUCTIONS_URL}\n\n"
+        f"`{_IOS_BYPASS_INSTRUCTIONS_URL}`\n\n"
         "⚠️ Серверы для обхода ограничены — 80 ГБ/мес.\n"
         "Используйте их только при необходимости."
     )

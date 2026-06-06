@@ -290,14 +290,28 @@ class Slice1PollingRuntime:
                                 origin_msg_id,
                                 exc,
                             )
-                            msg_id = await self._client.send_text_message(
-                                action.chat_id,
-                                text,
-                                correlation_id=action.correlation_id,
-                                reply_markup=markup,
-                                parse_mode=pmode,
-                                disable_web_page_preview=action.disable_web_page_preview,
-                            )
+                            try:
+                                msg_id = await self._client.send_text_message(
+                                    action.chat_id,
+                                    text,
+                                    correlation_id=action.correlation_id,
+                                    reply_markup=markup,
+                                    parse_mode=pmode,
+                                    disable_web_page_preview=action.disable_web_page_preview,
+                                )
+                            except Exception:
+                                _LOGGER.warning(
+                                    "polling.edit_message_fallback_also_failed chat_id=%s -> retry without parse_mode",
+                                    action.chat_id,
+                                    exc_info=True,
+                                )
+                                msg_id = await self._client.send_text_message(
+                                    action.chat_id,
+                                    text,
+                                    correlation_id=action.correlation_id,
+                                    reply_markup=markup,
+                                    disable_web_page_preview=action.disable_web_page_preview,
+                                )
                     else:
                         if first and cb_origin is None and cb_qid is not None:
                             _LOGGER.info(
