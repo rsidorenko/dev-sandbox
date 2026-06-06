@@ -85,6 +85,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "045_vpn_servers_yandex_ip_update.sql",
         "046_vpn_servers_lte_sni_max_ru.sql",
         "047_vpn_servers_reality_fp.sql",
+        "048_referral_transactions_unique_desc.sql",
     ]
 
 

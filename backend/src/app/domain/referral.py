@@ -50,7 +50,7 @@ def calculate_commission_kopecks(
     payment_amount_kopecks: int,
     rate: float,
 ) -> int:
-    return int(payment_amount_kopecks * rate)
+    return round(payment_amount_kopecks * rate)
 
 
 def build_commissions_for_payment(
