@@ -1,0 +1,1 @@
+ALTER TABLE vpn_servers ADD COLUMN IF NOT EXISTS reality_fp TEXT NOT NULL DEFAULT 'chrome';

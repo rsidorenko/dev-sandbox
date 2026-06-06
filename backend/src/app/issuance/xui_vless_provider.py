@@ -111,14 +111,24 @@ def _build_vless_link(
     host = server.server_host
     port = server.server_port
     label = f"{server.country_flag} {server.label}"
+    fp = server.reality_fp
 
     if server.transport_type == "xhttp":
         path = server.ws_path.strip("/")
         return (
             f"vless://{user_uuid}@{host}:{port}"
             f"?type=xhttp&security=reality&path=%2F{path}"
-            f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+            f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
             f"&sid={server.reality_sid}&spx=%2F"
+            f"#{label}"
+        )
+
+    if server.transport_type == "grpc":
+        return (
+            f"vless://{user_uuid}@{host}:{port}"
+            f"?type=grpc&security=reality"
+            f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
+            f"&sid={server.reality_sid}&spx=%2F&mode=gun"
             f"#{label}"
         )
 
@@ -128,7 +138,7 @@ def _build_vless_link(
         return (
             f"vless://{user_uuid}@{ws_host}:{port}"
             f"?type=ws&security=tls&path=%2F{path}"
-            f"&host={ws_host}&fp=chrome&sni={ws_host}"
+            f"&host={ws_host}&fp={fp}&sni={ws_host}"
             f"#{label}"
         )
 
@@ -146,7 +156,7 @@ def _build_vless_link(
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
-        f"&pbk={server.reality_pbk}&fp=chrome&sni={server.reality_sni}"
+        f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
         f"&sid={server.reality_sid}&spx=%2F&flow=xtls-rprx-vision"
         f"#{label}"
     )
@@ -174,7 +184,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, reality_pbk, reality_sid, reality_sni,
                   COALESCE(transport_type, 'tcp') AS transport_type,
-                  COALESCE(api_token, '') AS api_token
+                  COALESCE(api_token, '') AS api_token,
+                  COALESCE(reality_fp, 'chrome') AS reality_fp
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -194,6 +205,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_pbk=r["reality_pbk"],
             reality_sid=r["reality_sid"],
             reality_sni=r["reality_sni"],
+            reality_fp=r["reality_fp"],
             transport_type=r["transport_type"],
             api_token=r["api_token"],
         )
