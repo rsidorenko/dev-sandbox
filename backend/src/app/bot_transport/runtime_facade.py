@@ -2031,6 +2031,9 @@ async def _render_storefront_response(
             keyboard = back_only_keyboard(CB_SETTINGS)
 
     parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
+    # Connection step initial renders (CB_CONNECT_*) also use HTML step texts
+    if code in (CB_CONNECT_IOS, CB_CONNECT_MAC, CB_CONNECT_TV, CB_CONNECT_WIN, CB_CONNECT_ANDROID):
+        parse_mode = "HTML"
     # iOS/Mac/TV/Win/Android steps use HTML for bold headers and code formatting
     if code.startswith(CB_IOS_STEP) or code == CB_IOS_RETRY:
         parse_mode = "HTML"
