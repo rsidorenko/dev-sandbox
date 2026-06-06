@@ -641,7 +641,7 @@ def ios_step_5_keyboard() -> dict[str, Any]:
         [
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}4"},
-                {"text": "➡️ Далее", "callback_data": f"{CB_IOS_STEP}6"},
+                {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}6"},
             ],
         ]
     )
@@ -660,7 +660,7 @@ def ios_step_6_keyboard() -> dict[str, Any]:
             [{"text": "📢 Наш канал", "url": _IOS_CHANNEL_URL}],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_IOS_STEP}5"},
-                {"text": "➡️ Далее", "callback_data": CB_IOS_DID_WORK},
+                {"text": "✅ Готово", "callback_data": CB_IOS_DID_WORK},
             ],
         ]
     )
@@ -785,7 +785,7 @@ def mac_step_5_keyboard() -> dict[str, Any]:
         [
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}4"},
-                {"text": "➡️ Далее", "callback_data": f"{CB_MAC_STEP}6"},
+                {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}6"},
             ],
         ]
     )
@@ -801,7 +801,7 @@ def mac_step_6_keyboard() -> dict[str, Any]:
             [{"text": "📢 Наш канал", "url": _IOS_CHANNEL_URL}],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_MAC_STEP}5"},
-                {"text": "➡️ Далее", "callback_data": CB_MAC_DID_WORK},
+                {"text": "✅ Готово", "callback_data": CB_MAC_DID_WORK},
             ],
         ]
     )
@@ -946,7 +946,7 @@ def tv_step_5_keyboard() -> dict[str, Any]:
         [
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_TV_STEP}4"},
-                {"text": "➡️ Далее", "callback_data": CB_TV_DID_WORK},
+                {"text": "✅ Готово", "callback_data": CB_TV_DID_WORK},
             ],
         ]
     )
@@ -1112,7 +1112,7 @@ def android_step_5_keyboard() -> dict[str, Any]:
         [
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_ANDROID_STEP}4"},
-                {"text": "➡️ Далее", "callback_data": f"{CB_ANDROID_STEP}6"},
+                {"text": "✅ Готово", "callback_data": f"{CB_ANDROID_STEP}6"},
             ],
         ]
     )
@@ -1131,7 +1131,7 @@ def android_step_6_keyboard() -> dict[str, Any]:
             [{"text": "📢 Наш канал", "url": _IOS_CHANNEL_URL}],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_ANDROID_STEP}5"},
-                {"text": "➡️ Далее", "callback_data": CB_ANDROID_DID_WORK},
+                {"text": "✅ Готово", "callback_data": CB_ANDROID_DID_WORK},
             ],
         ]
     )
@@ -1263,7 +1263,7 @@ def win_step_5_keyboard() -> dict[str, Any]:
         [
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}4"},
-                {"text": "➡️ Далее", "callback_data": f"{CB_WIN_STEP}6"},
+                {"text": "✅ Готово", "callback_data": f"{CB_WIN_STEP}6"},
             ],
         ]
     )
@@ -1279,7 +1279,7 @@ def win_step_6_keyboard() -> dict[str, Any]:
             [{"text": "📢 Наш канал", "url": _IOS_CHANNEL_URL}],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_WIN_STEP}5"},
-                {"text": "➡️ Далее", "callback_data": CB_WIN_DID_WORK},
+                {"text": "✅ Готово", "callback_data": CB_WIN_DID_WORK},
             ],
         ]
     )
