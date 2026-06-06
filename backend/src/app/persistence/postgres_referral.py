@@ -109,11 +109,17 @@ class PostgresReferralRelationshipRepository:
 
     async def find_referrers(self, user_id: str) -> tuple[ReferralRelationshipRecord, ...]:
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, created_at "
-                "FROM referral_relationships WHERE referred_user_id = $1",
-                user_id,
-            )
+            return await self.find_referrers_in_connection(conn, user_id)
+
+    @staticmethod
+    async def find_referrers_in_connection(
+        conn: asyncpg.Connection, user_id: str,
+    ) -> tuple[ReferralRelationshipRecord, ...]:
+        rows = await conn.fetch(
+            "SELECT relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, created_at "
+            "FROM referral_relationships WHERE referred_user_id = $1",
+            user_id,
+        )
         return tuple(
             ReferralRelationshipRecord(
                 relationship_id=r["relationship_id"],
@@ -153,14 +159,20 @@ class PostgresReferralBalanceRepository:
 
     async def credit(self, internal_user_id: str, amount_kopecks: int) -> ReferralBalanceRecord:
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "INSERT INTO referral_balances (internal_user_id, balance_kopecks, updated_at) "
-                "VALUES ($1, $2, now()) "
-                "ON CONFLICT (internal_user_id) DO UPDATE SET balance_kopecks = referral_balances.balance_kopecks + $2, updated_at = now() "
-                "RETURNING internal_user_id, balance_kopecks, updated_at",
-                internal_user_id,
-                amount_kopecks,
-            )
+            return await self.credit_in_connection(conn, internal_user_id, amount_kopecks)
+
+    @staticmethod
+    async def credit_in_connection(
+        conn: asyncpg.Connection, internal_user_id: str, amount_kopecks: int,
+    ) -> ReferralBalanceRecord:
+        row = await conn.fetchrow(
+            "INSERT INTO referral_balances (internal_user_id, balance_kopecks, updated_at) "
+            "VALUES ($1, $2, now()) "
+            "ON CONFLICT (internal_user_id) DO UPDATE SET balance_kopecks = referral_balances.balance_kopecks + $2, updated_at = now() "
+            "RETURNING internal_user_id, balance_kopecks, updated_at",
+            internal_user_id,
+            amount_kopecks,
+        )
         return ReferralBalanceRecord(
             internal_user_id=row["internal_user_id"],
             balance_kopecks=row["balance_kopecks"],
@@ -214,23 +226,29 @@ class PostgresReferralTransactionRepository:
     async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool:
         """Atomic dedup: insert only if no row with same (internal_user_id, description) exists. Returns True if inserted."""
         async with self._pool.acquire() as conn:
-            result = await conn.execute(
-                "INSERT INTO referral_transactions "
-                "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, created_at) "
-                "SELECT $1, $2, $3, $4, $5, $6, $7, $8 "
-                "WHERE NOT EXISTS ("
-                "  SELECT 1 FROM referral_transactions WHERE internal_user_id = $2 AND description = $7"
-                ")",
-                record.transaction_id,
-                record.internal_user_id,
-                record.amount_kopecks,
-                record.transaction_type,
-                record.related_user_id,
-                record.related_plan_id,
-                record.description,
-                record.created_at,
-            )
-            return "INSERT 0 1" in result
+            return await self.append_transaction_if_description_absent_in_connection(conn, record)
+
+    @staticmethod
+    async def append_transaction_if_description_absent_in_connection(
+        conn: asyncpg.Connection, record: ReferralTransactionRecord,
+    ) -> bool:
+        result = await conn.execute(
+            "INSERT INTO referral_transactions "
+            "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, created_at) "
+            "SELECT $1, $2, $3, $4, $5, $6, $7, $8 "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM referral_transactions WHERE internal_user_id = $2 AND description = $7"
+            ")",
+            record.transaction_id,
+            record.internal_user_id,
+            record.amount_kopecks,
+            record.transaction_type,
+            record.related_user_id,
+            record.related_plan_id,
+            record.description,
+            record.created_at,
+        )
+        return "INSERT 0 1" in result
 
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]:
         async with self._pool.acquire() as conn:

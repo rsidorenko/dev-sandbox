@@ -154,11 +154,7 @@ async def _process_referral_commissions_best_effort(
         )
         from app.persistence.referral_contracts import ReferralTransactionRecord
 
-        rel_repo = PostgresReferralRelationshipRepository(pool)
-        bal_repo = PostgresReferralBalanceRepository(pool)
-        tx_repo = PostgresReferralTransactionRepository(pool)
-
-        referrers = await rel_repo.find_referrers(payer_internal_user_id)
+        referrers = await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id)
         if not referrers:
             return
 
@@ -173,21 +169,25 @@ async def _process_referral_commissions_best_effort(
             payment_amount_kopecks=payment_amount_kopecks,
         )
 
-        for comm in commissions:
-            dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}"
-            tx_record = ReferralTransactionRecord(
-                transaction_id=f"ref-{uuid.uuid4()}",
-                internal_user_id=comm.referrer_user_id,
-                amount_kopecks=comm.amount_kopecks,
-                transaction_type="referral_credit",
-                related_user_id=comm.payer_user_id,
-                related_plan_id=comm.plan_id,
-                description=dedup_desc,
-                created_at=datetime.now(UTC),
-            )
-            inserted = await tx_repo.append_transaction_if_description_absent(tx_record)
-            if inserted:
-                await bal_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
+        if not commissions:
+            return
+
+        async with pool.acquire() as conn, conn.transaction():
+            for comm in commissions:
+                dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+                tx_record = ReferralTransactionRecord(
+                    transaction_id=f"ref-{uuid.uuid4()}",
+                    internal_user_id=comm.referrer_user_id,
+                    amount_kopecks=comm.amount_kopecks,
+                    transaction_type="referral_credit",
+                    related_user_id=comm.payer_user_id,
+                    related_plan_id=comm.plan_id,
+                    description=dedup_desc,
+                    created_at=datetime.now(UTC),
+                )
+                inserted = await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(conn, tx_record)
+                if inserted:
+                    await PostgresReferralBalanceRepository.credit_in_connection(conn, comm.referrer_user_id, comm.amount_kopecks)
     except Exception:
         return
 

@@ -1301,6 +1301,7 @@ async def _process_balance_payment(
         payment_amount_kopecks=total_kopecks,
         plan_id=plan_id,
         correlation_prefix="bal",
+        correlation_id=correlation_id,
     )
 
     active_until_str = (active_until or now).date().isoformat()
@@ -1314,6 +1315,7 @@ async def _credit_referral_commissions(
     payment_amount_kopecks: int,
     plan_id: str,
     correlation_prefix: str,
+    correlation_id: str,
 ) -> None:
     import uuid
     from datetime import UTC, datetime
@@ -1331,21 +1333,46 @@ async def _credit_referral_commissions(
         plan_id=plan_id,
         payment_amount_kopecks=payment_amount_kopecks,
     )
-    for comm in commissions:
-        dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}"
-        tx_record = ReferralTransactionRecord(
-            transaction_id=f"ref-{uuid.uuid4()}",
-            internal_user_id=comm.referrer_user_id,
-            amount_kopecks=comm.amount_kopecks,
-            transaction_type="referral_credit",
-            related_user_id=comm.payer_user_id,
-            related_plan_id=comm.plan_id,
-            description=dedup_desc,
-            created_at=datetime.now(UTC),
+
+    pool = _get_pool_from_composition(composition)
+    if pool is not None:
+        from app.persistence.postgres_referral import (
+            PostgresReferralBalanceRepository,
+            PostgresReferralTransactionRepository,
         )
-        inserted = await composition.referral_transaction_repo.append_transaction_if_description_absent(tx_record)
-        if inserted:
-            await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
+
+        async with pool.acquire() as conn, conn.transaction():
+            for comm in commissions:
+                dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+                tx_record = ReferralTransactionRecord(
+                    transaction_id=f"ref-{uuid.uuid4()}",
+                    internal_user_id=comm.referrer_user_id,
+                    amount_kopecks=comm.amount_kopecks,
+                    transaction_type="referral_credit",
+                    related_user_id=comm.payer_user_id,
+                    related_plan_id=comm.plan_id,
+                    description=dedup_desc,
+                    created_at=datetime.now(UTC),
+                )
+                inserted = await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(conn, tx_record)
+                if inserted:
+                    await PostgresReferralBalanceRepository.credit_in_connection(conn, comm.referrer_user_id, comm.amount_kopecks)
+    else:
+        for comm in commissions:
+            dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+            tx_record = ReferralTransactionRecord(
+                transaction_id=f"ref-{uuid.uuid4()}",
+                internal_user_id=comm.referrer_user_id,
+                amount_kopecks=comm.amount_kopecks,
+                transaction_type="referral_credit",
+                related_user_id=comm.payer_user_id,
+                related_plan_id=comm.plan_id,
+                description=dedup_desc,
+                created_at=datetime.now(UTC),
+            )
+            inserted = await composition.referral_transaction_repo.append_transaction_if_description_absent(tx_record)
+            if inserted:
+                await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
 
 
 # ─── Add device helpers ────────────────────────────────────────────────
