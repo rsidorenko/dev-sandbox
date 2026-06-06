@@ -124,12 +124,11 @@ def _build_vless_link(
         )
 
     if server.transport_type == "grpc":
-        service = server.ws_path.strip("/") or "grpc"
         return (
             f"vless://{user_uuid}@{host}:{port}"
             f"?type=grpc&security=reality"
             f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
-            f"&sid={server.reality_sid}&spx=%2F&mode=gun&serviceName={service}"
+            f"&sid={server.reality_sid}&spx=%2F&flow=&serviceName=&authority="
             f"#{label}"
         )
 
