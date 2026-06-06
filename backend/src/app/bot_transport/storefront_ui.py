@@ -539,7 +539,7 @@ _SUPPORT_URL = "https://t.me/bravada_support"
 
 
 def text_ios_step(step: int) -> str:
-    return f"📱 *Шаг {step} из {_IOS_TOTAL_STEPS}*\n\nПосле каждого шага возвращайтесь в бота и нажимайте «Готово».\n\n"
+    return f"📱 <b>Шаг {step} из {_IOS_TOTAL_STEPS}</b>\n\nПосле каждого шага возвращайтесь в бота и нажимайте «Готово».\n\n"
 
 
 def ios_step_1_text() -> str:
@@ -585,8 +585,8 @@ def ios_step_3_text(subscription_url: str) -> str:
     return text_ios_step(3) + (
         "1. 🔑 Нажмите «Загрузить ключи» ниже — откроется Karing\n"
         "2. ✅ Нажмите галочку справа вверху\n\n"
-        "_Ручное добавление:_\n"
-        f"`{subscription_url}`"
+        "<i>Ручное добавление:</i>\n"
+        f"<code>{subscription_url}</code>"
     )
 
 
@@ -647,7 +647,7 @@ def ios_step_5_keyboard() -> dict[str, Any]:
 
 def ios_step_6_text() -> str:
     return (
-        "📱 *Шаг 6 из 6*\n\n"
+        "📱 <b>Шаг 6 из 6</b>\n\n"
         "✅ VPN настроен!\n\n"
         "💡 Советы:\n"
         "• Оставьте Karing включённым для постоянной работы VPN\n"
@@ -856,7 +856,7 @@ def tv_step_1_text() -> str:
     return (
         "📺 *Инструкция для Smart TV*\n\n"
         "⚠️ Важно! Только для телевизоров на Android TV!\n\n"
-        f"📺 *Шаг 1 из {_TV_TOTAL_STEPS}*\n\n"
+        f"📺 <b>Шаг 1 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
         "Скачиваем Happ Proxy Utility в Play Store"
     )
@@ -876,7 +876,7 @@ def tv_step_1_keyboard() -> dict[str, Any]:
 
 def tv_step_2_text() -> str:
     return (
-        f"📺 *Шаг 2 из {_TV_TOTAL_STEPS}*\n\n"
+        f"📺 <b>Шаг 2 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
         "Открываем Happ и жмём на эту кнопку"
     )
@@ -895,10 +895,10 @@ def tv_step_2_keyboard() -> dict[str, Any]:
 
 def tv_step_3_text(subscription_url: str) -> str:
     return (
-        f"📺 *Шаг 3 из {_TV_TOTAL_STEPS}*\n\n"
+        f"📺 <b>Шаг 3 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
         "Скопируйте эту ссылку:\n"
-        f"`{subscription_url}`\n\n"
+        f"<code>{subscription_url}</code>\n\n"
         "После чего наведите камеру на этот QR и откройте его"
     )
 
@@ -916,7 +916,7 @@ def tv_step_3_keyboard() -> dict[str, Any]:
 
 def tv_step_4_text() -> str:
     return (
-        f"📺 *Шаг 4 из {_TV_TOTAL_STEPS}*\n\n"
+        f"📺 <b>Шаг 4 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
         "Вставляем скопированную ранее ссылку и нажимаем отправить данные\n\n"
         "На TV должен появиться список ключей"
@@ -936,7 +936,7 @@ def tv_step_4_keyboard() -> dict[str, Any]:
 
 def tv_step_5_text() -> str:
     return (
-        f"📺 *Шаг 5 из {_TV_TOTAL_STEPS}*\n\n"
+        f"📺 <b>Шаг 5 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
         "Слева выбираем сервер\n"
         "Для ютуба отлично подойдет YouTube NoAds\n\n"
@@ -1050,7 +1050,7 @@ def android_step_3_text(subscription_url: str) -> str:
         "1. 🔑 Нажмите \"Загрузить ключи\" ниже — откроется Karing\n"
         "2. ✅ Нажмите галочку справа вверху\n\n"
         "Ручное добавление — скопируйте ссылку:\n"
-        f"`{subscription_url}`"
+        f"<code>{subscription_url}</code>"
     )
 
 
@@ -1121,7 +1121,7 @@ def android_step_5_keyboard() -> dict[str, Any]:
 
 def android_step_6_text() -> str:
     return (
-        "🤖 *Шаг 6 из 6*\n\n"
+        "🤖 <b>Шаг 6 из 6</b>\n\n"
         "✅ VPN настроен!\n\n"
         "💡 Советы:\n"
         "• Оставьте Karing включённым для постоянной работы VPN\n"
@@ -1189,7 +1189,7 @@ _WIN_KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases"
 
 def win_step_1_text() -> str:
     return (
-        "🖥 *Шаг 1 из 6*\n\n"
+        "🖥 <b>Шаг 1 из 6</b>\n\n"
         "После каждого шага возвращайтесь в бота и нажимайте «Готово».\n\n"
         "1. ⬇️ Скачайте Karing — нажмите кнопку ниже или перейдите на GitHub\n"
         "2. 📲 Установите приложение"

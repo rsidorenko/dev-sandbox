@@ -2031,17 +2031,17 @@ async def _render_storefront_response(
             keyboard = back_only_keyboard(CB_SETTINGS)
 
     parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
-    # iOS/Mac steps use Markdown for formatted links
+    # iOS/Mac/TV/Win/Android steps use HTML for bold headers and code formatting
     if code.startswith(CB_IOS_STEP) or code == CB_IOS_RETRY:
-        parse_mode = "Markdown"
+        parse_mode = "HTML"
     if code.startswith(CB_MAC_STEP) or code == CB_MAC_RETRY:
-        parse_mode = "Markdown"
+        parse_mode = "HTML"
     if code.startswith(CB_TV_STEP) or code == CB_TV_RETRY:
-        parse_mode = "Markdown"
+        parse_mode = "HTML"
     if code.startswith(CB_WIN_STEP) or code == CB_WIN_RETRY:
-        parse_mode = "Markdown"
+        parse_mode = "HTML"
     if code.startswith(CB_ANDROID_STEP) or code == CB_ANDROID_RETRY:
-        parse_mode = "Markdown" if code == f"{CB_ANDROID_STEP}3" else None
+        parse_mode = "HTML"
     if follow_up_main_menu:
         return RenderedMessagePackage(
             message_text=text,
