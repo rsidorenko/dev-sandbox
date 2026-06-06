@@ -629,8 +629,6 @@ def ios_step_4_keyboard() -> dict[str, Any]:
 def ios_step_5_text() -> str:
     return text_ios_step(5) + (
         "🔄 Karing автоматически выбирает сервер для обхода блокировок.\n\n"
-        "📋 Если нужно выбрать вручную:\n"
-        f"`{_IOS_BYPASS_INSTRUCTIONS_URL}`\n\n"
         "⚠️ Серверы для обхода ограничены — 80 ГБ/мес.\n"
         "Используйте их только при необходимости."
     )
@@ -1100,8 +1098,6 @@ def android_step_4_keyboard() -> dict[str, Any]:
 def android_step_5_text() -> str:
     return _android_step_header(5) + (
         "🔄 Karing автоматически выбирает сервер для обхода блокировок.\n\n"
-        "📋 Если нужно выбрать вручную:\n"
-        f"{_IOS_BYPASS_INSTRUCTIONS_URL}\n\n"
         "⚠️ Серверы для обхода ограничены — 80 ГБ/мес.\n"
         "Используйте их только при необходимости."
     )
