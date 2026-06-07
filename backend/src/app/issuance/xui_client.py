@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from asyncio import sleep as asyncio_sleep
 from dataclasses import dataclass
 from enum import StrEnum
@@ -121,13 +122,19 @@ class XuiApiClient:
                     self._last_login_ts = time.monotonic()
                     return True
                 return False
-            await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
+            page = await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
+            csrf_match = re.search(r'csrf-token.*?content="([^"]+)"', page.text)
+            csrf_token = csrf_match.group(1) if csrf_match else ""
+            headers: dict[str, str] = {}
+            if csrf_token:
+                headers["X-CSRF-Token"] = csrf_token
             resp = await client.post(
                 f"{self._base}/login",
                 data={
                     "username": self._config.panel_username,
                     "password": self._config.panel_password,
                 },
+                headers=headers,
                 timeout=_DEFAULT_TIMEOUT,
             )
             if resp.status_code == 200:
