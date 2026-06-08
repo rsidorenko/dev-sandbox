@@ -34,6 +34,7 @@ _LOGGER = logging.getLogger(__name__)
 _CHECK_INTERVAL_SECONDS = 3600  # 1 hour
 _EXPIRY_WARNING_HOURS = 72  # 3 days
 _GRACE_PERIOD_DAYS = 20
+_ADVISORY_LOCK_ID = 20260608  # prevents duplicate processing across instances
 
 
 class NotificationScheduler:
@@ -82,6 +83,17 @@ class NotificationScheduler:
             await asyncio.sleep(1)
 
     async def _run_checks(self) -> None:
+        async with self._pool.acquire() as conn:
+            locked = await conn.fetchval("SELECT pg_try_advisory_lock($1)", _ADVISORY_LOCK_ID)
+            if not locked:
+                _LOGGER.info("notification_scheduler tick skipped — another instance holds the lock")
+                return
+            try:
+                await self._run_checks_inner()
+            finally:
+                await conn.execute("SELECT pg_advisory_unlock($1)", _ADVISORY_LOCK_ID)
+
+    async def _run_checks_inner(self) -> None:
         now = datetime.now(UTC)
         _LOGGER.info("notification_scheduler.run_checks at=%s", now.isoformat())
 

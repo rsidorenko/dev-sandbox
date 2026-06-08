@@ -8,6 +8,8 @@ from collections import defaultdict
 
 ENV_WEBHOOK_RATE_LIMIT_PER_MINUTE = "TELEGRAM_WEBHOOK_RATE_LIMIT_PER_MINUTE"
 DEFAULT_RATE_LIMIT_PER_MINUTE = 60
+_MAX_ENTRIES = 10000
+_EVICT_EVERY = 100
 
 
 class WebhookRateLimiter:
@@ -16,17 +18,30 @@ class WebhookRateLimiter:
     def __init__(self, max_requests_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE) -> None:
         self._max = max_requests_per_minute
         self._windows: dict[str, list[float]] = defaultdict(list)
+        self._call_count = 0
 
     def is_allowed(self, client_ip: str) -> bool:
         now = time.monotonic()
         window_start = now - 60.0
         requests = self._windows[client_ip]
-        # Удаляем записи старше 60 секунд
         self._windows[client_ip] = [t for t in requests if t > window_start]
         if len(self._windows[client_ip]) >= self._max:
             return False
         self._windows[client_ip].append(now)
+        self._call_count += 1
+        if self._call_count % _EVICT_EVERY == 0:
+            self._evict()
         return True
+
+    def _evict(self) -> None:
+        """Remove IPs with empty windows to prevent unbounded growth."""
+        if len(self._windows) <= _MAX_ENTRIES:
+            return
+        now = time.monotonic()
+        window_start = now - 60.0
+        expired = [ip for ip, reqs in self._windows.items() if not reqs or reqs[-1] < window_start]
+        for ip in expired:
+            del self._windows[ip]
 
     @property
     def max_requests_per_minute(self) -> int:

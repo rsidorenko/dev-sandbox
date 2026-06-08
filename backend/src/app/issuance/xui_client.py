@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
-from asyncio import sleep as asyncio_sleep
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -84,6 +84,7 @@ class XuiApiClient:
         self._client: httpx.AsyncClient | None = None
         self._last_login_ts: float = 0.0
         self._v3_mode: bool | None = None
+        self._mutation_lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -279,7 +280,7 @@ class XuiApiClient:
                     self._config.server_id, attempt, exc_info=True,
                 )
                 if attempt < _MAX_RETRIES:
-                    await asyncio_sleep(_RETRY_DELAY_SECONDS)
+                    await asyncio.sleep(_RETRY_DELAY_SECONDS)
         return False
 
     async def resolve_client_uuid(self, *, email: str) -> str | None:
@@ -312,7 +313,7 @@ class XuiApiClient:
                 return None
             except Exception:
                 if attempt < _MAX_RETRIES:
-                    await asyncio_sleep(_RETRY_DELAY_SECONDS)
+                    await asyncio.sleep(_RETRY_DELAY_SECONDS)
         return None
 
     async def _get_inbound(self) -> dict | None:
@@ -335,36 +336,37 @@ class XuiApiClient:
         return None
 
     async def _add_client_via_update(self, client_settings: dict) -> XuiClientResult:
-        """Add client via inbound update (v3 panels without addClient endpoint)."""
-        inbound = await self._get_inbound()
-        if not inbound:
-            return XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
-        settings = inbound.get("settings", {})
-        if isinstance(settings, str):
-            settings = json.loads(settings)
-        settings.setdefault("clients", []).append(client_settings)
-        payload = {
-            "id": inbound["id"],
-            "settings": json.dumps(settings),
-            "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
-            "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
-            "protocol": inbound["protocol"],
-            "port": inbound["port"],
-            "listen": inbound.get("listen", ""),
-            "tag": inbound.get("tag", ""),
-            "remark": inbound.get("remark", ""),
-            "enable": inbound.get("enable", True),
-            "expiryTime": inbound.get("expiryTime", 0),
-            "total": inbound.get("total", 0),
-            "up": inbound.get("up", 0),
-            "down": inbound.get("down", 0),
-        }
-        return await self._do_client_op(
-            "POST",
-            f"{self._base}/panel/api/inbounds/update/{self._config.inbound_id}",
-            payload,
-            user_uuid=client_settings.get("id"),
-        )
+        """Add client via inbound update (v3 panels without addClient endpoint). Serialized per panel to prevent read-modify-write races."""
+        async with self._mutation_lock:
+            inbound = await self._get_inbound()
+            if not inbound:
+                return XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
+            settings = inbound.get("settings", {})
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            settings.setdefault("clients", []).append(client_settings)
+            payload = {
+                "id": inbound["id"],
+                "settings": json.dumps(settings),
+                "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
+                "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
+                "protocol": inbound["protocol"],
+                "port": inbound["port"],
+                "listen": inbound.get("listen", ""),
+                "tag": inbound.get("tag", ""),
+                "remark": inbound.get("remark", ""),
+                "enable": inbound.get("enable", True),
+                "expiryTime": inbound.get("expiryTime", 0),
+                "total": inbound.get("total", 0),
+                "up": inbound.get("up", 0),
+                "down": inbound.get("down", 0),
+            }
+            return await self._do_client_op(
+                "POST",
+                f"{self._base}/panel/api/inbounds/update/{self._config.inbound_id}",
+                payload,
+                user_uuid=client_settings.get("id"),
+            )
 
     async def _resolve_client_uuid_v3(self, *, email: str) -> str | None:
         """Resolve client UUID by fetching inbound and searching clients (v3 fallback)."""
@@ -420,7 +422,7 @@ class XuiApiClient:
                 _LOGGER.debug("xui op error server=%s attempt=%s", self._config.server_id, attempt, exc_info=True)
                 last_result = XuiClientResult(outcome=XuiOutcome.ERROR)
             if attempt < _MAX_RETRIES:
-                await asyncio_sleep(_RETRY_DELAY_SECONDS)
+                await asyncio.sleep(_RETRY_DELAY_SECONDS)
         return last_result
 
 
