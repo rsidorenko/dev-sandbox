@@ -85,6 +85,7 @@ class XuiApiClient:
         self._last_login_ts: float = 0.0
         self._v3_mode: bool | None = None
         self._mutation_lock = asyncio.Lock()
+        self._csrf_token: str = ""
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -123,15 +124,28 @@ class XuiApiClient:
                     self._last_login_ts = time.monotonic()
                     return True
                 return False
-            page = await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
-            csrf_match = re.search(r'csrf-token.*?content="([^"]+)"', page.text)
-            csrf_token = csrf_match.group(1) if csrf_match else ""
+            # Establish session cookie
+            await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
+            # Obtain CSRF token: v3.2+ exposes /csrf-token endpoint (JSON {"obj":"<token>"})
+            csrf_token = ""
+            try:
+                csrf_resp = await client.get(f"{self._base}/csrf-token", timeout=_DEFAULT_TIMEOUT)
+                if csrf_resp.status_code == 200:
+                    csrf_data = csrf_resp.json()
+                    csrf_token = csrf_data.get("obj", "") or csrf_data.get("token", "")
+            except Exception:
+                pass
+            # Fallback: extract from HTML meta tag (older 3x-ui versions)
+            if not csrf_token:
+                page = await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
+                csrf_match = re.search(r'csrf-token.*?content="([^"]+)"', page.text)
+                csrf_token = csrf_match.group(1) if csrf_match else ""
             headers: dict[str, str] = {}
             if csrf_token:
                 headers["X-CSRF-Token"] = csrf_token
             resp = await client.post(
                 f"{self._base}/login",
-                data={
+                json={
                     "username": self._config.panel_username,
                     "password": self._config.panel_password,
                 },
@@ -142,6 +156,7 @@ class XuiApiClient:
                 body = resp.json()
                 if body.get("success", False):
                     self._last_login_ts = time.monotonic()
+                    self._csrf_token = csrf_token
                     return True
             return False
         except Exception:
@@ -384,7 +399,10 @@ class XuiApiClient:
     def _auth_headers(self) -> dict[str, str]:
         if self._config.api_token:
             return {"Authorization": f"Bearer {self._config.api_token}"}
-        return {}
+        headers: dict[str, str] = {}
+        if self._csrf_token:
+            headers["X-CSRF-Token"] = self._csrf_token
+        return headers
 
     async def _do_client_op(
         self,
