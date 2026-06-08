@@ -325,7 +325,10 @@ class XuiApiClient:
                 body = resp.json()
                 if body.get("success") and body.get("obj"):
                     return body["obj"].get("uuid")
-                return None
+                # 200 with success=false means client not in traffics table
+                # but may exist in inbound settings — fall back to v3 mode
+                self._v3_mode = True
+                return await self._resolve_client_uuid_v3(email=email)
             except Exception:
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(_RETRY_DELAY_SECONDS)
