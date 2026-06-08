@@ -44,6 +44,9 @@ Thumbs.db
 .claude/settings.local.json
 .claude/worktrees/
 
+# Audit reports (internal, not for repo)
+AUDIT_*.md
+
 # Misc
 image.png
 *.log

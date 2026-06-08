@@ -34,11 +34,11 @@ def _verify_yookassa_signature(raw_body: bytes, request: Request) -> JSONRespons
     """Verify YooKassa webhook HMAC-SHA256 signature. Returns error response or None if OK."""
     secret = os.environ.get(ENV_YOOKASSA_WEBHOOK_SECRET, "").strip()
     if not secret:
-        _LOGGER.warning(
-            "yookassa webhook: %s not configured — skipping signature verification",
+        _LOGGER.critical(
+            "yookassa webhook: %s not configured — REJECTING webhook (signature verification is mandatory)",
             ENV_YOOKASSA_WEBHOOK_SECRET,
         )
-        return None
+        return _safe_json_error(500, "server_misconfigured")
     sig_header = request.headers.get("X-Request-Signature-SHA256", "").strip()
     if not sig_header:
         _LOGGER.warning("yookassa webhook: missing signature header")

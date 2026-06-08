@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from collections.abc import Mapping
@@ -1220,27 +1221,44 @@ async def _process_balance_payment(
         except Exception:
             return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-        # Best-effort: VLESS key creation (outside transaction, HTTP-dependent)
+        # VLESS key creation with retry + compensation on failure
         if composition.vless_provider is not None:
-            with contextlib.suppress(Exception):
-                snap_check = await pool.fetchrow(
-                    """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
-                       WHERE internal_user_id = $1""",
-                    internal_user_id,
-                )
-                if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                    await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-                elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                    await composition.vless_provider.activate_user(internal_user_id=internal_user_id)
-                else:
-                    await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-            with contextlib.suppress(Exception):
-                await pool.execute(
-                    """UPDATE subscription_snapshots
-                       SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
-                       WHERE internal_user_id = $1""",
-                    internal_user_id,
-                )
+            vless_ok = False
+            for _attempt in range(3):
+                try:
+                    snap_check = await pool.fetchrow(
+                        """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
+                           WHERE internal_user_id = $1""",
+                        internal_user_id,
+                    )
+                    if snap_check is not None and snap_check["keys_deleted_at"] is not None:
+                        await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+                    elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
+                        await composition.vless_provider.activate_user(internal_user_id=internal_user_id)
+                    else:
+                        await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+                    vless_ok = True
+                    break
+                except Exception:
+                    _LOGGER.warning("balance_payment vless retry user=%s", internal_user_id, exc_info=True)
+                    await asyncio.sleep(2.0)
+
+            if vless_ok:
+                try:
+                    await pool.execute(
+                        """UPDATE subscription_snapshots
+                           SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
+                           WHERE internal_user_id = $1""",
+                        internal_user_id,
+                    )
+                except Exception:
+                    _LOGGER.error("balance_payment snapshot clear failed user=%s", internal_user_id, exc_info=True)
+            else:
+                # Compensation: credit back the deducted balance
+                _LOGGER.error("balance_payment vless FAILED after retries — refunding user=%s", internal_user_id)
+                with contextlib.suppress(Exception):
+                    await PostgresReferralBalanceRepository(pool).credit(internal_user_id, total_kopecks)
+                return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
     else:
         # Test path: in-memory repositories (no transaction support)
         balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)

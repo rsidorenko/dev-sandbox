@@ -52,11 +52,28 @@ class _FakePool:
         return None
 
     async def fetchval(self, sql: str, *args):
+        # Advisory lock always succeeds in tests
+        if "pg_try_advisory_lock" in sql:
+            return True
         return None
 
     async def execute(self, sql: str, *args) -> str:
         self.execute_log.append((sql,) + args)
         return "UPDATE 1"
+
+    def acquire(self):
+        return _FakeAcquire(self)
+
+
+class _FakeAcquire:
+    def __init__(self, pool):
+        self._pool = pool
+
+    async def __aenter__(self):
+        return self._pool
+
+    async def __aexit__(self, *args):
+        pass
 
 
 def _make_provider(
@@ -395,17 +412,18 @@ def test_vless_uuid_is_random_not_deterministic():
     class _Pool:
         def __init__(self):
             self.uuids = {}
-        async def fetchrow(self, sql, uid):
-            return _Record(vless_uuid=self.uuids.get(uid))
-        async def execute(self, sql, uuid_val, uid):
-            self.uuids[uid] = uuid_val
+        async def fetchrow(self, sql, uid, new_uuid=""):
+            existing = self.uuids.get(uid)
+            if existing:
+                return _Record(vless_uuid=existing)
+            self.uuids[uid] = new_uuid
+            return _Record(vless_uuid=new_uuid)
 
     pool = _Pool()
     uuid1 = _run(_get_or_create_vless_uuid(pool, "user-a"))
     uuid2 = _run(_get_or_create_vless_uuid(pool, "user-b"))
 
     assert uuid1 != uuid2
-    # Verify they are valid UUIDs
     uuid.UUID(uuid1)
     uuid.UUID(uuid2)
 

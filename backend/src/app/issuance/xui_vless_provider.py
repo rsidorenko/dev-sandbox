@@ -76,20 +76,15 @@ def _user_uuid_from_internal(internal_user_id: str) -> str:
 
 
 async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -> str:
-    """Get stored VLESS UUID or generate a new random one and persist it."""
-    row = await pool.fetchrow(
-        "SELECT vless_uuid FROM user_identities WHERE internal_user_id = $1",
-        internal_user_id,
-    )
-    if row and row["vless_uuid"]:
-        return row["vless_uuid"]
+    """Atomically get or create VLESS UUID. First writer wins via COALESCE."""
     new_uuid = str(uuid.uuid4())
-    await pool.execute(
-        "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
-        new_uuid,
+    row = await pool.fetchrow(
+        "UPDATE user_identities SET vless_uuid = COALESCE(vless_uuid, $2) "
+        "WHERE internal_user_id = $1 RETURNING vless_uuid",
         internal_user_id,
+        new_uuid,
     )
-    return new_uuid
+    return row["vless_uuid"]
 
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
@@ -296,7 +291,7 @@ class XuiVlessProvider(VlessProviderPort):
         await self._close_clients()
 
     async def _restart_xray_on_all(self) -> None:
-        """Restart xray on all panel clients to pick up config changes immediately."""
+        """Restart xray on all panel clients. Not called automatically — 3x-ui addClient API applies changes without restart."""
         clients = self._clients
         if not clients:
             return
@@ -387,7 +382,6 @@ class XuiVlessProvider(VlessProviderPort):
             subscription_url=_web_sub_url(token),
             servers=servers,
         )
-        await self._restart_xray_on_all()
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
@@ -467,7 +461,6 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_disabled:
-            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -501,7 +494,6 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_enabled:
-            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -524,6 +516,5 @@ class XuiVlessProvider(VlessProviderPort):
         )
 
         if any_deleted:
-            await self._restart_xray_on_all()
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)

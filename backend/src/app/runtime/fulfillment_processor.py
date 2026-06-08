@@ -109,32 +109,50 @@ async def _ensure_vless_keys_after_payment(
     pool: asyncpg.Pool,
     vless_provider: Any,
     internal_user_id: str,
+    max_retries: int = 3,
+    retry_delay: float = 2.0,
 ) -> None:
+    import asyncio as _asyncio
+
     from app.issuance.vless_provider import VlessProviderOutcome
 
-    try:
-        snap_check = await pool.fetchrow(
-            """SELECT keys_deactivated_at, keys_deleted_at, device_count FROM subscription_snapshots
-               WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        dc = (snap_check.get("device_count") or 0) if snap_check else 0
-        if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-            await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
-        elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-            await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
-        else:
-            await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            snap_check = await pool.fetchrow(
+                """SELECT keys_deactivated_at, keys_deleted_at, device_count FROM subscription_snapshots
+                   WHERE internal_user_id = $1""",
+                internal_user_id,
+            )
+            dc = (snap_check.get("device_count") or 0) if snap_check else 0
+            if snap_check is not None and snap_check["keys_deleted_at"] is not None:
+                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
+            elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
+                await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
+            else:
+                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
 
-        await pool.execute(
-            """UPDATE subscription_snapshots
-               SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
-               WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        _LOGGER.info("fulfillment vless keys ensured user=%s", internal_user_id)
-    except Exception:
-        _LOGGER.warning("fulfillment vless key ensure failed user=%s", internal_user_id, exc_info=True)
+            await pool.execute(
+                """UPDATE subscription_snapshots
+                   SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
+                   WHERE internal_user_id = $1""",
+                internal_user_id,
+            )
+            _LOGGER.info("fulfillment vless keys ensured user=%s", internal_user_id)
+            return
+        except Exception as exc:
+            last_exc = exc
+            _LOGGER.warning(
+                "fulfillment vless key ensure failed user=%s attempt=%d/%d: %s",
+                internal_user_id, attempt, max_retries, exc,
+            )
+            if attempt < max_retries:
+                await _asyncio.sleep(retry_delay)
+
+    _LOGGER.error(
+        "fulfillment vless key ensure FAILED after %d retries user=%s — keys pending manual resolution",
+        max_retries, internal_user_id, exc_info=last_exc,
+    )
 
 
 async def _process_referral_commissions_best_effort(
