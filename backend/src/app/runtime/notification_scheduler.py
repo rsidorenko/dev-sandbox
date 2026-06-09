@@ -168,7 +168,7 @@ class NotificationScheduler:
         return True
 
     async def _check_trial_expiring(self, now: datetime) -> None:
-        """Trials expiring in <24h: send warning."""
+        """Trials expiring in <24h: send warning (batch)."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id, s.trial_expires_at
                FROM subscription_snapshots s
@@ -178,14 +178,18 @@ class NotificationScheduler:
                AND s.trial_expires_at < NOW() + INTERVAL '24 hours'
                AND s.plan_id IS NULL""",
         )
+        if not rows:
+            return
         text, keyboard = text_trial_expiring()
-        for row in rows:
-            await self._send_notification(
+        await asyncio.gather(*[
+            self._send_notification(
                 internal_user_id=row["internal_user_id"],
                 notification_type="trial_expiring",
                 text=text,
                 keyboard=keyboard,
             )
+            for row in rows
+        ])
 
     async def _check_trial_expired(self, now: datetime) -> None:
         """Expired trials: deactivate keys, send notification."""
@@ -226,7 +230,7 @@ class NotificationScheduler:
             )
 
     async def _check_subscription_expiring(self, now: datetime) -> None:
-        """Subscriptions expiring in 3 days: send renewal reminder."""
+        """Subscriptions expiring in 3 days: send renewal reminder (batch)."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id, s.active_until_utc
                FROM subscription_snapshots s
@@ -236,15 +240,19 @@ class NotificationScheduler:
                AND s.active_until_utc < NOW() + INTERVAL '3 days'
                AND s.active_until_utc > NOW() + INTERVAL '2 days'""",
         )
-        for row in rows:
-            active_until = row["active_until_utc"].date().isoformat()
-            text, keyboard = text_subscription_expiring(active_until)
+        if not rows:
+            return
+
+        async def _notify(row: asyncpg.Record) -> None:
+            text, keyboard = text_subscription_expiring(row["active_until_utc"].date().isoformat())
             await self._send_notification(
                 internal_user_id=row["internal_user_id"],
                 notification_type="subscription_expiring_3d",
                 text=text,
                 keyboard=keyboard,
             )
+
+        await asyncio.gather(*[_notify(r) for r in rows])
 
     async def _check_subscription_expired(self, now: datetime) -> None:
         """Expired subscriptions: deactivate keys, send notification."""
