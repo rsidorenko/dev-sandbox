@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -31,10 +32,10 @@ from app.issuance.vless_provider import VlessProviderPort, VlessProviderOutcome
 
 _LOGGER = logging.getLogger(__name__)
 
-_CHECK_INTERVAL_SECONDS = 3600  # 1 hour
-_EXPIRY_WARNING_HOURS = 72  # 3 days
-_GRACE_PERIOD_DAYS = 20
-_ADVISORY_LOCK_ID = 20260608  # prevents duplicate processing across instances
+_CHECK_INTERVAL_SECONDS = int(os.environ.get("NOTIFICATION_CHECK_INTERVAL_SECONDS", "3600"))
+_EXPIRY_WARNING_HOURS = int(os.environ.get("NOTIFICATION_EXPIRY_WARNING_HOURS", "72"))
+_GRACE_PERIOD_DAYS = int(os.environ.get("NOTIFICATION_GRACE_PERIOD_DAYS", "20"))
+_ADVISORY_LOCK_ID = 20260608
 
 
 class NotificationScheduler:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -78,7 +79,7 @@ _PLANS: dict[PlanId, SubscriptionPlan] = {
 }
 
 EXTRA_DEVICE_PRICE_RUBLES = 80
-DEFAULT_DEVICE_LIMIT = 5
+DEFAULT_DEVICE_LIMIT = int(os.environ.get("DEFAULT_DEVICE_LIMIT", "5"))
 CUSTOM_DAY_PRICE_RUBLES = 15
 
 
