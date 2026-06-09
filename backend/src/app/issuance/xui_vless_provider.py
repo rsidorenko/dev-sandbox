@@ -302,18 +302,6 @@ class XuiVlessProvider(VlessProviderPort):
         """Close all cached HTTP clients. Call on shutdown."""
         await self._close_clients()
 
-    async def _restart_xray_on_all(self) -> None:
-        """Restart xray on all panel clients. Not called automatically — 3x-ui addClient API applies changes without restart."""
-        clients = self._clients
-        if not clients:
-            return
-        results = await asyncio.gather(
-            *[c.restart_xray() for c in clients], return_exceptions=True,
-        )
-        for client, ok in zip(clients, results):
-            if isinstance(ok, Exception) or not ok:
-                _LOGGER.debug("xray restart failed server=%s", client.server_id)
-
     async def create_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
@@ -561,3 +549,88 @@ class XuiVlessProvider(VlessProviderPort):
         if any_deleted:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+    async def reconcile_all_active_users(self) -> tuple[int, int, int]:
+        """Ensure all active users have VLESS keys on every active server.
+
+        Only adds clients that are **missing** on a specific server — existing
+        clients are never touched (no delete, no re-add, no traffic reset).
+        Runs as a fire-and-forget background task on startup.
+
+        Returns ``(added, failed, total_users)`` counts.
+        """
+        self._clients_ts = 0.0  # Force server list refresh
+        users = await self._pool.fetch(
+            "SELECT i.internal_user_id, i.vless_uuid FROM user_identities i "
+            "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+            "WHERE s.state_label = 'active' AND i.vless_uuid IS NOT NULL"
+        )
+        if not users:
+            _LOGGER.info("reconcile_start: no active users")
+            return 0, 0, 0
+
+        clients = await self._get_clients()
+        if not clients:
+            _LOGGER.info("reconcile_start: no active servers")
+            return 0, 0, len(users)
+
+        _LOGGER.info("reconcile_start users=%d servers=%d", len(users), len(clients))
+
+        added = 0
+        failed = 0
+
+        for u in users:
+            uid = u["internal_user_id"]
+            user_uuid = u["vless_uuid"]
+            user_added = False
+            user_failed = False
+
+            for client in clients:
+                email = _email_from_internal(uid, transport_type=client.server_config.transport_type)
+                # Check if client already exists on this panel — non-destructive probe
+                try:
+                    existing = await client.resolve_client_uuid(email=email)
+                except Exception:
+                    _LOGGER.debug("reconcile_probe_failed user=%s server=%s", uid[:8], client.server_id)
+                    user_failed = True
+                    continue
+
+                if existing is not None:
+                    continue  # Already exists — skip, don't touch
+
+                # Client missing on this server — add it
+                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
+                try:
+                    result = await client.add_client(
+                        user_uuid=user_uuid,
+                        email=email,
+                        expiry_ts=expiry,
+                        enable=True,
+                        limit_ip=_TRIAL_DEVICE_LIMIT,
+                    )
+                    if result.outcome == XuiOutcome.SUCCESS:
+                        user_added = True
+                        _LOGGER.info(
+                            "reconcile_added user=%s server=%s",
+                            uid[:8], client.server_id,
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "reconcile_add_failed user=%s server=%s outcome=%s",
+                            uid[:8], client.server_id, result.outcome,
+                        )
+                        user_failed = True
+                except Exception:
+                    _LOGGER.warning(
+                        "reconcile_add_exception user=%s server=%s",
+                        uid[:8], client.server_id, exc_info=True,
+                    )
+                    user_failed = True
+
+            if user_added:
+                added += 1
+            if user_failed:
+                failed += 1
+
+        _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
+        return added, failed, len(users)
