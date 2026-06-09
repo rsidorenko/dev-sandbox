@@ -1180,6 +1180,11 @@ async def _process_balance_payment(
     active_until: datetime | None = None
 
     if pool is not None:
+        # Save pre-payment subscription state for possible revert on VLESS failure
+        pre_payment_snap: SubscriptionSnapshot | None = None
+        with contextlib.suppress(Exception):
+            pre_payment_snap = await PostgresSubscriptionSnapshotReader(pool).get_for_user(internal_user_id)
+
         # Production path: atomic debit + upsert in a single transaction
         try:
             async with pool.acquire() as conn, conn.transaction():
@@ -1254,10 +1259,20 @@ async def _process_balance_payment(
                 except Exception:
                     _LOGGER.error("balance_payment snapshot clear failed user=%s", internal_user_id, exc_info=True)
             else:
-                # Compensation: credit back the deducted balance
+                # Compensation: credit back the deducted balance + revert subscription
                 _LOGGER.error("balance_payment vless FAILED after retries — refunding user=%s", internal_user_id)
                 with contextlib.suppress(Exception):
                     await PostgresReferralBalanceRepository(pool).credit(internal_user_id, total_kopecks)
+                with contextlib.suppress(Exception):
+                    if pre_payment_snap is not None:
+                        await PostgresSubscriptionSnapshotReader(pool).upsert_state(pre_payment_snap)
+                    else:
+                        await pool.execute(
+                            """UPDATE subscription_snapshots
+                               SET state_label = 'inactive', active_until_utc = NULL, updated_at = NOW()
+                               WHERE internal_user_id = $1""",
+                            internal_user_id,
+                        )
                 return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
     else:
         # Test path: in-memory repositories (no transaction support)

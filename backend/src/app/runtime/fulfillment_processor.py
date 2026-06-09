@@ -109,6 +109,9 @@ async def _ensure_vless_keys_after_payment(
     pool: asyncpg.Pool,
     vless_provider: Any,
     internal_user_id: str,
+    telegram_user_id: int | None = None,
+    activation_notifier: FulfillmentActivationTelegramNotifier | None = None,
+    correlation_id: str = "",
     max_retries: int = 3,
     retry_delay: float = 2.0,
 ) -> None:
@@ -153,6 +156,20 @@ async def _ensure_vless_keys_after_payment(
         "fulfillment vless key ensure FAILED after %d retries user=%s — keys pending manual resolution",
         max_retries, internal_user_id, exc_info=last_exc,
     )
+
+    # Notify the user that key creation is pending manual resolution
+    if activation_notifier is not None and telegram_user_id is not None:
+        await _send_activation_notice_best_effort(
+            activation_notifier,
+            telegram_user_id=telegram_user_id,
+            text=(
+                "✅ Оплата получена, подписка активирована!\n\n"
+                "⏳ VPN-ключи создаются, это может занять несколько минут. "
+                "Если ключи не появятся в течение часа, напишите в поддержку /support"
+            ),
+            reply_markup=None,
+            correlation_id=correlation_id,
+        )
 
 
 async def _process_referral_commissions_best_effort(
@@ -338,6 +355,9 @@ async def process_fulfillment(
                 pool=pool,
                 vless_provider=vless_provider,
                 internal_user_id=inp.internal_user_id,
+                telegram_user_id=inp.telegram_user_id,
+                activation_notifier=notify_activation,
+                correlation_id=correlation_id,
             )
     except Exception:
         await _telemetry.emit(decision="rejected", reason_bucket="dependency_failure")
