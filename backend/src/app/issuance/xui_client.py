@@ -267,37 +267,6 @@ class XuiApiClient:
             user_uuid=user_uuid, email=email, enable=True, expiry_ts=expiry_ts, limit_ip=limit_ip
         )
 
-    async def restart_xray(self) -> bool:
-        """Force 3x-ui to regenerate xray config and restart xray-core."""
-        if self._v3_mode:
-            return True  # v3 panels may lack this endpoint; wrapper handles config
-        headers = self._auth_headers()
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                client = await self._get_client()
-                if not await self._ensure_session():
-                    return False
-                resp = await client.post(
-                    f"{self._base}/panel/setting/restartXray",
-                    headers=headers,
-                    timeout=10.0,
-                )
-                if resp.status_code == 401 and attempt == 0:
-                    self._last_login_ts = 0.0
-                    continue
-                if resp.status_code == 200:
-                    body = resp.json()
-                    return body.get("success", False)
-                return False
-            except Exception:
-                _LOGGER.debug(
-                    "xray restart failed server=%s attempt=%s",
-                    self._config.server_id, attempt, exc_info=True,
-                )
-                if attempt < _MAX_RETRIES:
-                    await asyncio.sleep(_RETRY_DELAY_SECONDS)
-        return False
-
     async def resolve_client_uuid(self, *, email: str) -> str | None:
         """Resolve actual client UUID from panel by email. Returns None if not found."""
         if self._v3_mode:

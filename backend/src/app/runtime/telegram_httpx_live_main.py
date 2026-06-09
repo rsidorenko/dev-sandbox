@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 
+from app.issuance.xui_vless_provider import XuiVlessProvider
 from app.observability.logging_policy import sanitize_structured_fields
 from app.runtime.notification_scheduler import NotificationScheduler, start_notification_scheduler
 from app.runtime.runner import PollingRunSummary
@@ -139,6 +140,26 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
                 )
         except Exception:
             _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
+
+        # Reconcile: ensure all active users have VLESS keys on all active servers.
+        # Runs as a background task so it doesn't block message processing.
+        async def _run_reconcile(vp: XuiVlessProvider) -> None:
+            try:
+                added, fail, total = await vp.reconcile_all_active_users()
+                _log_lifecycle_event(
+                    intent="startup",
+                    outcome="completed",
+                    operation=f"reconcile_added={added}_fail={fail}_total={total}",
+                )
+            except Exception:
+                _LOGGER.warning("startup_reconcile_failed", exc_info=True)
+
+        try:
+            vp = process.app.bundle.bundle.composition.vless_provider
+            if isinstance(vp, XuiVlessProvider):
+                asyncio.create_task(_run_reconcile(vp))
+        except Exception:
+            _LOGGER.warning("startup_reconcile_init_failed", exc_info=True)
 
         try:
             summary = await process.run_until_stopped()
