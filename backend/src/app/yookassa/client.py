@@ -86,7 +86,7 @@ class YooKassaClient:
             "description": description,
             "receipt": {
                 "customer": {
-                    "email": f"u{telegram_user_id}@bravada-connect.ru",
+                    "email": f"u{idempotency_key[:16]}@bravada-connect.ru",
                 },
                 "items": [
                     {
