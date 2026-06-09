@@ -112,6 +112,7 @@ async def _ensure_vless_keys_after_payment(
     telegram_user_id: int | None = None,
     activation_notifier: FulfillmentActivationTelegramNotifier | None = None,
     correlation_id: str = "",
+    period_days: int = 30,
     max_retries: int = 3,
     retry_delay: float = 2.0,
 ) -> None:
@@ -129,11 +130,11 @@ async def _ensure_vless_keys_after_payment(
             )
             dc = (snap_check.get("device_count") or 0) if snap_check else 0
             if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
+                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
             elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
+                await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
             else:
-                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
+                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
 
             await pool.execute(
                 """UPDATE subscription_snapshots
@@ -358,6 +359,7 @@ async def process_fulfillment(
                 telegram_user_id=inp.telegram_user_id,
                 activation_notifier=notify_activation,
                 correlation_id=correlation_id,
+                period_days=inp.period_days,
             )
     except Exception:
         await _telemetry.emit(decision="rejected", reason_bucket="dependency_failure")

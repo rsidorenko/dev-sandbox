@@ -8,10 +8,15 @@ from __future__ import annotations
 
 _registry: dict[str, tuple[int, int]] = {}
 _pending_by_user: dict[int, str] = {}
+_MAX_ENTRIES = 10000
 
 
 def register_payment_message(payment_id: str, chat_id: int, message_id: int) -> None:
     _registry[payment_id] = (chat_id, message_id)
+    if len(_registry) > _MAX_ENTRIES:
+        evict_keys = list(_registry.keys())[: len(_registry) // 4]
+        for k in evict_keys:
+            del _registry[k]
 
 
 def pop_payment_message(payment_id: str) -> tuple[int, int] | None:

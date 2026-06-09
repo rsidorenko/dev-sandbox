@@ -45,7 +45,7 @@ def test_keys_deleted_calls_create_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5, expiry_days=30)
     provider.activate_user.assert_not_called()
 
 
@@ -56,7 +56,7 @@ def test_keys_deactivated_calls_activate_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=5)
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=5, expiry_days=30)
     provider.create_user.assert_not_called()
 
 
@@ -67,7 +67,7 @@ def test_no_lifecycle_flags_calls_create_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=5, expiry_days=30)
 
 
 def test_resets_lifecycle_flags():
@@ -96,7 +96,7 @@ def test_no_snapshot_creates_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0, expiry_days=30)
 
 
 def test_device_count_propagated_to_create_user():
@@ -107,7 +107,7 @@ def test_device_count_propagated_to_create_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=10)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=10, expiry_days=30)
 
 
 def test_device_count_propagated_to_activate_user():
@@ -118,7 +118,7 @@ def test_device_count_propagated_to_activate_user():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=3)
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=3, expiry_days=30)
 
 
 def test_device_count_null_falls_back_to_zero():
@@ -129,7 +129,7 @@ def test_device_count_null_falls_back_to_zero():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0, expiry_days=30)
 
 
 # ─── Permanent subscription URL ───────────────────────────────────────
