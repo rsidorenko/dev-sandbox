@@ -18,6 +18,8 @@ from app.persistence.mismatch_quarantine_contracts import (
 class InMemoryMismatchQuarantineRepository(MismatchQuarantineRepository):
     """In-memory quarantine repository keyed by (source_type, source_ref_id)."""
 
+    _MAX_ENTRIES = 10000
+
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._records_by_source: dict[tuple[str, str], MismatchQuarantineRecord] = {}
@@ -29,6 +31,10 @@ class InMemoryMismatchQuarantineRepository(MismatchQuarantineRepository):
         key = (record.source_type.value, record.source_ref_id)
         async with self._lock:
             self._records_by_source[key] = record
+            if len(self._records_by_source) > self._MAX_ENTRIES:
+                evict_keys = list(self._records_by_source.keys())[: len(self._records_by_source) // 4]
+                for k in evict_keys:
+                    del self._records_by_source[k]
             return record
 
     async def get_user_quarantine_summary(

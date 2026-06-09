@@ -62,6 +62,8 @@ class IssuanceService:
     RESEND call-dedup remains in-process only (no durable resend cache).
     """
 
+    _MAX_IN_MEMORY_ENTRIES = 10000
+
     def __init__(
         self,
         provider: IssuanceProviderPort,
@@ -75,6 +77,7 @@ class IssuanceService:
         self._revoke_completed: set[tuple[str, str]] = set()
         self._resend_cached: dict[tuple[str, str], str] = {}
         self._audit: list[IssuanceAuditRecord] = []
+        self._evict_counter = 0
 
     @property
     def audit_records(self) -> tuple[IssuanceAuditRecord, ...]:
@@ -88,7 +91,27 @@ class IssuanceService:
         self._resend_cached.clear()
         self._audit.clear()
 
+    def _maybe_evict_caches(self) -> None:
+        self._evict_counter += 1
+        if self._evict_counter % 100 != 0:
+            return
+        if len(self._ledger) > self._MAX_IN_MEMORY_ENTRIES:
+            keys = list(self._ledger.keys())[: len(self._ledger) // 4]
+            for k in keys:
+                del self._ledger[k]
+        if len(self._issue_idempotent_result) > self._MAX_IN_MEMORY_ENTRIES:
+            keys = list(self._issue_idempotent_result.keys())[: len(self._issue_idempotent_result) // 4]
+            for k in keys:
+                del self._issue_idempotent_result[k]
+        if len(self._resend_cached) > self._MAX_IN_MEMORY_ENTRIES:
+            keys = list(self._resend_cached.keys())[: len(self._resend_cached) // 4]
+            for k in keys:
+                del self._resend_cached[k]
+        if len(self._audit) > self._MAX_IN_MEMORY_ENTRIES:
+            self._audit = self._audit[-self._MAX_IN_MEMORY_ENTRIES // 2:]
+
     def _append_audit(self, request: IssuanceRequest, category: IssuanceOutcomeCategory) -> None:
+        self._maybe_evict_caches()
         self._audit.append(
             IssuanceAuditRecord(
                 operation=request.operation,

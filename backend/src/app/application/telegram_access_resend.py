@@ -96,6 +96,8 @@ class NoopTelegramAccessResendDisabledHitMarker:
 class InMemoryAccessResendCooldownStore:
     """Простой in-process фиксированный оконный cooldown по ключу internal user id."""
 
+    _MAX_ENTRIES = 10000
+
     def __init__(self, cooldown_seconds: float = TELEGRAM_ACCESS_RESEND_COOLDOWN_SECONDS) -> None:
         self._cooldown_seconds = float(cooldown_seconds)
         self._next_allowed_by_user: dict[str, float] = {}
@@ -105,6 +107,10 @@ class InMemoryAccessResendCooldownStore:
         if next_allowed is not None and now_epoch_seconds < next_allowed:
             return False
         self._next_allowed_by_user[internal_user_id] = now_epoch_seconds + self._cooldown_seconds
+        if len(self._next_allowed_by_user) > self._MAX_ENTRIES:
+            expired_keys = [k for k, v in self._next_allowed_by_user.items() if v <= now_epoch_seconds]
+            for k in expired_keys:
+                del self._next_allowed_by_user[k]
         return True
 
 

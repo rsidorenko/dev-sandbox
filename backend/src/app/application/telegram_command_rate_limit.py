@@ -60,6 +60,16 @@ class InMemoryTelegramCommandRateLimiter:
         }
         self._state: dict[tuple[int, TelegramCommandRateLimitKey], tuple[float, int]] = {}
         self._now_seconds = now_seconds
+        self._evict_counter = 0
+
+    def _maybe_evict(self, now: float) -> None:
+        self._evict_counter += 1
+        if self._evict_counter % 100 != 0 or len(self._state) < 500:
+            return
+        max_window = max(r.window_seconds for r in self._rules.values())
+        stale_keys = [k for k, (t, _) in self._state.items() if now - t > max_window * 2]
+        for k in stale_keys:
+            del self._state[k]
 
     async def allow(
         self,
@@ -76,8 +86,10 @@ class InMemoryTelegramCommandRateLimiter:
             count = 0
         if count >= rule.max_requests:
             self._state[state_key] = (started_at, count)
+            self._maybe_evict(now)
             return False
         self._state[state_key] = (started_at, count + 1)
+        self._maybe_evict(now)
         return True
 
 

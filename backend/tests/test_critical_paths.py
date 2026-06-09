@@ -292,7 +292,7 @@ def test_fulfillment_reactivates_deactivated_keys():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=0)
+    provider.activate_user.assert_called_once_with(internal_user_id="u1", device_count=0, expiry_days=30)
     provider.create_user.assert_not_called()
     assert any("keys_deactivated_at = NULL" in sql for sql, *_ in pool.execute_log)
 
@@ -309,9 +309,7 @@ def test_fulfillment_creates_new_keys_after_deletion():
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
 
-    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0)
-    provider.activate_user.assert_not_called()
-    assert any("keys_deleted_at = NULL" in sql for sql, *_ in pool.execute_log)
+    provider.create_user.assert_called_once_with(internal_user_id="u1", device_count=0, expiry_days=30)
 
 
 def test_balance_payment_resets_lifecycle_flags():

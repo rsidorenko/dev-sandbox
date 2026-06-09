@@ -251,6 +251,7 @@ class XuiVlessProvider(VlessProviderPort):
         self._clients_ts: float = 0.0
         self._plaintext_warning_logged = False
         self._user_locks: dict[str, asyncio.Lock] = {}
+        self._config_cache: dict[str, tuple[float, VlessProviderResult]] = {}
 
     async def _check_plaintext_passwords(self) -> None:
         if self._plaintext_warning_logged:
@@ -312,13 +313,14 @@ class XuiVlessProvider(VlessProviderPort):
             if isinstance(ok, Exception) or not ok:
                 _LOGGER.debug("xray restart failed server=%s", client.server_id)
 
-    async def create_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
+    async def create_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
+        self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
-            return await self._create_user_unlocked(internal_user_id=internal_user_id, device_count=device_count)
+            return await self._create_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
 
-    async def _create_user_unlocked(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
+    async def _create_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-        expiry = _expiry_timestamp()
+        expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
@@ -398,7 +400,14 @@ class XuiVlessProvider(VlessProviderPort):
         )
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
+    def _invalidate_config_cache(self, internal_user_id: str) -> None:
+        self._config_cache.pop(internal_user_id, None)
+
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
+        now = time.monotonic()
+        cached = self._config_cache.get(internal_user_id)
+        if cached is not None and now - cached[0] < _CACHE_TTL_SECONDS:
+            return cached[1]
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         clients = await self._get_clients()
         if not clients:
@@ -452,10 +461,15 @@ class XuiVlessProvider(VlessProviderPort):
             subscription_url=_web_sub_url(token),
             servers=tuple(servers),
         )
-        return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
+        result = VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
+        if len(self._config_cache) > 10000:
+            self._config_cache.clear()
+        self._config_cache[internal_user_id] = (time.monotonic(), result)
+        return result
 
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
+        self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._revoke_user_unlocked(internal_user_id=internal_user_id)
 
@@ -482,14 +496,15 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-    async def activate_user(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
+    async def activate_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
+        self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
-            return await self._activate_user_unlocked(internal_user_id=internal_user_id, device_count=device_count)
+            return await self._activate_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
 
-    async def _activate_user_unlocked(self, *, internal_user_id: str, device_count: int = 0) -> VlessProviderResult:
+    async def _activate_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
         user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-        expiry = _expiry_timestamp()
+        expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
@@ -521,6 +536,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Permanently delete VLESS user from all servers."""
+        self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._delete_user_unlocked(internal_user_id=internal_user_id)
 
