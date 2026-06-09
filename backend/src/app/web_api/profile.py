@@ -52,12 +52,31 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
 
     pool: asyncpg.Pool = request.app.state.pool
 
-    # Get subscription snapshot
-    identity = await pool.fetchrow(
-        "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+    # Single JOIN query: identity + snapshot + trial_used + issuance_state + referral_code + balance
+    row = await pool.fetchrow(
+        """SELECT
+               i.internal_user_id,
+               COALESCE(i.trial_used, FALSE) AS trial_used,
+               s.state_label, s.active_until_utc, s.plan_id, s.device_count,
+               s.trial_started_at, s.trial_expires_at,
+               iss.issuance_state,
+               rc.referral_code,
+               rb.balance_kopecks,
+               COALESCE(l1.cnt, 0) AS referral_count
+           FROM user_identities i
+           LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+           LEFT JOIN issuance_state iss ON iss.internal_user_id = i.internal_user_id
+           LEFT JOIN referral_codes rc ON rc.internal_user_id = i.internal_user_id
+           LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id
+           LEFT JOIN LATERAL (
+               SELECT COUNT(*) AS cnt FROM referral_relationships
+               WHERE referred_user_id = i.internal_user_id AND level = 1
+           ) l1 ON TRUE
+           WHERE i.telegram_user_id = $1""",
         telegram_user_id,
     )
-    if identity is None:
+
+    if row is None or row["internal_user_id"] is None:
         return JSONResponse(
             {
                 "ok": True,
@@ -67,35 +86,22 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
             }
         )
 
-    internal_user_id = identity["internal_user_id"]
-
-    snapshot = await pool.fetchrow(
-        """SELECT state_label, active_until_utc, plan_id, device_count,
-                  trial_started_at, trial_expires_at
-           FROM subscription_snapshots WHERE internal_user_id = $1""",
-        internal_user_id,
-    )
-
-    trial_used_row = await pool.fetchrow(
-        "SELECT trial_used FROM user_identities WHERE internal_user_id = $1",
-        internal_user_id,
-    )
-    trial_used = trial_used_row["trial_used"] if trial_used_row else False
+    trial_used = row["trial_used"]
 
     subscription = None
-    if snapshot:
+    if row["state_label"] is not None:
         is_active = (
-            snapshot["state_label"] == "active"
-            and snapshot["active_until_utc"] is not None
-            and snapshot["active_until_utc"] > datetime.now(UTC)
+            row["state_label"] == "active"
+            and row["active_until_utc"] is not None
+            and row["active_until_utc"] > datetime.now(UTC)
         )
         subscription = {
-            "state": "active" if is_active else snapshot["state_label"],
-            "active_until": snapshot["active_until_utc"].isoformat() if snapshot["active_until_utc"] else None,
-            "plan_id": snapshot["plan_id"],
-            "device_count": snapshot["device_count"],
-            "trial_started_at": snapshot["trial_started_at"].isoformat() if snapshot["trial_started_at"] else None,
-            "trial_expires_at": snapshot["trial_expires_at"].isoformat() if snapshot["trial_expires_at"] else None,
+            "state": "active" if is_active else row["state_label"],
+            "active_until": row["active_until_utc"].isoformat() if row["active_until_utc"] else None,
+            "plan_id": row["plan_id"],
+            "device_count": row["device_count"],
+            "trial_started_at": row["trial_started_at"].isoformat() if row["trial_started_at"] else None,
+            "trial_expires_at": row["trial_expires_at"].isoformat() if row["trial_expires_at"] else None,
             "trial_available": not trial_used and not is_active,
         }
     elif not trial_used:
@@ -109,39 +115,19 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
             "trial_available": True,
         }
 
-    # Get keys info (only if subscription is active)
     keys_info = None
-    if subscription and subscription["state"] == "active":
-        issuance = await pool.fetchrow(
-            """SELECT issuance_state
-               FROM issuance_state WHERE internal_user_id = $1""",
-            internal_user_id,
-        )
-        if issuance:
-            keys_info = {
-                "available": issuance["issuance_state"] == "issued",
-                "status": issuance["issuance_state"],
-            }
+    if subscription and subscription["state"] == "active" and row["issuance_state"] is not None:
+        keys_info = {
+            "available": row["issuance_state"] == "issued",
+            "status": row["issuance_state"],
+        }
 
-    # Get referral info
     referral = None
-    ref_code_row = await pool.fetchrow(
-        "SELECT referral_code FROM referral_codes WHERE internal_user_id = $1",
-        internal_user_id,
-    )
-    if ref_code_row:
-        balance_row = await pool.fetchrow(
-            "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id = $1",
-            internal_user_id,
-        )
-        ref_count = await pool.fetchval(
-            "SELECT COUNT(*) FROM referral_relationships WHERE referred_user_id = $1 AND level = 1",
-            internal_user_id,
-        )
+    if row["referral_code"] is not None:
         referral = {
-            "code": ref_code_row["referral_code"],
-            "balance_rubles": round((balance_row["balance_kopecks"] or 0) / 100, 2) if balance_row else 0,
-            "referrals_count": ref_count or 0,
+            "code": row["referral_code"],
+            "balance_rubles": round((row["balance_kopecks"] or 0) / 100, 2),
+            "referrals_count": row["referral_count"] or 0,
         }
 
     return JSONResponse(

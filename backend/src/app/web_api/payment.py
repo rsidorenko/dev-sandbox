@@ -125,10 +125,27 @@ async def handle_get_payment_status(request: Request) -> JSONResponse:
     if not payment_id:
         return safe_json_error(400, "missing_payment_id")
 
+    from app.yookassa.client import YooKassaClient
+
+    client = YooKassaClient.from_env()
+    if client is None:
+        return JSONResponse({"ok": True, "payment_id": payment_id, "status": "unknown"})
+
+    try:
+        info = await client.get_payment(payment_id)
+    except Exception:
+        _LOGGER.warning("yookassa get_payment failed id=%s", payment_id, exc_info=True)
+        return JSONResponse({"ok": True, "payment_id": payment_id, "status": "unknown"})
+
+    if info is None:
+        return JSONResponse({"ok": True, "payment_id": payment_id, "status": "not_found"})
+
     return JSONResponse({
         "ok": True,
         "payment_id": payment_id,
-        "status": "unknown",
+        "status": info.status,
+        "amount": info.amount_value,
+        "metadata": info.metadata,
     })
 
 

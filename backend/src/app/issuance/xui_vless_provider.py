@@ -34,11 +34,12 @@ _SUBSCRIPTION_BASE_URL = (
 ).rstrip("/")
 
 _CACHE_TTL_SECONDS = 600  # 10 minutes
+_SUBSCRIPTION_TOKEN_TTL_DAYS = int(os.environ.get("SUBSCRIPTION_TOKEN_TTL_DAYS", "90"))
 
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_EXPIRY_DAYS = 365
-_TRIAL_DEVICE_LIMIT = 5
+_TRIAL_DEVICE_LIMIT = int(os.environ.get("TRIAL_DEVICE_LIMIT", "5"))
 
 
 def _generate_subscription_token() -> str:
@@ -60,7 +61,7 @@ async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) 
             return row["subscription_token"]
     # Token missing or expired — generate fresh one
     token = _generate_subscription_token()
-    expires_at = datetime.now(UTC) + timedelta(days=90)
+    expires_at = datetime.now(UTC) + timedelta(days=_SUBSCRIPTION_TOKEN_TTL_DAYS)
     await pool.execute(
         "UPDATE user_identities SET subscription_token = $1, subscription_token_expires_at = $2 WHERE internal_user_id = $3",
         token,
