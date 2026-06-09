@@ -67,6 +67,25 @@ def create_yookassa_webhook_handler(
 ):
     """Returns a Starlette route handler for YooKassa webhook notifications."""
 
+    _yookassa_client: Any | None = None
+    _telegram_edit_client: Any | None = None
+
+    def _get_yookassa_client() -> Any | None:
+        nonlocal _yookassa_client
+        if _yookassa_client is None:
+            from app.yookassa.client import YooKassaClient
+            _yookassa_client = YooKassaClient.from_env()
+        return _yookassa_client
+
+    def _get_telegram_edit_client() -> Any | None:
+        nonlocal _telegram_edit_client
+        if _telegram_edit_client is None:
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
+            if bot_token:
+                from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
+                _telegram_edit_client = HttpxTelegramRawPollingClient(bot_token)
+        return _telegram_edit_client
+
     async def handle_yookassa_webhook(request: Request) -> JSONResponse:
         raw_body = await request.body()
 
@@ -100,9 +119,7 @@ def create_yookassa_webhook_handler(
 
         # --- payment.succeeded: verify via API before processing ---
 
-        from app.yookassa.client import YooKassaClient
-
-        client = YooKassaClient.from_env()
+        client = _get_yookassa_client()
         if client is None:
             _LOGGER.error("yookassa webhook: client not configured, cannot verify payment")
             return _safe_json_error(503, "payment_provider_not_configured")
@@ -247,12 +264,9 @@ def create_yookassa_webhook_handler(
                         chat_id, message_id, success_text, reply_markup=success_kb,
                     )
                 else:
-                    from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
-
-                    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
-                    if bot_token:
-                        client_for_edit = HttpxTelegramRawPollingClient(bot_token)
-                        await client_for_edit.edit_message_text(
+                    edit_client = _get_telegram_edit_client()
+                    if edit_client is not None:
+                        await edit_client.edit_message_text(
                             chat_id, message_id, success_text, reply_markup=success_kb,
                         )
             except Exception:

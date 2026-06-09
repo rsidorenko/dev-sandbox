@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -227,6 +228,13 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
+        # Save old UUID for compensation if reissue fails
+        old_uuid_row = await pool.fetchrow(
+            "SELECT vless_uuid FROM user_identities WHERE internal_user_id = $1",
+            internal_user_id,
+        )
+        old_uuid = old_uuid_row["vless_uuid"] if old_uuid_row else None
+
         # Clear stored UUID so reissue generates a fresh random key
         await pool.execute(
             "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
@@ -235,6 +243,15 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
         await provider.revoke_user(internal_user_id=internal_user_id)
         result = await provider.create_user(internal_user_id=internal_user_id)
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
+            # Compensation: restore old UUID so user isn't left keyless
+            if old_uuid is not None:
+                await pool.execute(
+                    "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2 AND vless_uuid IS NULL",
+                    old_uuid,
+                    internal_user_id,
+                )
+                with contextlib.suppress(Exception):
+                    await provider.create_user(internal_user_id=internal_user_id)
             return _safe_json_error(500, "reissue_failed")
 
         keys = [
@@ -405,23 +422,27 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
 
         internal_user_id = identity["internal_user_id"]
 
-        # Check no active subscription
-        snap = await pool.fetchrow(
-            "SELECT state_label, trial_started_at FROM subscription_snapshots WHERE internal_user_id = $1",
+        # Atomic claim: check subscription + trial_used in a single query to prevent TOCTOU race.
+        claim_row = await pool.fetchrow(
+            """UPDATE user_identities SET trial_used = TRUE
+               WHERE internal_user_id = $1
+                 AND COALESCE(trial_used, FALSE) = FALSE
+                 AND NOT EXISTS (
+                   SELECT 1 FROM subscription_snapshots
+                   WHERE internal_user_id = user_identities.internal_user_id
+                     AND (state_label = 'active' OR trial_started_at IS NOT NULL)
+                 )
+               RETURNING internal_user_id""",
             internal_user_id,
         )
-        if snap is not None and snap["state_label"] == "active":
-            return _safe_json_error(409, "already_subscribed")
-        if snap is not None and snap["trial_started_at"] is not None:
-            return _safe_json_error(409, "trial_already_used")
-
-        # Atomic claim: mark trial_used only if it was FALSE/NULL.
-        # Prevents double-trial under concurrent requests.
-        claim_result = await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1 AND (trial_used = FALSE OR trial_used IS NULL)",
-            internal_user_id,
-        )
-        if claim_result == "UPDATE 0":
+        if claim_row is None:
+            # Determine specific reason for rejection
+            snap = await pool.fetchrow(
+                "SELECT state_label, trial_started_at FROM subscription_snapshots WHERE internal_user_id = $1",
+                internal_user_id,
+            )
+            if snap is not None and snap["state_label"] == "active":
+                return _safe_json_error(409, "already_subscribed")
             return _safe_json_error(409, "trial_already_used")
 
         # Create VLESS user
