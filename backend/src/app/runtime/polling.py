@@ -276,11 +276,12 @@ class Slice1PollingRuntime:
                             media_path,
                         )
                         try:
-                            # Send media WITHOUT caption first — caption+parse_mode
-                            # can cause Telegram API errors; text sent separately below.
                             msg_id = await _send_method(
                                 action.chat_id,
                                 media_path,
+                                caption=text if text.strip() else None,
+                                reply_markup=markup,
+                                parse_mode=pmode,
                             )
                             _LOGGER.info(
                                 "polling.send_%s_ok chat_id=%s msg_id=%s",
@@ -288,28 +289,6 @@ class Slice1PollingRuntime:
                                 action.chat_id,
                                 msg_id,
                             )
-                            # Send instruction text + keyboard as a follow-up message
-                            if text.strip():
-                                try:
-                                    await self._client.send_text_message(
-                                        action.chat_id,
-                                        text,
-                                        correlation_id=action.correlation_id,
-                                        reply_markup=markup,
-                                        parse_mode=pmode,
-                                    )
-                                except Exception:
-                                    _LOGGER.warning(
-                                        "polling.send_text_after_media_failed chat_id=%s -> retry without parse_mode",
-                                        action.chat_id,
-                                        exc_info=True,
-                                    )
-                                    await self._client.send_text_message(
-                                        action.chat_id,
-                                        text,
-                                        correlation_id=action.correlation_id,
-                                        reply_markup=markup,
-                                    )
                         except Exception:
                             _LOGGER.warning(
                                 "polling.send_%s_failed chat_id=%s -> fallback text",
