@@ -76,7 +76,7 @@ def format_key_list(servers: tuple[VlessServerConfig, ...]) -> str:
     lines: list[str] = []
     for s in servers:
         lines.append(f"{s.country_flag} {s.server_label}")
-        lines.append(f"`{s.vless_link}`")
+        lines.append(f"<code>{s.vless_link}</code>")
         lines.append("")
     return "\n".join(lines).strip()
 
