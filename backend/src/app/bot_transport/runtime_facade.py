@@ -922,7 +922,7 @@ async def _handle_email_linking(
             row["id"],
         )
         await pool.execute(
-            "UPDATE user_emails SET is_verified = FALSE WHERE telegram_user_id = $1 AND is_verified = TRUE",
+            "DELETE FROM user_emails WHERE telegram_user_id = $1",
             uid,
         )
         await pool.execute(
