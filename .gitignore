@@ -52,10 +52,5 @@ image.png
 *.log
 tmp_*.py
 
-# Media files — keep directory tracked, ignore large binaries
-backend/media/*.mp4
+# Media files — ignore large binaries (videos/images are tracked in git)
 backend/media/*.exe
-backend/media/*.jpg
-backend/media/*.jpeg
-backend/media/*.png
-backend/media/*.gif
