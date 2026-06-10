@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -15,6 +16,16 @@ from app.bot_transport import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _log_media_availability() -> None:
+    """Log which media files exist at startup for diagnostics."""
+    for directory in ("media", "videos"):
+        if os.path.isdir(directory):
+            files = os.listdir(directory)
+            _LOGGER.info("startup.media_check dir=%s files=%s", directory, sorted(files))
+        else:
+            _LOGGER.warning("startup.media_check dir=%s MISSING", directory)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +176,7 @@ class Slice1PollingRuntime:
         self._composition = composition
         self._client = client
         self._config = config or PollingRuntimeConfig()
+        _log_media_availability()
 
     async def process_batch(
         self,
@@ -223,8 +235,12 @@ class Slice1PollingRuntime:
                         }.get(media_type, self._client.send_photo)
                         _LOGGER.info(
                             "polling.send_media chat_id=%s media_type=%s media_path=%s method=%s caption=%s pmode=%s",
-                            action.chat_id, media_type, media_path, _send_method,
-                            type(text if text.strip() else None), pmode,
+                            action.chat_id,
+                            media_type,
+                            media_path,
+                            _send_method,
+                            type(text if text.strip() else None),
+                            pmode,
                         )
                         try:
                             msg_id = await _send_method(

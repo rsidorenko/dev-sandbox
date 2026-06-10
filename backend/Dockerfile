@@ -19,14 +19,19 @@ COPY videos/ videos/
 COPY media/ media/
 COPY migrations/ migrations/
 
-# Download Karing Windows x64 exe from GitHub releases (not stored in git — ~45MB)
-RUN apt-get update && apt-get install -y --no-install-recommends curl jq && rm -rf /var/lib/apt/lists/* && \
+# Verify media files are present in the image
+RUN echo "=== Media files in /app/media/ ===" && ls -la /app/media/ && echo "=== Videos in /app/videos/ ===" && ls -la /app/videos/
+
+# Download Karing Windows x64 exe from GitHub releases (non-fatal — ~45MB)
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq && rm -rf /var/lib/apt/lists/*; \
     if [ ! -s media/karing_windows_x64.exe ]; then \
       KARING_TAG=$(curl -sL https://api.github.com/repos/KaringX/karing/releases/latest \
         | jq -r '.tag_name') && \
       curl -sL "https://github.com/KaringX/karing/releases/download/${KARING_TAG}/karing_${KARING_TAG#v}_windows_x64.exe" \
-        -o media/karing_windows_x64.exe; \
-    fi
+        -o media/karing_windows_x64.exe || echo "WARNING: Karing exe download failed, Windows step 1 will use GitHub link only"; \
+    fi; \
+    ls -la media/karing_windows_x64.exe 2>/dev/null || echo "WARNING: karing_windows_x64.exe not found"
+
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
