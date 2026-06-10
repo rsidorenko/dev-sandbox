@@ -112,7 +112,10 @@ def main_menu_keyboard() -> dict[str, Any]:
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
             ],
-            [{"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL}],
+            [
+                {"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL},
+                {"text": "🌐 Наш сайт", "url": "https://bravada-connect.ru/"},
+            ],
             [
                 {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
                 {"text": "❓ Помощь", "callback_data": CB_HELP},
