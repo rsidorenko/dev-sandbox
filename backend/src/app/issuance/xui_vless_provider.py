@@ -148,12 +148,12 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    # Default: TCP + Reality
+    # Default: TCP + Reality (no flow — avoids xtls-rprx-vision DPI fingerprint)
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
         f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
-        f"&sid={server.reality_sid}&spx=%2F&flow=xtls-rprx-vision"
+        f"&sid={server.reality_sid}&spx=%2F"
         f"#{label}"
     )
 
