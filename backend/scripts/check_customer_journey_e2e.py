@@ -189,9 +189,7 @@ async def _render_command(*, command: str, ids: _SyntheticIds, composition, upda
 
 
 async def _render_callback(*, callback_data: str, ids: _SyntheticIds, composition, update_id: int):
-    update = _build_callback_update(
-        callback_data=callback_data, user_id=ids.telegram_user_id, update_id=update_id
-    )
+    update = _build_callback_update(callback_data=callback_data, user_id=ids.telegram_user_id, update_id=update_id)
     rendered = await handle_slice1_telegram_update_to_rendered_message(
         update,
         composition,
@@ -317,9 +315,14 @@ async def _resolve_postgres_composition(pool: asyncpg.Pool):
         # Smoke test exercises the full journey (pending → active → expired) making more
         # ACCESS_RESEND calls than the default dispatcher rate limit allows in one window.
         # Rate limiting is tested separately; disable it here to keep the journey assertions clean.
+        # CI runners cannot reach VPN panels — always use stub provider.
         from dataclasses import replace as _dc_replace
 
-        composition = _dc_replace(composition, command_rate_limiter=NoopAllowAllTelegramCommandRateLimiter())
+        composition = _dc_replace(
+            composition,
+            command_rate_limiter=NoopAllowAllTelegramCommandRateLimiter(),
+            vless_provider=FakeIssuanceProvider(FakeProviderMode.SUCCESS),
+        )
         return composition
     finally:
         if old is None:
