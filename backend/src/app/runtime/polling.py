@@ -18,14 +18,31 @@ from app.bot_transport import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _resolve_media_root() -> str:
+    """Resolve the absolute path to the media root directory.
+
+    Walks up from this file to find the directory containing ``media/`` and ``videos/``.
+    Falls back to CWD if not found via __file__.
+    """
+    # This file: .../src/app/runtime/polling.py → media root is 3 levels up (.../)
+    candidate = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    if os.path.isdir(os.path.join(candidate, "media")):
+        return candidate
+    _LOGGER.warning("startup.media_root_not_found_via_file candidate=%s", candidate)
+    return os.getcwd()
+
+
 def _log_media_availability() -> None:
     """Log which media files exist at startup for diagnostics."""
+    root = _resolve_media_root()
+    _LOGGER.info("startup.media_check cwd=%s media_root=%s", os.getcwd(), root)
     for directory in ("media", "videos"):
-        if os.path.isdir(directory):
-            files = os.listdir(directory)
-            _LOGGER.info("startup.media_check dir=%s files=%s", directory, sorted(files))
+        full = os.path.join(root, directory)
+        if os.path.isdir(full):
+            files = os.listdir(full)
+            _LOGGER.info("startup.media_check dir=%s files=%s", full, sorted(files))
         else:
-            _LOGGER.warning("startup.media_check dir=%s MISSING", directory)
+            _LOGGER.warning("startup.media_check dir=%s MISSING", full)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +181,7 @@ def _extract_callback_origin_message(update: Mapping[str, Any]) -> tuple[int, in
 class Slice1PollingRuntime:
     """Thin batch/single-update runner over :func:`handle_slice1_telegram_update_to_runtime_action`."""
 
-    __slots__ = ("_client", "_composition", "_config")
+    __slots__ = ("_client", "_composition", "_config", "_media_root")
 
     def __init__(
         self,
@@ -176,6 +193,7 @@ class Slice1PollingRuntime:
         self._composition = composition
         self._client = client
         self._config = config or PollingRuntimeConfig()
+        self._media_root = _resolve_media_root()
         _log_media_availability()
 
     async def process_batch(
@@ -210,7 +228,25 @@ class Slice1PollingRuntime:
                 continue
             idem_key = action.uc01_idempotency_key
             media_type = action.media_type
-            media_path = action.media_path
+            media_path_raw = action.media_path
+            # Resolve to absolute path so media works regardless of CWD
+            media_path: str | None = None
+            if media_path_raw is not None:
+                abs_path = os.path.abspath(os.path.join(self._media_root, media_path_raw))
+                if os.path.isfile(abs_path):
+                    media_path = abs_path
+                else:
+                    # Try raw path as-is (might already be absolute)
+                    if os.path.isfile(media_path_raw):
+                        media_path = media_path_raw
+                    else:
+                        _LOGGER.warning(
+                            "polling.media_file_not_found raw=%s resolved=%s cwd=%s media_root=%s",
+                            media_path_raw,
+                            abs_path,
+                            os.getcwd(),
+                            self._media_root,
+                        )
             sends: list[tuple[str, Mapping[str, Any] | None, str | None]] = [
                 (action.message_text or "", action.reply_markup, action.parse_mode),
             ]
@@ -234,12 +270,11 @@ class Slice1PollingRuntime:
                             "document": self._client.send_document,
                         }.get(media_type, self._client.send_photo)
                         _LOGGER.info(
-                            "polling.send_media chat_id=%s media_type=%s media_path=%s method=%s caption=%s pmode=%s",
+                            "polling.send_media chat_id=%s media_type=%s media_path=%s caption_len=%d pmode=%s",
                             action.chat_id,
                             media_type,
                             media_path,
-                            _send_method,
-                            type(text if text.strip() else None),
+                            len(text) if text else 0,
                             pmode,
                         )
                         try:
