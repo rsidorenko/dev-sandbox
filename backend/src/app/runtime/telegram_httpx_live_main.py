@@ -161,6 +161,18 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         except Exception:
             _LOGGER.warning("startup_reconcile_init_failed", exc_info=True)
 
+        # Periodic sync: reconcile VLESS users across all servers every hour.
+        # Non-destructive — only adds missing clients, never modifies or deletes.
+        try:
+            from app.runtime.server_sync_scheduler import ServerSyncScheduler
+
+            vp = process.app.bundle.bundle.composition.vless_provider
+            if isinstance(vp, XuiVlessProvider):
+                _sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                asyncio.create_task(_sync_scheduler.run())
+        except Exception:
+            _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
+
         try:
             summary = await process.run_until_stopped()
         except Exception:
