@@ -491,7 +491,7 @@ def test_default_device_limit():
 
 
 def test_vless_link_uses_reality_tls():
-    """VLESS links must use Reality TLS (security=reality) with correct flow."""
+    """VLESS links must use Reality TLS (security=reality) without flow to avoid DPI fingerprint."""
     from app.issuance.xui_vless_provider import _build_vless_link
     from app.issuance.xui_vless_provider import XuiServerConfig
 
@@ -505,7 +505,7 @@ def test_vless_link_uses_reality_tls():
     link = _build_vless_link(server, "user-uuid-123")
 
     assert "security=reality" in link
-    assert "flow=xtls-rprx-vision" in link
+    assert "flow=" not in link, "TCP VLESS links must not include flow parameter (DPI fingerprint)"
     assert "pbk=test-pbk" in link
     assert "sid=test-sid" in link
     assert "sni=example.com" in link
