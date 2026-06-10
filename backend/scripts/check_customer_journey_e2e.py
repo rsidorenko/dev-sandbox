@@ -34,6 +34,7 @@ from app.application.telegram_command_rate_limit import NoopAllowAllTelegramComm
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
 from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
+from app.issuance.vless_provider import StubVlessProvider
 from app.persistence.postgres_issuance_state import IssuanceStatePersistence, PostgresIssuanceStateRepository
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
@@ -321,7 +322,7 @@ async def _resolve_postgres_composition(pool: asyncpg.Pool):
         composition = _dc_replace(
             composition,
             command_rate_limiter=NoopAllowAllTelegramCommandRateLimiter(),
-            vless_provider=FakeIssuanceProvider(FakeProviderMode.SUCCESS),
+            vless_provider=StubVlessProvider(),
         )
         return composition
     finally:
