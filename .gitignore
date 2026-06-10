@@ -59,3 +59,4 @@ backend/media/*.jpg
 backend/media/*.jpeg
 backend/media/*.png
 backend/media/*.gif
+docs/audits/server-vpn-audit-2026-06-09.md
