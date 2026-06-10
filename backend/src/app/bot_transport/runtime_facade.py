@@ -495,18 +495,8 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 
-_MARKDOWN_CODES = frozenset(
-    {
-        CB_TRIAL,
-        CB_MY_KEYS,
-        CB_REISSUE_CONFIRM,
-        CB_REFERRAL,
-        CB_CONNECT_NEXT,
-        CB_ALL_KEYS,
-    }
-)
-
-_MARKDOWN_PREFIXES = (CB_SERVER,)
+# All storefront callbacks now use HTML parse mode (more robust than Markdown).
+# Previously some used Markdown v1 (fragile with special chars in URLs/keys).
 
 _CALLBACK_ONLY_STOREFRONT = frozenset(
     {
@@ -2063,7 +2053,7 @@ async def _render_storefront_response(
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)
 
-    parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
+    parse_mode = "HTML"
     # Connection step initial renders (CB_CONNECT_*) also use HTML step texts
     if code in (CB_CONNECT_IOS, CB_CONNECT_MAC, CB_CONNECT_TV, CB_CONNECT_WIN, CB_CONNECT_ANDROID):
         parse_mode = "HTML"
