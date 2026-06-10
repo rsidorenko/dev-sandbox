@@ -30,6 +30,7 @@ from app.runtime.notification_scheduler import (  # noqa: E402
     NotificationScheduler,
     start_notification_scheduler,
 )
+from app.runtime.server_sync_scheduler import ServerSyncScheduler  # noqa: E402
 from app.runtime.payment_fulfillment_ingress import (  # noqa: E402
     create_payment_fulfillment_ingress_app,
     load_fulfillment_ingress_settings_from_env,
@@ -303,10 +304,12 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     scheduler: NotificationScheduler | None = None
     scheduler_task: asyncio.Task | None = None
+    sync_scheduler: ServerSyncScheduler | None = None
+    sync_task: asyncio.Task | None = None
 
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool, scheduler, scheduler_task
+        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool, scheduler, scheduler_task, sync_scheduler, sync_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -339,8 +342,22 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 _LOGGER.info("notification_scheduler_started")
         except Exception:
             _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
+        # Start periodic VLESS user sync across all VPN servers.
+        try:
+            from app.issuance.xui_vless_provider import XuiVlessProvider
+
+            vp = runtime._composition.vless_provider if runtime._composition else None
+            if isinstance(vp, XuiVlessProvider):
+                sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                sync_task = asyncio.create_task(sync_scheduler.run())
+        except Exception:
+            _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if sync_scheduler is not None:
+            sync_scheduler.stop()
+        if sync_task is not None:
+            sync_task.cancel()
         if scheduler is not None:
             scheduler.stop()
         if scheduler_task is not None:
@@ -371,7 +388,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     @asynccontextmanager
     async def _lifespan_with_web_api(app: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool, scheduler, scheduler_task
+        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool, scheduler, scheduler_task, sync_scheduler, sync_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -410,8 +427,22 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 _LOGGER.info("notification_scheduler_started")
         except Exception:
             _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
+        # Start periodic VLESS user sync across all VPN servers.
+        try:
+            from app.issuance.xui_vless_provider import XuiVlessProvider
+
+            vp = runtime._composition.vless_provider if runtime._composition else None
+            if isinstance(vp, XuiVlessProvider):
+                sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                sync_task = asyncio.create_task(sync_scheduler.run())
+        except Exception:
+            _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if sync_scheduler is not None:
+            sync_scheduler.stop()
+        if sync_task is not None:
+            sync_task.cancel()
         if scheduler is not None:
             scheduler.stop()
         if scheduler_task is not None:
