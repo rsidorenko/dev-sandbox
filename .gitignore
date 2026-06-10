@@ -54,3 +54,6 @@ tmp_*.py
 
 # Media files — ignore large binaries (videos/images are tracked in git)
 backend/media/*.exe
+
+# Audit docs
+docs/audits/
