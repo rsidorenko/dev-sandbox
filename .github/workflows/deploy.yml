@@ -85,6 +85,14 @@ on:
         description: "SETUP LTE relay: reset panel + Reality keys + template + inbound 443"
         required: false
         default: "false"
+      add_frankfurt_relay:
+        description: "Add LTE relay UUID to Frankfurt inbound 2 (8443)"
+        required: false
+        default: "false"
+      add_lte_row:
+        description: "Insert vpn_servers row id=10 for rebuilt LTE"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -160,6 +168,8 @@ jobs:
           QUERY_FRANKFURT: ${{ github.event.inputs.query_frankfurt || 'false' }}
           LTE_PROBE: ${{ github.event.inputs.lte_probe || 'false' }}
           SETUP_LTE: ${{ github.event.inputs.setup_lte || 'false' }}
+          ADD_FRANKFURT_RELAY: ${{ github.event.inputs.add_frankfurt_relay || 'false' }}
+          ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -170,7 +180,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -683,4 +693,22 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/setup_lte.py; rm -f /tmp/setup_lte.py" 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== SETUP LTE COMPLETE ==="
+            fi
+
+            if [ "$ADD_FRANKFURT_RELAY" = "true" ]; then
+              echo "=== ADD LTE RELAY UUID TO FRANKFURT INBOUND 2 ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/add_frankfurt_relay_client.py backend:/tmp/afr.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/afr.py 2>&1
+              rm -f /tmp/afr.py
+              echo "=== ADD FRANKFURT RELAY COMPLETE ==="
+            fi
+
+            if [ "$ADD_LTE_ROW" = "true" ]; then
+              echo "=== INSERT vpn_servers ROW id=10 ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/add_lte_server_row.py backend:/tmp/alr.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e LTE_PANEL_PASS backend python /tmp/alr.py 2>&1
+              rm -f /tmp/alr.py
+              echo "=== ADD LTE ROW COMPLETE ==="
             fi
