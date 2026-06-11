@@ -1,6 +1,9 @@
-"""Investigate servers to delete: LA 2.0 CDN + LTE 10/12.
+"""Delete VPN servers 8 (LA 2.0), 10 (LTE), 12 (LTE CDN) — fully.
 
-Shows current state and what will be deleted. Does NOT delete anything.
+Safety: checks inbound sharing before deleting panel inbounds.
+- DB row: always deleted for targets
+- Panel inbound: deleted ONLY if no surviving server uses the same (panel_url, inbound_id)
+- Panel clients: deleted from inbounds being removed
 """
 
 from __future__ import annotations
@@ -13,8 +16,27 @@ import sys
 
 import httpx
 
+TARGET_IDS = (8, 10, 12)
 
-async def run() -> None:
+
+async def _panel_login(client, panel_url, username, password):
+    page = await client.get(f"{panel_url}/")
+    csrf = None
+    if page.status_code == 200:
+        m = re.search(r'csrf-token" content="([^"]+)"', page.text)
+        if m:
+            csrf = m.group(1)
+    headers = {"Content-Type": "application/json"}
+    if csrf:
+        headers["X-CSRF-Token"] = csrf
+    login = await client.post(f"{panel_url}/login",
+        json={"username": username, "password": password}, headers=headers)
+    if login.status_code != 200 or not login.json().get("success"):
+        raise RuntimeError(f"Login failed: {login.status_code}")
+    return headers
+
+
+async def run():
     dsn = os.environ.get("DATABASE_URL", "").strip()
     if not dsn:
         print("ERROR: DATABASE_URL not set", file=sys.stderr)
@@ -25,113 +47,111 @@ async def run() -> None:
     try:
         from app.security.field_encryption import decrypt_field
 
-        # List ALL servers
-        rows = await pool.fetch(
-            "SELECT id, label, server_host, server_port, transport_type, "
-            "is_active, panel_url, panel_username, panel_password, "
-            "COALESCE(encrypted_password, '') AS ep, inbound_id, "
-            "country_flag "
+        all_rows = await pool.fetch(
+            "SELECT id, label, server_host, panel_url, panel_username, panel_password, "
+            "COALESCE(encrypted_password, '') AS ep, inbound_id, is_active "
             "FROM vpn_servers ORDER BY id"
         )
 
-        print("=" * 70)
-        print("ALL VPN SERVERS IN DATABASE")
-        print("=" * 70)
-        for r in rows:
-            print(f"\n  ID={r['id']}: {r['country_flag']} {r['label']}")
-            print(f"    host={r['server_host']}:{r['server_port']} transport={r['transport_type']}")
-            print(f"    active={r['is_active']} inbound_id={r['inbound_id']}")
-            print(f"    panel={r['panel_url']}")
+        targets = [r for r in all_rows if r["id"] in TARGET_IDS]
+        survivors = [r for r in all_rows if r["id"] not in TARGET_IDS]
 
-        # Identify targets
-        print("\n" + "=" * 70)
-        print("DELETION TARGETS")
         print("=" * 70)
-        targets = []
-        for r in rows:
-            label = (r["label"] or "").lower()
-            srv_id = r["id"]
-            # LA 2.0 CDN (inactive, LA, CDN transport)
-            if (srv_id in (8, 9, 13, 14, 15, 16, 17) or
-                ("los" in label or "angeles" in label or "лос" in label or "анджелес" in label)
-                and ("cdn" in label or "2.0" in label)):
-                targets.append(r)
-                print(f"\n  🔴 LA CDN: ID={srv_id} {r['country_flag']} {r['label']} (active={r['is_active']})")
-            # LTE servers 10 and 12
-            if srv_id in (10, 12) or "lte" in label:
-                targets.append(r)
-                print(f"\n  🔴 LTE: ID={srv_id} {r['country_flag']} {r['label']} (active={r['is_active']})")
-
-        # Check users with keys on these servers
-        print("\n" + "=" * 70)
-        print("USERS AFFECTED (users with VLESS UUIDs)")
+        print(f"DELETION TARGETS: {[r['id'] for r in targets]}")
+        print(f"SURVIVING SERVERS: {[r['id'] for r in survivors]}")
         print("=" * 70)
-        user_count = await pool.fetchval(
-            "SELECT count(*) FROM user_identities WHERE vless_uuid IS NOT NULL"
-        )
-        print(f"  Total users with VLESS UUID: {user_count}")
 
-        # Count clients on each target panel
-        print("\n" + "=" * 70)
-        print("CLIENTS ON TARGET PANELS (will be deleted from panels)")
-        print("=" * 70)
-        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as client:
-            seen_panels = {}
-            for r in targets:
-                pw = decrypt_field(r["ep"]) if r["ep"] else r["panel_password"]
-                panel_url = r["panel_url"].rstrip("/")
-                key = panel_url
-                if key not in seen_panels:
-                    seen_panels[key] = []
-                seen_panels[key].append(r)
-
-            for panel_url, srvs in seen_panels.items():
-                first = srvs[0]
-                pw = decrypt_field(first["ep"]) if first["ep"] else first["panel_password"]
-                try:
-                    page = await client.get(f"{panel_url}/")
-                    csrf = None
-                    if page.status_code == 200:
-                        m = re.search(r'csrf-token" content="([^"]+)"', page.text)
-                        if m:
-                            csrf = m.group(1)
-                    headers = {"Content-Type": "application/json"}
-                    if csrf:
-                        headers["X-CSRF-Token"] = csrf
-                    login = await client.post(f"{panel_url}/login",
-                        json={"username": first["panel_username"], "password": pw}, headers=headers)
-                    if login.status_code != 200:
-                        print(f"\n  Panel {panel_url}: LOGIN FAILED")
-                        continue
-                    resp = await client.get(f"{panel_url}/panel/api/inbounds/list", headers=headers)
-                    if resp.status_code != 200:
-                        print(f"\n  Panel {panel_url}: list failed {resp.status_code}")
-                        continue
-                    inbounds = resp.json().get("obj", [])
-                    for ib in inbounds:
-                        settings = ib.get("settings", {})
-                        if isinstance(settings, str):
-                            settings = json.loads(settings) if settings else {}
-                        clients = settings.get("clients", [])
-                        print(f"\n  Panel {panel_url}")
-                        print(f"    Inbound {ib['id']} port={ib['port']}: {len(clients)} clients")
-                        for srv in srvs:
-                            if srv["inbound_id"] == ib["id"]:
-                                print(f"      → used by server {srv['id']} ({srv['label']})")
-                except Exception as e:
-                    print(f"\n  Panel {panel_url}: ERROR {e}")
-
-        print("\n" + "=" * 70)
-        print("DELETION PLAN (dry-run, nothing deleted yet):")
-        print("=" * 70)
-        print("1. For each target server:")
-        print("   a. Delete VLESS clients from panel inbound (or whole inbound)")
-        print("   b. DELETE FROM vpn_servers WHERE id = X")
-        print("2. issuance_state NOT affected (no server_id reference)")
-        print("3. user_identities.vless_uuid stays (users still have UUIDs)")
-        print("\nTarget server IDs to delete from vpn_servers:")
+        # Show inbound_id of each target
+        print("\n--- Target inbound_ids ---")
         for r in targets:
-            print(f"  - ID={r['id']}: {r['label']}")
+            print(f"  ID={r['id']} {r['label']}: panel={r['panel_url']} inbound_id={r['inbound_id']}")
+
+        # Determine which (panel_url, inbound_id) pairs are safe to delete from panels
+        # A pair is safe if NO surviving server uses it
+        survivor_keys = set()
+        for r in survivors:
+            survivor_keys.add((r["panel_url"].rstrip("/"), r["inbound_id"]))
+
+        print("\n--- Inbound sharing analysis ---")
+        safe_inbounds = {}  # (panel_url, inbound_id) -> list of target rows
+        for r in targets:
+            panel = r["panel_url"].rstrip("/")
+            key = (panel, r["inbound_id"])
+            shared = key in survivor_keys
+            status = "SHARED (keep inbound, delete DB row only)" if shared else "UNIQUE (safe to delete inbound)"
+            print(f"  ID={r['id']} inbound {r['inbound_id']} on {panel}: {status}")
+            if not shared:
+                safe_inbounds.setdefault(key, []).append(r)
+
+        # ── Phase 1: Delete clients + inbounds from panels (only unique ones) ──
+        print("\n" + "=" * 70)
+        print("PHASE 1: Panel cleanup (unique inbounds only)")
+        print("=" * 70)
+
+        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=20) as client:
+            # Group safe inbounds by panel
+            panels = {}
+            for (panel, ib_id), rows in safe_inbounds.items():
+                panels.setdefault(panel, set()).add(ib_id)
+
+            for panel_url, ib_ids in panels.items():
+                # Find panel creds from any target row using it
+                cred_row = next(r for r in targets if r["panel_url"].rstrip("/") == panel_url)
+                pw = decrypt_field(cred_row["ep"]) if cred_row["ep"] else cred_row["panel_password"]
+                try:
+                    headers = await _panel_login(client, panel_url, cred_row["panel_username"], pw)
+                except Exception as e:
+                    print(f"\n  Panel {panel_url}: LOGIN FAILED - {e}")
+                    continue
+
+                for ib_id in ib_ids:
+                    # Delete the whole inbound (3x-ui delInbound deletes all its clients)
+                    print(f"\n  Deleting inbound {ib_id} from {panel_url}...")
+                    resp = await client.post(
+                        f"{panel_url}/panel/api/inbounds/delInbound",
+                        headers=headers,
+                        json={"id": ib_id}
+                    )
+                    ok = resp.status_code == 200 and resp.json().get("success", False)
+                    print(f"    delInbound {ib_id}: {resp.status_code} success={ok}")
+                    if not ok:
+                        # Fallback: try removing clients individually via update
+                        print(f"    Trying client-level cleanup...")
+                        resp2 = await client.get(
+                            f"{panel_url}/panel/api/inbounds/get/{ib_id}", headers=headers)
+                        if resp2.status_code == 200:
+                            ib = resp2.json().get("obj", {})
+                            settings = ib.get("settings", "{}")
+                            if isinstance(settings, str):
+                                settings = json.loads(settings)
+                            settings["clients"] = []
+                            resp3 = await client.post(
+                                f"{panel_url}/panel/api/inbounds/update/{ib_id}",
+                                headers=headers,
+                                json={"settings": json.dumps(settings)}
+                            )
+                            print(f"    Cleared clients: {resp3.status_code}")
+
+        # ── Phase 2: Delete DB rows ──
+        print("\n" + "=" * 70)
+        print("PHASE 2: Delete DB rows")
+        print("=" * 70)
+        for tid in TARGET_IDS:
+            result = await pool.execute("DELETE FROM vpn_servers WHERE id = $1", tid)
+            print(f"  DELETE id={tid}: {result}")
+
+        # ── Verify ──
+        print("\n" + "=" * 70)
+        print("VERIFICATION")
+        print("=" * 70)
+        remaining = await pool.fetch("SELECT id, label FROM vpn_servers ORDER BY id")
+        print("Remaining servers:")
+        for r in remaining:
+            print(f"  ID={r['id']}: {r['label']}")
+
+        deleted_check = await pool.fetchval(
+            "SELECT count(*) FROM vpn_servers WHERE id = ANY($1::int[])", list(TARGET_IDS))
+        print(f"\nTargets still in DB: {deleted_check} (should be 0)")
 
     finally:
         await pool.close()
