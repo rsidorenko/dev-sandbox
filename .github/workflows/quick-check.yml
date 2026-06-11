@@ -23,12 +23,37 @@ jobs:
             echo "-----END OPENSSH PRIVATE KEY-----" >> ~/.ssh/yandex-cloud
             chmod 600 ~/.ssh/yandex-cloud
 
-            echo "=== Key file ==="
-            wc -c ~/.ssh/yandex-cloud
-            md5sum ~/.ssh/yandex-cloud
+            echo "=== LTE full xray config (outbound + routing details) ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 -c "
+import json
+c = json.load(open(\"/usr/local/x-ui/bin/config.json\"))
 
-            echo "=== SSH to LTE ==="
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "SSH OK"; whoami; hostname; echo ""; echo "=== Xray process ==="; ps aux | grep xray | grep -v grep; echo ""; echo "=== Xray config outbounds ==="; python3 -c "import json,sys; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(f\"  {o.get(chr(116)+chr(97)+chr(103),chr(63))}: {o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108),chr(63))} -> {o.get(chr(115)+chr(101)+chr(116)+chr(116)+chr(105)+chr(110)+chr(103)+chr(115),{}).get(chr(118)+chr(110)+chr(101)+chr(120)+chr(116),[{}])[0].get(chr(97)+chr(100)+chr(100)+chr(114)+chr(101)+chr(115)+chr(115),chr(63)) if o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108))==chr(118)+chr(108)+chr(101)+chr(115)+chr(115) else (chr(100)+chr(105)+chr(114)+chr(101)+chr(99)+chr(116) if o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108))==chr(102)+chr(114)+chr(101)+chr(101)+chr(100)+chr(111)+chr(109) else chr(98)+chr(108)+chr(111)+chr(99)+chr(107))}\") for o in c.get(\"outbounds\",[])]"; echo ""; echo "=== Xray config routing ==="; python3 -c "import json;c=json.load(open(\"/usr/local/x-ui/bin/config.json\"));[print(f\"  {r.get(chr(116)+chr(121)+chr(112)+chr(101),chr(63))} -> {r.get(chr(111)+chr(117)+chr(116)+chr(98)+chr(111)+chr(117)+chr(110)+chr(100)+chr(84)+chr(97)+chr(103),chr(63))} domains={r.get(chr(100)+chr(111)+chr(109)+chr(97)+chr(105)+chr(110),[])[:3]}\") for r in c.get(\"routing\",{}).get(\"rules\",[])[:8]]"; echo ""; echo "=== Listening ports ==="; ss -tlnp | grep -E "443|80"' 2>&1
+# Full outbounds details
+print(\"=== OUTBOUNDS ===\")
+for o in c.get(\"outbounds\", []):
+    print(json.dumps(o, indent=2))
 
-            echo "=== Exit: $? ==="
+# Full routing rules
+print(\"\\n=== ROUTING ===\")
+r = c.get(\"routing\", {})
+print(json.dumps(r, indent=2))
+
+# Inbounds summary
+print(\"\\n=== INBOUNDS ===\")
+for ib in c.get(\"inbounds\", []):
+    s = ib.get(\"settings\", \"{}\")
+    if isinstance(s, str):
+        s = json.loads(s)
+    stream = ib.get(\"streamSettings\", {})
+    print(f\"port={ib.get(\"port\")} proto={ib.get(\"protocol\")} net={stream.get(\"network\",\"?\")} sec={stream.get(\"security\",\"?\")} listen={ib.get(\"listen\",\"\")}\")
+    if \"realitySettings\" in stream:
+        rs = stream[\"realitySettings\"]
+        print(f\"  reality: dest={rs.get(\"dest\")} clients={len(s.get(\"clients\",[]))}\")
+"' 2>&1
+
+            echo ""
+            echo "=== Check Frankfurt port (relay target) ==="
+            # Check if Frankfurt 77.110.100.210 port 443 is reachable from LTE
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "Testing connection to Frankfurt..."; timeout 5 bash -c "echo > /dev/tcp/77.110.100.210/443" 2>&1 && echo "Frankfurt:443 REACHABLE" || echo "Frankfurt:443 UNREACHABLE"; echo "Testing 2053..."; timeout 5 bash -c "echo > /dev/tcp/77.110.100.210/2053" 2>&1 && echo "Frankfurt:2053 REACHABLE" || echo "Frankfurt:2053 UNREACHABLE"; echo "Testing 8443..."; timeout 5 bash -c "echo > /dev/tcp/77.110.100.210/8443" 2>&1 && echo "Frankfurt:8443 REACHABLE" || echo "Frankfurt:8443 UNREACHABLE"' 2>&1
+
             rm -f ~/.ssh/yandex-cloud
