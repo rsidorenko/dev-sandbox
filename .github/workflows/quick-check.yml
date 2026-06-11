@@ -1,0 +1,43 @@
+name: quick-check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            LTE="46.21.246.115"
+            mkdir -p ~/.ssh
+            echo 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBSkNUT3V0Umt6cnJVUUFBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBRUJCUG5FQytCUm41emNaWlU3ZDFXUkZDUkkvYWZYakY0OGVVVTRYYWtKZXpOZ2d6cTZ4WWdQY1VpRlUxT1dscUgzUU4xUHJ1cVVoS3M4WDNwLzJvVkxHQUFBQURIbGhibVJsZUMxamJHOTFaQUU9Ci0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo=' | base64 -d > ~/.ssh/yandex-cloud
+            chmod 600 ~/.ssh/yandex-cloud
+
+            echo "=== Check LTE panel inbound config ==="
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 -c "
+import json
+with open(\"/usr/local/x-ui/bin/config.json\") as f:
+    c = json.load(f)
+for ib in c.get(\"inbounds\", []):
+    port = ib.get(\"port\")
+    if port in [443, 80]:
+        print(f\"\nInbound port={port}:\")
+        stream = ib.get(\"streamSettings\", {})
+        net = stream.get(\"network\", \"?\")
+        sec = stream.get(\"security\", \"?\")
+        print(f\"  network={net} security={sec}\")
+        if \"realitySettings\" in stream:
+            rs = stream[\"realitySettings\"]
+            print(f\"  reality: sni={rs.get(\"dest\",\"?\")[:40]} pbk={rs.get(\"privateKey\",\"?\")[:12]}... serverName={rs.get(\"serverNames\",[])} shortIds={rs.get(\"shortIds\",[])}\")
+        sett = json.loads(ib.get(\"settings\", \"{}\"))
+        clients = sett.get(\"clients\", [])
+        if clients:
+            c0 = clients[0]
+            print(f\"  client[0]: email={c0.get(\"email\")} flow=\\\"{c0.get(\"flow\",\"\")}\\\" uuid={c0.get(\"id\",\"\")[:12]}...\")
+"' 2>&1 || echo "SSH FAILED"
+
+            rm -f ~/.ssh/yandex-cloud
