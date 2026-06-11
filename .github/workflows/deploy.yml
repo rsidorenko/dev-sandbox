@@ -61,6 +61,10 @@ on:
         description: "Fully delete inbound ports: LTE 1,6 + LA 3 (API variants)"
         required: false
         default: "false"
+      delete_lte_inbounds:
+        description: "Delete LTE inbounds 1,6 from SQLite via SSH (full delete)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -130,6 +134,7 @@ jobs:
           DELETE_SERVERS: ${{ github.event.inputs.delete_servers || 'false' }}
           CLEANUP_LA: ${{ github.event.inputs.cleanup_la || 'false' }}
           DELETE_INBOUNDS: ${{ github.event.inputs.delete_inbounds || 'false' }}
+          DELETE_LTE_INBOUNDS: ${{ github.event.inputs.delete_lte_inbounds || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
@@ -138,7 +143,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -584,4 +589,16 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_inbounds.py 2>&1
               rm -f /tmp/delete_inbounds.py
               echo "=== DELETE INBOUNDS COMPLETE ==="
+            fi
+
+            if [ "$DELETE_LTE_INBOUNDS" = "true" ]; then
+              echo "=== DELETE LTE INBOUNDS 1,6 via SSH+SQLite ==="
+              LTE="46.21.246.115"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
+              chmod 600 ~/.ssh/yandex-cloud
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/delete_lte_inbounds_ssh.py romtan@${LTE}:/tmp/delete_lte_inbounds.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'sudo python3 /tmp/delete_lte_inbounds.py; rm -f /tmp/delete_lte_inbounds.py' 2>&1 || true
+              rm -f ~/.ssh/yandex-cloud
+              echo "=== DELETE LTE INBOUNDS COMPLETE ==="
             fi
