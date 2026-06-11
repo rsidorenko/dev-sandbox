@@ -21,6 +21,10 @@ on:
         description: "Remove duplicate VLESS clients from 3x-ui panels (fix after botched reissue)"
         required: false
         default: "false"
+      fix_lte:
+        description: "Re-create VLESS clients on LTE servers (10, 12) only"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -80,6 +84,7 @@ jobs:
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
           REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
           CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
+          FIX_LTE: ${{ github.event.inputs.fix_lte || 'false' }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -87,7 +92,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -431,4 +436,13 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/restart_xray.py 2>&1
               rm -f /tmp/restart_xray.py
               echo "=== CLEANUP COMPLETE ==="
+            fi
+
+            if [ "$FIX_LTE" = "true" ]; then
+              echo "=== FIX LTE SERVERS (10, 12) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/fix_lte_servers.py backend:/tmp/fix_lte_servers.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_servers.py 2>&1
+              rm -f /tmp/fix_lte_servers.py
+              echo "=== FIX LTE COMPLETE ==="
             fi
