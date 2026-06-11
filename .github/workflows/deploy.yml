@@ -582,66 +582,6 @@ jobs:
               echo "=== FIX LTE PBK COMPLETE ==="
             fi
 
-            if [ "$DELETE_SERVERS_DRYRUN" = "true" ]; then
-              echo "=== DELETE SERVERS (DRY-RUN: lists only, deletes nothing) ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/delete_servers.py backend:/tmp/delete_servers.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_servers.py 2>&1
-              rm -f /tmp/delete_servers.py
-              echo "=== DRY-RUN COMPLETE ==="
-            fi
-
-            if [ "$DELETE_SERVERS" = "true" ]; then
-              echo "=== DELETE SERVERS 8, 10, 12 (irreversible) ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/delete_servers.py backend:/tmp/delete_servers.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_servers.py 2>&1
-              rm -f /tmp/delete_servers.py
-              echo "=== DELETE SERVERS COMPLETE ==="
-            fi
-
-            if [ "$CLEANUP_LA" = "true" ]; then
-              echo "=== CLEANUP LA PANEL INBOUND 3 ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/cleanup_la_inbound3.py backend:/tmp/cleanup_la.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_la.py 2>&1
-              rm -f /tmp/cleanup_la.py
-              echo "=== CLEANUP LA COMPLETE ==="
-            fi
-
-            if [ "$DELETE_INBOUNDS" = "true" ]; then
-              echo "=== DELETE INBOUND PORTS FULLY (LTE 1,6 + LA 3) ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/delete_inbounds.py backend:/tmp/delete_inbounds.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_inbounds.py 2>&1
-              rm -f /tmp/delete_inbounds.py
-              echo "=== DELETE INBOUNDS COMPLETE ==="
-            fi
-
-            if [ "$DELETE_LTE_INBOUNDS" = "true" ]; then
-              echo "=== DELETE LTE INBOUNDS 1,6 via SSH+SQLite ==="
-              LTE="62.84.118.140"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/delete_lte_inbounds_ssh.py romtan@${LTE}:/tmp/delete_lte_inbounds.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'sudo python3 /tmp/delete_lte_inbounds.py; rm -f /tmp/delete_lte_inbounds.py' 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== DELETE LTE INBOUNDS COMPLETE ==="
-            fi
-
-            if [ "$DELETE_LA_INBOUND" = "true" ]; then
-              echo "=== DELETE LA INBOUND 3 via SSH+SQLite ==="
-              LA="216.227.169.120"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key
-              chmod 600 ~/.ssh/la-key
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key backend/scripts/delete_la_inbounds_ssh.py romtan@${LA}:/tmp/delete_la_inbound.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/la-key romtan@${LA} 'sudo python3 /tmp/delete_la_inbound.py; rm -f /tmp/delete_la_inbound.py' 2>&1 || true
-              rm -f ~/.ssh/la-key
-              echo "=== DELETE LA INBOUND COMPLETE ==="
-            fi
-
             if [ "$ASSESS_LTE" = "true" ]; then
               echo "=== ASSESS NEW LTE SERVER (62.84.118.140) ==="
               LTE="62.84.118.140"
