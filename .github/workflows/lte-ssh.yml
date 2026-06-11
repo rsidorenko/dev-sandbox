@@ -1,0 +1,82 @@
+name: lte-ssh
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            LTE="46.21.246.115"
+            mkdir -p ~/.ssh
+            echo "-----BEGIN OPENSSH PRIVATE KEY-----" > ~/.ssh/yandex-cloud
+            echo "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW" >> ~/.ssh/yandex-cloud
+            echo "QyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAJCTOutRkzrr" >> ~/.ssh/yandex-cloud
+            echo "UQAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxg" >> ~/.ssh/yandex-cloud
+            echo "AAAEBBPnEC+BRn5zcZZU7d1WRFCRI/afXjF48eUU4XakJezNggzq6xYgPcUiFU1OWlqH3Q" >> ~/.ssh/yandex-cloud
+            echo "N1PruqUhKs8X3p/2oVLGAAAADHlhbmRleC1jbG91ZAE=" >> ~/.ssh/yandex-cloud
+            echo "-----END OPENSSH PRIVATE KEY-----" >> ~/.ssh/yandex-cloud
+            chmod 600 ~/.ssh/yandex-cloud
+
+            echo "=== LTE xray config ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "cat /usr/local/x-ui/bin/config.json" 2>&1 | python3 -c "
+import sys, json
+c = json.load(sys.stdin)
+print('OUTBOUNDS:')
+for o in c.get('outbounds', []):
+    tag = o.get('tag', '?')
+    proto = o.get('protocol', '?')
+    if proto == 'vless':
+        vnext = o.get('settings', {}).get('vnext', [])
+        addr = vnext[0].get('address', '?') if vnext else '?'
+        port = vnext[0].get('port', '?') if vnext else '?'
+        print(f'  {tag}: {proto} -> {addr}:{port}')
+        # Show TLS settings
+        stream = o.get('streamSettings', {})
+        print(f'    network={stream.get(\"network\",\"?\")} security={stream.get(\"security\",\"?\")}')
+    elif proto == 'freedom':
+        print(f'  {tag}: {proto} (direct)')
+    elif proto == 'blackhole':
+        print(f'  {tag}: {proto} (block)')
+    else:
+        print(f'  {tag}: {proto}')
+
+print()
+print('ROUTING:')
+r = c.get('routing', {})
+for rule in r.get('rules', []):
+    rtype = rule.get('type', '?')
+    tag = rule.get('outboundTag', rule.get('balancerTag', '?'))
+    ip = rule.get('ip', [])
+    domain = rule.get('domain', [])
+    net = rule.get('network', '')
+    print(f'  {rtype} -> {tag} ip={ip[:3]} domain={domain[:3]} net={net}')
+
+print()
+print('INBOUNDS:')
+for ib in c.get('inbounds', []):
+    port = ib.get('port', '?')
+    proto = ib.get('protocol', '?')
+    stream = ib.get('streamSettings', {})
+    net = stream.get('network', '?')
+    sec = stream.get('security', '?')
+    listen = ib.get('listen', '')
+    print(f'  port={port} {proto} net={net} sec={sec} listen={listen}')
+    if 'realitySettings' in stream:
+        rs = stream['realitySettings']
+        print(f'    reality dest={rs.get(\"dest\")} sni={rs.get(\"serverNames\")}')
+    if 'wsSettings' in stream:
+        ws = stream['wsSettings']
+        print(f'    ws path={ws.get(\"path\")} host={ws.get(\"headers\",{}).get(\"Host\",\"\")}')
+"
+
+            echo ""
+            echo "=== Frankfurt connectivity from LTE ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "for port in 443 2053 8443 10000; do timeout 3 bash -c \"echo > /dev/tcp/77.110.100.210/\$port\" 2>/dev/null && echo \"Frankfurt:\$port REACHABLE\" || echo \"Frankfurt:\$port UNREACHABLE\"; done" 2>&1
+
+            rm -f ~/.ssh/yandex-cloud
