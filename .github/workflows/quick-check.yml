@@ -14,30 +14,21 @@ jobs:
           script: |
             LTE="46.21.246.115"
             mkdir -p ~/.ssh
-            echo 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBSkNUT3V0Umt6cnJVUUFBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBRUJCUG5FQytCUm41emNaWlU3ZDFXUkZDUkkvYWZYakY0OGVVVTRYYWtKZXpOZ2d6cTZ4WWdQY1VpRlUxT1dscUgzUU4xUHJ1cVVoS3M4WDNwLzJvVkxHQUFBQURIbGhibVJsZUMxamJHOTFaQUU9Ci0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo=' | base64 -d > ~/.ssh/yandex-cloud
+            echo "-----BEGIN OPENSSH PRIVATE KEY-----" > ~/.ssh/yandex-cloud
+            echo "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW" >> ~/.ssh/yandex-cloud
+            echo "QyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAJCTOutRkzrr" >> ~/.ssh/yandex-cloud
+            echo "UQAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxg" >> ~/.ssh/yandex-cloud
+            echo "AAAEBBPnEC+BRn5zcZZU7d1WRFCRI/afXjF48eUU4XakJezNggzq6xYgPcUiFU1OWlqH3Q" >> ~/.ssh/yandex-cloud
+            echo "N1PruqUhKs8X3p/2oVLGAAAADHlhbmRleC1jbG91ZAE=" >> ~/.ssh/yandex-cloud
+            echo "-----END OPENSSH PRIVATE KEY-----" >> ~/.ssh/yandex-cloud
             chmod 600 ~/.ssh/yandex-cloud
 
-            echo "=== Check LTE panel inbound config ==="
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 -c "
-import json
-with open(\"/usr/local/x-ui/bin/config.json\") as f:
-    c = json.load(f)
-for ib in c.get(\"inbounds\", []):
-    port = ib.get(\"port\")
-    if port in [443, 80]:
-        print(f\"\nInbound port={port}:\")
-        stream = ib.get(\"streamSettings\", {})
-        net = stream.get(\"network\", \"?\")
-        sec = stream.get(\"security\", \"?\")
-        print(f\"  network={net} security={sec}\")
-        if \"realitySettings\" in stream:
-            rs = stream[\"realitySettings\"]
-            print(f\"  reality: sni={rs.get(\"dest\",\"?\")[:40]} pbk={rs.get(\"privateKey\",\"?\")[:12]}... serverName={rs.get(\"serverNames\",[])} shortIds={rs.get(\"shortIds\",[])}\")
-        sett = json.loads(ib.get(\"settings\", \"{}\"))
-        clients = sett.get(\"clients\", [])
-        if clients:
-            c0 = clients[0]
-            print(f\"  client[0]: email={c0.get(\"email\")} flow=\\\"{c0.get(\"flow\",\"\")}\\\" uuid={c0.get(\"id\",\"\")[:12]}...\")
-"' 2>&1 || echo "SSH FAILED"
+            echo "=== Key file ==="
+            wc -c ~/.ssh/yandex-cloud
+            md5sum ~/.ssh/yandex-cloud
 
+            echo "=== SSH to LTE ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "SSH OK"; whoami; hostname; echo ""; echo "=== Xray process ==="; ps aux | grep xray | grep -v grep; echo ""; echo "=== Xray config outbounds ==="; python3 -c "import json,sys; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(f\"  {o.get(chr(116)+chr(97)+chr(103),chr(63))}: {o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108),chr(63))} -> {o.get(chr(115)+chr(101)+chr(116)+chr(116)+chr(105)+chr(110)+chr(103)+chr(115),{}).get(chr(118)+chr(110)+chr(101)+chr(120)+chr(116),[{}])[0].get(chr(97)+chr(100)+chr(100)+chr(114)+chr(101)+chr(115)+chr(115),chr(63)) if o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108))==chr(118)+chr(108)+chr(101)+chr(115)+chr(115) else (chr(100)+chr(105)+chr(114)+chr(101)+chr(99)+chr(116) if o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108))==chr(102)+chr(114)+chr(101)+chr(101)+chr(100)+chr(111)+chr(109) else chr(98)+chr(108)+chr(111)+chr(99)+chr(107))}\") for o in c.get(\"outbounds\",[])]"; echo ""; echo "=== Xray config routing ==="; python3 -c "import json;c=json.load(open(\"/usr/local/x-ui/bin/config.json\"));[print(f\"  {r.get(chr(116)+chr(121)+chr(112)+chr(101),chr(63))} -> {r.get(chr(111)+chr(117)+chr(116)+chr(98)+chr(111)+chr(117)+chr(110)+chr(100)+chr(84)+chr(97)+chr(103),chr(63))} domains={r.get(chr(100)+chr(111)+chr(109)+chr(97)+chr(105)+chr(110),[])[:3]}\") for r in c.get(\"routing\",{}).get(\"rules\",[])[:8]]"; echo ""; echo "=== Listening ports ==="; ss -tlnp | grep -E "443|80"' 2>&1
+
+            echo "=== Exit: $? ==="
             rm -f ~/.ssh/yandex-cloud
