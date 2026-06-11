@@ -17,7 +17,7 @@ jobs:
             echo 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBSkNUT3V0Umt6cnJVUUFBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBRUJCUG5FQytCUm41emNaWlU3ZDFXUkZDUkkvYWZYakY0OGVVVTRYYWtKZXpOZ2d6cTZ4WWdQY1VpRlUxT1dscUgzUU4xUHJ1cVVoS3M4WDNwLzJvVkxHQUFBQURIbGhibVJsZUMxamJHOTFaQUU9Ci0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo=' | base64 -d > ~/.ssh/yandex-cloud
             chmod 600 ~/.ssh/yandex-cloud
 
-            echo "=== SSH to LTE: find xray restart method ==="
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "xray owner:"; ps aux | grep xray-linux | grep -v grep | awk "{print \$1}"; echo ""; echo "x-ui service:"; systemctl status x-ui 2>&1 | head -3 || service x-ui status 2>&1 | head -3 || echo "no systemctl/service"; echo ""; echo "x-ui binary:"; ls -la /usr/local/x-ui/x-ui 2>/dev/null || echo "no x-ui binary"; echo ""; echo "whoami:"; whoami; echo ""; echo "sudo test:"; sudo -n true 2>&1 && echo "sudo OK" || echo "no passwordless sudo"' 2>&1 || echo "SSH FAILED"
+            echo "=== SSH to LTE: restart x-ui service ==="
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'OLD=$(pgrep -f xray-linux); echo "Old PID: $OLD"; sudo systemctl restart x-ui; echo "Restart sent"; sleep 5; NEW=$(pgrep -f xray-linux); echo "New PID: $NEW"; if [ -z "$NEW" ]; then echo "ERROR: xray not running!"; elif [ "$NEW" = "$OLD" ]; then echo "WARNING: same PID"; else echo "SUCCESS: xray restarted with new PID"; fi; echo ""; echo "Ports:"; ss -tlnp | grep -E "443|80"' 2>&1 || echo "SSH FAILED"
 
             rm -f ~/.ssh/yandex-cloud
