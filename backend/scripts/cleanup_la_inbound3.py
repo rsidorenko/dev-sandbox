@@ -103,14 +103,36 @@ async def run():
             if isinstance(settings, str):
                 settings = json.loads(settings)
             client_count = len(settings.get("clients", []))
+            print(f"  Current clients: {client_count}")
+
+            # Read-modify-write: send FULL inbound update (3x-ui needs all fields)
             settings["clients"] = []
+            stream = ib3.get("streamSettings", {})
+            sniffing = ib3.get("sniffing", {})
+            update_body = {
+                "up": ib3.get("up", 0),
+                "down": ib3.get("down", 0),
+                "total": ib3.get("total", 0),
+                "remark": ib3.get("remark", ""),
+                "enable": ib3.get("enable", True),
+                "expiryTime": ib3.get("expiryTime", 0),
+                "listen": ib3.get("listen", ""),
+                "port": ib3.get("port", ""),
+                "protocol": ib3.get("protocol", "vless"),
+                "settings": json.dumps(settings),
+                "streamSettings": json.dumps(stream) if isinstance(stream, dict) else stream,
+                "sniffing": json.dumps(sniffing) if isinstance(sniffing, dict) else sniffing,
+            }
 
             resp = await client.post(
                 f"{panel_url}/panel/api/inbounds/update/3",
                 headers=headers,
-                json={"settings": json.dumps(settings)}
+                json=update_body
             )
-            print(f"Update (clear clients): {resp.status_code}")
+            print(f"Update (full, clear clients): {resp.status_code}")
+            if resp.status_code == 200:
+                print(f"  success={resp.json().get('success', '?')}")
+                print(f"  msg={resp.json().get('msg', '?')[:100]}")
 
             # Try to delete the inbound entirely
             resp = await client.post(
