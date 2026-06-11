@@ -33,6 +33,10 @@ on:
         description: "SSH to LTE, dump xray config + test Frankfurt connectivity"
         required: false
         default: "false"
+      lte_logs:
+        description: "SSH to LTE, dump xray access/error logs + Reality key check"
+        required: false
+        default: "false"
       fix_lte_relay:
         description: "Fix LTE relay outbound: remove xtls-rprx-vision flow"
         required: false
@@ -99,6 +103,7 @@ jobs:
           FIX_LTE: ${{ github.event.inputs.fix_lte || 'false' }}
           RUN_DIAG: ${{ github.event.inputs.run_diag || 'false' }}
           LTE_SSH: ${{ github.event.inputs.lte_ssh || 'false' }}
+          LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
           FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -108,7 +113,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,FIX_LTE_RELAY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -485,6 +490,17 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "for p in 443 2053 8443 10000; do timeout 3 bash -c \"echo > /dev/tcp/77.110.100.210/\$p\" 2>/dev/null && echo \"Frankfurt:\$p REACHABLE\" || echo \"Frankfurt:\$p UNREACHABLE\"; done" 2>&1
               rm -f ~/.ssh/yandex-cloud
               echo "=== LTE SSH DIAG COMPLETE ==="
+            fi
+
+            if [ "$LTE_LOGS" = "true" ]; then
+              echo "=== LTE XRAY LOGS + REALITY KEY CHECK ==="
+              LTE="46.21.246.115"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
+              chmod 600 ~/.ssh/yandex-cloud
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== xray error log (last 30) ==="; sudo tail -30 /var/log/xray-error.log 2>/dev/null || echo "no error log"; echo ""; echo "=== xray access log (last 30) ==="; sudo tail -30 /var/log/xray-access.log 2>/dev/null || echo "no access log"; echo ""; echo "=== Reality key pair (443 inbound) ==="; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(\"privKey:\",s.get(\"realitySettings\",{}).get(\"privateKey\",\"\")[:16]+\"...\") or print(\"pubKey:\",s.get(\"realitySettings\",{}).get(\"publicKey\",\"\") or \"(none)\") for ib in c.get(\"inbounds\",[]) if ib.get(\"port\")==443 for s in [ib]]"; echo ""; echo "=== Relay outbound flow ==="; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(\"flow:\",repr(u.get(\"flow\",\"\"))) for o in c.get(\"outbounds\",[]) if o.get(\"tag\")==\"relay-to-frankfurt\" for v in o.get(\"settings\",{}).get(\"vnext\",[]) for u in v.get(\"users\",[])]"; echo ""; echo "=== xray process ==="; ps aux | grep xray-linux | grep -v grep | head -1' 2>&1 || true
+              rm -f ~/.ssh/yandex-cloud
+              echo "=== LTE LOGS COMPLETE ==="
             fi
 
             if [ "$FIX_LTE_RELAY" = "true" ]; then
