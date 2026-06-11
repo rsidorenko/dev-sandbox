@@ -65,8 +65,6 @@ def _vless_link_to_clash_proxy(link: str) -> dict:
             "public-key": p["pbk"],
             "short-id": p["sid"],
         }
-        if p["flow"]:
-            proxy["flow"] = p["flow"]
     elif p["security"] == "tls":
         sni = p["sni"] or p["host_header"] or p["host"]
         proxy["servername"] = sni
@@ -118,8 +116,6 @@ def build_clash_config(servers: tuple[VlessServerConfig, ...]) -> str:
             lines.append("    reality-opts:")
             lines.append(f'      public-key: {p["reality-opts"]["public-key"]}')
             lines.append(f'      short-id: {p["reality-opts"]["short-id"]}')
-        if "flow" in p:
-            lines.append(f"    flow: {p['flow']}")
         lines.append(f"    network: {p.get('network', 'tcp')}")
         if p.get("network") == "ws" and "ws-opts" in p:
             lines.append("    ws-opts:")
