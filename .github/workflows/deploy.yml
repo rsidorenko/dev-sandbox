@@ -493,29 +493,10 @@ jobs:
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
-              echo "--- Before fix ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "python3 -c \"import json; c=json.load(open('/usr/local/x-ui/bin/config.json')); ob=[o for o in c.get('outbounds',[]) if o.get('tag')=='relay-to-frankfurt']; print(json.dumps(ob,indent=2)) if ob else print('NOT FOUND')\"" 2>&1
-              echo "--- Applying fix ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "python3 -c \"
-import json
-with open('/usr/local/x-ui/bin/config.json') as f:
-    c = json.load(f)
-for o in c.get('outbounds', []):
-    if o.get('tag') == 'relay-to-frankfurt':
-        for u in o.get('settings',{}).get('vnext',[{}]):
-            for user in u.get('users',[]):
-                if user.get('flow') == 'xtls-rprx-vision':
-                    user['flow'] = ''
-                    print('FIXED: removed xtls-rprx-vision flow')
-                else:
-                    print(f'flow already empty: {repr(user.get(\"flow\"))}')
-with open('/usr/local/x-ui/bin/config.json','w') as f:
-    json.dump(c, f, indent=2)
-\"" 2>&1
-              echo "--- Restarting xray ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "sudo systemctl restart x-ui 2>/dev/null || (x-ui restart 2>/dev/null && echo 'restarted via x-ui') || echo 'trying pkill'; sleep 2; ps aux | grep xray | grep -v grep | head -1" 2>&1
-              echo "--- After fix ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "python3 -c \"import json; c=json.load(open('/usr/local/x-ui/bin/config.json')); ob=[o for o in c.get('outbounds',[]) if o.get('tag')=='relay-to-frankfurt']; print(json.dumps(ob,indent=2)) if ob else print('NOT FOUND')\"" 2>&1
+              echo "--- Copying fix script to LTE ---"
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/fix_lte_relay.py romtan@${LTE}:/tmp/fix_lte_relay.py 2>&1 || true
+              echo "--- Running fix on LTE ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py && echo "--- Restarting xray ---" && sudo systemctl restart x-ui 2>/dev/null; sleep 2; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
               rm -f ~/.ssh/yandex-cloud
               echo "=== FIX LTE RELAY COMPLETE ==="
             fi
