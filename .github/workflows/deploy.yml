@@ -17,6 +17,10 @@ on:
         description: "Reissue VLESS keys for all users (clears xtls-rprx-vision flow on panels)"
         required: false
         default: "false"
+      cleanup_duplicates:
+        description: "Remove duplicate VLESS clients from 3x-ui panels (fix after botched reissue)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -75,6 +79,7 @@ jobs:
           RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
           REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
+          CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -82,7 +87,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -365,4 +370,65 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/reissue_all_keys.py 2>&1
               rm -f /tmp/reissue_all_keys.py
               echo "=== REISSUE COMPLETE ==="
+            fi
+
+            if [ "$CLEANUP_DUPLICATES" = "true" ]; then
+              echo "=== CLEANUP DUPLICATE VLESS CLIENTS ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/cleanup_duplicate_clients.py backend:/tmp/cleanup_duplicate_clients.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_duplicate_clients.py 2>&1
+              rm -f /tmp/cleanup_duplicate_clients.py
+
+              echo "--- Restarting xray on all panels ---"
+              cat > /tmp/restart_xray.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, json
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT id, label, panel_url, panel_username, panel_password, "
+                        "COALESCE(encrypted_password, '') AS encrypted_password "
+                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                    )
+                    import httpx
+                    for row in rows:
+                        panel_url = row['panel_url'].rstrip('/')
+                        password = row['encrypted_password'] if row['encrypted_password'] else row['panel_password']
+                        if row['encrypted_password']:
+                            password = decrypt_field(row['encrypted_password'])
+                        print(f'  Server {row["id"]}: {row["label"]}')
+                        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as client:
+                            import re
+                            page = await client.get(f'{panel_url}/')
+                            csrf = None
+                            m = re.search(r'csrf-token" content="([^"]+)"', page.text)
+                            if m:
+                                csrf = m.group(1)
+                            headers = {"Content-Type": "application/json"}
+                            if csrf:
+                                headers["X-CSRF-Token"] = csrf
+                            login = await client.post(f'{panel_url}/login',
+                                json={"username": row['panel_username'], "password": password}, headers=headers)
+                            if login.status_code != 200 or not login.json().get('success'):
+                                print(f'    Login FAILED')
+                                continue
+                            resp = await client.post(f'{panel_url}/panel/api/setting/restartXrayService', headers=headers)
+                            ok = 'OK' if resp.status_code == 200 else f'FAIL({resp.status_code})'
+                            print(f'    Restart xray: {ok}')
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/restart_xray.py backend:/tmp/restart_xray.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/restart_xray.py 2>&1
+              rm -f /tmp/restart_xray.py
+              echo "=== CLEANUP COMPLETE ==="
             fi
