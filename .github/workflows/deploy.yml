@@ -45,30 +45,6 @@ on:
         description: "Sync vpn_servers.reality_pbk to actual LTE server Reality public key"
         required: false
         default: "false"
-      delete_servers_dryrun:
-        description: "Investigate LA CDN + LTE servers to delete (dry-run, lists only)"
-        required: false
-        default: "false"
-      delete_servers:
-        description: "DELETE servers 8 (LA 2.0), 10 (LTE), 12 (LTE CDN) — DB rows + panel inbounds"
-        required: false
-        default: "false"
-      cleanup_la:
-        description: "Clean up LA panel inbound 3 (orphaned 2.0 config)"
-        required: false
-        default: "false"
-      delete_inbounds:
-        description: "Fully delete inbound ports: LTE 1,6 + LA 3 (API variants)"
-        required: false
-        default: "false"
-      delete_lte_inbounds:
-        description: "Delete LTE inbounds 1,6 from SQLite via SSH (full delete)"
-        required: false
-        default: "false"
-      delete_la_inbound:
-        description: "Delete LA inbound 3 (port 8080) from SQLite via SSH"
-        required: false
-        default: "false"
       assess_lte:
         description: "Assess new LTE server (62.84.118.140): SSH, OS, 3x-ui, ports, Frankfurt reachability"
         required: false
@@ -174,12 +150,6 @@ jobs:
           LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
           FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
           FIX_LTE_PBK: ${{ github.event.inputs.fix_lte_pbk || 'false' }}
-          DELETE_SERVERS_DRYRUN: ${{ github.event.inputs.delete_servers_dryrun || 'false' }}
-          DELETE_SERVERS: ${{ github.event.inputs.delete_servers || 'false' }}
-          CLEANUP_LA: ${{ github.event.inputs.cleanup_la || 'false' }}
-          DELETE_INBOUNDS: ${{ github.event.inputs.delete_inbounds || 'false' }}
-          DELETE_LTE_INBOUNDS: ${{ github.event.inputs.delete_lte_inbounds || 'false' }}
-          DELETE_LA_INBOUND: ${{ github.event.inputs.delete_la_inbound || 'false' }}
           ASSESS_LTE: ${{ github.event.inputs.assess_lte || 'false' }}
           QUERY_FRANKFURT: ${{ github.event.inputs.query_frankfurt || 'false' }}
           LTE_PROBE: ${{ github.event.inputs.lte_probe || 'false' }}
@@ -200,7 +170,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
