@@ -29,6 +29,10 @@ on:
         description: "Run LTE relay chain diagnostic script"
         required: false
         default: "false"
+      lte_ssh:
+        description: "SSH to LTE, dump xray config + test Frankfurt connectivity"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -90,6 +94,8 @@ jobs:
           CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
           FIX_LTE: ${{ github.event.inputs.fix_lte || 'false' }}
           RUN_DIAG: ${{ github.event.inputs.run_diag || 'false' }}
+          LTE_SSH: ${{ github.event.inputs.lte_ssh || 'false' }}
+          LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -97,7 +103,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -459,4 +465,19 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/diagnose_lte.py 2>&1
               rm -f /tmp/diagnose_lte.py
               echo "=== DIAG COMPLETE ==="
+            fi
+
+            if [ "$LTE_SSH" = "true" ]; then
+              echo "=== LTE SSH DIAGNOSTIC ==="
+              LTE="46.21.246.115"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
+              chmod 600 ~/.ssh/yandex-cloud
+              echo "--- xray config.json ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "cat /usr/local/x-ui/bin/config.json" 2>&1
+              echo ""
+              echo "--- Frankfurt connectivity from LTE ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "for p in 443 2053 8443 10000; do timeout 3 bash -c \"echo > /dev/tcp/77.110.100.210/\$p\" 2>/dev/null && echo \"Frankfurt:\$p REACHABLE\" || echo \"Frankfurt:\$p UNREACHABLE\"; done" 2>&1
+              rm -f ~/.ssh/yandex-cloud
+              echo "=== LTE SSH DIAG COMPLETE ==="
             fi
