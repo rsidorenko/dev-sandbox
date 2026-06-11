@@ -25,6 +25,10 @@ on:
         description: "Re-create VLESS clients on LTE servers (10, 12) only"
         required: false
         default: "false"
+      run_diag:
+        description: "Run LTE relay chain diagnostic script"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -85,6 +89,7 @@ jobs:
           REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
           CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
           FIX_LTE: ${{ github.event.inputs.fix_lte || 'false' }}
+          RUN_DIAG: ${{ github.event.inputs.run_diag || 'false' }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -92,7 +97,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -445,4 +450,13 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_servers.py 2>&1
               rm -f /tmp/fix_lte_servers.py
               echo "=== FIX LTE COMPLETE ==="
+            fi
+
+            if [ "$RUN_DIAG" = "true" ]; then
+              echo "=== LTE RELAY CHAIN DIAGNOSTIC ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/diagnose_lte.py backend:/tmp/diagnose_lte.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/diagnose_lte.py 2>&1
+              rm -f /tmp/diagnose_lte.py
+              echo "=== DIAG COMPLETE ==="
             fi
