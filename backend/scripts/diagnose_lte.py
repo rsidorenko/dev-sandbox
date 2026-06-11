@@ -87,6 +87,12 @@ async def run() -> None:
     print(f"Frankfurt servers (relay target): {[s['label'] for s in frankfurt_servers]}")
     print(f"Frankfurt IP: 77.110.100.210")
 
+    # Print DB reality_pbk for LTE servers (what bot uses to generate links)
+    print("\n=== DB reality_pbk (used to generate client links) ===")
+    for srv in lte_servers:
+        print(f"  {srv['label']} (id={srv['id']}): reality_pbk={srv.get('reality_pbk','?')}")
+        print(f"    reality_sid={srv.get('reality_sid','?')} tls_sni={srv.get('tls_sni','?')} reality_sni={srv.get('reality_sni','?')}")
+
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as client:
         # ── Check each server panel ──
         for srv in all_servers:
