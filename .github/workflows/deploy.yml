@@ -13,6 +13,10 @@ on:
         description: "Clean all user data and VLESS keys from database (destructive!)"
         required: false
         default: "false"
+      reissue_keys:
+        description: "Reissue VLESS keys for all users (clears xtls-rprx-vision flow on panels)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -70,6 +74,7 @@ jobs:
         env:
           RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
+          REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -77,7 +82,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -302,4 +307,62 @@ jobs:
               rm -f /tmp/clean_vless_users.py
 
               echo "=== DATABASE + VLESS CLEANUP COMPLETE ==="
+            fi
+
+            if [ "$REISSUE_KEYS" = "true" ]; then
+              echo "=== REISSUE ALL VLESS KEYS ==="
+              cd /opt/bravada
+              cat > /tmp/reissue_all_keys.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys
+            sys.path.insert(0, '/app/src')
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT internal_user_id FROM user_identities WHERE vless_uuid IS NOT NULL"
+                    )
+                    user_ids = [r['internal_user_id'] for r in rows]
+                    print(f"Found {len(user_ids)} users with VLESS keys")
+
+                    from app.issuance.xui_vless_provider import XuiVlessProvider
+                    from app.issuance.vless_provider import VlessProviderOutcome
+                    provider = XuiVlessProvider(pool)
+
+                    success = 0
+                    failed = 0
+                    for i, uid in enumerate(user_ids, 1):
+                        try:
+                            # 1. Clear stored UUID so reissue generates fresh one
+                            await pool.execute(
+                                "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1", uid)
+                            # 2. Revoke (disable) old keys on all panels
+                            await provider.revoke_user(internal_user_id=uid)
+                            # 3. Create fresh keys with flow="" (no xtls-rprx-vision)
+                            result = await provider.create_user(internal_user_id=uid)
+                            if result.outcome == VlessProviderOutcome.SUCCESS and result.config:
+                                srv = len(result.config.servers)
+                                print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> ok ({srv} servers)")
+                                success += 1
+                            else:
+                                print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> FAILED: {result.outcome}")
+                                failed += 1
+                        except Exception as exc:
+                            print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> ERROR: {type(exc).__name__}")
+                            failed += 1
+
+                    print(f"\nDone: {success} reissued, {failed} failed out of {len(user_ids)} users")
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/reissue_all_keys.py backend:/tmp/reissue_all_keys.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/reissue_all_keys.py 2>&1
+              rm -f /tmp/reissue_all_keys.py
+              echo "=== REISSUE COMPLETE ==="
             fi
