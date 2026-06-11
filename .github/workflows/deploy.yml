@@ -93,6 +93,10 @@ on:
         description: "Insert vpn_servers row id=10 for rebuilt LTE"
         required: false
         default: "false"
+      check_lte_panel:
+        description: "Check LTE panel stored creds + test login"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -170,6 +174,7 @@ jobs:
           SETUP_LTE: ${{ github.event.inputs.setup_lte || 'false' }}
           ADD_FRANKFURT_RELAY: ${{ github.event.inputs.add_frankfurt_relay || 'false' }}
           ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
+          CHECK_LTE_PANEL: ${{ github.event.inputs.check_lte_panel || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -180,7 +185,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -711,4 +716,16 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e LTE_PANEL_PASS backend python /tmp/alr.py 2>&1
               rm -f /tmp/alr.py
               echo "=== ADD LTE ROW COMPLETE ==="
+            fi
+
+            if [ "$CHECK_LTE_PANEL" = "true" ]; then
+              echo "=== CHECK LTE PANEL CREDS + LOGIN ==="
+              LTE="62.84.118.140"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
+              chmod 600 ~/.ssh/yandex-cloud
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/check_lte_panel_ssh.py romtan@${LTE}:/tmp/check_lte.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/check_lte.py; rm -f /tmp/check_lte.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-cloud
+              echo "=== CHECK COMPLETE ==="
             fi
