@@ -101,7 +101,9 @@ async def run():
             # Verify
             resp = await client.get(f"{panel}/panel/api/inbounds/get/{FRANKFURT_INBOUND_ID}", headers=headers)
             ib2 = resp.json().get("obj", {})
-            s2 = json.loads(ib2.get("settings", "{}"))
+            s2 = ib2.get("settings", "{}")
+            if isinstance(s2, str):
+                s2 = json.loads(s2)
             relay_in = [c for c in s2.get("clients", []) if c.get("id") == RELAY_UUID]
             print(f"Verified: relay client present = {bool(relay_in)}, total clients = {len(s2.get('clients', []))}")
     finally:
