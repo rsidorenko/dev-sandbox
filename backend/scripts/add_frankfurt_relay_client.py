@@ -55,7 +55,9 @@ async def run():
             # Get inbound 2
             resp = await client.get(f"{panel}/panel/api/inbounds/get/{FRANKFURT_INBOUND_ID}", headers=headers)
             ib = resp.json().get("obj", {})
-            settings = json.loads(ib.get("settings", "{}"))
+            settings = ib.get("settings", "{}")
+            if isinstance(settings, str):
+                settings = json.loads(settings)
             clients = settings.get("clients", [])
 
             # Check if relay UUID already present
