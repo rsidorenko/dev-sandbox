@@ -493,10 +493,9 @@ jobs:
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
-              echo "--- Copying fix script to LTE ---"
               scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/fix_lte_relay.py romtan@${LTE}:/tmp/fix_lte_relay.py 2>&1 || true
-              echo "--- Running fix on LTE ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py; sleep 2; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
+              echo "--- Edit config + sudo restart xray ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py 2>/dev/null; sudo kill $(pgrep -f xray-linux-amd64) 2>/dev/null; sleep 2; cd /usr/local/x-ui/bin && sudo nohup ./xray-linux-amd64.real -c config.json >/dev/null 2>&1 & sleep 3; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
               rm -f ~/.ssh/yandex-cloud
               echo "=== FIX LTE RELAY COMPLETE ==="
             fi
