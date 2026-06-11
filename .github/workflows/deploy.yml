@@ -57,6 +57,10 @@ on:
         description: "Clean up LA panel inbound 3 (orphaned 2.0 config)"
         required: false
         default: "false"
+      delete_inbounds:
+        description: "Fully delete inbound ports: LTE 1,6 + LA 3 (API variants)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -125,6 +129,7 @@ jobs:
           DELETE_SERVERS_DRYRUN: ${{ github.event.inputs.delete_servers_dryrun || 'false' }}
           DELETE_SERVERS: ${{ github.event.inputs.delete_servers || 'false' }}
           CLEANUP_LA: ${{ github.event.inputs.cleanup_la || 'false' }}
+          DELETE_INBOUNDS: ${{ github.event.inputs.delete_inbounds || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
@@ -133,7 +138,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -570,4 +575,13 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_la.py 2>&1
               rm -f /tmp/cleanup_la.py
               echo "=== CLEANUP LA COMPLETE ==="
+            fi
+
+            if [ "$DELETE_INBOUNDS" = "true" ]; then
+              echo "=== DELETE INBOUND PORTS FULLY (LTE 1,6 + LA 3) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/delete_inbounds.py backend:/tmp/delete_inbounds.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_inbounds.py 2>&1
+              rm -f /tmp/delete_inbounds.py
+              echo "=== DELETE INBOUNDS COMPLETE ==="
             fi
