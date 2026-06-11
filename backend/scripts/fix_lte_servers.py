@@ -69,6 +69,22 @@ async def _fix_panel(
         clients = settings.get("clients", [])
         print(f"    Inbound {inbound_id}: {len(clients)} existing clients")
 
+        # Diagnostics: show Reality/stream settings
+        stream = ib.get("streamSettings", {})
+        net = stream.get("network", "?")
+        sec = stream.get("security", "?")
+        print(f"    Stream: network={net} security={sec}")
+        if "realitySettings" in stream:
+            rs = stream["realitySettings"]
+            print(f"    Reality: dest={str(rs.get('dest',''))[:50]} serverNames={rs.get('serverNames',[])} shortIds={rs.get('shortIds',[])}")
+        ws = stream.get("wssettings", stream.get("wsSettings", {}))
+        if ws:
+            print(f"    WS: path={ws.get('path','?')} host={ws.get('headers',{}).get('Host','?')}")
+        # Show first client details
+        if clients:
+            c0 = clients[0]
+            print(f"    Client[0]: email={c0.get('email','')} flow=\"{c0.get('flow','')}\" uuid={c0.get('id','')[:12]}...")
+
         # Build email -> client map
         by_email = {c.get("email", ""): c for c in clients}
 
