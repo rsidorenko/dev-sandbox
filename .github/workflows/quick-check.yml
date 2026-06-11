@@ -10,28 +10,14 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          command_timeout: 5m
+          command_timeout: 10m
           script: |
-            echo "=== Check LTE VPN ports from production ==="
-            LTE_HOST="46.21.246.115"
-            echo "Port 443 (TCP Reality):"
-            curl -sk --connect-timeout 5 "https://${LTE_HOST}:443/" -w "HTTP %{http_code}" -o /dev/null 2>&1 || echo "CONNECT FAILED"
-            echo ""
-            echo "Port 80 (WS CDN):"
-            curl -s --connect-timeout 5 "http://${LTE_HOST}:80/" -w "HTTP %{http_code}" -o /dev/null 2>&1 || echo "CONNECT FAILED"
-            echo ""
-            echo "Panel:"
-            curl -sk --connect-timeout 5 "https://${LTE_HOST}:54023/Cq6xxAccNLaSEBcR0L/" -w "HTTP %{http_code}" -o /dev/null 2>&1 || echo "CONNECT FAILED"
-            echo ""
-            
-            echo "=== SSH to LTE and check xray ==="
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/yandex-relay romtan@${LTE_HOST} "
-              echo 'xray process:'
-              ps aux | grep xray | grep -v grep || echo '  NOT RUNNING!'
-              echo ''
-              echo 'xray config outbound:'
-              cat /usr/local/x-ui/bin/config.json 2>/dev/null | python3 -c \"import sys,json; c=json.load(sys.stdin); [print(f'  {o.get(\\\"tag\\\",\\\"?\\\")}: {o.get(\\\"protocol\\\",\\\"?\\\")} -> {o.get(\\\"settings\\\",{}).get(\\\"vnext\\\",[{}])[0].get(\\\"address\\\",\\\"?\\\")}') for o in c.get('outbounds',[])]\" 2>/dev/null || echo '  Could not parse config'
-              echo ''
-              echo 'Listening ports:'
-              ss -tlnp | grep -E '443|80' || echo '  No VPN ports listening!'
-            " 2>&1 || echo "SSH to LTE FAILED"
+            LTE="46.21.246.115"
+            mkdir -p ~/.ssh
+            printf '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAJCTOutRkzrrUQAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAEBBPnEC+BRn5zcZZU7d1WRFCRI/afXjF48eUU4XakJezNggzq6xYgPcUiFU1OWlqH3QN1PruqUhKs8X3p/2oVLGAAAADHlhbmRleC1jbG91ZAE=\n-----END OPENSSH PRIVATE KEY-----\n' > ~/.ssh/yandex-cloud
+            chmod 600 ~/.ssh/yandex-cloud
+
+            echo "=== SSH to LTE ==="
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== Xray process ==="; ps aux | grep -E "xray" | grep -v grep; echo ""; echo "=== Outbounds ==="; python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(f\"  {o.get(chr(116)+chr(97)+chr(103),chr(63))}: {o.get(chr(112)+chr(114)+chr(111)+chr(116)+chr(111)+chr(99)+chr(111)+chr(108),chr(63))} -> {o.get(chr(115)+chr(101)+chr(116)+chr(116)+chr(105)+chr(110)+chr(103)+chr(115),{}).get(chr(118)+chr(110)+chr(101)+chr(120)+chr(116),[{}])[0].get(chr(97)+chr(100)+chr(100)+chr(114)+chr(101)+chr(115)+chr(115),chr(63))}\") for o in c.get(\"outbounds\",[])]" 2>/dev/null; echo ""; echo "=== Routing ==="; python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(f\"  {r.get(chr(116)+chr(121)+chr(112)+chr(101),chr(63))} -> {r.get(chr(111)+chr(117)+chr(116)+chr(98)+chr(111)+chr(117)+chr(110)+chr(100)+chr(84)+chr(97)+chr(103),chr(63))} domains={r.get(chr(100)+chr(111)+chr(109)+chr(97)+chr(105)+chr(110),[])[:3]}\") for r in c.get(\"routing\",{}).get(\"rules\",[])[:8]]" 2>/dev/null; echo ""; echo "=== Ports ==="; ss -tlnp | grep -E "443|80"; echo ""; echo "=== Restart xray ==="; x-ui restart 2>/dev/null || systemctl restart x-ui 2>/dev/null || echo "no restart cmd"; sleep 2; ps aux | grep xray | grep -v grep | head -2' 2>&1 || echo "SSH FAILED"
+
+            rm -f ~/.ssh/yandex-cloud
