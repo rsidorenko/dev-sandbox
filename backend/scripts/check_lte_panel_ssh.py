@@ -1,26 +1,34 @@
-"""Check LTE panel stored creds in 3x-ui DB + test login."""
-import sqlite3, os, subprocess, sys, json, re
+"""Check ALL 3x-ui settings + CLI setting syntax + test login."""
+import sqlite3, os, subprocess, json
 
 DB = "/etc/x-ui/x-ui.db"
 
-print("=== Panel creds stored in 3x-ui DB ===")
+print("=== ALL settings keys+values ===")
 conn = sqlite3.connect(DB)
 cur = conn.cursor()
-for key in ("webUsername", "webPassword", "webPort", "webBasePath", "webCertFile", "webKeyFile", "sessionMaxAge"):
-    cur.execute("SELECT value FROM settings WHERE key=?", (key,))
-    row = cur.fetchone()
-    val = row[0] if row else "(not set)"
-    if key == "webPassword" and val and val != "(not set)":
-        val = val[:4] + "..." + f" (len={len(val)})"
-    print(f"  {key} = {val}")
+cur.execute("SELECT key, value FROM settings ORDER BY key")
+for k, v in cur.fetchall():
+    vstr = str(v)
+    if len(vstr) > 60:
+        vstr = vstr[:60] + f"...(len={len(str(v))})"
+    print(f"  {k} = {vstr}")
 conn.close()
 
-print("\n=== Test login via curl from localhost ===")
+print("\n=== x-ui setting subcommand help ===")
+r = subprocess.run(["x-ui", "setting", "-h"], capture_output=True, text=True, timeout=10)
+print(r.stdout[:600] or r.stderr[:600])
+
+print("\n=== x-ui top-level help (full) ===")
+r = subprocess.run(["x-ui"], capture_output=True, text=True, timeout=10)
+print(r.stdout[:800] or r.stderr[:800])
+
+PANEL_PASS = os.environ.get("LTE_PANEL_PASS", "")
+print(f"\n=== Test login https bravada (pass len={len(PANEL_PASS)}) ===")
+import urllib.parse
 r = subprocess.run(
-    ["curl", "-sk", "-X", "POST", "http://localhost:54023/Cq6xxAccNLaSEBcR0L/login",
+    ["curl", "-sk", "-X", "POST", "https://localhost:54023/Cq6xxAccNLaSEBcR0L/login",
      "-H", "Content-Type: application/x-www-form-urlencoded",
-     "-d", "username=bravada&password=" + os.environ.get("LTE_PANEL_PASS", ""),
+     "-d", "username=bravada&password=" + urllib.parse.quote(PANEL_PASS),
      "-w", "\nHTTP_STATUS:%{http_code}"],
     capture_output=True, text=True, timeout=15)
-print(r.stdout[:500])
-print("stderr:", r.stderr[:200] if r.stderr else "(none)")
+print(r.stdout[:400])
