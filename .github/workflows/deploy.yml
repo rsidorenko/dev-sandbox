@@ -65,6 +65,10 @@ on:
         description: "Delete LTE inbounds 1,6 from SQLite via SSH (full delete)"
         required: false
         default: "false"
+      delete_la_inbound:
+        description: "Delete LA inbound 3 (port 8080) from SQLite via SSH"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -135,7 +139,9 @@ jobs:
           CLEANUP_LA: ${{ github.event.inputs.cleanup_la || 'false' }}
           DELETE_INBOUNDS: ${{ github.event.inputs.delete_inbounds || 'false' }}
           DELETE_LTE_INBOUNDS: ${{ github.event.inputs.delete_lte_inbounds || 'false' }}
+          DELETE_LA_INBOUND: ${{ github.event.inputs.delete_la_inbound || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
+          LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -143,7 +149,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,LTE_SSH_KEY,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -601,4 +607,16 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'sudo python3 /tmp/delete_lte_inbounds.py; rm -f /tmp/delete_lte_inbounds.py' 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== DELETE LTE INBOUNDS COMPLETE ==="
+            fi
+
+            if [ "$DELETE_LA_INBOUND" = "true" ]; then
+              echo "=== DELETE LA INBOUND 3 via SSH+SQLite ==="
+              LA="216.227.169.120"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key
+              chmod 600 ~/.ssh/la-key
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key backend/scripts/delete_la_inbounds_ssh.py romtan@${LA}:/tmp/delete_la_inbound.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/la-key romtan@${LA} 'sudo python3 /tmp/delete_la_inbound.py; rm -f /tmp/delete_la_inbound.py' 2>&1 || true
+              rm -f ~/.ssh/la-key
+              echo "=== DELETE LA INBOUND COMPLETE ==="
             fi
