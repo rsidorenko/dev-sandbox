@@ -45,6 +45,10 @@ on:
         description: "Sync vpn_servers.reality_pbk to actual LTE server Reality public key"
         required: false
         default: "false"
+      delete_servers_dryrun:
+        description: "Investigate LA CDN + LTE servers to delete (dry-run, lists only)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -110,6 +114,7 @@ jobs:
           LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
           FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
           FIX_LTE_PBK: ${{ github.event.inputs.fix_lte_pbk || 'false' }}
+          DELETE_SERVERS_DRYRUN: ${{ github.event.inputs.delete_servers_dryrun || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
@@ -118,7 +123,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -528,4 +533,13 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_reality_pbk.py 2>&1
               rm -f /tmp/fix_lte_reality_pbk.py
               echo "=== FIX LTE PBK COMPLETE ==="
+            fi
+
+            if [ "$DELETE_SERVERS_DRYRUN" = "true" ]; then
+              echo "=== DELETE SERVERS (DRY-RUN: lists only, deletes nothing) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/delete_servers.py backend:/tmp/delete_servers.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/delete_servers.py 2>&1
+              rm -f /tmp/delete_servers.py
+              echo "=== DRY-RUN COMPLETE ==="
             fi
