@@ -101,6 +101,10 @@ on:
         description: "Reset LTE panel user via bcrypt in users table"
         required: false
         default: "false"
+      debug_lte_addclient:
+        description: "Debug LTE inbound 7 addClient + update (report errors)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -180,6 +184,7 @@ jobs:
           ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
           CHECK_LTE_PANEL: ${{ github.event.inputs.check_lte_panel || 'false' }}
           RESET_LTE_USER: ${{ github.event.inputs.reset_lte_user || 'false' }}
+          DEBUG_LTE_ADDCLIENT: ${{ github.event.inputs.debug_lte_addclient || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -190,7 +195,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -745,4 +750,13 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/reset_lte_user.py; rm -f /tmp/reset_lte_user.py" 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== RESET LTE USER COMPLETE ==="
+            fi
+
+            if [ "$DEBUG_LTE_ADDCLIENT" = "true" ]; then
+              echo "=== DEBUG LTE ADD CLIENT ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/debug_lte_addclient.py backend:/tmp/dlac.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dlac.py 2>&1
+              rm -f /tmp/dlac.py
+              echo "=== DEBUG COMPLETE ==="
             fi
