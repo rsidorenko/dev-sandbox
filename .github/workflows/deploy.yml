@@ -41,6 +41,10 @@ on:
         description: "Fix LTE relay outbound: remove xtls-rprx-vision flow"
         required: false
         default: "false"
+      fix_lte_pbk:
+        description: "Sync vpn_servers.reality_pbk to actual LTE server Reality public key"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -105,6 +109,7 @@ jobs:
           LTE_SSH: ${{ github.event.inputs.lte_ssh || 'false' }}
           LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
           FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
+          FIX_LTE_PBK: ${{ github.event.inputs.fix_lte_pbk || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
@@ -113,7 +118,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -514,4 +519,13 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'sudo python3 /tmp/fix_lte_relay.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 5; echo "--- Verify config ---"; sudo grep -A1 "relay-to-frankfurt" /usr/local/x-ui/bin/config.json | grep -E "flow|tag" | head -4; echo "--- Xray running? ---"; pgrep -f xray-linux-amd64 && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/fix_lte_relay.py' 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== FIX LTE RELAY COMPLETE ==="
+            fi
+
+            if [ "$FIX_LTE_PBK" = "true" ]; then
+              echo "=== FIX LTE PBK: sync reality_pbk to server's actual key ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/fix_lte_reality_pbk.py backend:/tmp/fix_lte_reality_pbk.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_reality_pbk.py 2>&1
+              rm -f /tmp/fix_lte_reality_pbk.py
+              echo "=== FIX LTE PBK COMPLETE ==="
             fi
