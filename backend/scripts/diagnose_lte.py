@@ -73,6 +73,10 @@ async def run() -> None:
             "port": r["server_port"],
             "transport": r["transport_type"],
             "inbound_id": r["inbound_id"],
+            "reality_pbk": r["reality_pbk"],
+            "reality_sid": r["reality_sid"],
+            "tls_sni": r["tls_sni"],
+            "reality_sni": r["reality_sni"],
         })
 
     # Find LTE and Frankfurt servers
@@ -90,8 +94,8 @@ async def run() -> None:
     # Print DB reality_pbk for LTE servers (what bot uses to generate links)
     print("\n=== DB reality_pbk (used to generate client links) ===")
     for srv in lte_servers:
-        print(f"  {srv['label']} (id={srv['id']}): reality_pbk={srv.get('reality_pbk','?')}")
-        print(f"    reality_sid={srv.get('reality_sid','?')} tls_sni={srv.get('tls_sni','?')} reality_sni={srv.get('reality_sni','?')}")
+        print(f"  {srv['label']} (id={srv['id']}): reality_pbk={srv['reality_pbk']}")
+        print(f"    reality_sid={srv['reality_sid']} tls_sni={srv['tls_sni']} reality_sni={srv['reality_sni']}")
 
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as client:
         # ── Check each server panel ──
