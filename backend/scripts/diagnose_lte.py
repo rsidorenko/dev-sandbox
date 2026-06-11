@@ -1,156 +1,92 @@
-"""Diagnose LTE server: check xray status, inbounds, outbounds, restart."""
+import asyncio, asyncpg, os, sys, json, httpx, re
 
-from __future__ import annotations
-
-import asyncio
-import json
-import os
-import re
-import sys
-
-import httpx
-
-
-async def run() -> None:
-    dsn = os.environ.get("DATABASE_URL", "").strip()
-    if not dsn:
-        print("ERROR: DATABASE_URL not set", file=sys.stderr)
-        sys.exit(1)
-
-    import asyncpg
+async def run():
+    dsn = os.environ.get("DATABASE_URL", "")
     pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
     try:
         from app.security.field_encryption import decrypt_field
-        row = await pool.fetchrow(
-            "SELECT panel_url, panel_username, panel_password, "
-            "COALESCE(encrypted_password, '') AS encrypted_password "
-            "FROM vpn_servers WHERE id = 10"
-        )
-        panel_url = row["panel_url"].rstrip("/")
-        password = row["encrypted_password"] if row["encrypted_password"] else row["panel_password"]
-        if row["encrypted_password"]:
-            password = decrypt_field(row["encrypted_password"])
-        username = row["panel_username"]
+        row = await pool.fetchrow("SELECT panel_url, panel_username, panel_password, COALESCE(encrypted_password,'') AS ep, server_host, server_port FROM vpn_servers WHERE id = 10")
+        pw = decrypt_field(row["ep"]) if row["ep"] else row["panel_password"]
+        host = row["server_host"]
+        port = row["server_port"]
+        panel = row["panel_url"].rstrip("/")
+        print(f"LTE host: {host}:{port}")
+        print(f"Panel: {panel}")
+
+        # Check if VPN port is listening
+        async with httpx.AsyncClient(verify=False, timeout=5) as c:
+            try:
+                r = await c.get(f"https://{host}:{port}/", follow_redirects=False)
+                print(f"VPN port {port}: HTTP {r.status_code} (xray is LISTENING)")
+            except httpx.ConnectError as e:
+                print(f"VPN port {port}: CONNECT FAILED - {e}")
+            except Exception as e:
+                print(f"VPN port {port}: {type(e).__name__}: {e}")
+
+            # Check port 80 (CDN inbound)
+            try:
+                r = await c.get(f"http://{host}:80/")
+                print(f"CDN port 80: HTTP {r.status_code}")
+            except Exception as e:
+                print(f"CDN port 80: {type(e).__name__}: {e}")
+
+        # Try to get xrayTemplateConfig via the panel
+        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as c:
+            page = await c.get(f"{panel}/")
+            csrf = None
+            m = re.search(r'csrf-token" content="([^"]+)"', page.text)
+            if m: csrf = m.group(1)
+            h = {"Content-Type": "application/json"}
+            if csrf: h["X-CSRF-Token"] = csrf
+            login = await c.post(f"{panel}/login", json={"username": row["panel_username"], "password": pw}, headers=h)
+            if login.status_code != 200:
+                print(f"Login failed: {login.status_code}")
+                return
+            print("Panel login OK")
+
+            # Get all settings
+            r = await c.get(f"{panel}/panel/api/setting/all", headers=h)
+            print(f"Settings API: {r.status_code}")
+            if r.status_code == 200:
+                obj = r.json().get("obj", {})
+                if isinstance(obj, dict):
+                    for k in sorted(obj.keys()):
+                        v = obj[k]
+                        if isinstance(v, str) and len(v) > 200:
+                            print(f"  {k}: ({len(v)} chars)")
+                            # Parse xrayTemplateConfig
+                            if "xray" in k.lower() or "template" in k.lower():
+                                try:
+                                    cfg = json.loads(v)
+                                    obs = cfg.get("outbounds", [])
+                                    print(f"    outbounds: {json.dumps(obs, indent=2)[:500]}")
+                                    rts = cfg.get("routing", {}).get("rules", [])
+                                    print(f"    routing rules ({len(rts)}):")
+                                    for rt in rts[:5]:
+                                        print(f"      {rt.get('type','?')} -> {rt.get('outboundTag','?')} domains={rt.get('domain',[])}")
+                                except:
+                                    print(f"    (not valid JSON)")
+                        else:
+                            print(f"  {k}: {str(v)[:100]}")
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, dict):
+                            k = item.get("key", "?")
+                            v = item.get("value", "")
+                            if isinstance(v, str) and len(v) > 200:
+                                print(f"  {k}: ({len(v)} chars)")
+                                if "xray" in k.lower() or "template" in k.lower():
+                                    try:
+                                        cfg = json.loads(v)
+                                        obs = cfg.get("outbounds", [])
+                                        print(f"    outbounds:")
+                                        for o in obs:
+                                            print(f"      {o.get('tag','?')}: {o.get('protocol','?')} -> {o.get('settings',{}).get('vnext',[{}])[0].get('address','')}")
+                                    except:
+                                        pass
+                            else:
+                                print(f"  {k}: {str(v)[:100]}")
     finally:
         await pool.close()
 
-    print(f"Panel: {panel_url}")
-    print(f"User: {username}")
-
-    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as client:
-        # Login
-        page = await client.get(f"{panel_url}/")
-        csrf = None
-        if page.status_code == 200:
-            m = re.search(r'csrf-token" content="([^"]+)"', page.text)
-            if m:
-                csrf = m.group(1)
-        headers = {"Content-Type": "application/json"}
-        if csrf:
-            headers["X-CSRF-Token"] = csrf
-
-        login = await client.post(f"{panel_url}/login",
-            json={"username": username, "password": password}, headers=headers)
-        if login.status_code != 200 or not login.json().get("success"):
-            print(f"LOGIN FAILED: {login.status_code}")
-            return
-        print("Login OK\n")
-
-        # 1. Check xray status
-        print("=== XRAY STATUS ===")
-        for endpoint in [
-            "/panel/api/setting/status",
-            "/panel/server/status",
-            "/panel/api/status",
-        ]:
-            try:
-                resp = await client.get(f"{panel_url}{endpoint}", headers=headers)
-                print(f"  GET {endpoint}: {resp.status_code} {resp.text[:200]}")
-            except Exception as e:
-                print(f"  GET {endpoint}: ERROR {e}")
-
-        # 2. List all inbounds with details
-        print("\n=== INBOUNDS ===")
-        resp = await client.get(f"{panel_url}/panel/api/inbounds/list", headers=headers)
-        if resp.status_code == 200:
-            for ib in resp.json().get("obj", []):
-                settings = ib.get("settings", {})
-                if isinstance(settings, str):
-                    settings = json.loads(settings)
-                clients = settings.get("clients", [])
-                stream = ib.get("stream", {})
-                print(f"  Inbound {ib['id']}: port={ib['port']} protocol={ib['protocol']} "
-                      f"enable={ib.get('enable', '?')} clients={len(clients)}")
-                # Check first client
-                if clients:
-                    c = clients[0]
-                    print(f"    sample: email={c.get('email')} flow=\"{c.get('flow','')}\" "
-                          f"uuid={c.get('id','')[:12]}...")
-
-        # 3. Try different restart endpoints
-        print("\n=== RESTART XRAY ===")
-        for endpoint in [
-            "/panel/api/setting/restartXrayService",
-            "/panel/api/setting/restartXray",
-            "/panel/server/restartXray",
-        ]:
-            try:
-                resp = await client.post(f"{panel_url}{endpoint}", headers=headers)
-                status = "OK" if resp.status_code == 200 else f"FAIL({resp.status_code})"
-                body = resp.text[:100] if resp.status_code != 200 else ""
-                print(f"  POST {endpoint}: {status} {body}")
-            except Exception as e:
-                print(f"  POST {endpoint}: ERROR {e}")
-
-        # 4. Get xray config (template)
-        print("\n=== XRAY CONFIG ===")
-        resp = await client.get(f"{panel_url}/panel/api/setting/all", headers=headers)
-        if resp.status_code == 200:
-            data = resp.json().get("obj", {})
-            if isinstance(data, dict):
-                # Look for xray config/template
-                for key in ["xrayTemplateConfig", "xraySetting", "config"]:
-                    if key in data:
-                        val = data[key]
-                        if isinstance(val, str) and len(val) > 50:
-                            try:
-                                cfg = json.loads(val)
-                                print(f"  {key}: parsed OK")
-                                # Show outbounds
-                                outbounds = cfg.get("outbounds", [])
-                                print(f"    outbounds ({len(outbounds)}):")
-                                for ob in outbounds:
-                                    print(f"      - {ob.get('tag','?')}: {ob.get('protocol','?')} "
-                                          f"→ {ob.get('settings',{}).get('vnext',[{}])[0].get('address','?') if ob.get('protocol')=='vless' else ''}")
-                                # Show routing
-                                routing = cfg.get("routing", {})
-                                rules = routing.get("rules", [])
-                                print(f"    routing rules ({len(rules)}):")
-                                for r in rules[:5]:
-                                    print(f"      - type={r.get('type','?')} outbound={r.get('outboundTag','?')} "
-                                          f"domain={r.get('domain',[])}")
-                                if len(rules) > 5:
-                                    print(f"      ... and {len(rules)-5} more")
-                            except json.JSONDecodeError:
-                                print(f"  {key}: {val[:200]}")
-                        else:
-                            print(f"  {key}: {str(val)[:200]}")
-            else:
-                print(f"  resp.obj type: {type(data)}")
-        else:
-            print(f"  GET all: {resp.status_code}")
-
-        # 5. Check xray logs
-        print("\n=== XRAY LOGS (last errors) ===")
-        resp = await client.get(f"{panel_url}/panel/api/xray/logs", headers=headers)
-        if resp.status_code == 200:
-            lines = resp.text.split("\n")[-10:]
-            for l in lines:
-                if l.strip():
-                    print(f"  {l[:150]}")
-        else:
-            print(f"  logs endpoint: {resp.status_code}")
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
+asyncio.run(run())
