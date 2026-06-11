@@ -1,7 +1,7 @@
 """Fully delete inbound ports from 3x-ui panels (not just clients).
 
 Targets:
-- LTE panel (46.21.246.115): inbound 1 (port 443), inbound 6 (port 80)
+- LTE panel (62.84.118.140): inbound 1 (port 443), inbound 6 (port 80)
 - LA panel (216.227.169.120): inbound 3 (port 8080)
 
 Strategy: try multiple delInbound API endpoint variants. If all fail,
@@ -21,7 +21,7 @@ import httpx
 # (server_id_for_creds, panel_url, inbound_ids_to_delete)
 TARGETS = [
     (7, "https://216.227.169.120:2053", [3]),          # LA inbound 3
-    (9, "https://46.21.246.115:54023/Cq6xxAccNLaSEBcR0L", [1, 6]),  # LTE inbounds 1, 6
+    (9, "https://62.84.118.140:54023/Cq6xxAccNLaSEBcR0L", [1, 6]),  # LTE inbounds 1, 6
 ]
 
 # delInbound endpoint variants to try (method, path_template)

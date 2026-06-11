@@ -515,7 +515,7 @@ jobs:
 
             if [ "$LTE_SSH" = "true" ]; then
               echo "=== LTE SSH DIAGNOSTIC ==="
-              LTE="46.21.246.115"
+              LTE="62.84.118.140"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -530,7 +530,7 @@ jobs:
 
             if [ "$LTE_LOGS" = "true" ]; then
               echo "=== LTE XRAY LOGS + REALITY KEY CHECK ==="
-              LTE="46.21.246.115"
+              LTE="62.84.118.140"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -541,7 +541,7 @@ jobs:
 
             if [ "$FIX_LTE_RELAY" = "true" ]; then
               echo "=== FIX LTE RELAY: remove xtls-rprx-vision flow from 3x-ui DB ==="
-              LTE="46.21.246.115"
+              LTE="62.84.118.140"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -599,7 +599,7 @@ jobs:
 
             if [ "$DELETE_LTE_INBOUNDS" = "true" ]; then
               echo "=== DELETE LTE INBOUNDS 1,6 via SSH+SQLite ==="
-              LTE="46.21.246.115"
+              LTE="62.84.118.140"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
