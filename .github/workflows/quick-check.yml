@@ -17,7 +17,7 @@ jobs:
             echo 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBSkNUT3V0Umt6cnJVUUFBQUF0emMyZ3RaV1F5TlRVeE9RQUFBQ0RZSU02dXNXSUQzRkloVk5UbHBhaDkwRGRUNjdxbElTclBGOTZmOXFGU3hnQUFBRUJCUG5FQytCUm41emNaWlU3ZDFXUkZDUkkvYWZYakY0OGVVVTRYYWtKZXpOZ2d6cTZ4WWdQY1VpRlUxT1dscUgzUU4xUHJ1cVVoS3M4WDNwLzJvVkxHQUFBQURIbGhibVJsZUMxamJHOTFaQUU9Ci0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo=' | base64 -d > ~/.ssh/yandex-cloud
             chmod 600 ~/.ssh/yandex-cloud
 
-            echo "=== SSH to LTE: restart xray ==="
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "Before restart:"; ps aux | grep xray | grep -v grep | head -1; echo ""; echo "Restarting x-ui..."; cd /usr/local/x-ui && sudo ./x-ui restart 2>&1; sleep 3; echo ""; echo "After restart:"; ps aux | grep xray | grep -v grep | head -1; echo ""; echo "Ports:"; ss -tlnp | grep -E "443|80"; echo ""; echo "Test connection to Frankfurt:"; curl -sk --connect-timeout 5 https://77.110.100.210:443/ -w "HTTP %{http_code}" -o /dev/null 2>&1 || echo "FAILED"' 2>&1 || echo "SSH FAILED"
+            echo "=== SSH to LTE: kill xray to force restart ==="
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "Before: PID=$(pgrep -f xray-linux)"; pkill -f xray-linux 2>&1; echo "Killed. Waiting for x-ui to respawn..."; sleep 5; NEW_PID=$(pgrep -f xray-linux); echo "After: PID=$NEW_PID"; if [ -z "$NEW_PID" ]; then echo "ERROR: xray did not restart!"; else echo "xray restarted with new PID"; fi; echo ""; echo "Ports:"; ss -tlnp | grep -E "443|80"' 2>&1 || echo "SSH FAILED"
 
             rm -f ~/.ssh/yandex-cloud
