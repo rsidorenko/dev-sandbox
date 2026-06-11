@@ -97,6 +97,10 @@ on:
         description: "Check LTE panel stored creds + test login"
         required: false
         default: "false"
+      reset_lte_user:
+        description: "Reset LTE panel user via bcrypt in users table"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -175,6 +179,7 @@ jobs:
           ADD_FRANKFURT_RELAY: ${{ github.event.inputs.add_frankfurt_relay || 'false' }}
           ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
           CHECK_LTE_PANEL: ${{ github.event.inputs.check_lte_panel || 'false' }}
+          RESET_LTE_USER: ${{ github.event.inputs.reset_lte_user || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -185,7 +190,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -728,4 +733,16 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/check_lte.py; rm -f /tmp/check_lte.py" 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== CHECK COMPLETE ==="
+            fi
+
+            if [ "$RESET_LTE_USER" = "true" ]; then
+              echo "=== RESET LTE PANEL USER (bcrypt in users table) ==="
+              LTE="62.84.118.140"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
+              chmod 600 ~/.ssh/yandex-cloud
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/reset_lte_panel_user.py romtan@${LTE}:/tmp/reset_lte_user.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/reset_lte_user.py; rm -f /tmp/reset_lte_user.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-cloud
+              echo "=== RESET LTE USER COMPLETE ==="
             fi
