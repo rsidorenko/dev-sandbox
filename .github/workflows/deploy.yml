@@ -495,7 +495,7 @@ jobs:
               chmod 600 ~/.ssh/yandex-cloud
               scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/fix_lte_relay.py romtan@${LTE}:/tmp/fix_lte_relay.py 2>&1 || true
               echo "--- Edit config + sudo restart xray ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py 2>/dev/null; sudo kill $(pgrep -f xray-linux-amd64) 2>/dev/null; sleep 2; cd /usr/local/x-ui/bin && sudo nohup ./xray-linux-amd64.real -c config.json >/dev/null 2>&1 & sleep 3; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py 2>/dev/null; sudo kill $(pgrep -f xray-linux-amd64) 2>/dev/null || true; sleep 2; sudo bash -c "cd /usr/local/x-ui/bin && setsid ./xray-linux-amd64.real -c config.json >/dev/null 2>&1 < /dev/null &"; sleep 3; pgrep -f xray-linux-amd64; sudo grep -o "flow.{0,30}" /usr/local/x-ui/bin/config.json | head -2; rm -f /tmp/fix_lte_relay.py' 2>&1 || true
               rm -f ~/.ssh/yandex-cloud
               echo "=== FIX LTE RELAY COMPLETE ==="
             fi
