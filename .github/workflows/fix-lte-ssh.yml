@@ -1,0 +1,57 @@
+name: fix-lte-ssh
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            LTE="46.21.246.115"
+            
+            echo "=== Copy yandex-cloud key to production ==="
+            mkdir -p ~/.ssh
+            cat > ~/.ssh/yandex-cloud << 'KEYEOF'
+            -----BEGIN OPENSSH PRIVATE KEY-----
+            b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAJCTOutRkzrrUQAAAAtzc2gtZWQyNTUxOQAAACDYIM6usWID3FIhVNTlpah90DdT67qlISrPF96f9qFSxgAAAEBBPnEC+BRn5zcZZU7d1WRFCRI/afXjF48eUU4XakJezNggzq6xYgPcUiFU1OWlqH3QN1PruqUhKs8X3p/2oVLGAAAADHlhbmRleC1jbG91ZAE=
+            -----END OPENSSH PRIVATE KEY-----
+            KEYEOF
+            chmod 600 ~/.ssh/yandex-cloud
+            
+            echo "=== SSH to LTE and check xray ==="
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} '
+              echo "xray process:"
+              ps aux | grep -E "xray|3x-ui" | grep -v grep
+              echo ""
+              echo "=== Outbounds in config ==="
+              python3 -c "
+import json
+with open(\"/usr/local/x-ui/bin/config.json\") as f:
+    c = json.load(f)
+for o in c.get(\"outbounds\", []):
+    addr = \"\"
+    if o.get(\"protocol\") == \"vless\":
+        vnext = o.get(\"settings\", {}).get(\"vnext\", [])
+        addr = vnext[0].get(\"address\", \"?\") if vnext else \"?\"
+    print(f\"  {o.get(\\\"tag\\\",\\\"?\\\")}: {o.get(\\\"protocol\\\",\\\"?\\\")} -> {addr}\")
+" 2>/dev/null || echo "  Could not parse config"
+              echo ""
+              echo "=== Routing rules ==="
+              python3 -c "
+import json
+with open(\"/usr/local/x-ui/bin/config.json\") as f:
+    c = json.load(f)
+for r in c.get(\"routing\", {}).get(\"rules\", [])[:8]:
+    print(f\"  {r.get(\\\"type\\\",\\\"?\\\")} -> {r.get(\\\"outboundTag\\\",\\\"?\\\")} domains={r.get(\\\"domain\\\",[])[:3]}\")
+" 2>/dev/null || echo "  Could not parse routing"
+              echo ""
+              echo "=== Listening ports ==="
+              ss -tlnp | grep -E "443|80|8080" || echo "  None!"
+            ' 2>&1 || echo "SSH FAILED"
+            
+            rm -f ~/.ssh/yandex-cloud
