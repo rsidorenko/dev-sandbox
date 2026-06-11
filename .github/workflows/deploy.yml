@@ -73,6 +73,10 @@ on:
         description: "Assess new LTE server (62.84.118.140): SSH, OS, 3x-ui, ports, Frankfurt reachability"
         required: false
         default: "false"
+      query_frankfurt:
+        description: "Query Frankfurt 8443 xhttp/reality keys for relay config"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -145,6 +149,7 @@ jobs:
           DELETE_LTE_INBOUNDS: ${{ github.event.inputs.delete_lte_inbounds || 'false' }}
           DELETE_LA_INBOUND: ${{ github.event.inputs.delete_la_inbound || 'false' }}
           ASSESS_LTE: ${{ github.event.inputs.assess_lte || 'false' }}
+          QUERY_FRANKFURT: ${{ github.event.inputs.query_frankfurt || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -154,7 +159,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,LTE_SSH_KEY,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,DELETE_SERVERS_DRYRUN,DELETE_SERVERS,CLEANUP_LA,DELETE_INBOUNDS,DELETE_LTE_INBOUNDS,DELETE_LA_INBOUND,ASSESS_LTE,QUERY_FRANKFURT,LTE_SSH_KEY,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -635,4 +640,13 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== OS ==="; cat /etc/os-release 2>/dev/null | head -3; uname -a; echo ""; echo "=== Arch ==="; uname -m; echo ""; echo "=== sudo ==="; sudo -n true 2>&1 && echo "passwordless sudo: YES" || echo "passwordless sudo: NO"; echo ""; echo "=== 3x-ui installed? ==="; which x-ui 2>/dev/null || echo "x-ui CLI: NOT found"; ls -la /usr/local/x-ui/ 2>/dev/null | head -5 || echo "/usr/local/x-ui/ NOT found"; systemctl is-active x-ui 2>/dev/null || echo "x-ui service: not found"; echo ""; echo "=== xray ==="; ls -la /usr/local/x-ui/bin/ 2>/dev/null || echo "no xray binary"; echo ""; echo "=== Listening ports ==="; sudo ss -tlnp 2>/dev/null | grep -E "443|80|2053|54023" || echo "no VPN ports listening"; echo ""; echo "=== Docker ==="; which docker 2>/dev/null && docker ps 2>/dev/null || echo "no docker"; echo ""; echo "=== Disk ==="; df -h / 2>/dev/null; echo ""; echo "=== Memory ==="; free -h 2>/dev/null; echo ""; echo "=== Frankfurt reachability ==="; for p in 443 8443 2053; do timeout 5 bash -c "echo > /dev/tcp/77.110.100.210/$p" 2>/dev/null && echo "Frankfurt:$p REACHABLE" || echo "Frankfurt:$p UNREACHABLE"; done' 2>&1 || echo "SSH FAILED"
               rm -f ~/.ssh/yandex-cloud
               echo "=== ASSESS COMPLETE ==="
+            fi
+
+            if [ "$QUERY_FRANKFURT" = "true" ]; then
+              echo "=== QUERY FRANKFURT REALITY KEYS ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/query_frankfurt_keys.py backend:/tmp/qf.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/qf.py 2>&1
+              rm -f /tmp/qf.py
+              echo "=== QUERY COMPLETE ==="
             fi
