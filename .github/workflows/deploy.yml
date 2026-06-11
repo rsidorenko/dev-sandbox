@@ -496,7 +496,7 @@ jobs:
               echo "--- Copying fix script to LTE ---"
               scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/fix_lte_relay.py romtan@${LTE}:/tmp/fix_lte_relay.py 2>&1 || true
               echo "--- Running fix on LTE ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py && echo "--- Restarting xray ---" && sudo systemctl restart x-ui 2>/dev/null; sleep 2; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} 'python3 /tmp/fix_lte_relay.py; sleep 2; ps aux | grep xray | grep -v grep | head -1; rm -f /tmp/fix_lte_relay.py' 2>&1
               rm -f ~/.ssh/yandex-cloud
               echo "=== FIX LTE RELAY COMPLETE ==="
             fi
