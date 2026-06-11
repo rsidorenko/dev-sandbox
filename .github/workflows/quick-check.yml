@@ -18,6 +18,6 @@ jobs:
             chmod 600 ~/.ssh/yandex-cloud
 
             echo "=== SSH to LTE: kill xray to force restart ==="
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "Before: PID=$(pgrep -f xray-linux)"; pkill -f xray-linux 2>&1; echo "Killed. Waiting for x-ui to respawn..."; sleep 5; NEW_PID=$(pgrep -f xray-linux); echo "After: PID=$NEW_PID"; if [ -z "$NEW_PID" ]; then echo "ERROR: xray did not restart!"; else echo "xray restarted with new PID"; fi; echo ""; echo "Ports:"; ss -tlnp | grep -E "443|80"' 2>&1 || echo "SSH FAILED"
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud romtan@${LTE} 'OLD=$(pgrep -f xray-linux); echo "Old PID: $OLD"; kill $OLD 2>/dev/null; echo "Sent SIGTERM"; sleep 5; NEW=$(pgrep -f xray-linux); echo "New PID: $NEW"; if [ "$NEW" = "$OLD" ]; then echo "WARNING: same PID - process did not restart"; elif [ -z "$NEW" ]; then echo "ERROR: xray not running!"; else echo "OK: xray restarted"; fi; echo "Ports:"; ss -tlnp | grep -E "443|80"' 2>&1 || echo "SSH FAILED"
 
             rm -f ~/.ssh/yandex-cloud
