@@ -101,6 +101,10 @@ on:
         description: "Sync inbounds.settings → clients table on all 3x-ui v3.x panels, then restart xray"
         required: false
         default: "false"
+      rebuild_clients:
+        description: "Wipe all bot-managed clients from panels and rebuild from DB (wipe + re-add + sync + verify)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -180,6 +184,7 @@ jobs:
           CHECK_ALL_ROUTING: ${{ github.event.inputs.check_all_routing || 'false' }}
           FIX_PANEL_URL: ${{ github.event.inputs.fix_panel_url || 'false' }}
           SYNC_CLIENTS: ${{ github.event.inputs.sync_clients || 'false' }}
+          REBUILD_CLIENTS: ${{ github.event.inputs.rebuild_clients || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
@@ -192,7 +197,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,QUERY_FRANKFURT,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,SYNC_CLIENTS,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,QUERY_FRANKFURT,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,SYNC_CLIENTS,REBUILD_CLIENTS,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -802,6 +807,54 @@ jobs:
               docker compose -f docker-compose.prod.yml restart backend 2>&1 || true
 
               echo "=== FIX PANEL URL COMPLETE ==="
+            fi
+
+            if [ "$REBUILD_CLIENTS" = "true" ]; then
+              echo "=== REBUILD PANEL CLIENTS (wipe + re-add from DB) ==="
+              cd /opt/bravada
+
+              echo "--- Step 1: Pre-verify (check current state) ---"
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --verify 2>&1 || echo "  Pre-verify showed missing clients (expected before rebuild)"
+
+              echo "--- Step 2: Dry run ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --dry-run 2>&1
+
+              echo "--- Step 3: Full rebuild (wipe + re-add) ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py 2>&1
+              REBUILD_EXIT=$?
+              if [ $REBUILD_EXIT -ne 0 ]; then
+                echo "  ⚠️  REBUILD FAILED with exit code $REBUILD_EXIT"
+              fi
+
+              echo "--- Step 4: Sync clients table on all servers ---"
+              mkdir -p ~/.ssh
+
+              echo "  Frankfurt (77.110.100.210)"
+              sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.110.100.210:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Frankfurt sync FAILED"
+
+              echo "  Helsinki (77.221.159.106)"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.221.159.106:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
+
+              echo "  LA (216.227.169.120)"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key backend/scripts/sync_clients_table.py romtan@216.227.169.120:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
+              rm -f ~/.ssh/la-key
+
+              echo "  LTE (62.84.118.140)"
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@62.84.118.140:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@62.84.118.140 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
+              rm -f ~/.ssh/yandex-cloud
+
+              echo "--- Step 5: Post-verify ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --verify 2>&1
+
+              rm -f /tmp/rebuild_panel_clients.py
+              echo "=== REBUILD PANEL CLIENTS COMPLETE ==="
             fi
 
             if [ "$SYNC_CLIENTS" = "true" ]; then
