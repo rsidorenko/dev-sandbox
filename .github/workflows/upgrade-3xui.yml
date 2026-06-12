@@ -103,10 +103,11 @@ jobs:
           if not pbk and rs.get('privateKey'):
               try:
                   from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+                  from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
                   priv_raw = base64.urlsafe_b64decode(rs['privateKey'] + '==')
                   priv = X25519PrivateKey.from_private_bytes(priv_raw)
                   pub = priv.public_key()
-                  pub_raw = pub.public_bytes_raw()
+                  pub_raw = pub.public_bytes(Encoding.Raw, PublicFormat.Raw)
                   pbk = base64.urlsafe_b64encode(pub_raw).decode().rstrip('=')
               except Exception as e:
                   print(f'DERIVE_ERR: {e}', file=__import__('sys').stderr)
