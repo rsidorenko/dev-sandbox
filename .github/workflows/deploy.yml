@@ -89,6 +89,10 @@ on:
         description: "Diagnose why a subscription's keys don't connect (UUID presence per panel)"
         required: false
         default: "false"
+      check_bans:
+        description: "Check fail2ban + iptables bans + recent xray-rejected IPs on all servers"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -165,6 +169,7 @@ jobs:
           DEBUG_LTE_ADDCLIENT: ${{ github.event.inputs.debug_lte_addclient || 'false' }}
           SYNC_LTE_INBOUND: ${{ github.event.inputs.sync_lte_inbound || 'false' }}
           DIAGNOSE_SUB: ${{ github.event.inputs.diagnose_sub || 'false' }}
+          CHECK_BANS: ${{ github.event.inputs.check_bans || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -175,7 +180,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -697,4 +702,30 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsub.py 2>&1
               rm -f /tmp/dsub.py
               echo "=== DIAGNOSE COMPLETE ==="
+            fi
+
+            if [ "$CHECK_BANS" = "true" ]; then
+              echo "=== CHECK BANS (fail2ban / iptables / xray-rejected) ==="
+              # Check VPN servers reachable via SSH keys from runner
+              for spec in "LTE|62.84.118.140|romtan|yandex-cloud|LTE_SSH_KEY" "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
+                IFS='|' read -r name ip user keyfile secret <<< "$spec"
+                echo "--- $name ($ip) ---"
+                mkdir -p ~/.ssh
+                printf '%s\n' "${!secret}" > ~/.ssh/$keyfile
+                chmod 600 ~/.ssh/$keyfile
+                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=12 -i ~/.ssh/$keyfile $user@${ip} '
+                  echo "  fail2ban:"; sudo fail2ban-client status 2>/dev/null | grep -iE "Jail|ssh|filter" || echo "    not installed/running"
+                  sudo fail2ban-client status sshd 2>/dev/null | grep -iE "Banned IP" || true
+                  echo "  iptables DROP/REJECT:"; sudo iptables -L -n 2>/dev/null | grep -iE "DROP|REJECT" | head -20 || echo "    none"
+                  echo "  f2b chains:"; sudo iptables -L -n 2>/dev/null | grep -iE "f2b|fail2ban" | head -10 || echo "    none"
+                  echo "  xray recent rejected (last 15):"; sudo tail -200 /var/log/xray-access.log 2>/dev/null | grep -iE "rejected|invalid|failed" | tail -15 || echo "    no rejections"
+                ' 2>&1 || echo "  SSH FAILED"
+                rm -f ~/.ssh/$keyfile
+              done
+              # Main server (this host) bans
+              echo "--- Main/production ($(hostname)) ---"
+              sudo fail2ban-client status 2>/dev/null | grep -iE "Jail" || echo "  fail2ban not running"
+              sudo fail2ban-client status sshd 2>/dev/null | grep -iE "Banned IP" || true
+              sudo iptables -L -n 2>/dev/null | grep -iE "DROP|REJECT|f2b" | head -20 || echo "  no DROP rules"
+              echo "=== CHECK BANS COMPLETE ==="
             fi
