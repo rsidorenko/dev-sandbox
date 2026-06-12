@@ -26,12 +26,7 @@ from app.issuance.vless_provider import (
 )
 from app.issuance.xui_client import XuiApiClient, XuiClientResult, XuiOutcome, XuiServerConfig
 from app.security.field_encryption import decrypt_field
-
-_SUBSCRIPTION_BASE_URL = (
-    os.environ.get("SUBSCRIPTION_BASE_URL", "").strip()
-    or os.environ.get("NEXT_PUBLIC_SITE_URL", "").strip()
-    or "https://bravada-connect.ru"
-).rstrip("/")
+from app.shared.site_url import get_site_base_url
 
 _CACHE_TTL_SECONDS = 600  # 10 minutes
 _SUBSCRIPTION_TOKEN_TTL_DAYS = int(os.environ.get("SUBSCRIPTION_TOKEN_TTL_DAYS", "90"))
@@ -47,7 +42,7 @@ def _generate_subscription_token() -> str:
 
 
 def _web_sub_url(token: str) -> str:
-    return f"{_SUBSCRIPTION_BASE_URL}/sub/{token}"
+    return f"{get_site_base_url()}/sub/{token}"
 
 
 async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:

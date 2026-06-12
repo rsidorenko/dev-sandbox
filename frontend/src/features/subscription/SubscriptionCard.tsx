@@ -23,6 +23,7 @@ type Referral = {
   code: string;
   balance_rubles: number;
   referrals_count: number;
+  web_referral_link?: string;
 };
 
 type Props = {
@@ -380,23 +381,37 @@ export function SubscriptionCard({
               <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
                 Пригласите друга и получите бонус
               </p>
-              <p className="mt-2 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                https://t.me/{siteConfig.botUsername}?start=ref_
-                {referral.code}
+              {/* Telegram link */}
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-500">Telegram:</p>
+              <p className="truncate text-xs font-mono text-gray-600 dark:text-gray-400">
+                https://t.me/{siteConfig.botUsername}?start=ref_{referral.code}
               </p>
               <button
                 onClick={() =>
                   copy(
                     `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
-                    "ref-link",
+                    "ref-tg",
                   )
                 }
-                className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                className="mt-1 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
               >
-                {isCopied("ref-link")
-                  ? "Скопировано!"
-                  : "Скопировать ссылку"}
+                {isCopied("ref-tg") ? "Скопировано!" : "Копировать"}
               </button>
+              {/* Web link */}
+              {referral.web_referral_link && (
+                <>
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-500">Сайт:</p>
+                  <p className="truncate text-xs font-mono text-gray-600 dark:text-gray-400">
+                    {referral.web_referral_link}
+                  </p>
+                  <button
+                    onClick={() => copy(referral.web_referral_link!, "ref-web")}
+                    className="mt-1 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    {isCopied("ref-web") ? "Скопировано!" : "Копировать"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
