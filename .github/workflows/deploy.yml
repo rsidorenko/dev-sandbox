@@ -97,6 +97,10 @@ on:
         description: "SSH to Frankfurt via main, dump xray access/error logs (Reality reject reasons)"
         required: false
         default: "false"
+      check_frankfurt_routing:
+        description: "Check Frankfurt outbounds + routing (client traffic blackhole?)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -175,6 +179,7 @@ jobs:
           DIAGNOSE_SUB: ${{ github.event.inputs.diagnose_sub || 'false' }}
           CHECK_BANS: ${{ github.event.inputs.check_bans || 'false' }}
           CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
+          CHECK_FRANKFURT_ROUTING: ${{ github.event.inputs.check_frankfurt_routing || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
@@ -186,7 +191,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,FRANKFURT_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,FRANKFURT_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -740,4 +745,10 @@ jobs:
               echo "=== FRANKFURT XRAY LOGS (via main) ==="
               sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'echo "=== inbound realitySettings (id=1, port 443) ==="; python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(json.dumps({\"tag\":ib.get(\"tag\"),\"port\":ib.get(\"port\"),\"reality\":ib.get(\"streamSettings\",{}).get(\"realitySettings\",{})},indent=1)[:600]) for ib in c.get(\"inbounds\",[]) if ib.get(\"port\")==443]"; echo ""; echo "=== access log last 20 ==="; tail -20 /var/log/xray-access.log 2>/dev/null || echo "none"; echo ""; echo "=== error log last 20 ==="; tail -20 /var/log/xray-error.log 2>/dev/null || echo "none"; echo ""; echo "=== xray process ==="; ps aux | grep xray | grep -v grep | head -1' 2>&1 || echo "SSH to Frankfurt FAILED (need FRANKFURT_SSH_PASS secret)"
               echo "=== FRANKFURT LOGS COMPLETE ==="
+            fi
+
+            if [ "$CHECK_FRANKFURT_ROUTING" = "true" ]; then
+              echo "=== FRANKFURT ROUTING/OUTBOUNDS ==="
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < .github/workflows/check_frankfurt_routing.sh 2>&1 || echo "SSH FAILED"
+              echo "=== FRANKFURT ROUTING COMPLETE ==="
             fi
