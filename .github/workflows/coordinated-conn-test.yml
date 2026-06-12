@@ -1,0 +1,40 @@
+name: coordinated-conn-test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        run: |
+          cd /tmp
+          VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
+          curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o x.zip
+          unzip -o x.zip xray >/dev/null && chmod +x xray
+          echo "RUNNER_IP=$(curl -s https://api.ipify.org)" >> $GITHUB_ENV
+          echo "=== runner IP: $RUNNER_IP ==="
+          cat > config.json <<'EOF'
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.110.100.210","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"Q_wpt7L8sU2O1OVBV-mpsSvgLAChIhN4hgTm0XZH4Do","shortId":"a1b2c3d4e5f6","spiderX":"/"}}}]}
+          EOF
+          sed -i 's/^          //' config.json
+      - name: Connect + test
+        run: |
+          set +e
+          cd /tmp
+          ./xray run -config config.json &> xray.log &
+          sleep 4
+          # Make several requests to generate log entries on Frankfurt
+          for i in 1 2 3; do
+            curl -s --max-time 15 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo " (attempt $i)"
+            curl -s --max-time 15 --socks5-hostname 127.0.0.1:10808 https://1.1.1.1/cdn-cgi/trace; echo " (cf trace $i)"
+          done
+          echo "=== client log ==="
+          grep -E "tunneling|accepted|failed|error|dial" xray.log | tail -15
+          kill %1 2>/dev/null
+      - name: Install sshpass + check Frankfurt logs for our IP
+        env:
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+        run: |
+          sudo apt-get install -y sshpass >/dev/null 2>&1
+          echo "=== Frankfurt access log (entries mentioning our runner IP $RUNNER_IP or api.ipify/1.1.1.1) ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "tail -50 /var/log/xray-access.log 2>/dev/null | grep -iE '$RUNNER_IP|ipify|1.1.1.1|accepted' | tail -20; echo '--- error log ---'; tail -30 /var/log/xray-error.log 2>/dev/null | grep -iE 'ipify|1.1.1.1|rejected|invalid|fail|ru-relay|direct' | tail -15" 2>&1 || echo "SSH FAILED"
