@@ -759,15 +759,21 @@ jobs:
 
               echo "--- Updating panel_url in DB ---"
               if [ -n "$FRA_PATH" ] && [ "$FRA_PATH" != " " ]; then
-                FRA_NEW="https://77.110.100.210:2053/${FRA_PATH#/}"
+                # Normalize: ensure leading slash and trailing slash
+                FRA_NORM="/${FRA_PATH#/}"
+                FRA_NORM="${FRA_NORM%/}/"
+                FRA_NEW="https://77.110.100.210:2053${FRA_NORM}"
                 echo "  Frankfurt -> $FRA_NEW"
-                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$FRA_NEW' WHERE server_host = '77.110.100.210' AND is_active = TRUE;" 2>&1
+                # Update by server_host (matches rows 4, 6) AND by id (catches row 5 with different host)
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$FRA_NEW' WHERE (server_host = '77.110.100.210' OR id = 5) AND is_active = TRUE;" 2>&1
               else
                 echo "  Frankfurt: no webBasePath set, skipping"
               fi
 
               if [ -n "$HEL_PATH" ] && [ "$HEL_PATH" != " " ]; then
-                HEL_NEW="https://77.221.159.106:2053/${HEL_PATH#/}"
+                HEL_NORM="/${HEL_PATH#/}"
+                HEL_NORM="${HEL_NORM%/}/"
+                HEL_NEW="https://77.221.159.106:2053${HEL_NORM}"
                 echo "  Helsinki -> $HEL_NEW"
                 docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$HEL_NEW' WHERE server_host = '77.221.159.106' AND is_active = TRUE;" 2>&1
               else
@@ -775,7 +781,9 @@ jobs:
               fi
 
               if [ -n "$LA_PATH" ] && [ "$LA_PATH" != " " ]; then
-                LA_NEW="https://216.227.169.120:2053/${LA_PATH#/}"
+                LA_NORM="/${LA_PATH#/}"
+                LA_NORM="${LA_NORM%/}/"
+                LA_NEW="https://216.227.169.120:2053${LA_NORM}"
                 echo "  LA -> $LA_NEW"
                 docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$LA_NEW' WHERE server_host = '216.227.169.120' AND is_active = TRUE;" 2>&1
               else
