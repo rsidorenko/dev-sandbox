@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
+  diag:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,36 +18,27 @@ jobs:
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
           scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "echo '=== Docker containers ==='; docker ps --format '{{.Names}} {{.Image}} {{.Status}}'; echo '=== vpn_servers via docker ==='; CONTAINER=\$(docker ps --format '{{.Names}}' | head -1); echo \"Container: \$CONTAINER\"; docker exec \$CONTAINER python3 -c \"
-import asyncio, asyncpg, os
-async def main():
-    pool = await asyncpg.create_pool(os.environ['DATABASE_URL'])
-    rows = await pool.fetch('SELECT id, label, server_host, inbound_id, COALESCE(transport_type, chr(116)+chr(99)+chr(112)) as tt, is_active FROM vpn_servers ORDER BY id')
-    for r in rows:
-        print(f'id={r[chr(105)+chr(100)]} host={r[chr(115)+chr(101)+chr(114)+chr(118)+chr(101)+chr(114)+chr(95)+chr(104)+chr(111)+chr(115)+chr(116)]} inbound={r[chr(105)+chr(110)+chr(98)+chr(111)+chr(117)+chr(110)+chr(100)+chr(95)+chr(105)+chr(100)]} tt={r[chr(116)+chr(116)]} active={r[chr(105)+chr(115)+chr(95)+chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101)]} label={r[chr(108)+chr(97)+chr(98)+chr(101)+chr(108)]}')
-    active = [r for r in rows if r[chr(105)+chr(115)+chr(95)+chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101)]]
-    print(f'Active: {len(active)} / {len(rows)}')
-    await pool.close()
-asyncio.run(main())
-\" 2>&1" 2>&1 || echo "SSH FAILED"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
+            cd /opt/bravada/backend && source .env
+            CONTAINER=\$(docker ps --format '{{.Names}}' | grep -i 'bravada\|backend\|bot' | head -1)
+            echo 'Container:' \$CONTAINER
+            if [ -n \"\$CONTAINER\" ]; then
+              docker exec \$CONTAINER python3 /tmp/check_vpn.py 2>&1
+            else
+              echo 'No matching container found'
+              docker ps --format '{{.Names}} {{.Image}}'
+            fi
+            rm -f /tmp/check_vpn.py
+          " 2>&1 || echo "SSH FAILED"
 
-      - name: Check inbounds on all servers
+      - name: Check bot logs for resolve errors
         env:
-          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
-          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
-          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
-          SCRIPT_B64=$(base64 -w0 backend/scripts/check_vpn_servers.py)
-
-          echo "=== Frankfurt ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
-
-          echo ""
-          echo "=== Helsinki ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
-
-          echo ""
-          echo "=== LA ==="
-          mkdir -p ~/.ssh
-          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo python3" 2>&1
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
+            CONTAINER=\$(docker ps --format '{{.Names}}' | grep -i 'bravada\|backend\|bot' | head -1)
+            if [ -n \"\$CONTAINER\" ]; then
+              echo '=== Bot container logs (last 100 lines) ==='
+              docker logs --tail 100 \$CONTAINER 2>&1 | grep -i 'resolve\|exception\|NOT_FOUND\|UNAVAIL\|csrf\|login\|401\|403\|error\|failed\|v3_mode\|getClientTraffics\|subscription\|server.*skip\|uuid.*None' | tail -30
+            fi
+          " 2>&1 || echo "SSH FAILED"
