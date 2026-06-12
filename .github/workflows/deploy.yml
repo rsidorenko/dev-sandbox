@@ -105,6 +105,10 @@ on:
         description: "Check routing rules on Helsinki, LA, LTE, Frankfurt for blackhole bug"
         required: false
         default: "false"
+      fix_panel_url:
+        description: "SSH to Frankfurt/LA, discover webBasePath, update panel_url in DB"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -185,6 +189,7 @@ jobs:
           CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
           CHECK_FRANKFURT_ROUTING: ${{ github.event.inputs.check_frankfurt_routing || 'false' }}
           CHECK_ALL_ROUTING: ${{ github.event.inputs.check_all_routing || 'false' }}
+          FIX_PANEL_URL: ${{ github.event.inputs.fix_panel_url || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
@@ -197,7 +202,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -777,4 +782,25 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@62.84.118.140 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud
               echo "=== ALL ROUTING CHECK COMPLETE ==="
+            fi
+
+            if [ "$FIX_PANEL_URL" = "true" ]; then
+              echo "=== FIX PANEL URL: discover webBasePath + update DB ==="
+              mkdir -p ~/.ssh
+              WBP_B64="aW1wb3J0IHNxbGl0ZTMKZGI9c3FsaXRlMy5jb25uZWN0KCIvZXRjL3gtdWkveC11aS5kYiIpCmM9ZGIuY3Vyc29yKCkKYy5leGVjdXRlKCJTRUxFQ1QgdmFsdWUgRlJPTSBzZXR0aW5ncyBXSEVSRSBrZXk9Y2hyKDExOSkrY2hyKDEwMSkrY2hyKDk4KStjaHIoNjYpK2Nocig5NykrY2hyKDExNSkrY2hyKDEwMSkrY2hyKDgwKStjaHIoOTcpK2NocigxMTYpK2NocigxMDQpIikKcj1jLmZldGNob25lKCkKcHJpbnQoclswXSBpZiByIGFuZCByWzBdIGVsc2UgIk5PTkUiKQpkYi5jbG9zZSgp"
+              echo "--- Frankfurt webBasePath ---"
+              FRA_WBP=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $WBP_B64 | base64 -d | python3" 2>&1)
+              echo "Frankfurt webBasePath: $FRA_WBP"
+              echo "--- LA webBasePath ---"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
+              LA_WBP=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $WBP_B64 | base64 -d | sudo python3" 2>&1)
+              echo "LA webBasePath: $LA_WBP"
+              rm -f ~/.ssh/la-key
+              echo "--- Update DB ---"
+              FRA_NEW="https://77.110.100.210:2053/$FRA_WBP"
+              LA_NEW="https://216.227.169.120:2053/$LA_WBP"
+              echo "Frankfurt new URL: $FRA_NEW"
+              echo "LA new URL: $LA_NEW"
+              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python3 /tmp/fix_panel_url.py "$FRA_NEW" "$LA_NEW" 2>&1 || echo "  fix_panel_url.py not found on server"
+              echo "=== FIX PANEL URL COMPLETE ==="
             fi
