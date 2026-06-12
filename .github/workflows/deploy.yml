@@ -101,6 +101,10 @@ on:
         description: "Check Frankfurt outbounds + routing (client traffic blackhole?)"
         required: false
         default: "false"
+      check_all_routing:
+        description: "Check routing rules on Helsinki, LA, LTE, Frankfurt for blackhole bug"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -180,7 +184,9 @@ jobs:
           CHECK_BANS: ${{ github.event.inputs.check_bans || 'false' }}
           CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
           CHECK_FRANKFURT_ROUTING: ${{ github.event.inputs.check_frankfurt_routing || 'false' }}
+          CHECK_ALL_ROUTING: ${{ github.event.inputs.check_all_routing || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -191,7 +197,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,FRANKFURT_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -751,4 +757,24 @@ jobs:
               echo "=== FRANKFURT ROUTING/OUTBOUNDS ==="
               sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_frankfurt_routing.sh 2>&1 || echo "SSH FAILED"
               echo "=== FRANKFURT ROUTING COMPLETE ==="
+            fi
+
+            if [ "$CHECK_ALL_ROUTING" = "true" ]; then
+              echo "=== CHECK ROUTING ON ALL VPN SERVERS ==="
+              mkdir -p ~/.ssh
+              # Helsinki (via password from main)
+              echo "--- Helsinki (77.221.159.106) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED (need HELSINKI_SSH_PASS)"
+              echo "--- Frankfurt (77.110.100.210) ---"
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              # LA (via key)
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              echo "--- LA (216.227.169.120) ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              # LTE (via key)
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
+              echo "--- LTE (62.84.118.140) ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@62.84.118.140 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud
+              echo "=== ALL ROUTING CHECK COMPLETE ==="
             fi
