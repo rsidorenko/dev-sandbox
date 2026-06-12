@@ -546,18 +546,78 @@ async def phase_stats(pool: asyncpg.Pool) -> None:
         print(f"    {r['d']}: {r['cnt']} пользователей{marker}")
 
 
+async def phase_extend_expired(pool: asyncpg.Pool, days: int = 30, dry_run: bool = False) -> int:
+    """Extend expired subscriptions by N days. Returns count of extended users."""
+    print("\n" + "=" * 60)
+    print(f"PHASE: EXTEND EXPIRED (+{days} days)")
+    print("=" * 60)
+
+    rows = await pool.fetch(
+        """SELECT i.internal_user_id, s.active_until_utc, s.state_label
+           FROM user_identities i
+           JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+           WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+           ORDER BY i.internal_user_id"""
+    )
+
+    if not rows:
+        print("  No expired/inactive users found.")
+        return 0
+
+    new_until = datetime.now(UTC) + timedelta(days=days)
+    print(f"  Found {len(rows)} expired/inactive users, extending to {new_until.date()}")
+
+    for r in rows:
+        print(f"    {r['internal_user_id'][:20]} state={r['state_label']} "
+              f"old_until={r['active_until_utc']} → new_until={new_until.date()}")
+
+    if dry_run:
+        print(f"  [DRY RUN] Would extend {len(rows)} users")
+        return len(rows)
+
+    result = await pool.execute(
+        """UPDATE subscription_snapshots
+           SET state_label = 'active',
+               active_until_utc = $1,
+               keys_deactivated_at = NULL,
+               keys_deleted_at = NULL,
+               updated_at = NOW()
+           WHERE internal_user_id IN (
+               SELECT i.internal_user_id FROM user_identities i
+               JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+               WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+           )""",
+        new_until,
+    )
+    print(f"  ✅ Extended {result} — now state_label='active', until={new_until.date()}")
+    return len(rows)
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Wipe and rebuild panel clients from DB")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes")
     parser.add_argument("--verify", action="store_true", help="Only verify current state")
     parser.add_argument("--stats", action="store_true", help="Print user statistics only")
+    parser.add_argument("--extend-expired", type=int, default=0, metavar="DAYS",
+                        help="Extend expired subscriptions by N days, then rebuild")
     args = parser.parse_args()
 
     dry_run = args.dry_run
     verify_only = args.verify
     stats_only = args.stats
+    extend_days = args.extend_expired
 
-    mode = "STATS" if stats_only else "DRY RUN" if dry_run else "VERIFY ONLY" if verify_only else "FULL REBUILD"
+    if extend_days > 0:
+        mode = f"EXTEND EXPIRED +{extend_days}d then REBUILD"
+    elif stats_only:
+        mode = "STATS"
+    elif dry_run:
+        mode = "DRY RUN"
+    elif verify_only:
+        mode = "VERIFY ONLY"
+    else:
+        mode = "FULL REBUILD"
+
     print("=" * 60)
     print("REBUILD PANEL CLIENTS")
     print(f"Mode: {mode}")
@@ -578,6 +638,12 @@ async def main() -> None:
         if stats_only:
             await pool.close()
             return
+
+        # Extend expired users if requested
+        if extend_days > 0:
+            await phase_extend_expired(pool, days=extend_days, dry_run=dry_run)
+            # Print updated stats
+            await phase_stats(pool)
 
         # Phase 1: Load data
         print("\n--- Loading data from DB ---")
