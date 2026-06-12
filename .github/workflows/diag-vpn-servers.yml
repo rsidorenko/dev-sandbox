@@ -1,4 +1,4 @@
-name: check-3xui-inbounds
+name: diag-vpn-servers
 on:
   workflow_dispatch:
 
