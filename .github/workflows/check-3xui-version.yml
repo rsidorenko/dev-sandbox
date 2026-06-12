@@ -10,6 +10,27 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get install -y sshpass >/dev/null 2>&1
 
+      - name: Query vpn_servers from production DB
+        env:
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
+          echo "=== vpn_servers table (production) ==="
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "cd /opt/bravada-vpn && python3 -c \"
+          import asyncio, asyncpg, os
+          async def main():
+              pool = await asyncpg.create_pool(os.environ['DATABASE_URL'])
+              rows = await pool.fetch('SELECT id, label, server_host, inbound_id, transport_type, is_active, COALESCE(transport_type, chr(116)+chr(99)+chr(112)) as tt FROM vpn_servers ORDER BY id')
+              print(f'  Total rows: {len(rows)}')
+              for r in rows:
+                  print(f'  id={r[\"id\"]} host={r[\"server_host\"]} inbound={r[\"inbound_id\"]} tt={r[\"tt\"]} active={r[\"is_active\"]} label={r[\"label\"]}')
+              active = [r for r in rows if r['is_active']]
+              print(f'  Active: {len(active)}')
+              await pool.close()
+          asyncio.run(main())
+          \"" 2>&1 || echo "SSH FAILED"
+
       - name: Check inbounds on all servers
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
