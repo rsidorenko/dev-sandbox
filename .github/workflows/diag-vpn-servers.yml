@@ -10,35 +10,38 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get install -y sshpass >/dev/null 2>&1
 
-      - name: Query vpn_servers from production DB
+      - name: Query vpn_servers + bot logs from production
         env:
           SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
-          echo "=== vpn_servers table (production) ==="
-          scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
-            cd /opt/bravada/backend && source .env
-            CONTAINER=\$(docker ps --format '{{.Names}}' | grep -i 'bravada\|backend\|bot' | head -1)
-            echo 'Container:' \$CONTAINER
-            if [ -n \"\$CONTAINER\" ]; then
-              docker exec \$CONTAINER python3 /tmp/check_vpn.py 2>&1
-            else
-              echo 'No matching container found'
-              docker ps --format '{{.Names}} {{.Image}}'
-            fi
-            rm -f /tmp/check_vpn.py
-          " 2>&1 || echo "SSH FAILED"
 
-      - name: Check bot logs for resolve errors
-        env:
-          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
-            CONTAINER=\$(docker ps --format '{{.Names}}' | grep -i 'bravada\|backend\|bot' | head -1)
-            if [ -n \"\$CONTAINER\" ]; then
-              echo '=== Bot container logs (last 100 lines) ==='
-              docker logs --tail 100 \$CONTAINER 2>&1 | grep -i 'resolve\|exception\|NOT_FOUND\|UNAVAIL\|csrf\|login\|401\|403\|error\|failed\|v3_mode\|getClientTraffics\|subscription\|server.*skip\|uuid.*None' | tail -30
-            fi
-          " 2>&1 || echo "SSH FAILED"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 '
+            echo "=== Docker containers ==="
+            docker ps --format "{{.Names}} {{.Image}} {{.Status}}"
+
+            echo ""
+            echo "=== Find backend container ==="
+            BACKEND=$(docker ps --format "{{.Names}}" | grep -v nginx | head -1)
+            echo "Backend container: $BACKEND"
+
+            echo ""
+            echo "=== vpn_servers query ==="
+            docker exec $BACKEND python3 -c "
+import asyncio, asyncpg, os
+async def main():
+    pool = await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
+    rows = await pool.fetch(\"SELECT id, label, server_host, inbound_id, COALESCE(transport_type, chr(116)+chr(99)+chr(112)) as tt, is_active FROM vpn_servers ORDER BY id\")
+    for r in rows:
+        print(f\"  id={r[\"id\"]} host={r[\"server_host\"]} inbound={r[\"inbound_id\"]} tt={r[\"tt\"]} active={r[\"is_active\"]} label={r[\"label\"]}\")
+    active = [r for r in rows if r[\"is_active\"]]
+    print(f\"Active: {len(active)} / {len(rows)}\")
+    await pool.close()
+asyncio.run(main())
+" 2>&1
+
+            echo ""
+            echo "=== Bot logs (last 200, filtered) ==="
+            docker logs --tail 200 $BACKEND 2>&1 | grep -i "resolve\|exception\|NOT_FOUND\|UNAVAIL\|csrf\|login.*fail\|401\|403\|error\|failed\|getClientTraffics\|subscription\|skip\|uuid.*None\|panel.*http" | tail -30
+          ' 2>&1 || echo "SSH FAILED"
