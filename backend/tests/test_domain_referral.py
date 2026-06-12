@@ -9,6 +9,12 @@ from app.domain.referral import (
     resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
+from app.application.referral_handler import apply_referral_on_registration
+from app.persistence.in_memory import (
+    InMemoryReferralCodeRepository,
+    InMemoryReferralRelationshipRepository,
+)
+from app.shared.test_helpers import run_async as _run
 
 
 def test_level1_rates():
@@ -119,3 +125,138 @@ def test_resolve_referrers_both_levels():
 
 def test_calculate_commission_zero_rate():
     assert calculate_commission_kopecks(30000, 0.0) == 0
+
+
+# --- Tests for apply_referral_on_registration ---
+
+
+def test_apply_referral_creates_l1_relationship() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+
+        # Create referrer with a code
+        referrer_record = await code_repo.get_or_create("user_referrer")
+        assert referrer_record.referral_code
+
+        # Apply referral for new user
+        await apply_referral_on_registration(
+            new_internal_user_id="user_new",
+            referral_code=referrer_record.referral_code,
+            code_repo=code_repo,
+            relationship_repo=rel_repo,
+        )
+
+        # Verify L1 relationship created
+        rels = await rel_repo.find_referrers("user_new")
+        assert len(rels) == 1
+        assert rels[0].level == 1
+        assert rels[0].referrer_user_id == "user_referrer"
+
+    _run(main())
+
+
+def test_apply_referral_creates_l2_when_referrer_has_own_referrer() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+
+        # Create grand-referrer → referrer → new user chain
+        grand = await code_repo.get_or_create("user_grand")
+        # Manually create L1 for referrer (simulating they were referred by grand)
+        await rel_repo.create_relationship(
+            referred_user_id="user_referrer",
+            referrer_user_id="user_grand",
+            level=1,
+            referrer_of_referrer_user_id=None,
+        )
+
+        # Create referrer's code
+        referrer = await code_repo.get_or_create("user_referrer")
+
+        # Apply referral
+        await apply_referral_on_registration(
+            new_internal_user_id="user_new",
+            referral_code=referrer.referral_code,
+            code_repo=code_repo,
+            relationship_repo=rel_repo,
+        )
+
+        rels = await rel_repo.find_referrers("user_new")
+        assert len(rels) == 2
+        l1 = next(r for r in rels if r.level == 1)
+        l2 = next(r for r in rels if r.level == 2)
+        assert l1.referrer_user_id == "user_referrer"
+        assert l2.referrer_user_id == "user_grand"
+
+    _run(main())
+
+
+def test_apply_referral_ignores_invalid_code() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+
+        # No code exists for "nonexistent" → should silently do nothing
+        await apply_referral_on_registration(
+            new_internal_user_id="user_new",
+            referral_code="nonexistent",
+            code_repo=code_repo,
+            relationship_repo=rel_repo,
+        )
+
+        rels = await rel_repo.find_referrers("user_new")
+        assert len(rels) == 0
+
+    _run(main())
+
+
+def test_apply_referral_prevents_self_referral() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+
+        # User tries to use their own code
+        record = await code_repo.get_or_create("user_a")
+
+        await apply_referral_on_registration(
+            new_internal_user_id="user_a",
+            referral_code=record.referral_code,
+            code_repo=code_repo,
+            relationship_repo=rel_repo,
+        )
+
+        rels = await rel_repo.find_referrers("user_a")
+        assert len(rels) == 0
+
+    _run(main())
+
+
+def test_apply_referral_skips_if_user_already_has_referrer() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+
+        # User already has a referrer
+        await rel_repo.create_relationship(
+            referred_user_id="user_new",
+            referrer_user_id="user_old_referrer",
+            level=1,
+            referrer_of_referrer_user_id=None,
+        )
+
+        referrer = await code_repo.get_or_create("user_referrer")
+
+        await apply_referral_on_registration(
+            new_internal_user_id="user_new",
+            referral_code=referrer.referral_code,
+            code_repo=code_repo,
+            relationship_repo=rel_repo,
+        )
+
+        # Should NOT add another referrer
+        rels = await rel_repo.find_referrers("user_new")
+        assert len(rels) == 1
+        assert rels[0].referrer_user_id == "user_old_referrer"
+
+    _run(main())

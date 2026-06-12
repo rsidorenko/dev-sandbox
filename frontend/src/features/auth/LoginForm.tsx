@@ -65,7 +65,10 @@ export function LoginForm() {
   const onVerifyCode = codeForm.handleSubmit(async ({ code }) => {
     setServerError("");
     const email = emailForm.getValues("email");
-    const result = await authApi.verifyCode(email, code);
+    const referralCode = typeof window !== "undefined"
+      ? localStorage.getItem("pending_referral_code") || undefined
+      : undefined;
+    const result = await authApi.verifyCode(email, code, referralCode);
     if (!result.ok) {
       if (result.error === "invalid_code") {
         setServerError("Неверный код. Попробуйте снова.");
@@ -83,6 +86,9 @@ export function LoginForm() {
         setServerError("Не удалось войти. Попробуйте позже.");
       }
       return;
+    }
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("pending_referral_code");
     }
     const next = searchParams.get("next") || "/dashboard";
     window.location.href = next;

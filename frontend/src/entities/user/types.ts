@@ -15,6 +15,7 @@ export interface UserProfile {
     code: string;
     balance_rubles: number;
     referrals_count: number;
+    web_referral_link?: string;
   } | null;
 }
 

@@ -23,6 +23,7 @@ type Referral = {
   code: string;
   balance_rubles: number;
   referrals_count: number;
+  web_referral_link?: string;
 };
 
 type Props = {
@@ -378,25 +379,45 @@ export function SubscriptionCard({
             </p>
             <div className="mt-3 rounded-lg bg-gradient-to-br from-amber-50 to-orange-100/50 p-4 dark:from-amber-950/30 dark:to-orange-900/20">
               <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                Пригласите друга и получите бонус
+                Отправьте ссылку другу — получите процент с его оплаты
               </p>
-              <p className="mt-2 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                https://t.me/{siteConfig.botUsername}?start=ref_
-                {referral.code}
-              </p>
-              <button
-                onClick={() =>
-                  copy(
-                    `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
-                    "ref-link",
-                  )
-                }
-                className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
-              >
-                {isCopied("ref-link")
-                  ? "Скопировано!"
-                  : "Скопировать ссылку"}
-              </button>
+              {/* Telegram link */}
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  🔗 Для Telegram <span className="font-normal text-gray-400">— друг без сайта</span>
+                </p>
+                <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
+                  https://t.me/{siteConfig.botUsername}?start=ref_{referral.code}
+                </p>
+                <button
+                  onClick={() =>
+                    copy(
+                      `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
+                      "ref-tg",
+                    )
+                  }
+                  className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                >
+                  {isCopied("ref-tg") ? "✓ Скопировано!" : "Копировать"}
+                </button>
+              </div>
+              {/* Web link */}
+              {referral.web_referral_link && (
+                <div className="mt-3 border-t border-amber-200/50 pt-3 dark:border-amber-800/30">
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    🌐 Для сайта <span className="font-normal text-gray-400">— друг без Telegram</span>
+                  </p>
+                  <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
+                    {referral.web_referral_link}
+                  </p>
+                  <button
+                    onClick={() => copy(referral.web_referral_link!, "ref-web")}
+                    className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    {isCopied("ref-web") ? "✓ Скопировано!" : "Копировать"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

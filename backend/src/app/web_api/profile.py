@@ -124,10 +124,14 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
 
     referral = None
     if row["referral_code"] is not None:
+        from app.shared.site_url import get_site_base_url
+
+        site_url = get_site_base_url()
         referral = {
             "code": row["referral_code"],
             "balance_rubles": round((row["balance_kopecks"] or 0) / 100, 2),
             "referrals_count": row["referral_count"] or 0,
+            "web_referral_link": f"{site_url}/?ref={row['referral_code']}",
         }
 
     return JSONResponse(

@@ -1829,6 +1829,7 @@ async def _render_storefront_response(
     elif code == CB_REFERRAL:
         if uid is not None and composition.bot_username:
             from app.application.referral_handler import ReferralInfo, get_referral_info
+            from app.shared.site_url import get_site_base_url
 
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
@@ -1838,12 +1839,13 @@ async def _render_storefront_response(
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
                     bot_username=composition.bot_username,
+                    site_base_url=get_site_base_url(),
                 )
                 text, keyboard = text_referral_program(info), back_only_keyboard(CB_MAIN_MENU)
             else:
                 text, keyboard = (
                     text_referral_program(
-                        ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                        ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
                     ),
                     back_only_keyboard(CB_MAIN_MENU),
                 )
@@ -1852,7 +1854,7 @@ async def _render_storefront_response(
 
             text, keyboard = (
                 text_referral_program(
-                    ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                    ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
                 ),
                 back_only_keyboard(CB_MAIN_MENU),
             )

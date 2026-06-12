@@ -288,35 +288,14 @@ async def _apply_referral_on_bootstrap(
     referral_code: str,
 ) -> None:
     """Create L1/L2 referral relationships on first bootstrap via referral link."""
-    referrer_record = await composition.referral_code_repo.find_by_code(referral_code)
-    if referrer_record is None:
-        return
-    if referrer_record.internal_user_id == new_user_id:
-        return
-    existing = await composition.referral_relationship_repo.find_referrers(new_user_id)
-    if existing:
-        return
-    referrer_of_referrer_id: str | None = None
-    referrer_referrers = await composition.referral_relationship_repo.find_referrers(
-        referrer_record.internal_user_id,
+    from app.application.referral_handler import apply_referral_on_registration
+
+    await apply_referral_on_registration(
+        new_internal_user_id=new_user_id,
+        referral_code=referral_code,
+        code_repo=composition.referral_code_repo,
+        relationship_repo=composition.referral_relationship_repo,
     )
-    for rr in referrer_referrers:
-        if rr.level == 1:
-            referrer_of_referrer_id = rr.referrer_user_id
-            break
-    await composition.referral_relationship_repo.create_relationship(
-        referred_user_id=new_user_id,
-        referrer_user_id=referrer_record.internal_user_id,
-        level=1,
-        referrer_of_referrer_user_id=None,
-    )
-    if referrer_of_referrer_id is not None and referrer_of_referrer_id != new_user_id:
-        await composition.referral_relationship_repo.create_relationship(
-            referred_user_id=new_user_id,
-            referrer_user_id=referrer_of_referrer_id,
-            level=2,
-            referrer_of_referrer_user_id=referrer_record.internal_user_id,
-        )
 
 
 class Slice1Dispatcher:
