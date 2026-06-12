@@ -37,10 +37,23 @@ jobs:
           echo "=== LA client log ==="
           grep -E "tunneling|failed|error|dial" la.log | tail -5
           kill %1 %2 2>/dev/null
-      - name: Check Frankfurt access log (exclude api flood) for our connection
+      - name: Check Frankfurt config.json clients (stale?) + restart x-ui
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
         run: |
           sudo apt-get install -y sshpass >/dev/null 2>&1
-          echo "=== Frankfurt: REAL client connections (excluding api/127.0.0.1 flood) ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "grep -v '127.0.0.1' /var/log/xray-access.log 2>/dev/null | tail -30; echo '--- error log (non-api) ---'; grep -v 'dokodemo\|127.0.0.1' /var/log/xray-error.log 2>/dev/null | tail -20" 2>&1 || echo "SSH FAILED"
+          CFG_B64="aW1wb3J0IGpzb24KYz1qc29uLmxvYWQob3BlbigiL3Vzci9sb2NhbC94LXVpL2Jpbi9jb25maWcuanNvbiIpKQpmb3IgaWIgaW4gYy5nZXQoImluYm91bmRzIixbXSk6CiAgICBpZiBpYi5nZXQoInBvcnQiKT09NDQzOgogICAgICAgIHM9aWIuZ2V0KCJzZXR0aW5ncyIse30pCiAgICAgICAgaWYgaXNpbnN0YW5jZShzLHN0cik6IHM9anNvbi5sb2FkcyhzKQogICAgICAgIGNsPXMuZ2V0KCJjbGllbnRzIixbXSkKICAgICAgICB1dWlkcz1beC5nZXQoImlkIikgZm9yIHggaW4gY2xdCiAgICAgICAgcHJpbnQoImluYm91bmQgNDQzIGNsaWVudHM6IiwgbGVuKGNsKSkKICAgICAgICBwcmludCgiZmU1NGM3ZjEgaW4gY29uZmlnLmpzb246IiwgImZlNTRjN2YxLTdhMTItNDRmNi05OTU2LWYwNTc4YTg3ZmQyZiIgaW4gdXVpZHMpCg=="
+          echo "=== BEFORE restart: config.json clients ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $CFG_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
+          echo "=== restarting x-ui to regenerate config.json from DB ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 root@77.110.100.210 "systemctl restart x-ui; sleep 5; echo $CFG_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
+      - name: Re-test connection after restart
+        run: |
+          set +e
+          cd /tmp
+          ./xray run -config cfg_fra.json &> fra2.log &
+          sleep 5
+          echo "=== Frankfurt exit IP AFTER restart (expect 77.110.100.210) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo
+          grep -E "tunneling|accepted|failed" fra2.log | tail -5
+          kill %1 2>/dev/null
