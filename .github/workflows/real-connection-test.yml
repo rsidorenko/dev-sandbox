@@ -18,7 +18,7 @@ jobs:
         run: |
           cat > /tmp/config.json <<'EOF'
           {
-            "log": {"loglevel": "warning"},
+            "log": {"loglevel": "debug"},
             "inbounds": [{
               "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
               "settings": {"udp": true}
@@ -58,7 +58,7 @@ jobs:
           fi
           echo "=== try fetching a page through the tunnel ==="
           curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://ifconfig.co 2>&1 | head -c 200; echo
-          echo "=== xray log (last 25) ==="
-          tail -25 xray.log
+          echo "=== xray log (last 40) ==="
+          tail -40 xray.log
           kill $XRAY_PID 2>/dev/null
           exit 0
