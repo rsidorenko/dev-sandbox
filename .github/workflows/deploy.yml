@@ -787,30 +787,15 @@ jobs:
             if [ "$FIX_PANEL_URL" = "true" ]; then
               echo "=== FIX PANEL URL: discover webBasePath + update DB ==="
               mkdir -p ~/.ssh
+              WBP_B64="aW1wb3J0IHNxbGl0ZTMKZGI9c3FsaXRlMy5jb25uZWN0KCIvZXRjL3gtdWkveC11aS5kYiIpCmM9ZGIuY3Vyc29yKCkKYy5leGVjdXRlKCJTRUxFQ1QgdmFsdWUgRlJPTSBzZXR0aW5ncyBXSEVSRSBrZXk9Y2hyKDExOSkrY2hyKDEwMSkrY2hyKDk4KStjaHIoNjYpK2Nocig5NykrY2hyKDExNSkrY2hyKDEwMSkrY2hyKDgwKStjaHIoOTcpK2NocigxMTYpK2NocigxMDQpIikKcj1jLmZldGNob25lKCkKcHJpbnQoclswXSBpZiByIGFuZCByWzBdIGVsc2UgIk5PTkUiKQpkYi5jbG9zZSgp"
 
               echo "--- Frankfurt webBasePath ---"
-              FRA_WBP=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
-import sqlite3
-db=sqlite3.connect('/etc/x-ui/x-ui.db')
-c=db.cursor()
-c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
-r=c.fetchone()
-print(r[0] if r and r[0] else 'NONE')
-db.close()
-\"" 2>&1)
+              FRA_WBP=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $WBP_B64 | base64 -d | python3" 2>&1)
               echo "Frankfurt webBasePath: $FRA_WBP"
 
               echo "--- LA webBasePath ---"
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
-              LA_WBP=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
-import sqlite3
-db=sqlite3.connect('/etc/x-ui/x-ui.db')
-c=db.cursor()
-c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
-r=c.fetchone()
-print(r[0] if r and r[0] else 'NONE')
-db.close()
-\"" 2>&1)
+              LA_WBP=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $WBP_B64 | base64 -d | sudo python3" 2>&1)
               echo "LA webBasePath: $LA_WBP"
               rm -f ~/.ssh/la-key
 
@@ -820,16 +805,8 @@ db.close()
               echo "Frankfurt new URL: $FRA_NEW"
               echo "LA new URL: $LA_NEW"
 
-              docker exec $(docker ps --format "{{.Names}}" | grep backend | head -1) python3 -c "
-import asyncio, asyncpg, os
-async def m():
-  p = await asyncpg.create_pool(os.environ['DATABASE_URL'])
-  r1 = await p.execute(\"UPDATE vpn_servers SET panel_url = '\$FRA_NEW' WHERE server_host = '77.110.100.210' AND is_active = TRUE\")
-  r2 = await p.execute(\"UPDATE vpn_servers SET panel_url = '\$LA_NEW' WHERE server_host = '216.227.169.120' AND is_active = TRUE\")
-  rows = await p.fetch(\"SELECT id, label, panel_url FROM vpn_servers WHERE server_host IN ('77.110.100.210','216.227.169.120') ORDER BY id\")
-  for x in rows: print('  id=%s label=%s url=%s' % (x['id'], x['label'], x['panel_url']))
-  await p.close()
-asyncio.run(m())" 2>&1
+              BACKEND=$(docker ps --format "{{.Names}}" | grep backend | head -1)
+              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL $BACKEND python3 /tmp/fix_panel_url.py "$FRA_NEW" "$LA_NEW" 2>&1 || echo "  Fix script not yet deployed — will work on next deploy"
 
               echo "=== FIX PANEL URL COMPLETE ==="
             fi
