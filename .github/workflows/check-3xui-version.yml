@@ -17,7 +17,7 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "cd /opt/bravada-vpn && python3 -c \"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "cd /opt/bravada/backend && python3 -c \"
           import asyncio, asyncpg, os
           async def main():
               pool = await asyncpg.create_pool(os.environ['DATABASE_URL'])
