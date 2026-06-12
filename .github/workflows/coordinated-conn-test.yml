@@ -12,23 +12,31 @@ jobs:
           curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o x.zip
           unzip -o x.zip xray >/dev/null && chmod +x xray
           echo "RUNNER_IP=$(curl -s https://api.ipify.org)" >> $GITHUB_ENV
-          echo "=== runner IP: $RUNNER_IP ==="
-          cat > config.json <<'EOF'
+          # Frankfurt 1.0 config
+          cat > cfg_fra.json <<'EOF'
           {"log":{"loglevel":"info"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.110.100.210","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"Q_wpt7L8sU2O1OVBV-mpsSvgLAChIhN4hgTm0XZH4Do","shortId":"a1b2c3d4e5f6","spiderX":"/"}}}]}
           EOF
-          sed -i 's/^          //' config.json
-      - name: Connect + test
+          # LA 1.0 config (different server)
+          cat > cfg_la.json <<'EOF'
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10809,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"216.227.169.120","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"cBbhJrcUvRo_MDNq6aaUSDLSBvVOqCTEUD7jpAy1O08","shortId":"1f94","spiderX":"/"}}}]}
+          EOF
+          sed -i 's/^          //' cfg_fra.json cfg_la.json
+      - name: Test BOTH Frankfurt and LA
         run: |
           set +e
           cd /tmp
-          ./xray run -config config.json &> xray.log &
-          sleep 4
-          for i in 1 2 3; do
-            curl -s --max-time 15 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo " (attempt $i)"
-          done
-          echo "=== client log ==="
-          grep -E "tunneling|accepted|failed|error|dial" xray.log | tail -10
-          kill %1 2>/dev/null
+          ./xray run -config cfg_fra.json &> fra.log &
+          ./xray run -config cfg_la.json &> la.log &
+          sleep 5
+          echo "=== Frankfurt exit IP (expect 77.110.100.210) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo
+          echo "=== LA exit IP (expect 216.227.169.120) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10809 https://api.ipify.org; echo
+          echo "=== Frankfurt client log ==="
+          grep -E "tunneling|failed|error|dial" fra.log | tail -5
+          echo "=== LA client log ==="
+          grep -E "tunneling|failed|error|dial" la.log | tail -5
+          kill %1 %2 2>/dev/null
       - name: Check Frankfurt outbounds/routing (definitive)
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
