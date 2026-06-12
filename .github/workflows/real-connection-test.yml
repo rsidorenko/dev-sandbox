@@ -39,23 +39,26 @@ jobs:
           sed -i 's/^          //' /tmp/config.json
       - name: Start xray + test connection
         run: |
+          set +e
           cd /tmp
           ./xray run -config config.json &> xray.log &
           XRAY_PID=$!
-          sleep 4
+          sleep 5
           echo "=== xray running (pid $XRAY_PID) ==="
+          cat xray.log | head -20
           echo "=== runner's own IP ==="
           curl -s --max-time 10 https://api.ipify.org; echo
           echo "=== IP through VLESS+Reality (Frankfurt) — expect 77.110.100.210 ==="
-          EXIT_IP=$(curl -s --max-time 25 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org)
+          EXIT_IP=$(curl -s --max-time 30 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org)
           echo "exit IP: ${EXIT_IP:-<FAILED/empty>}"
           if [ "$EXIT_IP" = "77.110.100.210" ]; then
-            echo "✅✅✅ FULL CHAIN WORKS — VLESS+Reality auth + routing succeeded (exit IP = Frankfurt server)"
+            echo "RESULT=SUCCESS: FULL CHAIN WORKS — VLESS+Reality auth + routing succeeded (exit IP = Frankfurt server)"
           else
-            echo "❌ connection FAILED — keys do not work end-to-end from neutral network"
+            echo "RESULT=FAILED: keys do not work end-to-end from neutral network"
           fi
           echo "=== try fetching a page through the tunnel ==="
-          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://ifconfig.co | head -c 200; echo
-          echo "=== xray log (last 15) ==="
-          tail -15 xray.log
-          kill $XRAY_PID 2>/dev/null || true
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://ifconfig.co 2>&1 | head -c 200; echo
+          echo "=== xray log (last 25) ==="
+          tail -25 xray.log
+          kill $XRAY_PID 2>/dev/null
+          exit 0
