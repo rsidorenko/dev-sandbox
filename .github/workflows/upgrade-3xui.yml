@@ -93,18 +93,20 @@ jobs:
           import sqlite3, json
           db = sqlite3.connect('/etc/x-ui/x-ui.db')
           c = db.cursor()
-          c.execute('SELECT settings FROM inbounds WHERE id=1')
-          s = json.loads(c.fetchone()[0])
+          c.execute('SELECT stream_settings FROM inbounds WHERE id=1')
+          row = c.fetchone()
+          s = json.loads(row[0]) if row else {}
           print(json.dumps(s))
           db.close()
           \"" 2>&1)
-          echo "Helsinki inbound 1 settings: ${HEL_KEYS:0:200}..."
+          echo "Helsinki stream_settings: ${HEL_KEYS:0:300}..."
 
-          # Extract Reality keys from Helsinki inbound
-          HEL_PBK=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('realitySettings',{}).get('publicKey','') if 'realitySettings' in d else d.get('stream',{}).get('realitySettings',{}).get('publicKey',''))")
-          HEL_SID=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('realitySettings',{}).get('shortId','') if 'realitySettings' in d else d.get('stream',{}).get('realitySettings',{}).get('shortId',''))")
-          HEL_SNI=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('realitySettings',{}).get('serverNames',[''])[0] if 'realitySettings' in d else d.get('stream',{}).get('realitySettings',{}).get('serverNames',[''])[0])")
-          echo "Helsinki PBK=$HEL_PBK SID=$HEL_SID SNI=$HEL_SNI"
+          # Extract Reality keys from Helsinki stream_settings
+          HEL_PBK=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('publicKey','') if rs.get('publicKey') else rs.get('pbk',''))")
+          HEL_SID=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('shortId','') if rs.get('shortId') else rs.get('sid',''))")
+          HEL_SNI=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); names=rs.get('serverNames',[]); print(names[0] if names else rs.get('sni',''))")
+          HEL_FP=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('fingerprint','chrome'))")
+          echo "Helsinki PBK=$HEL_PBK SID=$HEL_SID SNI=$HEL_SNI FP=$HEL_FP"
 
           VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
           curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o x.zip
@@ -116,7 +118,7 @@ jobs:
           EOF
           # Helsinki config
           cat > cfg_hel.json <<EOF
-          {"log":{"loglevel":"info"},"inbounds":[{"port":10810,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.221.159.106","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"$HEL_SNI","fingerprint":"chrome","publicKey":"$HEL_PBK","shortId":"$HEL_SID","spiderX":"/"}}}]}
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10810,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.221.159.106","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"$HEL_SNI","fingerprint":"$HEL_FP","publicKey":"$HEL_PBK","shortId":"$HEL_SID","spiderX":"/"}}}]}
           EOF
           # LA config
           cat > cfg_la.json <<EOF
