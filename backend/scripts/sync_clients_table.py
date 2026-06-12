@@ -38,8 +38,15 @@ def main():
         existing_mappings.add((row["client_id"], row["inbound_id"]))
 
     added_clients = 0
+    updated_clients = 0
     added_mappings = 0
     skipped = 0
+
+    # Build email→client_id index for collision detection
+    c.execute("SELECT id, email, uuid FROM clients")
+    email_to_id = {}
+    for row in c.fetchall():
+        email_to_id[row["email"]] = row["id"]
 
     # Read all inbounds and their settings JSON
     c.execute("SELECT id, settings FROM inbounds")
@@ -61,31 +68,57 @@ def main():
                 continue
 
             client_id = existing_clients.get(uuid)
+            email = jc.get("email", "")
 
             if client_id is None:
-                # Insert new client into clients table
-                email = jc.get("email", "")
-                sub_id = jc.get("subId", "")
-                flow = jc.get("flow", "")
-                limit_ip = jc.get("limitIp", 0)
-                total_gb = jc.get("totalGB", 0)
-                expiry_time = jc.get("expiryTime", 0)
-                enable = 1 if jc.get("enable", True) else 0
+                # Check if email already exists (UNIQUE constraint on email)
+                existing_by_email = email_to_id.get(email)
 
-                c.execute("""
-                    INSERT INTO clients
-                    (email, sub_id, uuid, password, auth, flow, security, reverse,
-                     limit_ip, total_gb, expiry_time, enable, tg_id, group_name,
-                     comment, reset, created_at, updated_at)
-                    VALUES (?, ?, ?, '', '', ?, '', '',
-                            ?, ?, ?, ?, 0, '', '', 0, ?, ?)
-                """, (email, sub_id, uuid, flow, limit_ip, total_gb,
-                      expiry_time, enable, now_ms, now_ms))
+                if existing_by_email is not None:
+                    # Update existing client row with new UUID
+                    sub_id = jc.get("subId", "")
+                    flow = jc.get("flow", "")
+                    limit_ip = jc.get("limitIp", 0)
+                    total_gb = jc.get("totalGB", 0)
+                    expiry_time = jc.get("expiryTime", 0)
+                    enable = 1 if jc.get("enable", True) else 0
 
-                client_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-                existing_clients[uuid] = client_id
-                added_clients += 1
-                print(f"  + client UUID={uuid[:8]}... email={email} (id={client_id})")
+                    c.execute("""
+                        UPDATE clients SET uuid = ?, sub_id = ?, flow = ?,
+                                           limit_ip = ?, total_gb = ?, expiry_time = ?,
+                                           enable = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (uuid, sub_id, flow, limit_ip, total_gb,
+                          expiry_time, enable, now_ms, existing_by_email))
+
+                    client_id = existing_by_email
+                    existing_clients[uuid] = client_id
+                    updated_clients += 1
+                    print(f"  ~ updated UUID for email={email} → {uuid[:8]}... (id={client_id})")
+                else:
+                    # Insert new client into clients table
+                    sub_id = jc.get("subId", "")
+                    flow = jc.get("flow", "")
+                    limit_ip = jc.get("limitIp", 0)
+                    total_gb = jc.get("totalGB", 0)
+                    expiry_time = jc.get("expiryTime", 0)
+                    enable = 1 if jc.get("enable", True) else 0
+
+                    c.execute("""
+                        INSERT INTO clients
+                        (email, sub_id, uuid, password, auth, flow, security, reverse,
+                         limit_ip, total_gb, expiry_time, enable, tg_id, group_name,
+                         comment, reset, created_at, updated_at)
+                        VALUES (?, ?, ?, '', '', ?, '', '',
+                                ?, ?, ?, ?, 0, '', '', 0, ?, ?)
+                    """, (email, sub_id, uuid, flow, limit_ip, total_gb,
+                          expiry_time, enable, now_ms, now_ms))
+
+                    client_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    existing_clients[uuid] = client_id
+                    email_to_id[email] = client_id
+                    added_clients += 1
+                    print(f"  + client UUID={uuid[:8]}... email={email} (id={client_id})")
             else:
                 skipped += 1
 
@@ -113,9 +146,10 @@ def main():
         print(f"  inbound {r[0]}: {r[1]} clients")
 
     print(f"\n=== SYNC COMPLETE ===")
-    print(f"Added:  {added_clients} clients, {added_mappings} inbound mappings")
+    print(f"Added:   {added_clients} clients, {added_mappings} inbound mappings")
+    print(f"Updated: {updated_clients} (email collision, UUID replaced)")
     print(f"Skipped: {skipped} (already in clients table)")
-    print(f"Total:  {total_clients} clients, {total_mappings} inbound mappings")
+    print(f"Total:   {total_clients} clients, {total_mappings} inbound mappings")
 
     db.close()
 
