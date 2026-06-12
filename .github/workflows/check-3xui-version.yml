@@ -18,7 +18,7 @@ jobs:
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
           scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "journalctl -u bravada --no-pager -n 200 2>/dev/null | grep -i 'resolve_client_uuid\|exception\|NOT_FOUND\|UNAVAILABLE\|v3_mode\|getClientTraffics\|csrf\|login\|401\|403\|failed to' | tail -30; echo '---'; systemctl status bravada 2>/dev/null | head -10" 2>&1 || echo "SSH FAILED"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "echo '=== Running processes ==='; ps aux | grep -i 'python\|uvicorn\|bravada\|polling' | grep -v grep; echo '=== systemd units ==='; systemctl list-units --type=service --state=running | grep -i 'bravada\|bot\|vpn\|polling'; echo '=== Recent logs ==='; journalctl --no-pager -n 50 2>/dev/null | grep -i 'bravada\|bot\|uvicorn\|resolve\|subscription' | tail -20" 2>&1 || echo "SSH FAILED"
 
       - name: Check inbounds on all servers
         env:
