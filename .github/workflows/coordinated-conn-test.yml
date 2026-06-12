@@ -37,11 +37,10 @@ jobs:
           echo "=== LA client log ==="
           grep -E "tunneling|failed|error|dial" la.log | tail -5
           kill %1 %2 2>/dev/null
-      - name: Check Frankfurt outbounds/routing (definitive)
+      - name: Check Frankfurt access log (exclude api flood) for our connection
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
         run: |
           sudo apt-get install -y sshpass >/dev/null 2>&1
-          OB_B64="aW1wb3J0IGpzb24KYyA9IGpzb24ubG9hZChvcGVuKCIvdXNyL2xvY2FsL3gtdWkvYmluL2NvbmZpZy5qc29uIikpCm9icyA9IGMuZ2V0KCJvdXRib3VuZHMiLCBbXSkKcHJpbnQoIj09PSBERUZBVUxUIChmaXJzdCkgb3V0Ym91bmQgPT09IikKaWYgb2JzOgogICAgcHJpbnQoIj4+PiAiICsgc3RyKG9ic1swXS5nZXQoInRhZyIpKSArICIgPSAiICsgc3RyKG9ic1swXS5nZXQoInByb3RvY29sIikpICsgIiA8PDwiKQpwcmludCgiPT09IGFsbCBvdXRib3VuZHMgPT09IikKZm9yIGksIG8gaW4gZW51bWVyYXRlKG9icyk6CiAgICBsaW5lID0gIiAgWyIgKyBzdHIoaSkgKyAiXSAiICsgc3RyKG8uZ2V0KCJ0YWciKSkgKyAiID0gIiArIHN0cihvLmdldCgicHJvdG9jb2wiKSkKICAgIGlmIG8uZ2V0KCJwcm90b2NvbCIpID09ICJ2bGVzcyI6CiAgICAgICAgdm4gPSBvLmdldCgic2V0dGluZ3MiLHt9KS5nZXQoInZuZXh0Iixbe31dKVswXQogICAgICAgIGxpbmUgKz0gIiAtPiAiICsgc3RyKHZuLmdldCgiYWRkcmVzcyIpKSArICI6IiArIHN0cih2bi5nZXQoInBvcnQiKSkKICAgIHByaW50KGxpbmUpCnByaW50KCI9PT0gcm91dGluZyBydWxlcyA9PT0iKQpmb3IgaSwgciBpbiBlbnVtZXJhdGUoYy5nZXQoInJvdXRpbmciLHt9KS5nZXQoInJ1bGVzIixbXSkpOgogICAgcHJpbnQoIiAgWyIgKyBzdHIoaSkgKyAiXSAiICsganNvbi5kdW1wcyhyKSkK"
-          echo "=== Frankfurt outbounds/routing ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $OB_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
+          echo "=== Frankfurt: REAL client connections (excluding api/127.0.0.1 flood) ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "grep -v '127.0.0.1' /var/log/xray-access.log 2>/dev/null | tail -30; echo '--- error log (non-api) ---'; grep -v 'dokodemo\|127.0.0.1' /var/log/xray-error.log 2>/dev/null | tail -20" 2>&1 || echo "SSH FAILED"
