@@ -105,6 +105,10 @@ on:
         description: "Check routing rules on Helsinki, LA, LTE, Frankfurt for blackhole bug"
         required: false
         default: "false"
+      fix_panel_url:
+        description: "SSH to Frankfurt/LA, discover webBasePath, update panel_url in DB"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -185,6 +189,7 @@ jobs:
           CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
           CHECK_FRANKFURT_ROUTING: ${{ github.event.inputs.check_frankfurt_routing || 'false' }}
           CHECK_ALL_ROUTING: ${{ github.event.inputs.check_all_routing || 'false' }}
+          FIX_PANEL_URL: ${{ github.event.inputs.fix_panel_url || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
@@ -197,7 +202,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -778,3 +783,118 @@ jobs:
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud
               echo "=== ALL ROUTING CHECK COMPLETE ==="
             fi
+
+            if [ "$FIX_PANEL_URL" = "true" ]; then
+              echo "=== FIX PANEL URL: discover webBasePath and update DB ==="
+              mkdir -p ~/.ssh
+
+              echo "--- Frankfurt webBasePath ---"
+              FRA_PATH=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$FRA_PATH'"
+
+              echo "--- Helsinki webBasePath ---"
+              HEL_PATH=$(sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$HEL_PATH'"
+
+              echo "--- LA webBasePath ---"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              LA_PATH=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$LA_PATH'"
+              rm -f ~/.ssh/la-key
+
+              echo "--- Current panel_url in DB ---"
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "SELECT id, label, panel_url FROM vpn_servers WHERE is_active = TRUE ORDER BY id;" 2>&1
+
+              echo "--- Updating panel_url in DB ---"
+              if [ -n "$FRA_PATH" ] && [ "$FRA_PATH" != " " ]; then
+                FRA_NEW="https://77.110.100.210:2053/${FRA_PATH#/}"
+                echo "  Frankfurt -> $FRA_NEW"
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$FRA_NEW' WHERE server_host = '77.110.100.210' AND is_active = TRUE;" 2>&1
+              else
+                echo "  Frankfurt: no webBasePath set, skipping"
+              fi
+
+              if [ -n "$HEL_PATH" ] && [ "$HEL_PATH" != " " ]; then
+                HEL_NEW="https://77.221.159.106:2053/${HEL_PATH#/}"
+                echo "  Helsinki -> $HEL_NEW"
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$HEL_NEW' WHERE server_host = '77.221.159.106' AND is_active = TRUE;" 2>&1
+              else
+                echo "  Helsinki: no webBasePath set, skipping"
+              fi
+
+              if [ -n "$LA_PATH" ] && [ "$LA_PATH" != " " ]; then
+                LA_NEW="https://216.227.169.120:2053/${LA_PATH#/}"
+                echo "  LA -> $LA_NEW"
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$LA_NEW' WHERE server_host = '216.227.169.120' AND is_active = TRUE;" 2>&1
+              else
+                echo "  LA: no webBasePath set, skipping"
+              fi
+
+              echo "--- Verify updated panel_url ---"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "SELECT id, label, panel_url FROM vpn_servers WHERE is_active = TRUE ORDER BY id;" 2>&1
+
+              echo "--- Restarting backend to pick up new URLs ---"
+              docker compose -f docker-compose.prod.yml restart backend 2>&1 || true
+
+              echo "=== FIX PANEL URL COMPLETE ==="
+            fi
+
+            # Always-run: print panel_url + test login to each panel
+            echo "=== POST-DEPLOY PANEL DIAGNOSTIC (always runs) ==="
+            cd /opt/bravada
+            cat > /tmp/panel_diag.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, re
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT id, label, panel_url, panel_username, "
+                        "COALESCE(encrypted_password, '') AS enc_pwd, panel_password "
+                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                    )
+                    import httpx
+                    for row in rows:
+                        url = row['panel_url'].rstrip('/')
+                        pwd = decrypt_field(row['enc_pwd']) if row['enc_pwd'] else row['panel_password']
+                        print(f'  [{row["id"]}] {row["label"]}: {url}')
+                        try:
+                            async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as client:
+                                # Try csrf-token endpoint
+                                csrf_resp = await client.get(f'{url}/csrf-token')
+                                csrf = ''
+                                if csrf_resp.status_code == 200:
+                                    d = csrf_resp.json()
+                                    csrf = d.get('obj', '') or d.get('token', '')
+                                if not csrf:
+                                    page = await client.get(f'{url}/')
+                                    m = re.search(r'csrf-token.*?content="([^"]+)"', page.text)
+                                    csrf = m.group(1) if m else ''
+                                hdrs = {'Content-Type': 'application/json'}
+                                if csrf:
+                                    hdrs['X-CSRF-Token'] = csrf
+                                login = await client.post(f'{url}/login',
+                                    json={'username': row['panel_username'], 'password': pwd},
+                                    headers=hdrs, timeout=10)
+                                if login.status_code == 200 and login.json().get('success'):
+                                    print(f'    LOGIN OK')
+                                else:
+                                    print(f'    LOGIN FAILED: status={login.status_code} body={login.text[:200]}')
+                        except Exception as e:
+                            print(f'    ERROR: {e}')
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+            docker compose -f docker-compose.prod.yml cp /tmp/panel_diag.py backend:/tmp/panel_diag.py 2>/dev/null || true
+            docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/panel_diag.py 2>&1 || echo "  Panel diagnostic failed"
+            rm -f /tmp/panel_diag.py
+            echo "=== PANEL DIAGNOSTIC COMPLETE ==="
