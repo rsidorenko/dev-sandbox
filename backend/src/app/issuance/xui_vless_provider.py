@@ -561,7 +561,9 @@ class XuiVlessProvider(VlessProviderPort):
         """
         self._clients_ts = 0.0  # Force server list refresh
         users = await self._pool.fetch(
-            "SELECT i.internal_user_id, i.vless_uuid FROM user_identities i "
+            "SELECT i.internal_user_id, i.vless_uuid, "
+            "  s.device_count, s.active_until_utc "
+            "FROM user_identities i "
             "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
             "WHERE s.state_label = 'active' AND i.vless_uuid IS NOT NULL"
         )
@@ -582,6 +584,17 @@ class XuiVlessProvider(VlessProviderPort):
         for u in users:
             uid = u["internal_user_id"]
             user_uuid = u["vless_uuid"]
+            # Use real device_count from subscription; fall back to trial limit
+            device_count = u.get("device_count") or 0
+            limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
+            # Use real expiry from subscription; fall back to 1 year from now
+            active_until = u.get("active_until_utc")
+            if active_until is not None and active_until > datetime.now(UTC):
+                days_left = max(1, (active_until - datetime.now(UTC)).days)
+                expiry = _expiry_timestamp(days=days_left)
+            else:
+                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
+
             user_added = False
             user_failed = False
 
@@ -599,14 +612,13 @@ class XuiVlessProvider(VlessProviderPort):
                     continue  # Already exists — skip, don't touch
 
                 # Client missing on this server — add it
-                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
                 try:
                     result = await client.add_client(
                         user_uuid=user_uuid,
                         email=email,
                         expiry_ts=expiry,
                         enable=True,
-                        limit_ip=_TRIAL_DEVICE_LIMIT,
+                        limit_ip=limit_ip,
                     )
                     if result.outcome == XuiOutcome.SUCCESS:
                         user_added = True
