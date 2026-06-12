@@ -90,22 +90,43 @@ jobs:
           cd /tmp
           # Get Helsinki inbound Reality settings (pbk, sid, sni)
           HEL_KEYS=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
-          import sqlite3, json
+          import sqlite3, json, base64, hashlib
           db = sqlite3.connect('/etc/x-ui/x-ui.db')
           c = db.cursor()
           c.execute('SELECT stream_settings FROM inbounds WHERE id=1')
           row = c.fetchone()
           s = json.loads(row[0]) if row else {}
-          print(json.dumps(s))
+          rs = s.get('realitySettings', {})
+          # publicKey might be in realitySettings directly
+          pbk = rs.get('publicKey', rs.get('public_key', ''))
+          # If not found, derive from privateKey using x25519
+          if not pbk and rs.get('privateKey'):
+              try:
+                  from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+                  priv_raw = base64.urlsafe_b64decode(rs['privateKey'] + '==')
+                  priv = X25519PrivateKey.from_private_bytes(priv_raw)
+                  pub = priv.public_key()
+                  pub_raw = pub.public_bytes_raw()
+                  pbk = base64.urlsafe_b64encode(pub_raw).decode().rstrip('=')
+              except Exception as e:
+                  print(f'DERIVE_ERR: {e}', file=__import__('sys').stderr)
+          sid = ''
+          sids = rs.get('shortIds', [])
+          if sids:
+              sid = sids[0]
+          sni = rs.get('serverNames', [''])[0] if rs.get('serverNames') else ''
+          if not sni:
+              dest = rs.get('dest', '')
+              sni = dest.split(':')[0] if dest else ''
+          fp = rs.get('fingerprint', 'chrome')
+          print(f'{pbk} {sid} {sni} {fp}')
           db.close()
           \"" 2>&1)
-          echo "Helsinki stream_settings: ${HEL_KEYS:0:300}..."
-
-          # Extract Reality keys from Helsinki stream_settings
-          HEL_PBK=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('publicKey','') if rs.get('publicKey') else rs.get('pbk',''))")
-          HEL_SID=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('shortId','') if rs.get('shortId') else rs.get('sid',''))")
-          HEL_SNI=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); names=rs.get('serverNames',[]); print(names[0] if names else rs.get('sni',''))")
-          HEL_FP=$(echo "$HEL_KEYS" | python3 -c "import sys,json; d=json.load(sys.stdin); rs=d.get('realitySettings',{}); print(rs.get('fingerprint','chrome'))")
+          echo "Helsinki keys raw: $HEL_KEYS"
+          HEL_PBK=$(echo "$HEL_KEYS" | awk '{print $1}')
+          HEL_SID=$(echo "$HEL_KEYS" | awk '{print $2}')
+          HEL_SNI=$(echo "$HEL_KEYS" | awk '{print $3}')
+          HEL_FP=$(echo "$HEL_KEYS" | awk '{print $4}')
           echo "Helsinki PBK=$HEL_PBK SID=$HEL_SID SNI=$HEL_SNI FP=$HEL_FP"
 
           VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
