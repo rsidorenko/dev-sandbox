@@ -85,6 +85,10 @@ on:
         description: "Sync LTE inbound 7 clients to user_identities UUIDs (update API)"
         required: false
         default: "false"
+      diagnose_sub:
+        description: "Diagnose why a subscription's keys don't connect (UUID presence per panel)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -160,6 +164,7 @@ jobs:
           RESET_LTE_USER: ${{ github.event.inputs.reset_lte_user || 'false' }}
           DEBUG_LTE_ADDCLIENT: ${{ github.event.inputs.debug_lte_addclient || 'false' }}
           SYNC_LTE_INBOUND: ${{ github.event.inputs.sync_lte_inbound || 'false' }}
+          DIAGNOSE_SUB: ${{ github.event.inputs.diagnose_sub || 'false' }}
           LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
@@ -170,7 +175,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -683,4 +688,13 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/sli.py 2>&1
               rm -f /tmp/sli.py
               echo "=== SYNC COMPLETE ==="
+            fi
+
+            if [ "$DIAGNOSE_SUB" = "true" ]; then
+              echo "=== DIAGNOSE SUBSCRIPTION ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/diagnose_subscription.py backend:/tmp/dsub.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsub.py 2>&1
+              rm -f /tmp/dsub.py
+              echo "=== DIAGNOSE COMPLETE ==="
             fi
