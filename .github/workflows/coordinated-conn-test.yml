@@ -54,7 +54,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
             echo '=== Containers ==='
             docker ps --format '{{.Names}} {{.Image}}'
-            BACKEND=\$(docker ps --format '{{.Names}}' | grep -v nginx | head -1)
+            BACKEND=\$(docker ps --format '{{.Names}}' | grep backend | head -1)
             echo \"Backend: \$BACKEND\"
             if [ -z \"\$BACKEND\" ]; then echo 'NO BACKEND FOUND'; exit 0; fi
             echo '=== vpn_servers ==='
