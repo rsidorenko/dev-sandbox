@@ -749,6 +749,6 @@ jobs:
 
             if [ "$CHECK_FRANKFURT_ROUTING" = "true" ]; then
               echo "=== FRANKFURT ROUTING/OUTBOUNDS ==="
-              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < .github/workflows/check_frankfurt_routing.sh 2>&1 || echo "SSH FAILED"
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_frankfurt_routing.sh 2>&1 || echo "SSH FAILED"
               echo "=== FRANKFURT ROUTING COMPLETE ==="
             fi
