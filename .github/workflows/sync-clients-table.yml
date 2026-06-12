@@ -118,3 +118,58 @@ jobs:
             echo "❌ BOTH SERVERS FAILED — sync did not fix the issue"
           fi
           kill %1 %2 2>/dev/null
+
+      - name: Diagnose panel webBasePath + bot login logs
+        env:
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          echo "=== Frankfurt webBasePath ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== Helsinki webBasePath ==="
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== LA webBasePath ==="
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== Production panel_url + bot login logs ==="
+          mkdir -p ~/.ssh && printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 '
+            BACKEND=$(docker ps --format "{{.Names}}" | grep backend | head -1)
+            echo "Backend: $BACKEND"
+            echo "--- panel_url ---"
+            docker exec $BACKEND python3 -c "
+import asyncio,asyncpg,os
+async def m():
+ p=await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
+ r=await p.fetch(\"SELECT id, label, panel_url, is_active FROM vpn_servers ORDER BY id\")
+ for x in r: print(\"  id=%s label=%s url=%s active=%s\" % (x[\"id\"],x[\"label\"],x[\"panel_url\"],x[\"is_active\"]))
+ await p.close()
+asyncio.run(m())" 2>&1
+            echo "--- bot login WARNING logs ---"
+            docker logs --tail 200 $BACKEND 2>&1 | grep -iE "xui.*login|xui.*api_token" | tail -20
+          ' 2>&1 || echo "SSH FAILED"
