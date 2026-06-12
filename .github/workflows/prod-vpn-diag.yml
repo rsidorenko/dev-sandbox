@@ -6,26 +6,65 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Query vpn_servers + bot logs
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass >/dev/null 2>&1
+      - name: Get webBasePath from each 3x-ui panel
+        env:
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+        run: |
+          echo "=== Frankfurt webBasePath ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+          echo ""
+          echo "=== Helsinki webBasePath ==="
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+          echo ""
+          echo "=== LA webBasePath ==="
+          mkdir -p ~/.ssh
+          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+      - name: Get panel_url from production DB + bot logs
         env:
           SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 '
-            echo "=== Containers ==="
-            docker ps --format "{{.Names}} {{.Image}}"
-            BACKEND=$(docker ps --format "{{.Names}}" | grep -v nginx | head -1)
+            BACKEND=$(docker ps --format "{{.Names}}" | grep backend | head -1)
             echo "Backend: $BACKEND"
-            echo "=== vpn_servers ==="
+            echo "=== panel_url from vpn_servers ==="
             docker exec $BACKEND python3 -c "
 import asyncio,asyncpg,os
 async def m():
  p=await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
- r=await p.fetch(\"SELECT id,server_host,inbound_id,COALESCE(transport_type,chr(116)+chr(99)+chr(112))as tt,is_active,label FROM vpn_servers ORDER BY id\")
- for x in r:print(f\"  {x[\"id\"]}|{x[\"server_host\"]}|{x[\"inbound_id\"]}|{x[\"tt\"]}|{x[\"is_active\"]}|{x[\"label\"]}\")
- print(f\"Active: {len([x for x in r if x[\"is_active\"]]}/{len(r)}\")
+ r=await p.fetch(\"SELECT id, label, panel_url, panel_username, is_active FROM vpn_servers ORDER BY id\")
+ for x in r: print(\"  id=%s label=%s url=%s user=%s active=%s\" % (x[\"id\"],x[\"label\"],x[\"panel_url\"],x[\"panel_username\"],x[\"is_active\"]))
  await p.close()
 asyncio.run(m())" 2>&1
-            echo "=== Bot logs ==="
-            docker logs --tail 300 $BACKEND 2>&1 | grep -iE "resolve|exception|NOT_FOUND|UNAVAIL|csrf|401|403|error|failed|getClient|uuid.*None|panel.*http" | tail -30
+            echo "=== Bot logs (last 500) ==="
+            docker logs --tail 500 $BACKEND 2>&1 | grep -iE "csrf|401|403|unauthorized|login.*fail|login.*success|reconcile" | tail -20
           ' 2>&1 || echo "SSH FAILED"
