@@ -1,0 +1,24 @@
+name: reachability-test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          test_endpoints() {
+            # host port sni label
+            echo "=== $4 ($1:$2, sni=$3) ==="
+            timeout 8 bash -c "echo > /dev/tcp/$1/$2" 2>/dev/null && echo "  TCP: REACHABLE" || echo "  TCP: UNREACHABLE ❌"
+            timeout 10 openssl s_client -connect "$1:$2" -servername "$3" </dev/null 2>&1 | grep -E "subject=|verify return code|Cipher" | head -2 || echo "  TLS: no handshake"
+            echo ""
+          }
+          test_endpoints 77.221.159.106 443 vk.com "Helsinki 1.0"
+          test_endpoints fi.techno-channel.ru 443 fi.techno-channel.ru "Helsinki 2.0 CDN"
+          test_endpoints 77.221.159.106 8443 vk.com "Helsinki 3.0 xhttp"
+          test_endpoints 77.110.100.210 443 vk.com "Frankfurt 1.0"
+          test_endpoints de.techno-channel.online 443 de.techno-channel.online "Frankfurt 2.0 CDN"
+          test_endpoints 77.110.100.210 8443 vk.com "Frankfurt 3.0 xhttp"
+          test_endpoints 216.227.169.120 443 vk.com "LA 1.0"
+          test_endpoints 216.227.169.120 8443 vk.com "LA 3.0 xhttp"
+          test_endpoints 62.84.118.140 443 vk.com "LTE"
