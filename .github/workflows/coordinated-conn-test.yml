@@ -45,6 +45,27 @@ jobs:
           SCHEMA_B64="aW1wb3J0IHNxbGl0ZTMsIGpzb24KZGIgPSBzcWxpdGUzLmNvbm5lY3QoIi9ldGMveC11aS94LXVpLmRiIikKZGIucm93X2ZhY3RvcnkgPSBzcWxpdGUzLlJvdwpjID0gZGIuY3Vyc29yKCkKcHJpbnQoIj09PSBjbGllbnRzIHRhYmxlIHNjaGVtYSA9PT0iKQpmb3Igcm93IGluIGMuZXhlY3V0ZSgiUFJBR01BIHRhYmxlX2luZm8oY2xpZW50cykiKToKICAgIHByaW50KGYiICB7cm93WyduYW1lJ119IHtyb3dbJ3R5cGUnXX0gZGVmYXVsdD17cm93WydkZmx0X3ZhbHVlJ119IikKYy5leGVjdXRlKCJTRUxFQ1QgKiBGUk9NIGNsaWVudHMgTElNSVQgMSIpCnIgPSBjLmZldGNob25lKCkKaWYgcjoKICAgIHByaW50KCJcbj09PSBzYW1wbGUgY2xpZW50IHJvdyA9PT0iKQogICAgcHJpbnQoanNvbi5kdW1wcyh7azogcltrXSBmb3IgayBpbiByLmtleXMoKX0sIGluZGVudD0yLCBkZWZhdWx0PXN0cikpCnByaW50KCJcbj09PSBjbGllbnRfaW5ib3VuZHMgc2NoZW1hID09PSIpCmZvciByb3cgaW4gYy5leGVjdXRlKCJQUkFHTUEgdGFibGVfaW5mbyhjbGllbnRfaW5ib3VuZHMpIik6CiAgICBwcmludChmIiAge3Jvd1snbmFtZSddfSB7cm93Wyd0eXBlJ119IGRlZmF1bHQ9e3Jvd1snZGZsdF92YWx1ZSddfSIpCmMuZXhlY3V0ZSgiU0VMRUNUIGNvdW50KCopIEZST00gY2xpZW50X2luYm91bmRzIikKcHJpbnQoIlxuY2xpZW50X2luYm91bmRzIGNvdW50OiIsIGMuZmV0Y2hvbmUoKVswXSkKYy5leGVjdXRlKCJTRUxFQ1QgKiBGUk9NIGNsaWVudF9pbmJvdW5kcyBMSU1JVCAzIikKZm9yIHIgaW4gYy5mZXRjaGFsbCgpOgogICAgcHJpbnQoanNvbi5kdW1wcyh7azogcltrXSBmb3IgayBpbiByLmtleXMoKX0sIGRlZmF1bHQ9c3RyKSkKcHJpbnQoIlxuPT09IGNsaWVudHMgcGVyIGluYm91bmQgPT09IikKZm9yIHIgaW4gYy5leGVjdXRlKCJTRUxFQ1QgaW5ib3VuZF9pZCwgY291bnQoKikgYXMgY250IEZST00gY2xpZW50X2luYm91bmRzIEdST1VQIEJZIGluYm91bmRfaWQiKToKICAgIHByaW50KGYiICBpbmJvdW5kIHtyWydpbmJvdW5kX2lkJ119OiB7clsnY250J119IGNsaWVudHMiKQpwcmludCgiXG49PT0gYWxsIHRhYmxlcyA9PT0iKQpmb3IgciBpbiBjLmV4ZWN1dGUoIlNFTEVDVCBuYW1lIEZST00gc3FsaXRlX21hc3RlciBXSEVSRSB0eXBlPSd0YWJsZSciKToKICAgIGMyID0gZGIuY3Vyc29yKCkKICAgIGMyLmV4ZWN1dGUoZiJTRUxFQ1QgY291bnQoKikgRlJPTSBcIntyWyduYW1lJ119XCIiKQogICAgcHJpbnQoZiIgIHtyWyduYW1lJ119OiB7YzIuZmV0Y2hvbmUoKVswXX0gcm93cyIpCmRiLmNsb3NlKCkK"
           echo "=== Frankfurt clients table schema + sample ==="
           sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCHEMA_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
+      - name: Diagnose subscription - vpn_servers + bot logs
+        env:
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
+          QRY_B64="aW1wb3J0IGFzeW5jaW8sYXN5bmNwZyxvcwphc3luYyBkZWYgbSgpOgogcD1hd2FpdCBhc3luY3BnLmNyZWF0ZV9wb29sKG9zLmVudmlyb25bJ0RBVEFCQVNFX1VSTCddKQogcj1hd2FpdCBwLmZldGNoKCdTRUxFQ1QgaWQsc2VydmVyX2hvc3QsaW5ib3VuZF9pZCxDT0FMRVNDRSh0cmFuc3BvcnRfdHlwZSxjaHIoMTE2KStjaHIoOTkpK2NocigxMTIpKWFzIHR0LGlzX2FjdGl2ZSxsYWJlbCBGUk9NIHZwbl9zZXJ2ZXJzIE9SREVSIEJZIGlkJykKIGZvciB4IGluIHI6cHJpbnQoZicgIGlkPXt4W2NocigxMDUpK2NocigxMDApXX0gaG9zdD17eFtjaHIoMTE1KStjaHIoMTAxKStjaHIoMTE0KStjaHIoMTE4KStjaHIoMTAxKStjaHIoMTE0KStjaHIoOTUpK2NocigxMDQpK2NocigxMTEpK2NocigxMTUpK2NocigxMTYpXX0gaW5ib3VuZD17eFtjaHIoMTA1KStjaHIoMTEwKStjaHIoOTgpK2NocigxMTEpK2NocigxMTcpK2NocigxMTApK2NocigxMDApK2Nocig5NSkrY2hyKDEwNSkrY2hyKDEwMCldfSB0dD17eFtjaHIoMTE2KStjaHIoMTE2KV19IGFjdGl2ZT17eFtjaHIoMTA1KStjaHIoMTE1KStjaHIoOTUpK2Nocig5NykrY2hyKDk5KStjaHIoMTE2KStjaHIoMTA1KStjaHIoMTE4KStjaHIoMTAxKV19IGxhYmVsPXt4W2NocigxMDgpK2Nocig5NykrY2hyKDk4KStjaHIoMTAxKStjaHIoMTA4KV19JykKIHByaW50KGYnQWN0aXZlOiB7bGVuKFt4IGZvciB4IGluIHIgaWYgeFtjaHIoMTA1KStjaHIoMTE1KStjaHIoOTUpK2Nocig5NykrY2hyKDk5KStjaHIoMTE2KStjaHIoMTA1KStjaHIoMTE4KStjaHIoMTAxKV1dKX0ve2xlbihyKX0nKQogYXdhaXQgcC5jbG9zZSgpCmFzeW5jaW8ucnVuKG0oKSk="
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
+            echo '=== Containers ==='
+            docker ps --format '{{.Names}} {{.Image}}'
+            BACKEND=\$(docker ps --format '{{.Names}}' | grep -v nginx | head -1)
+            echo \"Backend: \$BACKEND\"
+            if [ -z \"\$BACKEND\" ]; then echo 'NO BACKEND FOUND'; exit 0; fi
+            echo '=== vpn_servers ==='
+            echo $QRY_B64 | base64 -d > /tmp/qry.py
+            docker cp /tmp/qry.py \$BACKEND:/tmp/qry.py
+            docker exec \$BACKEND python3 /tmp/qry.py 2>&1
+            echo '=== Bot logs (resolve/errors) ==='
+            docker logs --tail 500 \$BACKEND 2>&1 | grep -iE 'resolve|NOT_FOUND|UNAVAIL|csrf|401|403|failed|getClient|uuid.*None|panel.*http|error' | tail -30
+            rm -f /tmp/qry.py
+          " 2>&1 || echo "SSH FAILED"
+
       - name: Re-test connection after restart
         run: |
           set +e
