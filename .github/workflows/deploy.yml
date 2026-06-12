@@ -45,20 +45,8 @@ on:
         description: "Sync vpn_servers.reality_pbk to actual LTE server Reality public key"
         required: false
         default: "false"
-      assess_lte:
-        description: "Assess new LTE server (62.84.118.140): SSH, OS, 3x-ui, ports, Frankfurt reachability"
-        required: false
-        default: "false"
       query_frankfurt:
         description: "Query Frankfurt 8443 xhttp/reality keys for relay config"
-        required: false
-        default: "false"
-      lte_probe:
-        description: "Probe LTE 3x-ui: inbounds schema, settings keys, x-ui CLI help"
-        required: false
-        default: "false"
-      setup_lte:
-        description: "SETUP LTE relay: reset panel + Reality keys + template + inbound 443"
         required: false
         default: "false"
       add_frankfurt_relay:
@@ -174,10 +162,7 @@ jobs:
           LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
           FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
           FIX_LTE_PBK: ${{ github.event.inputs.fix_lte_pbk || 'false' }}
-          ASSESS_LTE: ${{ github.event.inputs.assess_lte || 'false' }}
           QUERY_FRANKFURT: ${{ github.event.inputs.query_frankfurt || 'false' }}
-          LTE_PROBE: ${{ github.event.inputs.lte_probe || 'false' }}
-          SETUP_LTE: ${{ github.event.inputs.setup_lte || 'false' }}
           ADD_FRANKFURT_RELAY: ${{ github.event.inputs.add_frankfurt_relay || 'false' }}
           ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
           CHECK_LTE_PANEL: ${{ github.event.inputs.check_lte_panel || 'false' }}
@@ -202,7 +187,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,ASSESS_LTE,QUERY_FRANKFURT,LTE_PROBE,SETUP_LTE,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,QUERY_FRANKFURT,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -614,17 +599,6 @@ jobs:
               echo "=== FIX LTE PBK COMPLETE ==="
             fi
 
-            if [ "$ASSESS_LTE" = "true" ]; then
-              echo "=== ASSESS NEW LTE SERVER (62.84.118.140) ==="
-              LTE="62.84.118.140"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== OS ==="; cat /etc/os-release 2>/dev/null | head -3; uname -a; echo ""; echo "=== Arch ==="; uname -m; echo ""; echo "=== sudo ==="; sudo -n true 2>&1 && echo "passwordless sudo: YES" || echo "passwordless sudo: NO"; echo ""; echo "=== 3x-ui installed? ==="; which x-ui 2>/dev/null || echo "x-ui CLI: NOT found"; ls -la /usr/local/x-ui/ 2>/dev/null | head -5 || echo "/usr/local/x-ui/ NOT found"; systemctl is-active x-ui 2>/dev/null || echo "x-ui service: not found"; echo ""; echo "=== xray ==="; ls -la /usr/local/x-ui/bin/ 2>/dev/null || echo "no xray binary"; echo ""; echo "=== Listening ports ==="; sudo ss -tlnp 2>/dev/null | grep -E "443|80|2053|54023" || echo "no VPN ports listening"; echo ""; echo "=== Docker ==="; which docker 2>/dev/null && docker ps 2>/dev/null || echo "no docker"; echo ""; echo "=== Disk ==="; df -h / 2>/dev/null; echo ""; echo "=== Memory ==="; free -h 2>/dev/null; echo ""; echo "=== Frankfurt reachability ==="; for p in 443 8443 2053; do timeout 5 bash -c "echo > /dev/tcp/77.110.100.210/$p" 2>/dev/null && echo "Frankfurt:$p REACHABLE" || echo "Frankfurt:$p UNREACHABLE"; done' 2>&1 || echo "SSH FAILED"
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== ASSESS COMPLETE ==="
-            fi
-
             if [ "$QUERY_FRANKFURT" = "true" ]; then
               echo "=== QUERY FRANKFURT REALITY KEYS ==="
               cd /opt/bravada
@@ -632,29 +606,6 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/qf.py 2>&1
               rm -f /tmp/qf.py
               echo "=== QUERY COMPLETE ==="
-            fi
-
-            if [ "$LTE_PROBE" = "true" ]; then
-              echo "=== LTE 3x-ui PROBE ==="
-              LTE="62.84.118.140"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== inbounds schema ==="; sudo sqlite3 /etc/x-ui/x-ui.db ".schema inbounds" 2>/dev/null || sudo python3 -c "import sqlite3;c=sqlite3.connect(\"/etc/x-ui/x-ui.db\");[print(r) for r in c.execute(\"SELECT sql FROM sqlite_master WHERE name=\\\"inbounds\\\"\")]"; echo ""; echo "=== settings keys ==="; sudo sqlite3 /etc/x-ui/x-ui.db "SELECT key FROM settings;" 2>/dev/null || echo "sqlite3 cli missing"; echo ""; echo "=== x-ui CLI help ==="; sudo x-ui help 2>&1 | head -20 || sudo /usr/bin/x-ui help 2>&1 | head -20; echo ""; echo "=== xray x25519 works? ==="; sudo /usr/local/x-ui/bin/xray-linux-amd64.real x25519 2>&1 | head -3 || echo "xray binary name differs"; ls /usr/local/x-ui/bin/ | grep -i xray; echo ""; echo "=== existing inbounds ==="; sudo sqlite3 /etc/x-ui/x-ui.db "SELECT id, port, protocol FROM inbounds;" 2>/dev/null || echo "none"; echo ""; echo "=== xray version ==="; sudo /usr/local/x-ui/bin/xray-linux-amd64.real version 2>&1 | head -1' 2>&1 || echo "SSH FAILED"
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== PROBE COMPLETE ==="
-            fi
-
-            if [ "$SETUP_LTE" = "true" ]; then
-              echo "=== SETUP LTE RELAY (reset panel + Reality + template + inbound) ==="
-              LTE="62.84.118.140"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/setup_lte.py romtan@${LTE}:/tmp/setup_lte.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/setup_lte.py; rm -f /tmp/setup_lte.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== SETUP LTE COMPLETE ==="
             fi
 
             if [ "$ADD_FRANKFURT_RELAY" = "true" ]; then
