@@ -10,164 +10,59 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get install -y sshpass >/dev/null 2>&1
 
-      - name: Backup Frankfurt DB + Upgrade
-        env:
-          PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
-        run: |
-          echo "=== Frankfurt: backup + upgrade ==="
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "
-            cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak.pre-upgrade &&
-            echo 'DB backed up' &&
-            /usr/local/x-ui/x-ui -v &&
-            echo 'Starting upgrade...' &&
-            bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh) &&
-            /usr/local/x-ui/x-ui -v &&
-            x-ui restart &&
-            echo 'Upgrade done'
-          " 2>&1
-
-      - name: Backup LA DB + Upgrade
-        env:
-          LA_KEY: ${{ secrets.LA_SSH_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-          echo "=== LA: backup + upgrade ==="
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "
-            sudo cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak.pre-upgrade &&
-            echo 'DB backed up' &&
-            sudo /usr/local/x-ui/x-ui -v &&
-            echo 'Downloading update script...' &&
-            curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh -o /tmp/xui-update.sh &&
-            echo 'Running update...' &&
-            sudo bash /tmp/xui-update.sh &&
-            rm -f /tmp/xui-update.sh &&
-            sudo /usr/local/x-ui/x-ui -v &&
-            sudo x-ui restart &&
-            echo 'Upgrade done'
-          " 2>&1
-
-      - name: Verify versions
-        env:
-          PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
-          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
-          LA_KEY: ${{ secrets.LA_SSH_KEY }}
-        run: |
-          echo "=== Version check ==="
-          echo -n "Frankfurt: "
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "/usr/local/x-ui/x-ui -v" 2>&1
-
-          echo -n "Helsinki: "
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "/usr/local/x-ui/x-ui -v" 2>&1
-
-          echo -n "LA: "
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo /usr/local/x-ui/x-ui -v" 2>&1
-
-      - name: Sync clients table on all servers
+      - name: Diagnose panel webBasePath
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LA_KEY: ${{ secrets.LA_SSH_KEY }}
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
-          SCRIPT_B64=$(base64 -w0 backend/scripts/sync_clients_table.py)
+          echo "=== Frankfurt webBasePath ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
 
-          echo "=== Sync Frankfurt ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "x-ui restart" 2>&1
+          echo "=== Helsinki webBasePath ==="
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
 
-          echo "=== Sync Helsinki ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "x-ui restart" 2>&1
+          echo "=== LA webBasePath ==="
+          mkdir -p ~/.ssh
+          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+db.close()
+\"" 2>&1
 
-          echo "=== Sync LA ==="
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo python3" 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo x-ui restart" 2>&1
-
-      - name: Fetch Helsinki Reality keys + Build xray configs
-        env:
-          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
-        run: |
-          cd /tmp
-          # Get Helsinki inbound Reality settings (pbk, sid, sni)
-          HEL_KEYS=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
-          import sqlite3, json, base64, hashlib
-          db = sqlite3.connect('/etc/x-ui/x-ui.db')
-          c = db.cursor()
-          c.execute('SELECT stream_settings FROM inbounds WHERE id=1')
-          row = c.fetchone()
-          s = json.loads(row[0]) if row else {}
-          rs = s.get('realitySettings', {})
-          # publicKey might be in realitySettings directly
-          pbk = rs.get('publicKey', rs.get('public_key', ''))
-          # If not found, derive from privateKey using x25519
-          if not pbk and rs.get('privateKey'):
-              try:
-                  from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-                  from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-                  priv_raw = base64.urlsafe_b64decode(rs['privateKey'] + '==')
-                  priv = X25519PrivateKey.from_private_bytes(priv_raw)
-                  pub = priv.public_key()
-                  pub_raw = pub.public_bytes(Encoding.Raw, PublicFormat.Raw)
-                  pbk = base64.urlsafe_b64encode(pub_raw).decode().rstrip('=')
-              except Exception as e:
-                  print(f'DERIVE_ERR: {e}', file=__import__('sys').stderr)
-          sid = ''
-          sids = rs.get('shortIds', [])
-          if sids:
-              sid = sids[0]
-          sni = rs.get('serverNames', [''])[0] if rs.get('serverNames') else ''
-          if not sni:
-              dest = rs.get('dest', '')
-              sni = dest.split(':')[0] if dest else ''
-          fp = rs.get('fingerprint', 'chrome')
-          print(f'{pbk} {sid} {sni} {fp}')
-          db.close()
-          \"" 2>&1)
-          echo "Helsinki keys raw: $HEL_KEYS"
-          HEL_PBK=$(echo "$HEL_KEYS" | awk '{print $1}')
-          HEL_SID=$(echo "$HEL_KEYS" | awk '{print $2}')
-          HEL_SNI=$(echo "$HEL_KEYS" | awk '{print $3}')
-          HEL_FP=$(echo "$HEL_KEYS" | awk '{print $4}')
-          echo "Helsinki PBK=$HEL_PBK SID=$HEL_SID SNI=$HEL_SNI FP=$HEL_FP"
-
-          VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
-          curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o x.zip
-          unzip -o x.zip xray >/dev/null && chmod +x xray
-
-          # Frankfurt config
-          cat > cfg_fra.json <<EOF
-          {"log":{"loglevel":"info"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.110.100.210","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"Q_wpt7L8sU2O1OVBV-mpsSvgLAChIhN4hgTm0XZH4Do","shortId":"a1b2c3d4e5f6","spiderX":"/"}}}]}
-          EOF
-          # Helsinki config
-          cat > cfg_hel.json <<EOF
-          {"log":{"loglevel":"info"},"inbounds":[{"port":10810,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.221.159.106","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"$HEL_SNI","fingerprint":"$HEL_FP","publicKey":"$HEL_PBK","shortId":"$HEL_SID","spiderX":"/"}}}]}
-          EOF
-          # LA config
-          cat > cfg_la.json <<EOF
-          {"log":{"loglevel":"info"},"inbounds":[{"port":10809,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"216.227.169.120","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"cBbhJrcUvRo_MDNq6aaUSDLSBvVOqCTEUD7jpAy1O08","shortId":"1f94","spiderX":"/"}}}]}
-          EOF
-          sed -i 's/^          //' cfg_fra.json cfg_hel.json cfg_la.json
-          echo "Configs built"
-          sleep 5
-
-          set +e
-          ./xray run -config cfg_fra.json &> fra.log &
-          ./xray run -config cfg_hel.json &> hel.log &
-          ./xray run -config cfg_la.json &> la.log &
-          sleep 5
-
-          echo "========================================"
-          FRA=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org)
-          echo "Frankfurt: ${FRA} (expect 77.110.100.210)"
-          HEL=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10810 https://api.ipify.org)
-          echo "Helsinki:  ${HEL} (expect 77.221.159.106)"
-          LA=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10809 https://api.ipify.org)
-          echo "LA:        ${LA} (expect 216.227.169.120)"
-
-          OK=0
-          [ "$FRA" = "77.110.100.210" ] && OK=$((OK+1))
-          [ "$HEL" = "77.221.159.106" ] && OK=$((OK+1))
-          [ "$LA" = "216.227.169.120" ] && OK=$((OK+1))
-          echo ""
-          echo "${OK}/3 servers working"
-          kill %1 %2 %3 2>/dev/null
+          echo "=== Production panel_url + bot login logs ==="
+          printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 '
+            BACKEND=$(docker ps --format "{{.Names}}" | grep backend | head -1)
+            echo "Backend: $BACKEND"
+            echo "--- panel_url ---"
+            docker exec $BACKEND python3 -c "
+import asyncio,asyncpg,os
+async def m():
+ p=await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
+ r=await p.fetch(\"SELECT id, label, panel_url, is_active FROM vpn_servers ORDER BY id\")
+ for x in r: print(\"  id=%s label=%s url=%s active=%s\" % (x[\"id\"],x[\"label\"],x[\"panel_url\"],x[\"is_active\"]))
+ await p.close()
+asyncio.run(m())" 2>&1
+            echo "--- bot login WARNING logs ---"
+            docker logs --tail 300 $BACKEND 2>&1 | grep -iE "xui.*login|xui.*api_token|reconcile.*failed" | tail -25
+          ' 2>&1 || echo "SSH FAILED"
