@@ -123,6 +123,10 @@ class XuiApiClient:
                 if resp.status_code == 200:
                     self._last_login_ts = time.monotonic()
                     return True
+                _LOGGER.warning(
+                    "xui api_token auth failed server=%s url=%s status=%s",
+                    self._config.server_id, self._base, resp.status_code,
+                )
                 return False
             # Establish session cookie
             await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
@@ -158,9 +162,21 @@ class XuiApiClient:
                     self._last_login_ts = time.monotonic()
                     self._csrf_token = csrf_token
                     return True
+                _LOGGER.warning(
+                    "xui login rejected server=%s url=%s msg=%s",
+                    self._config.server_id, self._base, body.get("msg", "unknown"),
+                )
+            else:
+                _LOGGER.warning(
+                    "xui login http error server=%s url=%s status=%s",
+                    self._config.server_id, self._base, resp.status_code,
+                )
             return False
         except Exception:
-            _LOGGER.debug("xui login failed for server %s", self._config.server_id, exc_info=True)
+            _LOGGER.warning(
+                "xui login exception server=%s url=%s",
+                self._config.server_id, self._base, exc_info=True,
+            )
             return False
 
     async def _ensure_session(self) -> bool:
