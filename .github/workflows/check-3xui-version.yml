@@ -18,7 +18,7 @@ jobs:
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
           scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "cd /opt/bravada/backend && ls -la .venv/bin/python* 2>/dev/null; which python3; find /opt/bravada -name 'python3*' -type f 2>/dev/null | head -5; ls .venv/ 2>/dev/null || echo 'no .venv'; ls venv/ 2>/dev/null || echo 'no venv'" 2>&1 || echo "SSH FAILED"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "journalctl -u bravada --no-pager -n 200 2>/dev/null | grep -i 'resolve_client_uuid\|exception\|NOT_FOUND\|UNAVAILABLE\|v3_mode\|getClientTraffics\|csrf\|login\|401\|403\|failed to' | tail -30; echo '---'; systemctl status bravada 2>/dev/null | head -10" 2>&1 || echo "SSH FAILED"
 
       - name: Check inbounds on all servers
         env:
