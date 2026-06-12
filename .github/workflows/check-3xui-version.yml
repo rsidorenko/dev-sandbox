@@ -17,7 +17,8 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "source /opt/bravada/backend/.env 2>/dev/null; psql \"\${DATABASE_URL}\" -c \"SELECT id, label, server_host, inbound_id, COALESCE(transport_type,'tcp') as tt, is_active FROM vpn_servers ORDER BY id\" -t -A" 2>&1 || echo "SSH FAILED"
+          scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "cd /opt/bravada/backend && source .env && .venv/bin/python3 /tmp/check_vpn.py && rm -f /tmp/check_vpn.py" 2>&1 || echo "SSH FAILED"
 
       - name: Check inbounds on all servers
         env:
