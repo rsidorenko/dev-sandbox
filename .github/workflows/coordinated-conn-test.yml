@@ -5,7 +5,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup
+      - name: Setup xray client
         run: |
           cd /tmp
           VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
@@ -23,18 +23,17 @@ jobs:
           cd /tmp
           ./xray run -config config.json &> xray.log &
           sleep 4
-          # Make several requests to generate log entries on Frankfurt
           for i in 1 2 3; do
             curl -s --max-time 15 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo " (attempt $i)"
-            curl -s --max-time 15 --socks5-hostname 127.0.0.1:10808 https://1.1.1.1/cdn-cgi/trace; echo " (cf trace $i)"
           done
           echo "=== client log ==="
-          grep -E "tunneling|accepted|failed|error|dial" xray.log | tail -15
+          grep -E "tunneling|accepted|failed|error|dial" xray.log | tail -10
           kill %1 2>/dev/null
-      - name: Install sshpass + check Frankfurt logs for our IP
+      - name: Check Frankfurt outbounds/routing (definitive)
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
         run: |
           sudo apt-get install -y sshpass >/dev/null 2>&1
-          echo "=== Frankfurt access log (entries mentioning our runner IP $RUNNER_IP or api.ipify/1.1.1.1) ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "tail -50 /var/log/xray-access.log 2>/dev/null | grep -iE '$RUNNER_IP|ipify|1.1.1.1|accepted' | tail -20; echo '--- error log ---'; tail -30 /var/log/xray-error.log 2>/dev/null | grep -iE 'ipify|1.1.1.1|rejected|invalid|fail|ru-relay|direct' | tail -15" 2>&1 || echo "SSH FAILED"
+          OB_B64="aW1wb3J0IGpzb24KYyA9IGpzb24ubG9hZChvcGVuKCIvdXNyL2xvY2FsL3gtdWkvYmluL2NvbmZpZy5qc29uIikpCm9icyA9IGMuZ2V0KCJvdXRib3VuZHMiLCBbXSkKcHJpbnQoIj09PSBERUZBVUxUIChmaXJzdCkgb3V0Ym91bmQgPT09IikKaWYgb2JzOgogICAgcHJpbnQoIj4+PiAiICsgc3RyKG9ic1swXS5nZXQoInRhZyIpKSArICIgPSAiICsgc3RyKG9ic1swXS5nZXQoInByb3RvY29sIikpICsgIiA8PDwiKQpwcmludCgiPT09IGFsbCBvdXRib3VuZHMgPT09IikKZm9yIGksIG8gaW4gZW51bWVyYXRlKG9icyk6CiAgICBsaW5lID0gIiAgWyIgKyBzdHIoaSkgKyAiXSAiICsgc3RyKG8uZ2V0KCJ0YWciKSkgKyAiID0gIiArIHN0cihvLmdldCgicHJvdG9jb2wiKSkKICAgIGlmIG8uZ2V0KCJwcm90b2NvbCIpID09ICJ2bGVzcyI6CiAgICAgICAgdm4gPSBvLmdldCgic2V0dGluZ3MiLHt9KS5nZXQoInZuZXh0Iixbe31dKVswXQogICAgICAgIGxpbmUgKz0gIiAtPiAiICsgc3RyKHZuLmdldCgiYWRkcmVzcyIpKSArICI6IiArIHN0cih2bi5nZXQoInBvcnQiKSkKICAgIHByaW50KGxpbmUpCnByaW50KCI9PT0gcm91dGluZyBydWxlcyA9PT0iKQpmb3IgaSwgciBpbiBlbnVtZXJhdGUoYy5nZXQoInJvdXRpbmciLHt9KS5nZXQoInJ1bGVzIixbXSkpOgogICAgcHJpbnQoIiAgWyIgKyBzdHIoaSkgKyAiXSAiICsganNvbi5kdW1wcyhyKSkK"
+          echo "=== Frankfurt outbounds/routing ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $OB_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
