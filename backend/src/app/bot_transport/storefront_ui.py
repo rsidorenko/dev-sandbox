@@ -1346,20 +1346,22 @@ def text_keys_not_available() -> str:
 
 def text_referral_program(info: ReferralInfo) -> str:
     links_section = (
-        "🔗 Ссылка для Telegram:\n"
+        "🔗 <b>Для Telegram</b> — друг без сайта:\n"
         f"<code>{info.referral_link}</code>\n\n"
     )
     if info.web_referral_link:
         links_section += (
-            "🌐 Ссылка для сайта:\n"
+            "🌐 <b>Для сайта</b> — друг без Telegram:\n"
             f"<code>{info.web_referral_link}</code>\n\n"
         )
     return (
         "<b>👥 Реферальная программа</b>\n\n"
+        "Отправьте ссылку другу — получите процент с его оплаты.\n"
+        "Выбирайте удобную ссылку:\n\n"
         + links_section
         + f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
         f"👤 Приглашено: {info.direct_referrals_count}\n\n"
-        "📊 Отправляйте ссылку друзьям и зарабатывайте:\n\n"
+        "📊 <b>Ваш заработок:</b>\n\n"
         "<b>Прямые рефералы:</b>\n"
         "  1 день — 10%\n"
         "  7 дней — 15%\n"
