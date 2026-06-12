@@ -493,18 +493,74 @@ async def phase_verify(users: list[dict], panels: list[PanelClient]) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+async def phase_stats(pool: asyncpg.Pool) -> None:
+    """Print user statistics from DB."""
+    print("\n" + "=" * 60)
+    print("USER STATISTICS")
+    print("=" * 60)
+
+    total = await pool.fetchval("SELECT COUNT(*) FROM user_identities")
+    print(f"  Всего пользователей: {total}")
+
+    with_uuid = await pool.fetchval("SELECT COUNT(*) FROM user_identities WHERE vless_uuid IS NOT NULL")
+    print(f"  С VLESS UUID: {with_uuid}")
+
+    states = await pool.fetch("""
+        SELECT s.state_label, COUNT(*) as cnt, COUNT(i.vless_uuid) as with_uuid
+        FROM subscription_snapshots s
+        LEFT JOIN user_identities i ON i.internal_user_id = s.internal_user_id
+        GROUP BY s.state_label ORDER BY cnt DESC
+    """)
+    print("\n  Состояния подписок:")
+    for r in states:
+        print(f"    {r['state_label']}: {r['cnt']} пользователей (с UUID: {r['with_uuid']})")
+
+    expired_active = await pool.fetchval(
+        "SELECT COUNT(*) FROM subscription_snapshots WHERE active_until_utc < NOW() AND state_label = 'active'"
+    )
+    print(f"\n  Просроченных, но state_label=active: {expired_active}")
+
+    no_snap = await pool.fetchval("""
+        SELECT COUNT(*) FROM user_identities i
+        WHERE NOT EXISTS (SELECT 1 FROM subscription_snapshots s WHERE s.internal_user_id = i.internal_user_id)
+    """)
+    print(f"  Без подписки вообще: {no_snap}")
+
+    inactive_with_uuid = await pool.fetchval("""
+        SELECT COUNT(*) FROM user_identities i
+        JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+        WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+    """)
+    print(f"  Неактивных с UUID (ключи висят на панелях): {inactive_with_uuid}")
+
+    # Expiry dates of active users
+    rows = await pool.fetch("""
+        SELECT active_until_utc::date as d, COUNT(*) as cnt
+        FROM subscription_snapshots WHERE state_label = 'active'
+        GROUP BY d ORDER BY d
+    """)
+    print("\n  Даты истечения активных подписок:")
+    now_date = datetime.now(UTC).date()
+    for r in rows:
+        marker = " ⚠️ EXPIRED" if r["d"] < now_date else ""
+        print(f"    {r['d']}: {r['cnt']} пользователей{marker}")
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Wipe and rebuild panel clients from DB")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes")
     parser.add_argument("--verify", action="store_true", help="Only verify current state")
+    parser.add_argument("--stats", action="store_true", help="Print user statistics only")
     args = parser.parse_args()
 
     dry_run = args.dry_run
     verify_only = args.verify
+    stats_only = args.stats
 
+    mode = "STATS" if stats_only else "DRY RUN" if dry_run else "VERIFY ONLY" if verify_only else "FULL REBUILD"
     print("=" * 60)
     print("REBUILD PANEL CLIENTS")
-    print(f"Mode: {'DRY RUN' if dry_run else 'VERIFY ONLY' if verify_only else 'FULL REBUILD'}")
+    print(f"Mode: {mode}")
     print(f"Time: {datetime.now(UTC).isoformat()}")
     print("=" * 60)
 
@@ -516,6 +572,13 @@ async def main() -> None:
 
     pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
     try:
+        # Always print stats
+        await phase_stats(pool)
+
+        if stats_only:
+            await pool.close()
+            return
+
         # Phase 1: Load data
         print("\n--- Loading data from DB ---")
         users = await _load_active_users(pool)
