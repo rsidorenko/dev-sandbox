@@ -1,0 +1,37 @@
+name: check-3xui-version
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass >/dev/null 2>&1
+
+      - name: Check Frankfurt
+        env:
+          PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+        run: |
+          echo "=== Frankfurt (77.110.100.210) ==="
+          SCRIPT_B64=$(base64 -w0 backend/scripts/check_3xui_version.py)
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
+
+      - name: Check Helsinki
+        env:
+          PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+        run: |
+          echo "=== Helsinki (77.221.159.106) ==="
+          SCRIPT_B64=$(base64 -w0 backend/scripts/check_3xui_version.py)
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
+
+      - name: Check LA
+        env:
+          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+          echo "=== LA (216.227.169.120) ==="
+          SCRIPT_B64=$(base64 -w0 backend/scripts/check_3xui_version.py)
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo python3" 2>&1
