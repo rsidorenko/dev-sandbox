@@ -70,7 +70,7 @@ async def run():
         servers = await pool.fetch(
             "SELECT id, label, panel_url, panel_username, panel_password, "
             "COALESCE(encrypted_password,'') AS ep, inbound_id, reality_pbk, "
-            "server_host, server_port, transport_type "
+            "server_host, server_port, transport_type, is_active "
             "FROM vpn_servers ORDER BY id")
         print(f"Total servers: {len(servers)}, active: {sum(1 for s in servers if s['is_active'])}")
         print()
