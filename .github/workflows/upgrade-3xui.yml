@@ -37,8 +37,11 @@ jobs:
             sudo cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak.pre-upgrade &&
             echo 'DB backed up' &&
             sudo /usr/local/x-ui/x-ui -v &&
-            echo 'Starting upgrade...' &&
-            sudo bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh) &&
+            echo 'Downloading update script...' &&
+            curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh -o /tmp/xui-update.sh &&
+            echo 'Running update...' &&
+            sudo bash /tmp/xui-update.sh &&
+            rm -f /tmp/xui-update.sh &&
             sudo /usr/local/x-ui/x-ui -v &&
             sudo x-ui restart &&
             echo 'Upgrade done'
