@@ -18,7 +18,18 @@ jobs:
           printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key; chmod 600 ~/.ssh/server-key
           echo "=== vpn_servers table (production) ==="
           scp -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key backend/scripts/check_vpn_servers.py root@109.120.178.49:/tmp/check_vpn.py 2>&1
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "echo '=== Running processes ==='; ps aux | grep -i 'python\|uvicorn\|bravada\|polling' | grep -v grep; echo '=== systemd units ==='; systemctl list-units --type=service --state=running | grep -i 'bravada\|bot\|vpn\|polling'; echo '=== Recent logs ==='; journalctl --no-pager -n 50 2>/dev/null | grep -i 'bravada\|bot\|uvicorn\|resolve\|subscription' | tail -20" 2>&1 || echo "SSH FAILED"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "echo '=== Docker containers ==='; docker ps --format '{{.Names}} {{.Image}} {{.Status}}'; echo '=== vpn_servers via docker ==='; CONTAINER=\$(docker ps --format '{{.Names}}' | head -1); echo \"Container: \$CONTAINER\"; docker exec \$CONTAINER python3 -c \"
+import asyncio, asyncpg, os
+async def main():
+    pool = await asyncpg.create_pool(os.environ['DATABASE_URL'])
+    rows = await pool.fetch('SELECT id, label, server_host, inbound_id, COALESCE(transport_type, chr(116)+chr(99)+chr(112)) as tt, is_active FROM vpn_servers ORDER BY id')
+    for r in rows:
+        print(f'id={r[chr(105)+chr(100)]} host={r[chr(115)+chr(101)+chr(114)+chr(118)+chr(101)+chr(114)+chr(95)+chr(104)+chr(111)+chr(115)+chr(116)]} inbound={r[chr(105)+chr(110)+chr(98)+chr(111)+chr(117)+chr(110)+chr(100)+chr(95)+chr(105)+chr(100)]} tt={r[chr(116)+chr(116)]} active={r[chr(105)+chr(115)+chr(95)+chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101)]} label={r[chr(108)+chr(97)+chr(98)+chr(101)+chr(108)]}')
+    active = [r for r in rows if r[chr(105)+chr(115)+chr(95)+chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101)]]
+    print(f'Active: {len(active)} / {len(rows)}')
+    await pool.close()
+asyncio.run(main())
+\" 2>&1" 2>&1 || echo "SSH FAILED"
 
       - name: Check inbounds on all servers
         env:
