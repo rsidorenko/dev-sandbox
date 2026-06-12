@@ -1,4 +1,4 @@
-name: check-3xui-version
+name: check-3xui-inbounds
 on:
   workflow_dispatch:
 
@@ -10,56 +10,23 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get install -y sshpass >/dev/null 2>&1
 
-      - name: Check version on all servers
+      - name: Check inbounds on all servers
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           LA_KEY: ${{ secrets.LA_SSH_KEY }}
         run: |
-          CHECK_CMD='python3 -c "
-          import subprocess, os, json
-
-          # Check version from binary
-          r = subprocess.run([\"strings\", \"/usr/local/x-ui/x-ui\"], capture_output=True, text=True)
-          lines = r.stdout.split(chr(10))
-          version_lines = [l for l in lines if \"3x-ui\" in l.lower() or \"x-ui\" in l.lower() and \"version\" in l.lower()]
-          if version_lines:
-              print(\"Binary version strings:\")
-              for vl in version_lines[:10]:
-                  print(f\"  {vl}\"[:200])
-
-          # Check version from x-ui log
-          for logf in [\"/var/log/x-ui.log\", \"/etc/x-ui/x-ui.log\"]:
-              if os.path.exists(logf):
-                  r2 = subprocess.run([\"head\", \"-5\", logf], capture_output=True, text=True)
-                  print(f\"Log ({logf}): {r2.stdout.strip()[:500]}\")
-
-          # Check install script for source URL
-          for f in [\"/usr/local/x-ui/x-ui.sh\"]:
-              if os.path.exists(f):
-                  r3 = subprocess.run([\"grep\", \"-i\", \"github\\|repo\\|branch\\|version\\|TAG\", f], capture_output=True, text=True)
-                  lines3 = [l.strip() for l in r3.stdout.split(chr(10)) if l.strip()][:20]
-                  if lines3:
-                      print(f\"Install script ({f}):\")
-                      for l in lines3:
-                          print(f\"  {l}\"[:200])
-
-          # Check running process version
-          r4 = subprocess.run([\"/usr/local/x-ui/x-ui\", \"-v\"], capture_output=True, text=True)
-          print(f\"x-ui -v: {r4.stdout.strip()} {r4.stderr.strip()}\"[:300])
-          r5 = subprocess.run([\"/usr/local/x-ui/x-ui\", \"--version\"], capture_output=True, text=True)
-          print(f\"x-ui --version: {r5.stdout.strip()} {r5.stderr.strip()}\"[:300])
-          "'
+          SCRIPT_B64=$(base64 -w0 backend/scripts/check_vpn_servers.py)
 
           echo "=== Frankfurt ==="
-          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "$CHECK_CMD" 2>&1
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
 
           echo ""
           echo "=== Helsinki ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "$CHECK_CMD" 2>&1
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
 
           echo ""
           echo "=== LA ==="
           mkdir -p ~/.ssh
           printf '%s\n' "$LA_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo $CHECK_CMD" 2>&1
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo python3" 2>&1
