@@ -112,11 +112,12 @@ jobs:
             fi
 
             if [ "$RELAY_DIAG" = "true" ]; then
-              echo "=== RELAY DIAG on $RELAY ==="
+              echo "=== RELAY DIAG (relay_probe) on $RELAY ==="
               mkdir -p ~/.ssh
               printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
               chmod 600 ~/.ssh/yandex-relay
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} 'echo "--- routing + outbound tags ---"; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); print(json.dumps(c.get(\"routing\",{}),indent=2)); print(\"outbounds:\", [o.get(\"tag\") for o in c.get(\"outbounds\",[])])"; echo "--- xray process ---"; pgrep -f xray-linux-amd64 >/dev/null && echo "xray OK" || echo "xray NOT running"; echo "--- :443 listening ---"; sudo ss -tlnp 2>/dev/null | grep ":443 " || echo "443 not listening"; echo "--- xray error log (last 20) ---"; sudo tail -20 /var/log/xray-error.log 2>/dev/null || echo "no error log"; echo "--- Helsinki reachable from RU relay? ---"; timeout 4 bash -c "echo > /dev/tcp/77.221.159.106/443" 2>/dev/null && echo "Helsinki:443 REACHABLE" || echo "Helsinki:443 UNREACHABLE"; echo "--- geo files ---"; ls -la /usr/local/x-ui/bin/*.dat 2>/dev/null || echo "no geo files"' 2>&1 || true
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/relay_probe.py romtan@${RELAY}:/tmp/relay_probe.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/relay_probe.py; rm -f /tmp/relay_probe.py" 2>&1 || true
               rm -f ~/.ssh/yandex-relay
               echo "=== RELAY DIAG COMPLETE ==="
             fi
