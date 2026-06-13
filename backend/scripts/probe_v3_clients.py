@@ -71,7 +71,7 @@ def main():
     # ── xray + ports ──
     xray_pid = _proc("pgrep -f 'xray' | head -3")
     print(f"\nxray pids: {xray_pid or 'NONE (xray NOT running)'}")
-    for port in (443, 8443, 2053, 1864):
+    for port in (443, 8443, 2053, 1864, 10443):
         lst = _proc(f"ss -tlnp 2>/dev/null | grep ':{port} ' | head -2")
         print(f"  :{port} listening: {lst or 'NO'}")
 
@@ -141,6 +141,33 @@ def main():
     con.close()
 
 
+def _xray_pubkey(privkey: str) -> str:
+    """Derive the Reality publicKey from the panel's privateKey via xray x25519 -i.
+    3x-ui stores privateKey in streamSettings.realitySettings; the client-link pbk
+    is the matching publicKey. A mismatch means the link's pbk is stale → handshake
+    fails. Returns the derived publicKey or an error string."""
+    if not privkey:
+        return "(no privateKey in panel)"
+    for binary in (
+        "/usr/local/x-ui/bin/xray-linux-amd64",
+        "/usr/local/x-ui/bin/xray",
+        "/usr/local/bin/xray",
+        "xray",
+    ):
+        try:
+            r = subprocess.run(
+                [binary, "x25519", "-i", privkey],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if line.strip().startswith("Public"):
+                        return line.split(":", 1)[1].strip()
+        except Exception:
+            continue
+    return "(xray binary not found / derive failed)"
+
+
 def _dump_inbounds_json_only(c):
     print("\n--- inbounds: reality params + JSON client counts ---")
     rows = c.execute("SELECT id, port, protocol, settings, stream_settings FROM inbounds ORDER BY id").fetchall()
@@ -162,12 +189,14 @@ def _dump_inbounds_json_only(c):
         line = (f"  inbound {ib['id']} :{ib['port']} proto={ib['protocol']} "
                 f"sec={sec} json_clients={n_json}")
         if sec == "reality":
-            pbk = rs.get("publicKey") or rs.get("settings", {}).get("publicKey") or "?"
+            priv = rs.get("privateKey") or rs.get("settings", {}).get("privateKey") or ""
             sids = rs.get("shortIds") or rs.get("settings", {}).get("shortIds") or []
             snis = rs.get("serverNames") or rs.get("settings", {}).get("serverNames") or []
             dest = rs.get("dest") or rs.get("settings", {}).get("dest") or "?"
-            line += (f"\n      reality pbk={str(pbk)[:16]}... shortIds={sids} "
+            derived_pbk = _xray_pubkey(priv)
+            line += (f"\n      reality derived_pbk={derived_pbk}  shortIds={sids} "
                      f"serverNames={snis} dest={dest}")
+            line += f"\n      (compare derived_pbk to the issued link's pbk= — mismatch = stale key = handshake fails)"
         print(line)
 
 
