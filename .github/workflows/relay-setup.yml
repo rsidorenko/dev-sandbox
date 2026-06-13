@@ -68,6 +68,10 @@ on:
         description: "Check Helsinki v3 clients table for the relay UUID (does xray recognize it?)"
         required: false
         default: "false"
+      harden_relay:
+        description: "On relay: ufw source-restrict 1864 to prod + Reality dest=max.ru:443 camo (no key change)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -97,6 +101,7 @@ jobs:
           FIX_RELAY_ACCESS: ${{ github.event.inputs.fix_relay_access || 'false' }}
           RELAY_PANEL_HTTP: ${{ github.event.inputs.relay_panel_http || 'false' }}
           HELSINKI_PROBE: ${{ github.event.inputs.helsinki_probe || 'false' }}
+          HARDEN_RELAY: ${{ github.event.inputs.harden_relay || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -106,7 +111,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -190,4 +195,15 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/fra.py; rm -f /tmp/fra.py" 2>&1 || true
               rm -f ~/.ssh/yandex-relay
               echo "=== FIX RELAY ACCESS COMPLETE ==="
+            fi
+
+            if [ "$HARDEN_RELAY" = "true" ]; then
+              echo "=== HARDEN RELAY: ufw source-restrict 1864 + dest camo ==="
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
+              chmod 600 ~/.ssh/yandex-relay
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/fix_relay_hardening.py romtan@${RELAY}:/tmp/frh.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/frh.py; rm -f /tmp/frh.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-relay
+              echo "=== HARDEN RELAY COMPLETE ==="
             fi
