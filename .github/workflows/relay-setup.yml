@@ -60,6 +60,10 @@ on:
         description: "On relay: ufw allow 22/443/1864 (host firewall blocks the panel port)"
         required: false
         default: "false"
+      relay_panel_http:
+        description: "Switch relay panel_url to HTTP (no TLS verify; XUI_VERIFY_SSL=1 blocks self-signed)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -87,6 +91,7 @@ jobs:
           BOT_LOGS: ${{ github.event.inputs.bot_logs || 'false' }}
           PORT_CHECK: ${{ github.event.inputs.port_check || 'false' }}
           FIX_RELAY_ACCESS: ${{ github.event.inputs.fix_relay_access || 'false' }}
+          RELAY_PANEL_HTTP: ${{ github.event.inputs.relay_panel_http || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -95,7 +100,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -124,6 +129,13 @@ jobs:
               docker compose -f docker-compose.prod.yml cp backend/scripts/add_relay_server_row.py backend:/tmp/arr.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e RELAY_PUBKEY -e RELAY_INBOUND_ID -e RELAY_PANEL_URL -e RELAY_PANEL_PASS backend python /tmp/arr.py 2>&1
               echo "=== ADD RELAY ROW COMPLETE ==="
+            fi
+
+            if [ "$RELAY_PANEL_HTTP" = "true" ]; then
+              echo "=== SWITCH RELAY panel_url to HTTP ==="
+              docker compose -f docker-compose.prod.yml cp backend/scripts/relay_panel_http.py backend:/tmp/rph.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python /tmp/rph.py 2>&1
+              echo "=== RELAY PANEL HTTP COMPLETE ==="
             fi
 
             if [ "$RELAY_DIAG" = "true" ]; then
