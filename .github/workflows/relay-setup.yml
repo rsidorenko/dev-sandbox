@@ -354,6 +354,6 @@ jobs:
               cd /opt/bravada
               docker compose -f docker-compose.prod.yml cp backend/scripts/diag_server_coverage.py backend:/tmp/dsc.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsc.py --sample 25 2>&1
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsc.py 2>&1
               echo "=== SERVER COVERAGE COMPLETE ==="
             fi
