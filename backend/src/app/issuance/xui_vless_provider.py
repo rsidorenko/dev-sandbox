@@ -149,15 +149,15 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    # Default: TCP + Reality with xtls-rprx-vision flow. vision is the only valid
-    # flow for Reality-TCP and is what lets it resist active DPI probing on foreign
-    # IPs (a no-flow Reality-TCP config gets fingerprinted and blocked at the RU
-    # border). See flow_for_transport() and the 2026-06-14 DPI diagnosis.
+    # Default: TCP + Reality. flow is appended only when flow_for_transport enables it
+    # (currently disabled — see flow_for_transport docstring; vision broke all tcp).
+    flow = flow_for_transport("tcp")
+    flow_seg = f"&flow={flow}" if flow else ""
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
         f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
-        f"&sid={server.reality_sid}&spx=%2F&flow={flow_for_transport('tcp')}"
+        f"&sid={server.reality_sid}&spx=%2F{flow_seg}"
         f"#{label}"
     )
 

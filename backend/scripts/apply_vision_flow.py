@@ -20,9 +20,17 @@ Run on the VPN server:  sudo python3 apply_vision_flow.py
 import json
 import os
 import sqlite3
+import sys
 import time
 
 VISION = "xtls-rprx-vision"
+# TARGET_FLOW: "xtls-rprx-vision" to apply vision, "" to REVERT to no-flow.
+# `python3 apply_vision_flow.py revert`  -> "" (restore working state)
+# `python3 apply_vision_flow.py`         -> vision (default)
+if len(sys.argv) > 1 and sys.argv[1] == "revert":
+    TARGET_FLOW = ""
+else:
+    TARGET_FLOW = os.environ.get("TARGET_FLOW", VISION)
 BOT_PREFIXES = ("user-", "x-user-", "cdn-user-")
 DB_CANDIDATES = (
     "/etc/x-ui/x-ui.db",
@@ -76,8 +84,8 @@ def main():
         for cl in clients:
             email = cl.get("email", "")
             if _is_bot(email):
-                if cl.get("flow") != VISION:
-                    cl["flow"] = VISION
+                if cl.get("flow") != TARGET_FLOW:
+                    cl["flow"] = TARGET_FLOW
                     touched = True
                     json_changed += 1
                 n_vision += 1
@@ -102,10 +110,10 @@ def main():
                 WHERE ci.inbound_id IN ({placeholders})
                   AND (cl.email LIKE 'user-%' OR cl.email LIKE 'x-user-%' OR cl.email LIKE 'cdn-user-%')
                   AND cl.flow != ?""",
-            (*reality_inbound_ids, VISION),
+            (*reality_inbound_ids, TARGET_FLOW),
         ).fetchall()
         for r in rows:
-            c.execute("UPDATE clients SET flow=?, updated_at=? WHERE id=?", (VISION, now_ms, r["id"]))
+            c.execute("UPDATE clients SET flow=?, updated_at=? WHERE id=?", (TARGET_FLOW, now_ms, r["id"]))
             table_changed += 1
         total = c.execute("SELECT count(*) FROM clients").fetchone()[0]
         print(f"  v3 clients table: set vision on {table_changed} bot client rows (total clients={total})")
@@ -114,8 +122,9 @@ def main():
 
     db.commit()
     db.close()
-    print(f"\nSUMMARY: JSON clients updated={json_changed} (skipped {json_skipped_service} "
-          f"service/relay clients), table rows updated={table_changed}")
+    flow_desc = repr(TARGET_FLOW) if TARGET_FLOW else "(empty — no-flow)"
+    print(f"\nSUMMARY: target flow={flow_desc} | JSON clients updated={json_changed} "
+          f"(skipped {json_skipped_service} service/relay clients), table rows updated={table_changed}")
     print("Restart x-ui (sudo systemctl restart x-ui) for xray to reload.")
 
 

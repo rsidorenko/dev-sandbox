@@ -101,7 +101,7 @@ def test_add_upsert_replaces_same_email():
     c = _client(panel)
     c._v3_mode = True  # type: ignore[attr-defined]
     new_settings = {"id": "uuid-new", "email": "user-abc", "enable": True,
-                    "expiryTime": 0, "flow": "xtls-rprx-vision", "limitIp": 0, "totalGB": 0,
+                    "expiryTime": 0, "flow": "", "limitIp": 0, "totalGB": 0,
                     "tgId": "", "subId": ""}
     result = _run(c.add_client(user_uuid="uuid-new", email="user-abc", expiry_ts=0))
     assert result.outcome == XuiOutcome.SUCCESS
