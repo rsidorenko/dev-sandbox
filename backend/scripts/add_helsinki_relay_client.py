@@ -69,7 +69,7 @@ async def run():
             print("Helsinki login: OK")
 
             # Find the :443 vless inbound (the relay target).
-            resp = await client.post(f"{panel}/panel/api/inbounds/list", headers=headers)
+            resp = await client.get(f"{panel}/panel/api/inbounds/list", headers=headers)
             inbounds = resp.json().get("obj", []) or []
             target = None
             for ib in inbounds:
@@ -126,7 +126,7 @@ async def run():
                 sys.exit(1)
 
             # Verify
-            resp = await client.post(f"{panel}/panel/api/inbounds/list", headers=headers)
+            resp = await client.get(f"{panel}/panel/api/inbounds/list", headers=headers)
             ib2 = next((x for x in (resp.json().get("obj") or []) if x.get("id") == inbound_id), {})
             s2 = ib2.get("settings", "{}")
             if isinstance(s2, str):
