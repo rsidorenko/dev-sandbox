@@ -108,6 +108,10 @@ on:
         description: "With cleanup_grant=true: actually DELETE the older duplicate grant fact(s) + their apply/audit rows"
         required: false
         default: "false"
+      server_coverage:
+        description: "READ-ONLY: dump all vpn_servers + per active server how many active users are MISSING from its panel JSON (why a server like LA 2.0 / Russia is hidden from /sub/)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -147,6 +151,7 @@ jobs:
           GRANT_PLAN: ${{ github.event.inputs.grant_plan || '1m' }}
           CLEANUP_GRANT: ${{ github.event.inputs.cleanup_grant || 'false' }}
           CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
+          SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -159,7 +164,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,CLEANUP_GRANT,CLEANUP_APPLY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -342,4 +347,12 @@ jobs:
                 docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_duplicate_grant.py --telegram-id "$GRANT_TELEGRAM_ID" 2>&1
               fi
               echo "=== CLEANUP COMPLETE ==="
+            fi
+
+            if [ "$SERVER_COVERAGE" = "true" ]; then
+              echo "=== SERVER COVERAGE (read-only: which active users are missing from each server's panel JSON) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/diag_server_coverage.py backend:/tmp/dsc.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsc.py --sample 25 2>&1
+              echo "=== SERVER COVERAGE COMPLETE ==="
             fi
