@@ -72,9 +72,12 @@ INBOUND_TAG = "in-443-tcp"
 INBOUND_PORT = 443
 
 GEO_BASE = "/usr/local/x-ui/bin"
+# Only geoip.dat: routing uses geoip:ru (catches Russian IP destinations) + explicit
+# TLD rules (domain:ru/su/xn--p1ai). geosite:ru was dropped because the ~90MB
+# geosite.dat truncates mid-download on this host's route to GitHub, crashing xray
+# ("failed to check code RU ... EOF"). geoip.dat (~20MB) downloads fully.
 GEO_FILES = {
     "geoip.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
-    "geosite.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
 }
 
 
@@ -269,9 +272,10 @@ def main():
             "rules": [
                 {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
                 {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
-                # Russian domains -> direct (xn--p1ai is the punycode for .рф)
+                # Russian domains -> direct (xn--p1ai is the punycode for .рф).
+                # TLD rules need no geo files; geoip:ru (IP-based) is a separate rule below.
                 {"type": "field", "inboundTag": [INBOUND_TAG],
-                 "domain": ["geosite:ru", "domain:ru", "domain:su", "domain:xn--p1ai"],
+                 "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"],
                  "outboundTag": "direct"},
                 # Connections by IP to Russian networks -> direct
                 {"type": "field", "inboundTag": [INBOUND_TAG],
