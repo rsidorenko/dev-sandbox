@@ -64,6 +64,10 @@ on:
         description: "Switch relay panel_url to HTTP (no TLS verify; XUI_VERIFY_SSL=1 blocks self-signed)"
         required: false
         default: "false"
+      helsinki_probe:
+        description: "Check Helsinki v3 clients table for the relay UUID (does xray recognize it?)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -92,15 +96,17 @@ jobs:
           PORT_CHECK: ${{ github.event.inputs.port_check || 'false' }}
           FIX_RELAY_ACCESS: ${{ github.event.inputs.fix_relay_access || 'false' }}
           RELAY_PANEL_HTTP: ${{ github.event.inputs.relay_panel_http || 'false' }}
+          HELSINKI_PROBE: ${{ github.event.inputs.helsinki_probe || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
+          HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -136,6 +142,13 @@ jobs:
               docker compose -f docker-compose.prod.yml cp backend/scripts/relay_panel_http.py backend:/tmp/rph.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python /tmp/rph.py 2>&1
               echo "=== RELAY PANEL HTTP COMPLETE ==="
+            fi
+
+            if [ "$HELSINKI_PROBE" = "true" ]; then
+              echo "=== HELSINKI clients table for relay UUID ==="
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/helsinki_probe.py root@77.221.159.106:/tmp/hp.py 2>&1 || echo "  scp failed"
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/hp.py; rm -f /tmp/hp.py' 2>&1 || echo "  Helsinki SSH FAILED (need HELSINKI_SSH_PASS)"
+              echo "=== HELSINKI PROBE COMPLETE ==="
             fi
 
             if [ "$RELAY_DIAG" = "true" ]; then
