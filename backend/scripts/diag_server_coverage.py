@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""Operator (READ-ONLY): why is a server missing from some users' /sub/ list?
+"""Operator (READ-ONLY): who has keys on the main servers but NOT on Russia (id=11)?
 
-The subscription list (/sub/<token> via get_user_config) shows ONLY the servers
-where the user's client exists in the inbound's settings.clients JSON
-(resolve_client_uuid -> _resolve_client_uuid_v3 reads that JSON). So a server is
-hidden from a user when their client is absent from the panel inbound JSON.
+/sub/<token> lists only servers where the user's client exists in the inbound
+settings.clients JSON. A user missing from a server's JSON won't see it.
 
-This diagnostic:
-  1. dumps EVERY vpn_servers row (active + inactive) — answers "does LA 2.0 /
-     Russia exist, and is it active?";
-  2. for each ACTIVE server, fetches the inbound settings.clients JSON and
-     reports how many ACTIVE subscribed users are present vs MISSING there
-     (i.e. won't see this server in their /sub/);
-  3. lists the internal_user_ids / telegram ids that are MISSING on each server,
-     capped (--sample).
+The earlier "active users" framing was wrong: panels hold ~23 clients but only
+~19 are state_label='active'. The users with keys who are NOT active (trial /
+grace / expired) are provisioned on the OLD servers but were never reconciled
+onto Russia (id=11, added later; reconcile_all_active_users only covers active).
+
+This diagnostic diffs the panel client sets directly (ground truth of who has a
+key), independent of snapshot state:
+  1. dumps EVERY vpn_servers row (active + inactive);
+  2. for each active server, fetches the inbound settings.clients JSON -> set of
+     client user-ids (from email prefix);
+  3. union = all users with a key on ANY active server;
+  4. per server, reports users in union but MISSING from that server (with
+     telegram id + snapshot state) — focused on Russia (id=11).
 
 Run in the production container:
-  python diag_server_coverage.py [--sample 20]
+  python diag_server_coverage.py
 """
 from __future__ import annotations
 
@@ -33,7 +36,6 @@ from rebuild_panel_clients import PanelClient  # noqa: E402
 
 
 def _userid_from_email(email: str) -> str | None:
-    """Reverse _email_from_internal: 'x-user-<id[:16]>' / 'cdn-user-..' / 'user-..' -> <id[:16]>."""
     e = email or ""
     for pre in ("x-user-", "cdn-user-", "user-"):
         if e.startswith(pre):
@@ -43,14 +45,12 @@ def _userid_from_email(email: str) -> str | None:
 
 async def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--sample", type=int, default=20, help="how many missing ids to print per server")
     args = p.parse_args()
 
     from app.security.field_encryption import decrypt_field
 
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=4)
     try:
-        # 1) ALL servers (active + inactive), with creds resolved
         rows = await pool.fetch(
             """SELECT id, label, country_code, server_host, server_port,
                       COALESCE(transport_type,'tcp') AS transport_type,
@@ -71,32 +71,20 @@ async def main() -> None:
             print(f"{r['id']:>3} {'Y' if r['is_active'] else '-':>3} {r['transport_type']:>9} {hostport:>22}  "
                   f"{r['country_code']} {r['label']}  (sni={r['reality_sni'] or r['tls_sni'] or '-'})")
             pw = decrypt_field(r["encrypted_password"]) if r["encrypted_password"] else r["panel_password"]
-            servers.append({
-                "id": r["id"], "label": r["label"], "cc": r["country_code"],
-                "host": r["server_host"], "port": r["server_port"], "ttype": r["transport_type"],
-                "active": r["is_active"], "panel_url": r["panel_url"], "panel_username": r["panel_username"],
-                "panel_password": pw, "inbound_id": r["inbound_id"],
-            })
-        print(f"\ntotal rows: {len(rows)} | active: {sum(1 for s in servers if s['active'])}")
+            if r["is_active"]:
+                servers.append({
+                    "id": r["id"], "label": r["label"], "cc": r["country_code"],
+                    "host": r["server_host"], "port": r["server_port"], "ttype": r["transport_type"],
+                    "panel_url": r["panel_url"], "panel_username": r["panel_username"],
+                    "panel_password": pw, "inbound_id": r["inbound_id"],
+                })
 
-        # 2) active users
-        users = await pool.fetch(
-            """SELECT i.internal_user_id, i.telegram_user_id
-               FROM user_identities i
-               JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-               WHERE s.state_label = 'active' AND i.vless_uuid IS NOT NULL"""
-        )
-        active_ids = {u["internal_user_id"]: u["telegram_user_id"] for u in users}
-        print(f"active subscribed users (with vless_uuid): {len(active_ids)}")
-
-        # 3) per active server, JSON coverage
+        # fetch client sets per active server
         print("\n" + "=" * 80)
-        print("Per ACTIVE server: which active users are PRESENT in settings.clients JSON")
+        print("Client sets per ACTIVE server (from settings.clients JSON)")
         print("=" * 80)
+        client_sets: dict[int, set[str]] = {}
         for s in servers:
-            if not s["active"]:
-                continue
-            tag = f"id={s['id']} {s['cc']} {s['label']} [{s['ttype']}] {s['host']}:{s['port']}"
             pc = PanelClient(
                 panel_url=s["panel_url"], username=s["panel_username"], password=s["panel_password"],
                 inbound_id=s["inbound_id"], server_id=s["id"], label=s["label"],
@@ -104,8 +92,10 @@ async def main() -> None:
             )
             inbound = await pc.get_inbound()
             await pc.aclose()
+            tag = f"id={s['id']} {s['cc']} {s['label']} [{s['ttype']}]"
             if not inbound:
-                print(f"\n--- {tag}\n    !! could not fetch inbound (login/list failed) — server hidden for everyone")
+                print(f"  {tag:<48} !! inbound fetch FAILED")
+                client_sets[s["id"]] = set()
                 continue
             settings = inbound.get("settings", {})
             if isinstance(settings, str):
@@ -113,19 +103,60 @@ async def main() -> None:
                     settings = json.loads(settings)
                 except Exception:
                     settings = {}
-            present_ids = {_userid_from_email(c.get("email", "")) for c in settings.get("clients", [])}
-            present_ids.discard(None)
-            active_short = {uid[:16]: uid for uid in active_ids}
-            present_active = [uid for sh, uid in active_short.items() if sh in present_ids]
-            missing_active = [uid for sh, uid in active_short.items() if sh not in present_ids]
-            print(f"\n--- {tag}")
-            print(f"    JSON clients total   : {len(present_ids)}")
-            print(f"    active users PRESENT : {len(present_active)} / {len(active_ids)}")
-            print(f"    active users MISSING : {len(missing_active)}  <- these will NOT see this server in /sub/")
-            if missing_active:
-                shown = missing_active[: args.sample]
-                sample_txt = ", ".join(f"{uid[:10]}/tg={active_ids[uid]}" for uid in shown)
-                print(f"    sample missing: {sample_txt}{' ...' if len(missing_active) > args.sample else ''}")
+            ids = {_userid_from_email(c.get("email", "")) for c in settings.get("clients", [])}
+            ids.discard(None)
+            client_sets[s["id"]] = ids
+            print(f"  {tag:<48} clients={len(ids)}")
+
+        union = set().union(*client_sets.values()) if client_sets else set()
+        print(f"\n  TOTAL distinct users with a key on ANY active server: {len(union)}")
+
+        # telegram ids + snapshot states for everyone in the union
+        meta: dict[str, dict] = {}
+        if union:
+            # internal_user_id prefix is internal_user_id[:16]; match on prefix
+            recs = await pool.fetch(
+                """SELECT i.internal_user_id, i.telegram_user_id, s.state_label
+                   FROM user_identities i
+                   LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+                   WHERE i.vless_uuid IS NOT NULL"""
+            )
+            by_short = {r["internal_user_id"][:16]: r for r in recs}
+            for sh in union:
+                r = by_short.get(sh)
+                meta[sh] = {
+                    "tg": r["telegram_user_id"] if r else "?",
+                    "state": r["state_label"] if r else "(no snapshot)",
+                }
+
+        # per-server missing vs union
+        print("\n" + "=" * 80)
+        print("Users in union but MISSING from each server (-> won't see it in /sub/)")
+        print("=" * 80)
+        for s in servers:
+            missing = union - client_sets[s["id"]]
+            tag = f"id={s['id']} {s['cc']} {s['label']}"
+            if not missing:
+                print(f"  {tag:<40} MISSING: 0  (full coverage)")
+                continue
+            print(f"  {tag:<40} MISSING: {len(missing)}")
+            for sh in sorted(missing):
+                m = meta.get(sh, {})
+                print(f"      - {sh[:16]}  tg={m.get('tg')}  state={m.get('state')}")
+
+        # focused summary for Russia
+        russia = next((s for s in servers if s["id"] == 11), None)
+        if russia:
+            miss_russia = union - client_sets.get(11, set())
+            print("\n" + "=" * 80)
+            print(f"RUSSIA (id=11) — {len(client_sets.get(11, set()))} clients; "
+                  f"{len(miss_russia)} users with keys elsewhere but NOT on Russia")
+            print("=" * 80)
+            for sh in sorted(miss_russia):
+                m = meta.get(sh, {})
+                print(f"  - {sh[:16]}  tg={m.get('tg')}  state={m.get('state')}")
+            if not miss_russia:
+                print("  (everyone with a key is on Russia)")
     finally:
         await pool.close()
 
