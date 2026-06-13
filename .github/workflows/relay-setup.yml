@@ -48,6 +48,10 @@ on:
         description: "PANEL_URL from setup_relay output (for add_relay_row)"
         required: false
         default: ""
+      bot_logs:
+        description: "Dump bot container logs (reconcile/xui/relay) to debug client provisioning"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -72,6 +76,7 @@ jobs:
           RELAY_PUBKEY: ${{ github.event.inputs.relay_pubkey || '' }}
           RELAY_INBOUND_ID: ${{ github.event.inputs.relay_inbound_id || '' }}
           RELAY_PANEL_URL: ${{ github.event.inputs.relay_panel_url || '' }}
+          BOT_LOGS: ${{ github.event.inputs.bot_logs || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -80,7 +85,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -120,4 +125,11 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/relay_probe.py; rm -f /tmp/relay_probe.py" 2>&1 || true
               rm -f ~/.ssh/yandex-relay
               echo "=== RELAY DIAG COMPLETE ==="
+            fi
+
+            if [ "$BOT_LOGS" = "true" ]; then
+              echo "=== BOT LOGS (reconcile / xui / relay provisioning) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml logs --tail=400 backend 2>&1 | grep -iE "reconcile|xui|89\.169|server.?11|add_client|panel|login|no active|UNAVAILABLE" | tail -70 || true
+              echo "=== BOT LOGS COMPLETE ==="
             fi
