@@ -102,6 +102,13 @@ for p in ["/var/log/xray-error.log", "/var/log/xray-access.log",
         print(f"--- {p} ---")
         print(r.stdout)
 
+section("panel local reachability + host firewall")
+print("local curl :1864:", run("curl -sk --max-time 5 https://localhost:1864/ -o /dev/null -w '%{http_code}' 2>&1").stdout)
+print(":1864 listening:", run("ss -tlnp 2>/dev/null | grep ':1864 '").stdout or "(not listening)")
+print("iptables INPUT:", run("sudo iptables -S INPUT 2>/dev/null | head -20").stdout or "(no iptables)")
+print("iptables (panel/443 rules):", run("sudo iptables -S 2>/dev/null | grep -iE '1864|443|dport|ACCEPT|DROP' | head -20").stdout)
+print("ufw:", run("sudo ufw status 2>/dev/null || echo 'no ufw'").stdout)
+
 section("Helsinki reachability")
 r = run("timeout 4 bash -c 'echo > /dev/tcp/77.221.159.106/443' 2>/dev/null && echo REACHABLE || echo UNREACHABLE")
 print(r.stdout)
