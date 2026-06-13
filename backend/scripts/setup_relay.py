@@ -107,22 +107,23 @@ def ensure_3xui():
         print(f"3x-ui DB found: {DB_PATH}")
         return
 
-    xray_running = run("pgrep -f xray-linux-amd64", check=False).returncode == 0
+    xray_procs = run("pgrep -af '[x]ray' || true", check=False)
+    xray_running = bool(xray_procs.stdout.strip())
     if xray_running:
-        # Standalone xray-core (systemd xray.service) has no panel — replace it
-        # with 3x-ui so the bot can manage clients. Stop+disable xray.service to
-        # free port 443 for 3x-ui's own xray, then install 3x-ui below.
-        xray_svc = run("systemctl is-active --quiet xray && echo yes || echo no", check=False).stdout.strip()
-        if xray_svc == "yes":
-            print("--- standalone xray.service detected — stopping & disabling it (3x-ui will take over :443) ---")
-            run("sudo systemctl stop xray", check=False)
-            run("sudo systemctl disable xray", check=False)
-            run("pgrep -f '/usr/local/bin/xray' | xargs -r sudo kill 2>/dev/null; sleep 2", check=False)
-            print("xray.service stopped/disabled")
-        else:
-            print("ERROR: xray is running but not via xray.service and no x-ui.db found. "
-                  "Identify the manager before proceeding.", file=sys.stderr)
-            run("ps -ef | grep -E 'xray|x-ui|sing|marz' | grep -v grep", check=False)
+        # No 3x-ui db => standalone xray-core (any unit/manager). Tear down ALL
+        # xray so 3x-ui can claim :443. Operator approved replacing standalone.
+        print(f"--- standalone xray detected; procs:\n{xray_procs.stdout.strip()}")
+        print("--- tearing down all xray units + processes ---")
+        run("sudo systemctl stop xray 'xray@*' 2>/dev/null; "
+            "sudo systemctl disable xray 'xray@*' 2>/dev/null; true", check=False)
+        run("sudo pkill -9 -f 'xray run' 2>/dev/null; sleep 2", check=False)
+        rem = run("pgrep -af '[x]ray' || true", check=False)
+        print(f"remaining xray procs: {rem.stdout.strip() or 'none'}")
+        port443 = run("ss -tlnp 2>/dev/null | grep ':443 '", check=False)
+        print(f":443 after teardown: {port443.stdout.strip() or 'FREE'}")
+        if port443.stdout.strip():
+            print("ERROR: :443 still occupied after xray teardown — a watchdog may be "
+                  "restarting xray; stop it before proceeding.", file=sys.stderr)
             sys.exit(1)
 
     print("=== Installing 3x-ui (official installer, non-interactive) ===")
