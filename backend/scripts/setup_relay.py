@@ -201,20 +201,22 @@ def reset_panel_creds():
 
 
 def ensure_geo_files():
-    print("=== Ensure geoip.dat + geosite.dat ===")
+    # Force fresh download: a pre-existing geosite.dat (e.g. leftover from a
+    # standalone xray with split per-country files) can be truncated/missing the
+    # "ru" tag, which makes xray crash on startup ("failed to check code RU ...
+    # EOF"). Always overwrite with the Loyalsoldier unified files (which contain
+    # geosite:ru / geoip:ru).
+    print("=== Ensure geoip.dat + geosite.dat (force fresh from Loyalsoldier) ===")
     os.makedirs(GEO_BASE, exist_ok=True)
     for name, url in GEO_FILES.items():
         path = os.path.join(GEO_BASE, name)
-        if os.path.exists(path) and os.path.getsize(path) > 100_000:
-            print(f"  {name}: present ({os.path.getsize(path)} bytes)")
-            continue
         print(f"  downloading {name} ...")
         r = run(f"curl -Ls -o {path} {url} && test -s {path}", check=False)
         if r.returncode != 0:
-            # fallback to wget
             run(f"wget -q -O {path} {url}", check=False)
-        ok = os.path.exists(path) and os.path.getsize(path) > 100_000
-        print(f"  {name}: {'OK' if ok else 'MISSING/SMALL'} ({os.path.getsize(path) if os.path.exists(path) else 0} bytes)")
+        ok = os.path.exists(path) and os.path.getsize(path) > 1_000_000
+        print(f"  {name}: {'OK' if ok else 'MISSING/SMALL'} "
+              f"({os.path.getsize(path) if os.path.exists(path) else 0} bytes)")
         if not ok:
             print(f"ERROR: could not fetch {name} — geosite:ru/geoip:ru rules need it", file=sys.stderr)
             sys.exit(1)
@@ -348,16 +350,24 @@ def main():
     print("\n=== Step 6: Restart x-ui ===")
     r = run("sudo systemctl restart x-ui", check=False)
     print(f"restart: rc={r.returncode}")
-    time.sleep(6)
+    time.sleep(8)
 
     r = run("pgrep -f xray-linux-amd64", check=False)
     xray_ok = r.returncode == 0
+    port443 = run("sudo ss -tlnp | grep -E ':443 '", check=False)
     print(f"xray running: {xray_ok} pid={r.stdout.strip()}")
+    print(f":443 listening: {port443.stdout.strip() or 'NO'}")
 
     r = run(f"sudo grep -c 'relay-to-helsinki' /usr/local/x-ui/bin/config.json", check=False)
     print(f"config.json relay mentions: {r.stdout.strip()}")
-    r = run("sudo ss -tlnp | grep -E ':443 '", check=False)
-    print(f"listening:\n{r.stdout.strip()}")
+
+    # Fail loudly if xray didn't come up — it crashes on bad geo/routing configs.
+    if not xray_ok or not port443.stdout.strip():
+        print("ERROR: xray failed to start or :443 not bound. Recent x-ui errors:", file=sys.stderr)
+        j = run("sudo journalctl -u x-ui --no-pager -n 20 2>/dev/null | grep -iE 'error|failed|geodata'",
+                check=False)
+        print(j.stdout, file=sys.stderr)
+        sys.exit(1)
 
     panel_url = f"https://89.169.139.153:{panel_port}/{web_base}/" if web_base else f"https://89.169.139.153:{panel_port}/"
 
