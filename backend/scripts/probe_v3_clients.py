@@ -141,31 +141,55 @@ def main():
     con.close()
 
 
-def _xray_pubkey(privkey: str) -> str:
-    """Derive the Reality publicKey from the panel's privateKey via xray x25519 -i.
-    3x-ui stores privateKey in streamSettings.realitySettings; the client-link pbk
-    is the matching publicKey. A mismatch means the link's pbk is stale → handshake
-    fails. Returns the derived publicKey or an error string."""
-    if not privkey:
-        return "(no privateKey in panel)"
-    for binary in (
+def _find_xray_binary() -> str:
+    """Locate the xray binary robustly: read it from the running process's /proc/PID/exe,
+    then fall back to common paths."""
+    pid = _proc("pgrep -f 'xray' | head -1")
+    if pid and pid.isdigit():
+        exe = _proc(f"readlink -f /proc/{pid}/exe 2>/dev/null")
+        if exe and "xray" in exe and exe.startswith("/"):
+            return exe
+    for cand in (
         "/usr/local/x-ui/bin/xray-linux-amd64",
         "/usr/local/x-ui/bin/xray",
         "/usr/local/bin/xray",
-        "xray",
     ):
-        try:
-            r = subprocess.run(
-                [binary, "x25519", "-i", privkey],
-                capture_output=True, text=True, timeout=10,
-            )
-            if r.returncode == 0:
-                for line in r.stdout.splitlines():
-                    if line.strip().startswith("Public"):
-                        return line.split(":", 1)[1].strip()
-        except Exception:
-            continue
-    return "(xray binary not found / derive failed)"
+        if os.path.exists(cand):
+            return cand
+    return _proc("command -v xray 2>/dev/null") or ""
+
+
+def _xray_pubkey(privkey: str) -> str:
+    """Derive the Reality publicKey from the panel's privateKey via `xray x25519 -i`.
+    3x-ui stores privateKey in streamSettings.realitySettings; the client-link pbk is
+    the matching publicKey. A mismatch means the link's pbk is stale → handshake fails."""
+    if not privkey:
+        return "(no privateKey in panel)"
+    binary = _find_xray_binary()
+    if not binary:
+        return "(xray binary not located)"
+    try:
+        r = subprocess.run(
+            [binary, "x25519", "-i", privkey],
+            capture_output=True, text=True, timeout=10,
+        )
+        for line in (r.stdout or "").splitlines():
+            line = line.strip()
+            if line.lower().startswith("public"):
+                # "Public key: xxxx" or "PublicKey: xxxx"
+                return line.split(":", 1)[1].strip()
+        return f"(derive rc={r.returncode} err={r.stderr.strip()[:80]})"
+    except Exception as e:
+        return f"(derive error: {e})"
+
+
+def _dest_cert(host: str, sni: str) -> str:
+    """What cert does the Reality dest (nginx) serve for this serverName? Determines
+    whether the Reality camouflage is convincing for DPI probes."""
+    cmd = (f"echo | openssl s_client -connect {host} -servername {sni} "
+           f"-tls1_3 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null")
+    out = _proc(cmd)
+    return out or "(no cert / handshake failed)"
 
 
 def _dump_inbounds_json_only(c):
@@ -197,6 +221,12 @@ def _dump_inbounds_json_only(c):
             line += (f"\n      reality derived_pbk={derived_pbk}  shortIds={sids} "
                      f"serverNames={snis} dest={dest}")
             line += f"\n      (compare derived_pbk to the issued link's pbk= — mismatch = stale key = handshake fails)"
+            # raw realitySettings for full transparency (may contain publicKey directly)
+            line += f"\n      raw realitySettings: {json.dumps(rs, separators=(',', ':'))[:400]}"
+            # what cert does the dest serve for the advertised serverName? (camo validity)
+            sni = snis[0] if snis else ""
+            if dest and sni and dest != "?":
+                line += f"\n      dest cert (sni={sni}): {_dest_cert(dest, sni)}"
         print(line)
 
 
