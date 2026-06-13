@@ -108,9 +108,17 @@ def ensure_3xui():
         return
 
     xray_running = run("pgrep -f xray-linux-amd64", check=False).returncode == 0
-    print("--- diagnostic: 3x-ui locations ---")
-    run("ls -la /etc/x-ui 2>/dev/null; ls -la /usr/local/x-ui 2>/dev/null; "
-        "ls -la /usr/local/x-ui/bin 2>/dev/null", check=False)
+    print("--- diagnostic: what manages xray on this host? ---")
+    run("echo '== processes =='; ps -ef | grep -E 'xray|x-ui|sing|marz|hiddify' | grep -v grep", check=False)
+    run("echo '== services =='; systemctl list-unit-files 2>/dev/null | grep -iE 'xray|x-ui|sing|hiddify|marz'", check=False)
+    run("echo '== listening ports =='; ss -tlnp 2>/dev/null | head -30", check=False)
+    run("echo '== /usr/local/x-ui tree =='; ls -laR /usr/local/x-ui 2>/dev/null | head -40", check=False)
+    run("echo '== /etc/x-ui =='; ls -la /etc/x-ui 2>/dev/null", check=False)
+    run("echo '== find config.json (xray) =='; find / -path /proc -prune -o -path /sys -prune -o "
+        "-name 'config.json' -print 2>/dev/null | grep -iE 'xray|x-ui|bin' | head", check=False)
+    run("echo '== find any panel .db =='; find / -path /proc -prune -o -path /sys -prune -o "
+        "-name '*.db' -print 2>/dev/null | grep -iE 'x-?ui|sing|marz|hiddify|3x' | head", check=False)
+    run("echo '== docker? =='; docker ps 2>/dev/null | head; podman ps 2>/dev/null | head", check=False)
     if xray_running:
         print("ERROR: xray is running but no x-ui.db found at known paths. "
               "Locate it and add the path to DB_CANDIDATES.", file=sys.stderr)
