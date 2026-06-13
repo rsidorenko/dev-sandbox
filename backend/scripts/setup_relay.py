@@ -40,7 +40,14 @@ import subprocess
 import sys
 import time
 
-DB_PATH = "/etc/x-ui/x-ui.db"
+# x-ui DB location varies by install (/etc/x-ui vs /usr/local/x-ui). Detect at runtime.
+DB_CANDIDATES = [
+    "/etc/x-ui/x-ui.db",
+    "/usr/local/x-ui/x-ui.db",
+    "/usr/local/x-ui/bin/x-ui.db",
+    "/opt/x-ui/x-ui.db",
+]
+DB_PATH = None  # resolved by ensure_3xui()
 XRAY_BIN = "/usr/local/x-ui/bin/xray-linux-amd64"
 PANEL_USER = "bravada"
 PANEL_PASS = os.environ.get("RELAY_PANEL_PASS", "")
@@ -78,17 +85,101 @@ def run(cmd, check=True):
     return r
 
 
+def find_db():
+    for p in DB_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    # Broad fallback search (bounded to likely roots).
+    r = run("find /etc /usr/local /opt /root /var/lib -name 'x-ui.db' -type f 2>/dev/null | head -1", check=False)
+    line = r.stdout.strip().splitlines()
+    if line:
+        return line[0]
+    return None
+
+
 def ensure_3xui():
-    if os.path.exists(DB_PATH):
+    """Resolve the 3x-ui DB path. Only install if xray is NOT already running
+    and no DB exists (avoids re-running the installer on an already-installed
+    server whose DB lives at a non-default path)."""
+    global DB_PATH
+    DB_PATH = find_db()
+    if DB_PATH:
+        print(f"3x-ui DB found: {DB_PATH}")
         return
-    print("=== /etc/x-ui/x-ui.db not found — installing 3x-ui ===")
+
+    xray_running = run("pgrep -f xray-linux-amd64", check=False).returncode == 0
+    print("--- diagnostic: 3x-ui locations ---")
+    run("ls -la /etc/x-ui 2>/dev/null; ls -la /usr/local/x-ui 2>/dev/null; "
+        "ls -la /usr/local/x-ui/bin 2>/dev/null", check=False)
+    if xray_running:
+        print("ERROR: xray is running but no x-ui.db found at known paths. "
+              "Locate it and add the path to DB_CANDIDATES.", file=sys.stderr)
+        sys.exit(1)
+
+    print("=== No 3x-ui found (no db, xray not running) — installing ===")
     # Official installer is non-interactive when piped (no TTY).
     r = run("bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)", check=False)
     print(f"install rc={r.returncode}")
-    if not os.path.exists(DB_PATH):
-        print("ERROR: 3x-ui install did not create /etc/x-ui/x-ui.db — install manually first", file=sys.stderr)
+    DB_PATH = find_db()
+    if not DB_PATH:
+        print("ERROR: 3x-ui install did not create x-ui.db — install manually first", file=sys.stderr)
         sys.exit(1)
     time.sleep(3)
+
+
+def reset_panel_creds():
+    """Reset 3x-ui panel creds via direct bcrypt UPDATE of the users table.
+
+    The `x-ui setting` CLI is unreliable on v3.x (shows an interactive menu), so
+    edit the DB directly so the bot (which logs in as bravada/RELAY_PANEL_PASS)
+    can manage clients on this inbound.
+    """
+    import sqlite3 as _sqlite3
+
+    def _bcrypt_hash(pw):
+        try:
+            import bcrypt
+            return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10)).decode()
+        except ImportError:
+            pass
+        r = subprocess.run(["htpasswd", "-bnBC", "10", "", pw], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout:
+            return r.stdout.split(":", 1)[1].strip()
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "bcrypt"],
+                       capture_output=True, text=True, timeout=60)
+        import bcrypt
+        return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=10)).decode()
+
+    pw_hash = _bcrypt_hash(PANEL_PASS)
+    print(f"bcrypt hash generated (len={len(pw_hash)})")
+
+    conn = _sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id, username FROM users")
+        rows = cur.fetchall()
+        if rows:
+            uid = rows[0][0]
+            try:
+                cur.execute("UPDATE users SET username=?, password=?, login_epoch=0 WHERE id=?",
+                            (PANEL_USER, pw_hash, uid))
+            except _sqlite3.OperationalError:
+                cur.execute("UPDATE users SET username=?, password=? WHERE id=?",
+                            (PANEL_USER, pw_hash, uid))
+            print(f"updated users row id={uid} -> username={PANEL_USER}")
+        else:
+            cur.execute("INSERT INTO users (username, password, login_epoch) VALUES (?, ?, 0)",
+                        (PANEL_USER, pw_hash))
+            print(f"inserted users row username={PANEL_USER}")
+        conn.commit()
+    except _sqlite3.OperationalError as e:
+        # Older 3x-ui: creds live in settings keys webUsername/webPassword
+        print(f"users table not found ({e}); trying settings keys")
+        cur.execute("UPDATE settings SET value=? WHERE key='webUsername'", (PANEL_USER,))
+        cur.execute("UPDATE settings SET value=? WHERE key='webPassword'", (pw_hash,))
+        conn.commit()
+        print("updated settings webUsername/webPassword")
+    conn.close()
 
 
 def ensure_geo_files():
@@ -118,10 +209,10 @@ def main():
 
     ensure_3xui()
 
-    # ── Step 1: Reset panel creds ──
-    print("=== Step 1: Reset panel credentials ===")
-    r = run(f"sudo x-ui setting -username {PANEL_USER} -password '{PANEL_PASS}'", check=False)
-    print(f"x-ui setting: rc={r.returncode} out={r.stdout.strip()[:80]}")
+    # ── Step 1: Reset panel creds (direct bcrypt UPDATE — x-ui setting CLI is
+    #   unreliable on v3.x, shows an interactive menu) ──
+    print("=== Step 1: Reset panel credentials (bcrypt in users table) ===")
+    reset_panel_creds()
 
     # ── Step 2: Generate Reality keypair ──
     print("\n=== Step 2: Generate Reality keypair ===")
