@@ -1,0 +1,122 @@
+name: relay-setup
+
+# One-purpose workflow for the RU split-routing relay server (89.169.139.153).
+# Kept separate from deploy.yml so deploy.yml and the LTE configuration stay
+# untouched (deploy.yml is at the GitHub workflow_dispatch input cap).
+#
+# Runs the setup/registration scripts from the PRODUCTION host (same pattern as
+# deploy.yml's LTE blocks): the ssh-action lands on prod (/opt/bravada, where the
+# scripts are deployed), injects RELAY_SSH_KEY, and from there SSHes/scps to the
+# relay server. Container tasks (Helsinki registration, vpn_servers row) run via
+# `docker compose exec backend`.
+#
+# Prerequisites:
+#   - Secrets: RELAY_SSH_KEY (.ssh/yandex-relay), RELAY_PANEL_PASS,
+#     plus the deploy secrets SERVER_HOST/SERVER_USER/SERVER_SSH_KEY/FIELD_ENCRYPTION_KEY.
+#   - Scripts deployed: run once after merge (normal push deploy ships them to
+#     /opt/bravada/backend/scripts/) before triggering this workflow.
+#   - Relay server: TCP 22 open to the prod host IP, TCP 443 open to 0.0.0.0/0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      setup_relay:
+        description: "Configure RU relay: install 3x-ui if needed, Reality inbound 443, split routing (.ru/.su/.рф/geosite:ru/geoip:ru -> direct, rest -> Helsinki)"
+        required: false
+        default: "false"
+      add_helsinki_relay:
+        description: "Register relay UUID as a client on Helsinki :443 inbound (run after setup_relay)"
+        required: false
+        default: "false"
+      add_relay_row:
+        description: "Insert vpn_servers row id=11 for the RU relay (needs relay_pubkey/inbound_id/panel_url below)"
+        required: false
+        default: "false"
+      relay_diag:
+        description: "SSH to RU relay: dump routing/outbounds, xray status, logs, Helsinki reachability, geo files"
+        required: false
+        default: "false"
+      relay_pubkey:
+        description: "REALITY_PUBKEY from setup_relay output (for add_relay_row)"
+        required: false
+        default: ""
+      relay_inbound_id:
+        description: "INBOUND_ID from setup_relay output (for add_relay_row)"
+        required: false
+        default: ""
+      relay_panel_url:
+        description: "PANEL_URL from setup_relay output (for add_relay_row)"
+        required: false
+        default: ""
+
+concurrency:
+  group: relay-setup
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    name: RU relay setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run on production host
+        uses: appleboy/ssh-action@v1
+        env:
+          SETUP_RELAY: ${{ github.event.inputs.setup_relay || 'false' }}
+          ADD_HELSINKI_RELAY: ${{ github.event.inputs.add_helsinki_relay || 'false' }}
+          ADD_RELAY_ROW: ${{ github.event.inputs.add_relay_row || 'false' }}
+          RELAY_DIAG: ${{ github.event.inputs.relay_diag || 'false' }}
+          RELAY_PUBKEY: ${{ github.event.inputs.relay_pubkey || '' }}
+          RELAY_INBOUND_ID: ${{ github.event.inputs.relay_inbound_id || '' }}
+          RELAY_PANEL_URL: ${{ github.event.inputs.relay_panel_url || '' }}
+          RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
+          RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 30m
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
+          script: |
+            set -e
+            cd /opt/bravada
+            RELAY="89.169.139.153"
+
+            if [ "$SETUP_RELAY" = "true" ]; then
+              echo "=== SETUP RELAY on $RELAY ==="
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
+              chmod 600 ~/.ssh/yandex-relay
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/setup_relay.py romtan@${RELAY}:/tmp/setup_relay.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@${RELAY} "RELAY_PANEL_PASS='$RELAY_PANEL_PASS' sudo -E python3 /tmp/setup_relay.py; rm -f /tmp/setup_relay.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-relay
+              echo "=== SETUP RELAY COMPLETE ==="
+            fi
+
+            if [ "$ADD_HELSINKI_RELAY" = "true" ]; then
+              echo "=== ADD RELAY UUID TO HELSINKI :443 ==="
+              docker compose -f docker-compose.prod.yml cp backend/scripts/add_helsinki_relay_client.py backend:/tmp/ahr.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/ahr.py 2>&1
+              echo "=== ADD HELSINKI RELAY COMPLETE ==="
+            fi
+
+            if [ "$ADD_RELAY_ROW" = "true" ]; then
+              echo "=== INSERT vpn_servers ROW id=11 (RU relay) ==="
+              docker compose -f docker-compose.prod.yml cp backend/scripts/add_relay_server_row.py backend:/tmp/arr.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e RELAY_PUBKEY -e RELAY_INBOUND_ID -e RELAY_PANEL_URL -e RELAY_PANEL_PASS backend python /tmp/arr.py 2>&1
+              echo "=== ADD RELAY ROW COMPLETE ==="
+            fi
+
+            if [ "$RELAY_DIAG" = "true" ]; then
+              echo "=== RELAY DIAG on $RELAY ==="
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
+              chmod 600 ~/.ssh/yandex-relay
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} 'echo "--- routing + outbound tags ---"; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); print(json.dumps(c.get(\"routing\",{}),indent=2)); print(\"outbounds:\", [o.get(\"tag\") for o in c.get(\"outbounds\",[])])"; echo "--- xray process ---"; pgrep -f xray-linux-amd64 >/dev/null && echo "xray OK" || echo "xray NOT running"; echo "--- :443 listening ---"; sudo ss -tlnp 2>/dev/null | grep ":443 " || echo "443 not listening"; echo "--- xray error log (last 20) ---"; sudo tail -20 /var/log/xray-error.log 2>/dev/null || echo "no error log"; echo "--- Helsinki reachable from RU relay? ---"; timeout 4 bash -c "echo > /dev/tcp/77.221.159.106/443" 2>/dev/null && echo "Helsinki:443 REACHABLE" || echo "Helsinki:443 UNREACHABLE"; echo "--- geo files ---"; ls -la /usr/local/x-ui/bin/*.dat 2>/dev/null || echo "no geo files"' 2>&1 || true
+              rm -f ~/.ssh/yandex-relay
+              echo "=== RELAY DIAG COMPLETE ==="
+            fi
