@@ -108,33 +108,34 @@ def ensure_3xui():
         return
 
     xray_running = run("pgrep -f xray-linux-amd64", check=False).returncode == 0
-    print("--- diagnostic: what manages xray on this host? ---")
-    diag = run(
-        "echo '== processes =='; ps -ef | grep -E 'xray|x-ui|sing|marz|hiddify' | grep -v grep; "
-        "echo '== services =='; systemctl list-unit-files 2>/dev/null | grep -iE 'xray|x-ui|sing|hiddify|marz'; "
-        "echo '== listening ports =='; ss -tlnp 2>/dev/null | head -30; "
-        "echo '== /usr/local/x-ui =='; ls -la /usr/local/x-ui 2>/dev/null; ls -la /usr/local/x-ui/bin 2>/dev/null; "
-        "echo '== /etc/x-ui =='; ls -la /etc/x-ui 2>/dev/null; "
-        "echo '== find config.json =='; find / -path /proc -prune -o -path /sys -prune -o -path /dev -prune -o "
-        "-name 'config.json' -print 2>/dev/null | grep -iE 'xray|x-ui|bin' | head; "
-        "echo '== find *.db =='; find / -path /proc -prune -o -path /sys -prune -o -path /dev -prune -o "
-        "-name '*.db' -print 2>/dev/null | grep -iE 'x-?ui|sing|marz|hiddify|3x' | head; "
-        "echo '== docker? =='; docker ps 2>/dev/null | head; podman ps 2>/dev/null | head",
-        check=False)
-    print(diag.stdout)
     if xray_running:
-        print("ERROR: xray is running but no x-ui.db found at known paths. "
-              "Locate it and add the path to DB_CANDIDATES.", file=sys.stderr)
-        sys.exit(1)
+        # Standalone xray-core (systemd xray.service) has no panel — replace it
+        # with 3x-ui so the bot can manage clients. Stop+disable xray.service to
+        # free port 443 for 3x-ui's own xray, then install 3x-ui below.
+        xray_svc = run("systemctl is-active --quiet xray && echo yes || echo no", check=False).stdout.strip()
+        if xray_svc == "yes":
+            print("--- standalone xray.service detected — stopping & disabling it (3x-ui will take over :443) ---")
+            run("sudo systemctl stop xray", check=False)
+            run("sudo systemctl disable xray", check=False)
+            run("pgrep -f '/usr/local/bin/xray' | xargs -r sudo kill 2>/dev/null; sleep 2", check=False)
+            print("xray.service stopped/disabled")
+        else:
+            print("ERROR: xray is running but not via xray.service and no x-ui.db found. "
+                  "Identify the manager before proceeding.", file=sys.stderr)
+            run("ps -ef | grep -E 'xray|x-ui|sing|marz' | grep -v grep", check=False)
+            sys.exit(1)
 
-    print("=== No 3x-ui found (no db, xray not running) — installing ===")
-    # Official installer is non-interactive when piped (no TTY).
-    r = run("bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)", check=False)
-    print(f"install rc={r.returncode}")
+    print("=== Installing 3x-ui (official installer, non-interactive) ===")
+    # Official installer runs non-interactively when piped (no TTY); it sets random
+    # creds which we reset below. command_timeout in the workflow caps any hang.
+    r = run("bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)",
+            check=False)
+    print(f"install rc={r.returncode} out={r.stdout.strip()[-200:]}")
     DB_PATH = find_db()
     if not DB_PATH:
         print("ERROR: 3x-ui install did not create x-ui.db — install manually first", file=sys.stderr)
         sys.exit(1)
+    print(f"3x-ui installed, DB at {DB_PATH}")
     time.sleep(3)
 
 
