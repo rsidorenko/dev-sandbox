@@ -234,7 +234,7 @@ jobs:
               echo "--- LA (216.227.169.120) ---"
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
               scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key $PROBE romtan@216.227.169.120:/tmp/p.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "SAMPLE_UUID='$SAMPLE_UUID' sudo python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  LA probe FAILED"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo env SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  LA probe FAILED"
               rm -f ~/.ssh/la-key
 
               echo "=== PROBE_V3 COMPLETE ==="
