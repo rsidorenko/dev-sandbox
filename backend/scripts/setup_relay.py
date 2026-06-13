@@ -126,11 +126,16 @@ def ensure_3xui():
             sys.exit(1)
 
     print("=== Installing 3x-ui (official installer, non-interactive) ===")
-    # Official installer runs non-interactively when piped (no TTY); it sets random
-    # creds which we reset below. command_timeout in the workflow caps any hang.
-    r = run("bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)",
+    # Use the pipe form (works under /bin/sh; `bash <(...)` process substitution
+    # does not). The installer runs non-interactively when piped (no TTY) and sets
+    # random creds which we reset below. command_timeout in the workflow caps hangs.
+    r = run("curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh | bash",
             check=False)
-    print(f"install rc={r.returncode} out={r.stdout.strip()[-200:]}")
+    print(f"install rc={r.returncode}")
+    if r.stdout.strip():
+        print(f"install stdout (tail): {r.stdout.strip()[-400:]}")
+    if r.stderr.strip():
+        print(f"install stderr (tail): {r.stderr.strip()[-400:]}")
     DB_PATH = find_db()
     if not DB_PATH:
         print("ERROR: 3x-ui install did not create x-ui.db — install manually first", file=sys.stderr)
