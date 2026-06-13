@@ -52,15 +52,13 @@ CURRENCY = "RUB"
 
 
 async def _show_plans(pool: asyncpg.Pool) -> None:
-    rows = await pool.fetch(
-        "SELECT plan_id, duration_months, duration_days, price_rubles, "
-        "default_device_limit, extra_device_price_rubles "
-        "FROM subscription_plans ORDER BY duration_days"
-    )
-    print("=== subscription_plans (LIVE tariffs) ===")
-    for r in rows:
-        print(f"  {r['plan_id']:6} {r['duration_days']:4}d  {r['price_rubles']:5} RUB  "
-              f"devices={r['default_device_limit']}  extra_dev={r['extra_device_price_rubles']} RUB")
+    # Plans are AUTHORITATIVE in code (app.domain.plans) — that's what the bot sells.
+    # The subscription_plans DB table is vestigial (not read by the app) and may be stale.
+    from app.domain.plans import get_all_plans
+    print("=== plans (from code — what the bot sells) ===")
+    for p in sorted(get_all_plans(), key=lambda x: x.duration_days):
+        print(f"  {p.plan_id:6} {p.duration_days:4}d  {p.price_rubles:5} RUB  "
+              f"devices={p.default_device_limit}  extra_dev={p.extra_device_price_rubles} RUB")
 
 
 async def _lookup_user(pool: asyncpg.Pool, tg_id: int) -> asyncpg.Record | None:
@@ -105,6 +103,7 @@ async def analyze(tg_id: int, dsn: str) -> None:
 
 
 async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
+    from app.domain.plans import get_plan
     from app.persistence.postgres_billing_subscription_apply import (
         PostgresAtomicUC05SubscriptionApply,
     )
@@ -120,24 +119,20 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
             print("\n!! user has no vless_uuid — register them first (/start)")
             return
 
-        plan = await pool.fetchrow(
-            "SELECT plan_id, duration_days, price_rubles, default_device_limit "
-            "FROM subscription_plans WHERE plan_id = $1",
-            plan_id,
-        )
-        if not plan:
-            print(f"\n!! plan {plan_id} not found")
+        plan = get_plan(plan_id)
+        if plan is None:
+            print(f"\n!! plan {plan_id} not found in code (app.domain.plans)")
             return
-        print(f"\n=== GRANT plan={plan['plan_id']} ({plan['duration_days']}d, "
-              f"{plan['price_rubles']} RUB, devices={plan['default_device_limit']}) ===")
+        print(f"\n=== GRANT plan={plan.plan_id} ({plan.duration_days}d, "
+              f"{plan.price_rubles} RUB, devices={plan.default_device_limit}) ===")
 
         internal_user_id = info["internal_user_id"]
-        device_count = info["device_count"] or plan["default_device_limit"]
+        device_count = info["device_count"] or plan.default_device_limit
         now = datetime.now(UTC)
         # extend from current active_until if still in the future, else from now
         base = info["snap"]["active_until_utc"] if info["snap"] and info["snap"]["active_until_utc"] else None
         start = base if (base and base > now) else now
-        new_until = start + timedelta(days=int(plan["duration_days"]))
+        new_until = start + timedelta(days=int(plan.duration_days))
 
         # 1) activate the subscription snapshot
         result = await pool.execute(
@@ -150,15 +145,15 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
                    keys_deleted_at = NULL,
                    updated_at = NOW()
                WHERE internal_user_id = $1""",
-            internal_user_id, plan["plan_id"], device_count, new_until,
+            internal_user_id, str(plan.plan_id), device_count, new_until,
         )
         print(f"  snapshot UPDATE: {result}  active_until={new_until.isoformat()}")
 
         # 2) record the billing fact + run the real UC-05 apply (audit trail)
-        fact_ref = f"grant:{internal_user_id}:{plan['plan_id']}:{uuid.uuid4().hex[:12]}"
+        fact_ref = f"grant:{internal_user_id}:{plan.plan_id}:{uuid.uuid4().hex[:12]}"
         ext_id = f"grant-{uuid.uuid4().hex[:16]}"
         corr = f"grant-{uuid.uuid4().hex[:8]}"
-        amount_kopecks = int(plan["price_rubles"]) * 100
+        amount_kopecks = int(plan.price_rubles) * 100
         await pool.execute(
             """INSERT INTO billing_events_ledger
                (internal_fact_ref, billing_provider_key, external_event_id, event_type,
