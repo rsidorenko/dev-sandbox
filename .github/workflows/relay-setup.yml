@@ -53,7 +53,11 @@ on:
         required: false
         default: "false"
       port_check:
-        description: "From prod, test TCP reachability to 89.169.139.153 :22/:443/:1864"
+        description: "From prod, test TCP reachability to 89.169.139.153 :22/:443/:1864 + Helsinki panel TLS verify"
+        required: false
+        default: "false"
+      fix_relay_access:
+        description: "On relay: ufw allow 22/443/1864 (host firewall blocks the panel port)"
         required: false
         default: "false"
 
@@ -82,6 +86,7 @@ jobs:
           RELAY_PANEL_URL: ${{ github.event.inputs.relay_panel_url || '' }}
           BOT_LOGS: ${{ github.event.inputs.bot_logs || 'false' }}
           PORT_CHECK: ${{ github.event.inputs.port_check || 'false' }}
+          FIX_RELAY_ACCESS: ${{ github.event.inputs.fix_relay_access || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -90,7 +95,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_SSH_KEY,RELAY_PANEL_PASS,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -144,7 +149,20 @@ jobs:
               for p in 22 443 1864 2053; do
                 timeout 5 bash -c "echo > /dev/tcp/89.169.139.153/$p" 2>/dev/null && echo "  :$p REACHABLE" || echo "  :$p UNREACHABLE"
               done
-              echo "--- curl panel :1864 ---"
-              curl -sk --max-time 8 https://89.169.139.153:1864/ -o /dev/null -w "  panel http_code=%{http_code}\n" 2>&1 || echo "  curl to :1864 failed"
+              echo "--- curl relay panel :1864 (https, verify on) ---"
+              curl --max-time 8 https://89.169.139.153:1864/ -o /dev/null -w "  relay https verify http_code=%{http_code}\n" 2>&1 || echo "  relay https verify FAILED (HTTP panel or cert)"
+              echo "--- curl Helsinki panel :2053 (https, verify on) — does the bot's verify pass? ---"
+              curl --max-time 8 https://77.221.159.106:2053/NrCRLHCbX0W1MCVmEH/ -o /dev/null -w "  helsinki https verify http_code=%{http_code}\n" 2>&1 || echo "  helsinki https verify FAILED (self-signed/untrusted -> bot must skip verify)"
               echo "=== PORT CHECK COMPLETE ==="
+            fi
+
+            if [ "$FIX_RELAY_ACCESS" = "true" ]; then
+              echo "=== FIX RELAY ACCESS: ufw allow 22/443/1864 ==="
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
+              chmod 600 ~/.ssh/yandex-relay
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/fix_relay_access.py romtan@${RELAY}:/tmp/fra.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/fra.py; rm -f /tmp/fra.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-relay
+              echo "=== FIX RELAY ACCESS COMPLETE ==="
             fi
