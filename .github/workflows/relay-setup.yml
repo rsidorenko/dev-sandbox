@@ -80,6 +80,10 @@ on:
         description: "Set flow=xtls-rprx-vision on bot clients of every Reality inbound (Helsinki/Frankfurt/LA/LTE/relay) + restart x-ui. DPI-resistance fix"
         required: false
         default: "false"
+      revert_vision_flow:
+        description: "REVERT: set bot Reality clients back to no-flow (empty) on all servers + restart. Restores working state after vision broke tcp/Reality"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -112,6 +116,7 @@ jobs:
           HARDEN_RELAY: ${{ github.event.inputs.harden_relay || 'false' }}
           PROBE_V3: ${{ github.event.inputs.probe_v3 || 'false' }}
           APPLY_VISION_FLOW: ${{ github.event.inputs.apply_vision_flow || 'false' }}
+          REVERT_VISION_FLOW: ${{ github.event.inputs.revert_vision_flow || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -124,7 +129,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -246,20 +251,25 @@ jobs:
               echo "=== PROBE_V3 COMPLETE ==="
             fi
 
-            if [ "$APPLY_VISION_FLOW" = "true" ]; then
-              echo "=== APPLY flow=xtls-rprx-vision to Reality bot clients (Helsinki/Frankfurt/LA/LTE/relay) ==="
+            if [ "$APPLY_VISION_FLOW" = "true" ] || [ "$REVERT_VISION_FLOW" = "true" ]; then
+              if [ "$REVERT_VISION_FLOW" = "true" ]; then
+                ARG="revert"; echo "=== REVERT flow -> no-flow (empty) on Reality bot clients ==="
+              else
+                ARG=""; echo "=== APPLY flow=xtls-rprx-vision to Reality bot clients ==="
+              fi
               cd /opt/bravada
               SCRIPT=backend/scripts/apply_vision_flow.py
-              # generic runner: scp + run + restart x-ui + verify xray up
-              run_vision() { # $1=host $2=user $3=ident-or-__pass__$4 $5=pass(only if $3==__pass__)
+              # generic runner: scp + run($ARG) + restart x-ui + verify xray up.
+              # remote command uses single-quotes inside, $ARG expands locally.
+              run_vision() { # $1=host $2=user $3=ident-or-__pass__ $4=pass
                 local host="$1" user="$2"
                 echo "--- $host ---"
                 if [ "$3" = "__pass__" ]; then
                   sshpass -p "$4" scp -o StrictHostKeyChecking=no $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
-                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $user@$host 'python3 /tmp/avf.py; echo "--- restart x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/avf.py' 2>&1 || echo "  $host FAILED"
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $user@$host "python3 /tmp/avf.py $ARG; echo '--- restart x-ui ---'; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'; rm -f /tmp/avf.py" 2>&1 || echo "  $host FAILED"
                 else
                   scp -o StrictHostKeyChecking=no -i "$3" $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i "$3" $user@$host 'sudo python3 /tmp/avf.py; echo "--- restart x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/avf.py' 2>&1 || echo "  $host FAILED"
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i "$3" $user@$host "sudo python3 /tmp/avf.py $ARG; echo '--- restart x-ui ---'; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'; rm -f /tmp/avf.py" 2>&1 || echo "  $host FAILED"
                 fi
               }
               # password-auth servers (root)
@@ -274,5 +284,5 @@ jobs:
               printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
               run_vision "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
-              echo "=== APPLY_VISION_FLOW COMPLETE ==="
+              echo "=== VISION FLOW OP COMPLETE ==="
             fi

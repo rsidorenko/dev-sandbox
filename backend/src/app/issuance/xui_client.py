@@ -35,9 +35,16 @@ REALITY_TCP_FLOW = "xtls-rprx-vision"
 
 
 def flow_for_transport(transport_type: str) -> str:
-    """VLESS flow appropriate for a server's transport. Reality-TCP gets
-    xtls-rprx-vision; every other transport (ws/cdn/grpc/xhttp) gets empty flow."""
-    return REALITY_TCP_FLOW if (transport_type or "tcp") == "tcp" else ""
+    """VLESS flow appropriate for a server's transport.
+
+    DISABLED 2026-06-14: emitting flow=xtls-rprx-vision + setting it on server clients
+    broke ALL tcp/Reality connections (including the previously-working LTE). Most
+    likely xray reads the per-inbound client_inbounds.flow_override (left at "") and
+    not clients.flow, so vision links mismatched. Returning "" everywhere restores the
+    known-working no-flow config. Re-enable by returning REALITY_TCP_FLOW for tcp AFTER
+    the flow_override mechanism is understood and set consistently. See PR #304/#305.
+    """
+    return ""
 
 
 class XuiOutcome(StrEnum):
