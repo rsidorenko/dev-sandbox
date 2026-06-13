@@ -72,6 +72,10 @@ on:
         description: "On relay: ufw source-restrict 1864 to prod + Reality dest=max.ru:443 camo (no key change)"
         required: false
         default: "false"
+      probe_v3:
+        description: "READ-ONLY: probe v3 clients table vs JSON on Helsinki/Frankfurt/LA (root cause of Reality servers not connecting)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -102,16 +106,19 @@ jobs:
           RELAY_PANEL_HTTP: ${{ github.event.inputs.relay_panel_http || 'false' }}
           HELSINKI_PROBE: ${{ github.event.inputs.helsinki_probe || 'false' }}
           HARDEN_RELAY: ${{ github.event.inputs.harden_relay || 'false' }}
+          PROBE_V3: ${{ github.event.inputs.probe_v3 || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -205,5 +212,30 @@ jobs:
               scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/fix_relay_hardening.py romtan@${RELAY}:/tmp/frh.py 2>&1 || true
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/frh.py; rm -f /tmp/frh.py" 2>&1 || true
               rm -f ~/.ssh/yandex-relay
-              echo "=== HARDEN RELAY COMPLETE ==="
+              echo "=== HARDEN_RELAY COMPLETE ==="
+            fi
+
+            if [ "$PROBE_V3" = "true" ]; then
+              echo "=== PROBE V3 CLIENTS TABLE (read-only) on Helsinki/Frankfurt/LA ==="
+              cd /opt/bravada
+              # Pick one active user UUID to probe (any will do — gap affects all equally).
+              SAMPLE_UUID=$(docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -tAc "SELECT i.vless_uuid FROM user_identities i JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id WHERE s.state_label='active' AND i.vless_uuid IS NOT NULL LIMIT 1" 2>/dev/null | tr -d '[:space:]')
+              echo "  sample active UUID: ${SAMPLE_UUID:0:8}..."
+              PROBE=backend/scripts/probe_v3_clients.py
+
+              echo "--- Helsinki (77.221.159.106) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no $PROBE root@77.221.159.106:/tmp/p.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  Helsinki probe FAILED"
+
+              echo "--- Frankfurt (77.110.100.210) ---"
+              sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no $PROBE root@77.110.100.210:/tmp/p.py 2>&1 || true
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  Frankfurt probe FAILED"
+
+              echo "--- LA (216.227.169.120) ---"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key $PROBE romtan@216.227.169.120:/tmp/p.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "SAMPLE_UUID='$SAMPLE_UUID' sudo python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  LA probe FAILED"
+              rm -f ~/.ssh/la-key
+
+              echo "=== PROBE_V3 COMPLETE ==="
             fi
