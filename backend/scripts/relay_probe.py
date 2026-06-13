@@ -50,19 +50,41 @@ try:
 except Exception as e:
     print(f"  could not read {CONFIG}: {e}")
 
-section("3x-ui inbounds DB rows")
+section("3x-ui inbounds DB rows + 443 clients")
 db = next((p for p in DB_CANDIDATES if os.path.exists(p)), None)
 if db:
     try:
         conn = sqlite3.connect(db)
         cur = conn.cursor()
         cur.execute("SELECT id, port, protocol, tag, enable, remark FROM inbounds")
-        for row in cur.fetchall():
-            print(f"  {row}")
-        # dump the 443 inbound's streamSettings for inspection
-        cur.execute("SELECT stream_settings FROM inbounds WHERE port=443 OR tag LIKE 'in-443%'")
-        for (ss,) in cur.fetchall():
-            print(f"  443 stream_settings: {ss}")
+        rows = cur.fetchall()
+        for row in rows:
+            print(f"  inbound: {row}")
+        ib443 = [r for r in rows if r[1] == 443 or (r[3] or "").startswith("in-443")]
+        ib_id = ib443[0][0] if ib443 else None
+        # streamSettings (Reality config)
+        if ib_id:
+            cur.execute("SELECT stream_settings FROM inbounds WHERE id=?", (ib_id,))
+            for (ss,) in cur.fetchall():
+                print(f"  443 stream_settings: {ss}")
+            # clients in settings JSON (older)
+            cur.execute("SELECT settings FROM inbounds WHERE id=?", (ib_id,))
+            srow = cur.fetchone()
+            try:
+                sjson = json.loads(srow[0]) if srow else {}
+                print(f"  443 settings.clients count: {len(sjson.get('clients', []))}")
+            except Exception:
+                print("  443 settings: (unreadable)")
+            # v3 clients table
+            try:
+                cur.execute("SELECT count(*) FROM client_inbounds WHERE inbound_id=?", (ib_id,))
+                print(f"  443 client_inbounds count (v3 table): {cur.fetchone()[0]}")
+                cur.execute("SELECT c.email, substr(c.uuid,1,8), c.enable FROM clients c "
+                            "JOIN client_inbounds ci ON ci.client_id=c.id WHERE ci.inbound_id=? LIMIT 8", (ib_id,))
+                for cr in cur.fetchall():
+                    print(f"    client: email={cr[0]} uuid={cr[1]}.. enable={cr[2]}")
+            except Exception as e:
+                print(f"  (no client_inbounds table: {e})")
         conn.close()
     except Exception as e:
         print(f"  DB read error: {e}")
