@@ -134,22 +134,9 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
         start = base if (base and base > now) else now
         new_until = start + timedelta(days=int(plan.duration_days))
 
-        # 1) activate the subscription snapshot
-        result = await pool.execute(
-            """UPDATE subscription_snapshots
-               SET state_label = 'active',
-                   plan_id = $2,
-                   device_count = $3,
-                   active_until_utc = $4,
-                   keys_deactivated_at = NULL,
-                   keys_deleted_at = NULL,
-                   updated_at = NOW()
-               WHERE internal_user_id = $1""",
-            internal_user_id, str(plan.plan_id), device_count, new_until,
-        )
-        print(f"  snapshot UPDATE: {result}  active_until={new_until.isoformat()}")
-
-        # 2) record the billing fact + run the real UC-05 apply (audit trail)
+        # 1) record the billing fact + run the real UC-05 apply FIRST.
+        #    Apply's snapshot upsert sets state_label='active' but clobbers plan_id /
+        #    active_until, so the duration UPDATE must run AFTER it (step 2).
         fact_ref = f"grant:{internal_user_id}:{plan.plan_id}:{uuid.uuid4().hex[:12]}"
         ext_id = f"grant-{uuid.uuid4().hex[:16]}"
         corr = f"grant-{uuid.uuid4().hex[:8]}"
@@ -167,6 +154,21 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
         apply_pg = PostgresAtomicUC05SubscriptionApply(pool)
         ar = await apply_pg.apply_by_internal_fact_ref(fact_ref)
         print(f"  UC-05 apply: outcome={ar.operation_outcome} apply={ar.apply_outcome} idempotent={ar.idempotent_replay}")
+
+        # 2) set plan + duration + devices AFTER apply (so apply's upsert doesn't clobber them)
+        result = await pool.execute(
+            """UPDATE subscription_snapshots
+               SET state_label = 'active',
+                   plan_id = $2,
+                   device_count = $3,
+                   active_until_utc = $4,
+                   keys_deactivated_at = NULL,
+                   keys_deleted_at = NULL,
+                   updated_at = NOW()
+               WHERE internal_user_id = $1""",
+            internal_user_id, str(plan.plan_id), device_count, new_until,
+        )
+        print(f"  snapshot UPDATE: {result}  active_until={new_until.isoformat()}")
 
         # 3) re-provision the user's VLESS client on every active server
         print("\n  provisioning keys on active servers...")
