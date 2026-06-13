@@ -76,6 +76,10 @@ on:
         description: "READ-ONLY: probe v3 clients table vs JSON on Helsinki/Frankfurt/LA (root cause of Reality servers not connecting)"
         required: false
         default: "false"
+      apply_vision_flow:
+        description: "Set flow=xtls-rprx-vision on bot clients of every Reality inbound (Helsinki/Frankfurt/LA/LTE/relay) + restart x-ui. DPI-resistance fix"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -107,18 +111,20 @@ jobs:
           HELSINKI_PROBE: ${{ github.event.inputs.helsinki_probe || 'false' }}
           HARDEN_RELAY: ${{ github.event.inputs.harden_relay || 'false' }}
           PROBE_V3: ${{ github.event.inputs.probe_v3 || 'false' }}
+          APPLY_VISION_FLOW: ${{ github.event.inputs.apply_vision_flow || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
+          LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -238,4 +244,35 @@ jobs:
               rm -f ~/.ssh/la-key
 
               echo "=== PROBE_V3 COMPLETE ==="
+            fi
+
+            if [ "$APPLY_VISION_FLOW" = "true" ]; then
+              echo "=== APPLY flow=xtls-rprx-vision to Reality bot clients (Helsinki/Frankfurt/LA/LTE/relay) ==="
+              cd /opt/bravada
+              SCRIPT=backend/scripts/apply_vision_flow.py
+              # generic runner: scp + run + restart x-ui + verify xray up
+              run_vision() { # $1=host $2=user $3=ident-or-__pass__$4 $5=pass(only if $3==__pass__)
+                local host="$1" user="$2"
+                echo "--- $host ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" scp -o StrictHostKeyChecking=no $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $user@$host 'python3 /tmp/avf.py; echo "--- restart x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/avf.py' 2>&1 || echo "  $host FAILED"
+                else
+                  scp -o StrictHostKeyChecking=no -i "$3" $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i "$3" $user@$host 'sudo python3 /tmp/avf.py; echo "--- restart x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/avf.py' 2>&1 || echo "  $host FAILED"
+                fi
+              }
+              # password-auth servers (root)
+              run_vision "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
+              run_vision "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
+              # key-auth servers (romtan, sudo)
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              run_vision "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
+              run_vision "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              run_vision "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
+              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
+              echo "=== APPLY_VISION_FLOW COMPLETE ==="
             fi

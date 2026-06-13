@@ -24,7 +24,13 @@ from app.issuance.vless_provider import (
     VlessServerConfig,
     VlessUserConfig,
 )
-from app.issuance.xui_client import XuiApiClient, XuiClientResult, XuiOutcome, XuiServerConfig
+from app.issuance.xui_client import (
+    XuiApiClient,
+    XuiClientResult,
+    XuiOutcome,
+    XuiServerConfig,
+    flow_for_transport,
+)
 from app.security.field_encryption import decrypt_field
 from app.shared.site_url import get_site_base_url
 
@@ -143,12 +149,15 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    # Default: TCP + Reality (no flow — avoids xtls-rprx-vision DPI fingerprint)
+    # Default: TCP + Reality with xtls-rprx-vision flow. vision is the only valid
+    # flow for Reality-TCP and is what lets it resist active DPI probing on foreign
+    # IPs (a no-flow Reality-TCP config gets fingerprinted and blocked at the RU
+    # border). See flow_for_transport() and the 2026-06-14 DPI diagnosis.
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
         f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
-        f"&sid={server.reality_sid}&spx=%2F"
+        f"&sid={server.reality_sid}&spx=%2F&flow={flow_for_transport('tcp')}"
         f"#{label}"
     )
 
