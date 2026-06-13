@@ -230,7 +230,7 @@ class PanelClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "",
+            "flow": "xtls-rprx-vision" if self.transport_type == "tcp" else "",
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",

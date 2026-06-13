@@ -26,6 +26,20 @@ def _should_verify_ssl() -> bool:
     return raw not in ("0", "false", "no")
 
 
+# VLESS flow for TCP+Reality. xtls-rprx-vision is the ONLY valid flow and is what
+# lets Reality-TCP resist active DPI probing on foreign IPs (a no-flow Reality-TCP
+# config gets fingerprinted and blocked at the RU border; the TLS/ws and RU-IP
+# entries evade DPI by other means). ws/grpc/xhttp/cdn MUST use an empty flow —
+# vision is invalid for those transports.
+REALITY_TCP_FLOW = "xtls-rprx-vision"
+
+
+def flow_for_transport(transport_type: str) -> str:
+    """VLESS flow appropriate for a server's transport. Reality-TCP gets
+    xtls-rprx-vision; every other transport (ws/cdn/grpc/xhttp) gets empty flow."""
+    return REALITY_TCP_FLOW if (transport_type or "tcp") == "tcp" else ""
+
+
 class XuiOutcome(StrEnum):
     SUCCESS = "success"
     UNAUTHORIZED = "unauthorized"
@@ -201,7 +215,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "",
+            "flow": flow_for_transport(self._config.transport_type),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
@@ -248,7 +262,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "",
+            "flow": flow_for_transport(self._config.transport_type),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
