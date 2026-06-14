@@ -39,7 +39,14 @@ Modes (--mode):
                 + RU rules (.ru/.su/.рф + geoip:ru) into xrayTemplateConfig. An
                 alternative to export/import (different tag/rules style). Backs up,
                 idempotent, restarts x-ui + verifies.
-  revert        Run ON a foreign panel: restore the pre-apply/pre-import
+  repoint       Run ON a foreign panel: update the EXISTING ru-relay outbound's
+                target to the canonical RU relay (89.169.139.153, pbk/sid/sni=max.ru,
+                UUID 00607f0b) — keeping its tag + all routing rules intact. Used to
+                correct a panel whose ru-relay points at the wrong/old relay IP.
+                Env RU_RELAY_EXPORT_TAG (default "ru-relay"). Backs up, idempotent,
+                restarts x-ui + verifies. Requires the UUID registered on the RU
+                relay inbound first (see register-uuid).
+  revert        Run ON a foreign panel: restore the pre-apply/pre-import/pre-repoint
                 xrayTemplateConfig from the backup.
   deactivate    Run IN the prod container (DATABASE_URL): set vpn_servers id=11
                 is_active=FALSE. Reversible (set TRUE again).
@@ -258,6 +265,43 @@ def apply_exported_routing(template: dict, outbound: dict, rules: list) -> dict:
     return t
 
 
+def repoint_ru_relay_outbound(template: dict, tag: str = "ru-relay") -> dict:
+    """Update an EXISTING ru-relay outbound's target to the canonical RU relay
+    (89.169.139.153) — its address/port, the registered relay UUID, and the Reality
+    publicKey/shortId/serverName — while keeping the outbound's tag and ALL routing
+    rules untouched. Raises ValueError if no outbound with *tag* exists.
+
+    Used to correct a panel whose ru-relay points at a wrong/old relay IP (e.g.
+    51.250.102.219) so all panels relay to 89.169.139.153. Pure + unit-tested.
+    """
+    t = copy.deepcopy(template)
+    outbounds = t.get("outbounds", [])
+    ob = next((o for o in outbounds if o.get("tag") == tag), None)
+    if ob is None:
+        raise ValueError(f"no outbound with tag {tag!r} to repoint")
+    settings = ob.setdefault("settings", {})
+    vnext = settings.setdefault("vnext", [{}])
+    if not vnext:
+        vnext.append({})
+    vnext[0]["address"] = RU_RELAY_HOST          # 89.169.139.153
+    vnext[0]["port"] = RU_RELAY_PORT             # 443
+    users = vnext[0].setdefault("users", [{}])
+    if not users:
+        users.append({})
+    users[0]["id"] = RELAY_UUID                  # 00607f0b-… (registered on RU relay)
+    users[0]["encryption"] = "none"
+    users[0]["flow"] = ""
+    ss = ob.setdefault("streamSettings", {})
+    ss["network"] = "tcp"
+    ss["security"] = "reality"
+    rs = ss.setdefault("realitySettings", {})
+    rs["publicKey"] = RU_RELAY_PBK              # ouYwM6…
+    rs["shortId"] = RU_RELAY_SID                # a1b2c3d4e5f6
+    rs["serverName"] = RU_RELAY_SNI             # max.ru
+    rs["fingerprint"] = "chrome"
+    return t
+
+
 # ── modes ────────────────────────────────────────────────────────────────────
 
 def cmd_dump() -> None:
@@ -466,6 +510,55 @@ def cmd_import() -> None:
     restart_and_verify()
 
 
+def cmd_repoint() -> None:
+    """Repoint the existing ru-relay outbound to the canonical RU relay
+    (89.169.139.153), keeping its tag + all routing rules. Run on each foreign
+    panel whose ru-relay targets a wrong/old relay IP."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    tag = os.environ.get("RU_RELAY_EXPORT_TAG", "ru-relay")
+
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+
+    # Sanity: the ru-relay outbound must exist (else there's nothing to repoint).
+    if not any(o.get("tag") == tag for o in template.get("outbounds", [])):
+        print(f"ERROR: no outbound with tag {tag!r} on this panel — nothing to repoint "
+              f"(use apply/import first)", file=sys.stderr)
+        sys.exit(1)
+
+    # Detect the current target to log what we're changing from.
+    cur_ob = next(o for o in template["outbounds"] if o.get("tag") == tag)
+    cur_addr = (cur_ob.get("settings", {}).get("vnext", [{}])[0].get("address"))
+    print(f"current {tag} target: {cur_addr}")
+
+    backup_path = db + BACKUP_SUFFIX
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+
+    merged = repoint_ru_relay_outbound(template, tag)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"repointed {tag} -> {RU_RELAY_HOST}:{RU_RELAY_PORT} (sni={RU_RELAY_SNI}, "
+          f"uuid={RELAY_UUID[:8]}…); tag + routing rules preserved")
+    print("repoint complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_revert() -> None:
     db = find_db()
     if not db:
@@ -534,7 +627,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|revert|deactivate}",
+              "{dump|register-uuid|export|import|apply|repoint|revert|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -546,6 +639,8 @@ def main() -> None:
         cmd_export()
     elif mode == "import":
         cmd_import()
+    elif mode == "repoint":
+        cmd_repoint()
     elif mode == "apply":
         cmd_apply()
     elif mode == "revert":
