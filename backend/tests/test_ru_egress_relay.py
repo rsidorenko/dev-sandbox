@@ -140,3 +140,88 @@ def test_merge_handles_template_without_routing_or_outbounds() -> None:
     assert after["routing"]["domainStrategy"] == "IPIfNonMatch"
     assert mre.RELAY_OUTBOUND_TAG in _outbound_tags(after)
     assert len(after["routing"]["rules"]) >= 2
+
+
+# ── export/import path (make a panel match another's working ru-relay) ───────
+
+
+def _sample_export() -> dict:
+    """Mimics what `export` would emit from Frankfurt's working ru-relay config."""
+    return {
+        "outbound": {
+            "tag": "ru-relay",
+            "protocol": "vless",
+            "settings": {"vnext": [{"address": "89.169.139.153", "port": 443,
+                                    "users": [{"id": "RELAY-UUID-FROM-FRANKFURT",
+                                               "encryption": "none", "flow": ""}]}]},
+            "streamSettings": {"network": "tcp", "security": "reality",
+                               "realitySettings": {"serverName": "max.ru", "publicKey": "PBK",
+                                                   "shortId": "a1b2c3d4e5f6",
+                                                   "fingerprint": "chrome"}},
+        },
+        "rules": [
+            {"type": "field",
+             "domain": ["geosite:category-ru", "geosite:tld-ru", "domain-suffix:ru",
+                        "domain-suffix:su", "domain-suffix:xn--p1ai"],
+             "outboundTag": "ru-relay"},
+            {"type": "field", "ip": ["geoip:ru"], "outboundTag": "ru-relay"},
+        ],
+    }
+
+
+def test_apply_exported_routing_is_non_destructive_and_preserves_existing() -> None:
+    export = _sample_export()
+    after = mre.apply_exported_routing(_default_template(), export["outbound"], export["rules"])
+    # Existing outbounds preserved + ru-relay added.
+    assert "direct" in _outbound_tags(after)
+    assert "block" in _outbound_tags(after)
+    assert "ru-relay" in _outbound_tags(after)
+    # api rule preserved.
+    assert ("api", (), ()) in _rule_tags(after)
+    # Input not mutated.
+    assert "ru-relay" not in _outbound_tags(_default_template())
+
+
+def test_apply_exported_routing_uses_exported_uuid_and_target_verbatim() -> None:
+    export = _sample_export()
+    after = mre.apply_exported_routing(_default_template(), export["outbound"], export["rules"])
+    relay = next(o for o in after["outbounds"] if o.get("tag") == "ru-relay")
+    vnext = relay["settings"]["vnext"][0]
+    assert vnext["address"] == "89.169.139.153"
+    assert vnext["users"][0]["id"] == "RELAY-UUID-FROM-FRANKFURT"
+    assert relay["streamSettings"]["realitySettings"]["serverName"] == "max.ru"
+    # The exported rules are present with their geosite/domain-suffix domains.
+    tags = _rule_tags(after)
+    assert ("ru-relay", ("geosite:category-ru", "geosite:tld-ru", "domain-suffix:ru",
+                         "domain-suffix:su", "domain-suffix:xn--p1ai"), ()) in tags
+    assert ("ru-relay", (), ("geoip:ru",)) in tags
+
+
+def test_apply_exported_routing_inserts_after_api_and_private() -> None:
+    export = _sample_export()
+    template = _default_template()
+    template["routing"]["rules"] = [
+        {"inboundTag": ["api"], "outboundTag": "api"},
+        {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
+        {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
+    ]
+    after = mre.apply_exported_routing(template, export["outbound"], export["rules"])
+    tags = [r.get("outboundTag") for r in after["routing"]["rules"]]
+    priv_idx = next(i for i, r in enumerate(after["routing"]["rules"])
+                    if any("geoip:private" in str(x) for x in (r.get("ip") or [])))
+    relay_idx = tags.index("ru-relay")
+    catchall_idx = next(i for i, r in enumerate(after["routing"]["rules"])
+                        if r.get("network") == "tcp,udp")
+    assert after["routing"]["rules"][0].get("outboundTag") == "api"
+    assert priv_idx < relay_idx < catchall_idx
+
+
+def test_apply_exported_routing_is_idempotent() -> None:
+    export = _sample_export()
+    once = mre.apply_exported_routing(_default_template(), export["outbound"], export["rules"])
+    twice = mre.apply_exported_routing(once, export["outbound"], export["rules"])
+    assert _outbound_tags(once) == _outbound_tags(twice)
+    assert _rule_tags(once) == _rule_tags(twice)
+    assert _outbound_tags(twice).count("ru-relay") == 1
+    assert sum(1 for r in twice["routing"]["rules"] if r.get("outboundTag") == "ru-relay") == 2
+
