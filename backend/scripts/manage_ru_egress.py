@@ -342,15 +342,39 @@ def cmd_dump() -> None:
         print("no xrayTemplateConfig in settings")
     # inbound list (quick sanity)
     try:
-        for ib in cur.execute("SELECT id, port, protocol, tag FROM inbounds").fetchall():
+        for ib in cur.execute("SELECT id, port, protocol, tag, sniffing FROM inbounds").fetchall():
             print(f"  inbound: id={ib[0]} port={ib[1]} proto={ib[2]} tag={ib[3]}")
+            print(f"    sniffing: {ib[4]}")
     except Exception as e:
         print(f"  (inbound list skipped: {e})")
     conn.close()
     print("geo files:")
     print(run("ls -la /usr/local/x-ui/bin/*.dat 2>/dev/null").stdout or "  (none)")
     print(":443:", run("ss -tlnp 2>/dev/null | grep ':443 '").stdout.strip() or "(not listening)")
+    print(":8080 (ws/cdn 2.0):", run("ss -tlnp 2>/dev/null | grep ':8080 '").stdout.strip() or "(not listening)")
+    print(":8443 (xhttp 3.0):", run("ss -tlnp 2>/dev/null | grep ':8443 '").stdout.strip() or "(not listening)")
     print("xray:", run("pgrep -af '[x]ray'").stdout.strip() or "(not running)")
+    # Local xray access log: shows how each inbound's traffic is actually routed
+    # ([inbound-tag >> outbound-tag]). Crucial to see whether 2.0 (ws) RU traffic
+    # hits ru-relay or falls through to direct.
+    print("xray-access log (last 40, routing decisions):")
+    for p in ("/var/log/xray-access.log", "/usr/local/x-ui/access.log"):
+        r = run(f"sudo tail -40 {p} 2>/dev/null")
+        if r.stdout.strip():
+            print(f"--- {p} ---")
+            print(r.stdout.strip())
+            break
+    else:
+        print("  (no access log found)")
+    print("xray-error log (last 20):")
+    for p in ("/var/log/xray-error.log", "/usr/local/x-ui/error.log"):
+        r = run(f"sudo tail -20 {p} 2>/dev/null")
+        if r.stdout.strip():
+            print(f"--- {p} ---")
+            print(r.stdout.strip())
+            break
+    else:
+        print("  (no error log found)")
 
 
 def cmd_register_uuid() -> None:
