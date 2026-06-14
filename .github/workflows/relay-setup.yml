@@ -100,6 +100,10 @@ on:
         description: "plan_id to grant (default 1m = 1 month; uses LIVE price from subscription_plans)"
         required: false
         default: "1m"
+      grant_all_expired:
+        description: "Operator: GRANT grant_plan to EVERY expired user whose keys are not yet purged (keys_deleted_at IS NULL). Dry-run without grant_apply=true"
+        required: false
+        default: "false"
       cleanup_grant:
         description: "Operator: dry-run — list grant ledger facts for grant_telegram_id and show which duplicate(s) would be removed"
         required: false
@@ -149,6 +153,7 @@ jobs:
           GRANT_APPLY: ${{ github.event.inputs.grant_apply || 'false' }}
           GRANT_TELEGRAM_ID: ${{ github.event.inputs.grant_telegram_id || '' }}
           GRANT_PLAN: ${{ github.event.inputs.grant_plan || '1m' }}
+          GRANT_ALL_EXPIRED: ${{ github.event.inputs.grant_all_expired || 'false' }}
           CLEANUP_GRANT: ${{ github.event.inputs.cleanup_grant || 'false' }}
           CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
           SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
@@ -164,7 +169,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -334,6 +339,20 @@ jobs:
                 docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --telegram-id "$GRANT_TELEGRAM_ID" 2>&1
               fi
               echo "=== GRANT SUBSCRIPTION COMPLETE ==="
+            fi
+
+            if [ "$GRANT_ALL_EXPIRED" = "true" ]; then
+              echo "=== GRANT ALL EXPIRED (plan=$GRANT_PLAN apply=$GRANT_APPLY) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/grant_subscription.py backend:/tmp/grant_subscription.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+              if [ "$GRANT_APPLY" = "true" ]; then
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --all-expired --grant --plan "$GRANT_PLAN" 2>&1
+              else
+                echo "--- DRY RUN (list expired-with-keys only) ---"
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --all-expired 2>&1
+              fi
+              echo "=== GRANT ALL EXPIRED COMPLETE ==="
             fi
 
             if [ "$CLEANUP_GRANT" = "true" ] && [ -n "$GRANT_TELEGRAM_ID" ]; then

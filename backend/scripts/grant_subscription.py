@@ -22,6 +22,14 @@ Modes
     4. re-provisions the user's VLESS client on every active server (idempotent upsert);
     5. prints verification.
 
+  grant-all-expired:
+      python grant_subscription.py --all-expired --grant --plan 1m
+    Grants the plan to EVERY user who is state_label='expired' with their keys not
+    yet purged (keys_deleted_at IS NULL) — i.e. recently expired, still in the
+    20-day grace. Churned users whose keys are already deleted are excluded.
+    Without --grant, just lists the targets (dry run). Each user goes through the
+    exact same grant() flow as the single-user case.
+
 Runs in the production container with DATABASE_URL + FIELD_ENCRYPTION_KEY.
 """
 from __future__ import annotations
@@ -203,19 +211,72 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
         await pool.close()
 
 
+async def grant_all_expired(plan_id: str, dsn: str, *, apply: bool) -> None:
+    """Grant `plan_id` to every expired user whose keys are not yet purged.
+
+    Targets: state_label='expired' AND keys_deleted_at IS NULL (recently expired,
+    still in the 20-day grace). Churned users (keys already deleted) are excluded.
+    Each user runs through the exact same grant() flow as the single-user case.
+    """
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=4)
+    try:
+        await _show_plans(pool)
+        targets = await pool.fetch(
+            """SELECT i.telegram_user_id, i.internal_user_id, s.active_until_utc
+               FROM user_identities i
+               JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+               WHERE s.state_label = 'expired'
+                 AND s.keys_deleted_at IS NULL
+                 AND i.vless_uuid IS NOT NULL
+               ORDER BY i.telegram_user_id"""
+        )
+        print(f"\n=== EXPIRED WITH KEYS (not yet purged): {len(targets)} ===")
+        for t in targets:
+            print(f"  tg={t['telegram_user_id']}  uid={t['internal_user_id']}  "
+                  f"active_until={t['active_until_utc']}")
+
+        if not apply:
+            print("\n[DRY RUN] re-run with --grant to grant all of them")
+            return
+        if not targets:
+            print("nothing to grant")
+            return
+
+        print(f"\n=== GRANTING plan={plan_id} to {len(targets)} users ===")
+        ok = fail = 0
+        for t in targets:
+            tg = int(t["telegram_user_id"])
+            try:
+                await grant(tg, plan_id, dsn)
+                ok += 1
+            except Exception as exc:  # noqa: BLE001 — operator tool, keep going
+                print(f"\n!! grant FAILED tg={tg}: {exc}")
+                fail += 1
+        print(f"\n=== DONE: {ok} granted, {fail} failed ===")
+    finally:
+        await pool.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--telegram-id", type=int, required=True)
-    p.add_argument("--grant", action="store_true", help="grant (default: analyze only)")
+    p.add_argument("--telegram-id", type=int, help="single user to analyze/grant")
+    p.add_argument("--all-expired", action="store_true",
+                   help="target every expired user whose keys are not yet purged")
+    p.add_argument("--grant", action="store_true", help="grant (default: analyze/list only)")
     p.add_argument("--plan", default="1m", help="plan_id to grant (default 1m)")
     args = p.parse_args()
+
+    if not args.all_expired and args.telegram_id is None:
+        p.error("specify --telegram-id or --all-expired")
 
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         print("ERROR: DATABASE_URL not set")
         sys.exit(1)
 
-    if args.grant:
+    if args.all_expired:
+        asyncio.run(grant_all_expired(args.plan, dsn, apply=args.grant))
+    elif args.grant:
         asyncio.run(grant(args.telegram_id, args.plan, dsn))
     else:
         asyncio.run(analyze(args.telegram_id, dsn))
