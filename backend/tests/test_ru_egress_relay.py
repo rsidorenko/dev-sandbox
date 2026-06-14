@@ -293,3 +293,25 @@ def test_repoint_raises_when_no_such_outbound() -> None:
         mre.repoint_ru_relay_outbound(_default_template(), "ru-relay")
 
 
+# ── purge-orphans: user-client detection ────────────────────────────────────
+
+
+@pytest.mark.parametrize("email,expected", [
+    ("user-u8158783115", True),
+    ("cdn-user-abc123def456", True),
+    ("x-user-something", True),
+    ("relay-from-foreign", False),   # the shared relay UUID — MUST be kept
+    ("relay-from-lte", False),
+    ("", False),
+    ("admin", False),
+    ("some-other-email", False),
+])
+def test_is_user_client(email: str, expected: bool) -> None:
+    assert mre._is_user_client(email) is expected
+
+
+def test_is_user_client_handles_none() -> None:
+    assert mre._is_user_client(None) is False  # type: ignore[arg-type]
+
+
+
