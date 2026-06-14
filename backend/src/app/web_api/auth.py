@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.email.sender import send_verification_code
+from app.security.disposable_email import is_disposable_email
 from app.web_api.helpers import generate_code, get_jwt_secret, hash_code, safe_json_error, truthy, validate_email
 from app.web_api.middleware import _decode_jwt, generate_csrf_token
 
@@ -79,6 +80,10 @@ async def handle_send_code(request: Request) -> JSONResponse:
     if not validate_email(email):
         return _safe_json_error(400, "invalid_email")
 
+    # Reject disposable/temporary email providers (before spending an SMTP send).
+    if is_disposable_email(email):
+        return _safe_json_error(422, "disposable_email", "Disposable email providers are not allowed")
+
     # Check SMTP is configured before doing anything
     from app.email.sender import load_smtp_config
     if load_smtp_config() is None:
@@ -132,6 +137,10 @@ async def handle_verify_code(request: Request) -> JSONResponse:
     referral_code = data.get("referral_code", "").strip()
     if not validate_email(email) or not code:
         return _safe_json_error(400, "invalid_request")
+
+    # Defense in depth: reject disposable/temporary providers at verify too.
+    if is_disposable_email(email):
+        return _safe_json_error(422, "disposable_email", "Disposable email providers are not allowed")
 
     # Validate optional referral code format
     import re as _re

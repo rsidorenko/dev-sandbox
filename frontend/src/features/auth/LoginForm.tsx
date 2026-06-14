@@ -44,11 +44,15 @@ export function LoginForm() {
     setServerError("");
     const result = await authApi.sendCode(email);
     if (!result.ok) {
-      setServerError(
-        result.error === "rate_limited"
-          ? "Слишком много попыток. Попробуйте позже."
-          : "Не удалось отправить код. Попробуйте позже.",
-      );
+      if (result.error === "disposable_email") {
+        setServerError(
+          "Регистрация с временной почтой недоступна. Используйте постоянный email (Gmail, Яндекс, Mail.ru и т. п.).",
+        );
+      } else if (result.error === "rate_limited") {
+        setServerError("Слишком много попыток. Попробуйте позже.");
+      } else {
+        setServerError("Не удалось отправить код. Попробуйте позже.");
+      }
       return;
     }
     setCodeTtl(result.data.ttl_minutes || 10);
