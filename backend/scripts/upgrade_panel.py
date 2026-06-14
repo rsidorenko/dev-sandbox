@@ -8,12 +8,15 @@ Sequence:
      clients/client_inbounds/inbounds row counts (the state that must survive).
   2. Backup /etc/x-ui/x-ui.db -> *.bak.<ts> (kept on host for rollback).
   3. If --dry: stop after the snapshot (read-only).
-  4. Upgrade via `x-ui update`; fall back to the official installer pipe
-     (the same command setup_relay.py uses) if x-ui update is unavailable.
+  4. Upgrade via the official installer pipe (the same command setup_relay.py uses
+     to install Russia) — non-interactive, upgrades 3x-ui in place, preserves the DB.
+     (`x-ui update` over non-TTY SSH just drops into the interactive menu and does
+     nothing, so the installer is used directly.)
   5. POST snapshot.
-  6. Verify: x-ui active, xray up, :443 listening, and counts/webBasePath
-     unchanged from PRE. On ANY mismatch -> restore the backup, restart x-ui,
-     print ROLLBACK (do not leave a broken panel).
+  6. Verify: x-ui active, xray up, :443 listening, and clients/inbounds/webBasePath
+     unchanged from PRE. (client_inbounds is NOT checked — the new version regenerates
+     it correctly.) On ANY mismatch -> restore the backup, restart x-ui, print
+     ROLLBACK (do not leave a broken panel).
   7. systemctl restart x-ui; final xray-up check.
 
 Usage (piped over SSH, like sync_clients_table.py):
@@ -92,9 +95,15 @@ def print_snapshot(label: str, snap: dict) -> None:
 
 
 def verify(pre: dict, post: dict) -> list[str]:
-    """Return list of regressions (empty = OK)."""
+    """Return list of regressions (empty = OK).
+
+    NOTE: client_inbounds is intentionally NOT checked — 3x-ui REGENERATES it from
+    inbounds.settings on restart, so its count changes after an upgrade (the new
+    version regenerates it correctly, like Russia v3.3.0). Correctness of the
+    regenerated client_inbounds is verified externally via sync_tables (0 added).
+    """
     problems = []
-    for key in ("clients", "client_inbounds", "inbounds", "webBasePath"):
+    for key in ("clients", "inbounds", "webBasePath"):
         if pre.get(key) is not None and pre.get(key) != post.get(key):
             problems.append(f"{key}: {pre.get(key)} -> {post.get(key)}")
     if not post.get("xray_running"):
@@ -129,16 +138,14 @@ def main() -> int:
         print("DRY RUN — no upgrade performed")
         return 0
 
-    print("UPGRADE: x-ui update ...")
-    rc, out, err = run("x-ui update", timeout=900)
-    print(out[-1200:])
+    print("UPGRADE: official installer (non-interactive, in-place upgrade) ...")
+    rc, out, err = run(
+        "curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh | bash",
+        timeout=900,
+    )
+    print(out[-1500:])
     if rc != 0:
-        print(f"x-ui update rc={rc}; trying official installer ...")
-        rc, out, err = run(
-            "curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh | bash",
-            timeout=900,
-        )
-        print(out[-1200:])
+        print(f"installer rc={rc} err={err}")
 
     run("systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null", timeout=120)
     run("sleep 6", timeout=20)
