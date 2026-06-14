@@ -85,6 +85,18 @@ if db:
                     print(f"    client: email={cr[0]} uuid={cr[1]}.. enable={cr[2]}")
             except Exception as e:
                 print(f"  (no client_inbounds table: {e})")
+            # Per-client traffic stats — decisive for whether the relay is actually
+            # receiving connections (online-stats API disables the access log, so
+            # traffic counters are the reliable signal). up/down > 0 => the relay
+            # UUID is being used (foreign servers are relaying through here).
+            try:
+                cur.execute("SELECT * FROM client_traffics LIMIT 20")
+                cols = [d[0] for d in cur.description]
+                print(f"  client_traffics cols: {cols}")
+                for r in cur.fetchall():
+                    print(f"    {r}")
+            except Exception as e:
+                print(f"  (client_traffics: {e})")
         conn.close()
     except Exception as e:
         print(f"  DB read error: {e}")
