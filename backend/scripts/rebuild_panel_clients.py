@@ -31,6 +31,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 
@@ -59,6 +60,15 @@ def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") 
     """Mirror of xui_vless_provider._email_from_internal."""
     prefix = {"xhttp": "x-", "cdn": "cdn-"}.get(transport_type, "")
     return f"{prefix}user-{internal_user_id[:16]}"
+
+
+def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str:
+    """Mirror of xui_vless_provider._vless_uuid_for_transport — distinct uuid per
+    (user, transport) so each inbound's client is unique (fixes v3 client_inbounds)."""
+    return str(uuid.uuid5(
+        uuid.NAMESPACE_DNS,
+        f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
+    ))
 
 
 def _expiry_from_datetime(dt: datetime | None) -> int:
@@ -392,7 +402,7 @@ async def phase_rebuild(users: list[dict], panels: list[PanelClient],
     if dry_run:
         print("  [DRY RUN] Would add the following users to each panel:")
         for u in users:
-            print(f"    user={u['internal_user_id'][:16]} uuid={u['vless_uuid'][:8]}... "
+            print(f"    user={u['internal_user_id'][:16]} "
                   f"devices={u['device_count']} until={u['active_until_utc']}")
         return {"dry_run": True, "users": len(users), "panels": len(panels)}
 
@@ -411,7 +421,7 @@ async def phase_rebuild(users: list[dict], panels: list[PanelClient],
             print(f"\n  Server {pc.server_id} ({pc.label}) inbound {pc.inbound_id} [{pc.transport_type}]:")
             for u in users:
                 uid = u["internal_user_id"]
-                uuid = u["vless_uuid"]
+                uuid = _vless_uuid_for_transport(uid, pc.transport_type)
                 email = _email_from_internal(uid, transport_type=pc.transport_type)
                 expiry_ts = _expiry_from_datetime(u["active_until_utc"])
                 limit_ip = u["device_count"] if u["device_count"] > 0 else _TRIAL_DEVICE_LIMIT
