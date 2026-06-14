@@ -1,9 +1,16 @@
-"""Merge a web-only account (telegram_user_id=0) into the real Telegram identity.
+"""Merge a web-only account into the real Telegram identity.
 
 When a Telegram user links an email that was previously registered on the website
 (web-only, no Telegram), all data from the phantom web account must be rekeyed
 to the real Telegram identity.  This module provides a single async function that
 does exactly that, inside a single database transaction.
+
+Web-only accounts are identified by a NON-POSITIVE ``telegram_user_id``: the
+web-registration path (``app.web_api.auth``) assigns sequential negative IDs via
+``web_user_id_seq`` (``-1, -2, ...``).  Real Telegram user IDs are always
+positive, so ``telegram_user_id <= 0`` unambiguously means "web-only, no real
+Telegram identity".  (An earlier scheme used a literal ``0``; ``<= 0`` covers
+both, so any legacy rows are merged too.)
 """
 
 from __future__ import annotations
@@ -42,10 +49,10 @@ async def merge_web_account_if_needed(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Check if a web-only row exists for this email
+            # Check if a web-only row exists for this email (non-positive telegram_user_id)
             web_row = await conn.fetchrow(
                 "SELECT telegram_user_id FROM user_emails"
-                " WHERE email = $1 AND is_verified = TRUE AND telegram_user_id = 0",
+                " WHERE email = $1 AND is_verified = TRUE AND telegram_user_id <= 0",
                 email,
             )
             if web_row is None:
@@ -137,10 +144,13 @@ async def merge_web_account_if_needed(
                     new_id, old_id,
                 )
 
-            # Reassign the email row from web-only (telegram_user_id=0) to real user
+            # Reassign the email row from the web-only account (non-positive id) to the
+            # real Telegram identity. Must run BEFORE the caller inserts its own
+            # (telegram_user_id, email) row, otherwise the partial unique index
+            # idx_user_emails_email_verified (one verified row per email) is violated.
             await conn.execute(
                 "UPDATE user_emails SET telegram_user_id = $1"
-                " WHERE email = $2 AND telegram_user_id = 0",
+                " WHERE email = $2 AND telegram_user_id <= 0",
                 telegram_user_id,
                 email,
             )
