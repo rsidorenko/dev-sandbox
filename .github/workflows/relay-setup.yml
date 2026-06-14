@@ -69,6 +69,30 @@ on:
         description: "With upgrade_panel set: snapshot + version check only, NO upgrade"
         required: false
         default: "false"
+      ru_egress_panel:
+        description: "RU egress relay: target panel for dump/apply/revert — helsinki | frankfurt | la"
+        required: false
+        default: ""
+      ru_egress_dump:
+        description: "READ-ONLY: dump xrayTemplateConfig (routing/outbounds) + geo files + :443 of ru_egress_panel"
+        required: false
+        default: "false"
+      ru_egress_register:
+        description: "On the RU relay (89.169.139.153): register the shared relay UUID on its :443 inbound (idempotent)"
+        required: false
+        default: "false"
+      ru_egress_apply:
+        description: "On ru_egress_panel: MERGE relay-to-russia outbound + RU routing rules into xrayTemplateConfig (backs up, idempotent, restarts x-ui, verifies)"
+        required: false
+        default: "false"
+      ru_egress_revert:
+        description: "On ru_egress_panel: restore the pre-apply xrayTemplateConfig from the backup made by ru_egress_apply"
+        required: false
+        default: "false"
+      ru_egress_deactivate:
+        description: "In prod container: set vpn_servers id=11 (🇷🇺 Россия 🔄) is_active=FALSE (reversible)"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -100,6 +124,12 @@ jobs:
           SYNC_TABLES: ${{ github.event.inputs.sync_tables || 'false' }}
           UPGRADE_PANEL: ${{ github.event.inputs.upgrade_panel || '' }}
           UPGRADE_DRY: ${{ github.event.inputs.upgrade_dry || 'false' }}
+          RU_EGRESS_PANEL: ${{ github.event.inputs.ru_egress_panel || '' }}
+          RU_EGRESS_DUMP: ${{ github.event.inputs.ru_egress_dump || 'false' }}
+          RU_EGRESS_REGISTER: ${{ github.event.inputs.ru_egress_register || 'false' }}
+          RU_EGRESS_APPLY: ${{ github.event.inputs.ru_egress_apply || 'false' }}
+          RU_EGRESS_REVERT: ${{ github.event.inputs.ru_egress_revert || 'false' }}
+          RU_EGRESS_DEACTIVATE: ${{ github.event.inputs.ru_egress_deactivate || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -112,7 +142,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -257,4 +287,55 @@ jobs:
                   echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la|lte)" ;;
               esac
               echo "=== UPGRADE PANEL COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_DEACTIVATE" = "true" ]; then
+              echo "=== RU EGRESS: deactivate 🇷🇺 id=11 (prod container) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/manage_ru_egress.py backend:/tmp/mre.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python /tmp/mre.py --mode deactivate 2>&1
+              echo "=== RU EGRESS DEACTIVATE COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_REGISTER" = "true" ]; then
+              echo "=== RU EGRESS: register relay UUID on RU relay (89.169.139.153) ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode register-uuid" 2>&1 || echo "  RU relay FAILED"
+              rm -f ~/.ssh/yandex-relay
+              echo "=== RU EGRESS REGISTER COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ]; then
+              if [ "$RU_EGRESS_APPLY" = "true" ]; then RU_EGRESS_OP=apply
+              elif [ "$RU_EGRESS_REVERT" = "true" ]; then RU_EGRESS_OP=revert
+              else RU_EGRESS_OP=dump; fi
+              echo "=== RU EGRESS: $RU_EGRESS_OP on panel=$RU_EGRESS_PANEL ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              ru_run() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3 - --mode $RU_EGRESS_OP" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode $RU_EGRESS_OP" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              case "$RU_EGRESS_PANEL" in
+                helsinki)
+                  ru_run "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                frankfurt)
+                  ru_run "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  ru_run "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown ru_egress_panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la)" ;;
+              esac
+              echo "=== RU EGRESS $RU_EGRESS_OP COMPLETE ==="
             fi
