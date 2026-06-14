@@ -7,6 +7,7 @@ production VPN panels that real users are connected to.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -312,6 +313,32 @@ def test_is_user_client(email: str, expected: bool) -> None:
 
 def test_is_user_client_handles_none() -> None:
     assert mre._is_user_client(None) is False  # type: ignore[arg-type]
+
+
+# ── fix-sniffing: standardize inbound sniffing (fixes 2.0 ws RU routing) ─────
+
+
+def test_standardize_sniffing_flags_the_broken_ws_config() -> None:
+    # The 2.0 ws inbound live config that broke RU routing.
+    broken = '{"enabled": true, "destOverride": ["http", "tls"], "routeOnly": true}'
+    out = mre.standardize_sniffing(broken)
+    assert out is not None
+    parsed = json.loads(out)
+    assert parsed["routeOnly"] is False
+    assert "quic" in parsed["destOverride"]
+
+
+def test_standardize_sniffing_leaves_working_config_unchanged() -> None:
+    # The 1.0/3.0 tcp/xhttp config (already standard).
+    ok = '{"enabled": true, "destOverride": ["http", "tls", "quic"], "routeOnly": false}'
+    assert mre.standardize_sniffing(ok) is None
+
+
+def test_standardize_sniffing_tolerates_malformed() -> None:
+    assert mre.standardize_sniffing("") is not None
+    assert mre.standardize_sniffing("not-json") is not None
+    assert mre.standardize_sniffing(None) is not None  # type: ignore[arg-type]
+
 
 
 

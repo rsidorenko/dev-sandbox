@@ -52,6 +52,11 @@ Modes (--mode):
                 inbound from when it was a user-facing 🇷🇺 server. Keeps the relay
                 UUID (and anything non-user-format). Env RU_RELAY_INBOUND (default 3).
                 Idempotent. Restarts x-ui + verifies.
+  fix-sniffing  Run ON a foreign panel: standardize each user-facing inbound's
+                sniffing to destOverride [http,tls,quic] + routeOnly false (the
+                config that makes domain-based RU routing work — proven on the
+                tcp/xhttp inbounds). Fixes the ws/cdn (2.0) inbound whose
+                routeOnly:true broke RU-relay routing. Idempotent; restarts + verifies.
   deactivate    Run IN the prod container (DATABASE_URL): set vpn_servers id=11
                 is_active=FALSE. Reversible (set TRUE again).
 
@@ -93,11 +98,29 @@ RELAY_EMAIL = "relay-from-foreign"
 # "relay-from-foreign" — does NOT match, so purge-orphans keeps it.
 _USER_CLIENT_EMAIL_RE = re.compile(r"^(?:x-|cdn-)?user-")
 
+# Standard inbound sniffing that makes domain-based routing work (matches the
+# tcp/xhttp inbounds where RU-relay routing is proven). routeOnly:false so the
+# sniffed domain drives BOTH routing and the connection; quic so HTTP/3 domains
+# are sniffed too. The ws/cdn (2.0) inbound had routeOnly:true + no quic, which
+# broke RU-relay routing for 2.0 users.
+STANDARD_SNIFFING = {"enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": False}
+STANDARD_SNIFFING_JSON = json.dumps(STANDARD_SNIFFING, separators=(", ", ": "))
+
 
 def _is_user_client(email: str) -> bool:
     """True if *email* is a bot-provisioned per-user client (vs the relay UUID
     or anything else). Pure + unit-tested."""
     return bool(email and _USER_CLIENT_EMAIL_RE.match(email))
+
+
+def standardize_sniffing(sniffing_str: str) -> str | None:
+    """Pure: return the standard sniffing JSON if *sniffing_str* differs from it,
+    else None (already standard). Tolerates malformed/empty input."""
+    try:
+        cur = json.loads(sniffing_str) if sniffing_str else {}
+    except Exception:
+        cur = {}
+    return None if cur == STANDARD_SNIFFING else STANDARD_SNIFFING_JSON
 
 RELAY_OUTBOUND_TAG = "relay-to-russia"
 # xn--p1ai is the punycode for .рф. TLD rules need no geo file.
@@ -478,6 +501,42 @@ def cmd_purge_orphans() -> None:
     restart_and_verify()
 
 
+def cmd_fix_sniffing() -> None:
+    """Standardize each user-facing inbound's sniffing to destOverride
+    [http,tls,quic] + routeOnly false — the config that makes domain-based RU
+    routing work. Fixes the ws/cdn (2.0) inbound whose routeOnly:true broke
+    RU-relay routing. Skips the api (dokodemo-door) inbound."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    rows = cur.execute("SELECT id, tag, sniffing FROM inbounds").fetchall()
+    changes = []
+    for inbound_id, tag, sniff_str in rows:
+        if (tag or "") == "api":
+            continue
+        new = standardize_sniffing(sniff_str or "")
+        if new is not None:
+            changes.append((inbound_id, tag, sniff_str, new))
+    if not changes:
+        print("all user inbounds already have standard sniffing — nothing to fix")
+        conn.close()
+        return
+    backup_path = db + BACKUP_SUFFIX
+    # (reuse the same backup slot; revert restores the panel template, not inbound
+    # rows — so we print what we change for an audit trail instead.)
+    for inbound_id, tag, old, new in changes:
+        print(f"  inbound id={inbound_id} tag={tag}: {old}  ->  {new}")
+        cur.execute("UPDATE inbounds SET sniffing=? WHERE id=?", (new, inbound_id))
+    conn.commit()
+    conn.close()
+    print(f"fix-sniffing: updated {len(changes)} inbound(s)")
+    print("fix-sniffing complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_apply() -> None:
     db = find_db()
     if not db:
@@ -711,7 +770,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|deactivate}",
+              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -721,6 +780,8 @@ def main() -> None:
         cmd_register_uuid()
     elif mode == "purge-orphans":
         cmd_purge_orphans()
+    elif mode == "fix-sniffing":
+        cmd_fix_sniffing()
     elif mode == "export":
         cmd_export()
     elif mode == "import":

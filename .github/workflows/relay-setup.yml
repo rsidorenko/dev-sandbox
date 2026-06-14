@@ -105,6 +105,10 @@ on:
         description: "On the RU relay (89.169.139.153): remove orphaned per-user clients left on its inbound (from former id=11), keeping the relay UUID. Idempotent"
         required: false
         default: "false"
+      ru_egress_fix_sniffing:
+        description: "On ru_egress_panel: standardize each user-facing inbound's sniffing to destOverride[http,tls,quic]+routeOnly:false. Fixes the ws/cdn (2.0) inbound whose routeOnly:true broke RU-relay routing"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -145,6 +149,7 @@ jobs:
           RU_EGRESS_REPLICATE: ${{ github.event.inputs.ru_egress_replicate || 'false' }}
           RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
+          RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -157,7 +162,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -334,10 +339,11 @@ jobs:
               echo "=== RU EGRESS PURGE COMPLETE ==="
             fi
 
-            if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ] || [ "$RU_EGRESS_REPOINT" = "true" ]; then
+            if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ] || [ "$RU_EGRESS_REPOINT" = "true" ] || [ "$RU_EGRESS_FIX_SNIFFING" = "true" ]; then
               if [ "$RU_EGRESS_APPLY" = "true" ]; then RU_EGRESS_OP=apply
               elif [ "$RU_EGRESS_REVERT" = "true" ]; then RU_EGRESS_OP=revert
               elif [ "$RU_EGRESS_REPOINT" = "true" ]; then RU_EGRESS_OP=repoint
+              elif [ "$RU_EGRESS_FIX_SNIFFING" = "true" ]; then RU_EGRESS_OP=fix-sniffing
               else RU_EGRESS_OP=dump; fi
               echo "=== RU EGRESS: $RU_EGRESS_OP on panel=$RU_EGRESS_PANEL ==="
               cd /opt/bravada
