@@ -141,11 +141,12 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         except Exception:
             _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
 
-        # Reconcile: ensure all active users have VLESS keys on all active servers.
-        # Runs as a background task so it doesn't block message processing.
+        # Reconcile: ensure every non-deleted user has VLESS keys on all active
+        # servers (active enabled, expired disabled). Background task so it
+        # doesn't block message processing.
         async def _run_reconcile(vp: XuiVlessProvider) -> None:
             try:
-                added, fail, total = await vp.reconcile_all_active_users()
+                added, fail, total = await vp.reconcile_all_users()
                 _log_lifecycle_event(
                     intent="startup",
                     outcome="completed",

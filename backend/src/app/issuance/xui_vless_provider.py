@@ -554,25 +554,35 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-    async def reconcile_all_active_users(self) -> tuple[int, int, int]:
-        """Ensure all active users have VLESS keys on every active server.
+    async def reconcile_all_users(self) -> tuple[int, int, int]:
+        """Ensure every non-deleted user has a VLESS key on every active server.
 
-        Only adds clients that are **missing** on a specific server — existing
-        clients are never touched (no delete, no re-add, no traffic reset).
-        Runs as a fire-and-forget background task on startup.
+        Covers active subscribers AND expired-but-in-grace users (keys not yet
+        purged). Only adds clients that are **missing** on a specific server —
+        existing clients are never touched (no delete, no re-add, no enable
+        toggle, no traffic reset). Enable state of a freshly added client follows
+        the subscription: active → enabled, expired → disabled. Enable state of
+        existing clients is left to the deactivate/reactivate lifecycle flows.
+
+        This closes the gap where a user who expired *before* a server was added
+        (e.g. Russia, id=11) never gets a client there — so they're absent from
+        that server until they renew. Runs as a fire-and-forget background task on
+        startup and periodically via the server-sync scheduler.
 
         Returns ``(added, failed, total_users)`` counts.
         """
         self._clients_ts = 0.0  # Force server list refresh
         users = await self._pool.fetch(
             "SELECT i.internal_user_id, i.vless_uuid, "
-            "  s.device_count, s.active_until_utc "
+            "  s.state_label, s.device_count, s.active_until_utc "
             "FROM user_identities i "
             "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-            "WHERE s.state_label = 'active' AND i.vless_uuid IS NOT NULL"
+            "WHERE s.state_label IN ('active', 'expired') "
+            "  AND s.keys_deleted_at IS NULL "
+            "  AND i.vless_uuid IS NOT NULL"
         )
         if not users:
-            _LOGGER.info("reconcile_start: no active users")
+            _LOGGER.info("reconcile_start: no users")
             return 0, 0, 0
 
         clients = await self._get_clients()
@@ -588,6 +598,8 @@ class XuiVlessProvider(VlessProviderPort):
         for u in users:
             uid = u["internal_user_id"]
             user_uuid = u["vless_uuid"]
+            # Active subscribers get enabled keys; expired (in grace) get disabled keys.
+            enable = u["state_label"] == "active"
             # Use real device_count from subscription; fall back to trial limit
             device_count = u.get("device_count") or 0
             limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
@@ -615,20 +627,20 @@ class XuiVlessProvider(VlessProviderPort):
                 if existing is not None:
                     continue  # Already exists — skip, don't touch
 
-                # Client missing on this server — add it
+                # Client missing on this server — add it (enabled iff subscription active)
                 try:
                     result = await client.add_client(
                         user_uuid=user_uuid,
                         email=email,
                         expiry_ts=expiry,
-                        enable=True,
+                        enable=enable,
                         limit_ip=limit_ip,
                     )
                     if result.outcome == XuiOutcome.SUCCESS:
                         user_added = True
                         _LOGGER.info(
-                            "reconcile_added user=%s server=%s",
-                            uid[:8], client.server_id,
+                            "reconcile_added user=%s server=%s enable=%s",
+                            uid[:8], client.server_id, enable,
                         )
                     else:
                         _LOGGER.warning(
@@ -650,3 +662,4 @@ class XuiVlessProvider(VlessProviderPort):
 
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)
+

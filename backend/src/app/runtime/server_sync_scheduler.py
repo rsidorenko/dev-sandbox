@@ -1,8 +1,8 @@
 """Periodic background scheduler that syncs VLESS users across all active VPN servers.
 
-Ensures every active subscriber has VLESS keys on every active 3x-ui panel.
-Only adds missing clients — never modifies or deletes existing ones.
-Runs hourly, safe to overlap or run concurrently.
+Ensures every non-deleted user (active subscriber + expired-in-grace) has VLESS
+keys on every active 3x-ui panel. Only adds missing clients — never modifies or
+deletes existing ones. Runs hourly, safe to overlap or run concurrently.
 """
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ _SYNC_INTERVAL_SECONDS = 60 * 60  # 1 hour
 class ServerSyncScheduler:
     """Periodic reconciliation of VLESS users across VPN servers.
 
-    Reuses ``XuiVlessProvider.reconcile_all_active_users`` which probes each
-    server and adds missing clients. Non-destructive, idempotent, exception-safe.
+    Reuses ``XuiVlessProvider.reconcile_all_users`` which probes each server and
+    adds missing clients (enabled for active, disabled for expired). Non-
+    destructive, idempotent, exception-safe.
     """
 
     def __init__(self, *, vless_provider: XuiVlessProvider) -> None:
@@ -36,7 +37,7 @@ class ServerSyncScheduler:
         _LOGGER.info("server_sync_scheduler_started")
         while self._running:
             try:
-                added, failed, total = await self._provider.reconcile_all_active_users()
+                added, failed, total = await self._provider.reconcile_all_users()
                 if added > 0 or failed > 0:
                     _LOGGER.info(
                         "server_sync_completed added=%d failed=%d total=%d",
