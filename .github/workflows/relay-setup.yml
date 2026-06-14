@@ -1,95 +1,36 @@
 name: relay-setup
 
-# One-purpose workflow for the RU split-routing relay server (89.169.139.153).
-# Kept separate from deploy.yml so deploy.yml and the LTE configuration stay
-# untouched (deploy.yml is at the GitHub workflow_dispatch input cap).
+# Operator workflow for VPN panel / issuance operations that need prod SSH or
+# the prod container. Kept separate from deploy.yml so deploy stays untouched.
+# Runs scripts from the PRODUCTION host (/opt/bravada): the appleboy/ssh-action
+# lands on prod and from there SSHes/scps to the VPN panels; container tasks run
+# via `docker compose exec backend`.
 #
-# Runs the setup/registration scripts from the PRODUCTION host (same pattern as
-# deploy.yml's LTE blocks): the ssh-action lands on prod (/opt/bravada, where the
-# scripts are deployed), injects RELAY_SSH_KEY, and from there SSHes/scps to the
-# relay server. Container tasks (Helsinki registration, vpn_servers row) run via
-# `docker compose exec backend`.
-#
-# Prerequisites:
-#   - Secrets: RELAY_SSH_KEY (.ssh/yandex-relay), RELAY_PANEL_PASS,
-#     plus the deploy secrets SERVER_HOST/SERVER_USER/SERVER_SSH_KEY/FIELD_ENCRYPTION_KEY.
-#   - Scripts deployed: run once after merge (normal push deploy ships them to
-#     /opt/bravada/backend/scripts/) before triggering this workflow.
-#   - Relay server: TCP 22 open to the prod host IP, TCP 443 open to 0.0.0.0/0.
+# Secrets used: SERVER_HOST/SERVER_USER/SERVER_SSH_KEY (prod), HELSINKI_SSH_PASS,
+# FRANKFURT_SSH_PASS, LA_SSH_KEY, LTE_SSH_KEY, RELAY_SSH_KEY, RELAY_PANEL_PASS,
+# FIELD_ENCRYPTION_KEY.
 
 on:
   workflow_dispatch:
     inputs:
-      setup_relay:
-        description: "Configure RU relay: install 3x-ui if needed, Reality inbound 443, split routing (.ru/.su/.рф/geosite:ru/geoip:ru -> direct, rest -> Helsinki)"
-        required: false
-        default: "false"
-      add_helsinki_relay:
-        description: "Register relay UUID as a client on Helsinki :443 inbound (run after setup_relay)"
-        required: false
-        default: "false"
-      add_relay_row:
-        description: "Insert vpn_servers row id=11 for the RU relay (needs relay_pubkey/inbound_id/panel_url below)"
-        required: false
-        default: "false"
       relay_diag:
-        description: "SSH to RU relay: dump routing/outbounds, xray status, logs, Helsinki reachability, geo files"
+        description: "SSH to RU relay (89.169.139.153): dump routing/outbounds, xray status, settings.clients + client_inbounds counts, access log"
         required: false
         default: "false"
-      relay_pubkey:
-        description: "REALITY_PUBKEY from setup_relay output (for add_relay_row)"
-        required: false
-        default: ""
-      relay_inbound_id:
-        description: "INBOUND_ID from setup_relay output (for add_relay_row)"
-        required: false
-        default: ""
-      relay_panel_url:
-        description: "PANEL_URL from setup_relay output (for add_relay_row)"
-        required: false
-        default: ""
       bot_logs:
-        description: "Dump bot container logs (reconcile/xui/relay) to debug client provisioning"
+        description: "Dump bot container logs (reconcile/xui/relay provisioning)"
         required: false
         default: "false"
       port_check:
-        description: "From prod, test TCP reachability to 89.169.139.153 :22/:443/:1864 + Helsinki panel TLS verify"
-        required: false
-        default: "false"
-      fix_relay_access:
-        description: "On relay: ufw allow 22/443/1864 (host firewall blocks the panel port)"
-        required: false
-        default: "false"
-      relay_panel_http:
-        description: "Switch relay panel_url to HTTP (no TLS verify; XUI_VERIFY_SSL=1 blocks self-signed)"
-        required: false
-        default: "false"
-      helsinki_probe:
-        description: "Check Helsinki v3 clients table for the relay UUID (does xray recognize it?)"
-        required: false
-        default: "false"
-      harden_relay:
-        description: "On relay: ufw source-restrict 1864 to prod + Reality dest=max.ru:443 camo (no key change)"
-        required: false
-        default: "false"
-      probe_v3:
-        description: "READ-ONLY: probe v3 clients table vs JSON on Helsinki/Frankfurt/LA (root cause of Reality servers not connecting)"
-        required: false
-        default: "false"
-      apply_vision_flow:
-        description: "Set flow=xtls-rprx-vision on bot clients of every Reality inbound (Helsinki/Frankfurt/LA/LTE/relay) + restart x-ui. DPI-resistance fix"
-        required: false
-        default: "false"
-      revert_vision_flow:
-        description: "REVERT: set bot Reality clients back to no-flow (empty) on all servers + restart. Restores working state after vision broke tcp/Reality"
+        description: "From prod, test TCP reachability to relay ports + Helsinki panel TLS verify"
         required: false
         default: "false"
       grant_sub:
-        description: "Operator: analyze subscription state for grant_telegram_id (read-only: live tariffs + user snapshot). Set grant_apply=true to actually grant"
+        description: "Operator: analyze subscription state for grant_telegram_id (read-only). Set grant_apply=true to actually grant"
         required: false
         default: "false"
       grant_apply:
-        description: "With grant_sub=true: actually GRANT the subscription (activate + ledger fact at live plan price + UC-05 apply + keys)"
+        description: "With grant_sub=true OR grant_all_expired=true: actually GRANT (activate + ledger fact + UC-05 apply + keys)"
         required: false
         default: "false"
       grant_telegram_id:
@@ -97,7 +38,7 @@ on:
         required: false
         default: ""
       grant_plan:
-        description: "plan_id to grant (default 1m = 1 month; uses LIVE price from subscription_plans)"
+        description: "plan_id to grant (default 1m = 1 month; price from code app.domain.plans)"
         required: false
         default: "1m"
       grant_all_expired:
@@ -113,27 +54,19 @@ on:
         required: false
         default: "false"
       server_coverage:
-        description: "READ-ONLY: dump all vpn_servers + per active server how many active users are MISSING from its panel JSON (why a server like LA 2.0 / Russia is hidden from /sub/)"
+        description: "READ-ONLY: dump all vpn_servers + per active server how many users are MISSING from its panel JSON (why a server is hidden from /sub/)"
         required: false
         default: "false"
       sync_tables:
-        description: "Mirror inbounds.settings.clients JSON -> v3 clients/client_inbounds table on ALL 5 panels + restart x-ui. Fixes '8 vs 10 keys' (bot writes JSON, xray reads the table). Idempotent"
+        description: "Mirror inbounds.settings.clients JSON -> v3 clients/client_inbounds table on ALL 5 panels + restart x-ui. Fixes '8 vs 10 keys'. Idempotent"
         required: false
         default: "false"
-      upgrade_helsinki:
-        description: "Upgrade Helsinki 3x-ui panel in place (backup DB -> x-ui update -> verify -> rollback on fail). Use upgrade_dry=true first"
+      upgrade_panel:
+        description: "Upgrade one 3x-ui panel in place: helsinki | frankfurt | la (backup DB -> x-ui update -> verify -> rollback on fail)"
         required: false
-        default: "false"
-      upgrade_frankfurt:
-        description: "Upgrade Frankfurt 3x-ui panel in place (same flow as Helsinki)"
-        required: false
-        default: "false"
-      upgrade_la:
-        description: "Upgrade LA 3x-ui panel in place (same flow as Helsinki)"
-        required: false
-        default: "false"
+        default: ""
       upgrade_dry:
-        description: "With any upgrade_*: snapshot + version check only, NO upgrade"
+        description: "With upgrade_panel set: snapshot + version check only, NO upgrade"
         required: false
         default: "false"
 
@@ -143,7 +76,7 @@ concurrency:
 
 jobs:
   relay:
-    name: RU relay setup
+    name: Operator panel/issuance task
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -153,22 +86,9 @@ jobs:
       - name: Run on production host
         uses: appleboy/ssh-action@v1
         env:
-          SETUP_RELAY: ${{ github.event.inputs.setup_relay || 'false' }}
-          ADD_HELSINKI_RELAY: ${{ github.event.inputs.add_helsinki_relay || 'false' }}
-          ADD_RELAY_ROW: ${{ github.event.inputs.add_relay_row || 'false' }}
           RELAY_DIAG: ${{ github.event.inputs.relay_diag || 'false' }}
-          RELAY_PUBKEY: ${{ github.event.inputs.relay_pubkey || '' }}
-          RELAY_INBOUND_ID: ${{ github.event.inputs.relay_inbound_id || '' }}
-          RELAY_PANEL_URL: ${{ github.event.inputs.relay_panel_url || '' }}
           BOT_LOGS: ${{ github.event.inputs.bot_logs || 'false' }}
           PORT_CHECK: ${{ github.event.inputs.port_check || 'false' }}
-          FIX_RELAY_ACCESS: ${{ github.event.inputs.fix_relay_access || 'false' }}
-          RELAY_PANEL_HTTP: ${{ github.event.inputs.relay_panel_http || 'false' }}
-          HELSINKI_PROBE: ${{ github.event.inputs.helsinki_probe || 'false' }}
-          HARDEN_RELAY: ${{ github.event.inputs.harden_relay || 'false' }}
-          PROBE_V3: ${{ github.event.inputs.probe_v3 || 'false' }}
-          APPLY_VISION_FLOW: ${{ github.event.inputs.apply_vision_flow || 'false' }}
-          REVERT_VISION_FLOW: ${{ github.event.inputs.revert_vision_flow || 'false' }}
           GRANT_SUB: ${{ github.event.inputs.grant_sub || 'false' }}
           GRANT_APPLY: ${{ github.event.inputs.grant_apply || 'false' }}
           GRANT_TELEGRAM_ID: ${{ github.event.inputs.grant_telegram_id || '' }}
@@ -178,9 +98,7 @@ jobs:
           CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
           SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
           SYNC_TABLES: ${{ github.event.inputs.sync_tables || 'false' }}
-          UPGRADE_HELSINKI: ${{ github.event.inputs.upgrade_helsinki || 'false' }}
-          UPGRADE_FRANKFURT: ${{ github.event.inputs.upgrade_frankfurt || 'false' }}
-          UPGRADE_LA: ${{ github.event.inputs.upgrade_la || 'false' }}
+          UPGRADE_PANEL: ${{ github.event.inputs.upgrade_panel || '' }}
           UPGRADE_DRY: ${{ github.event.inputs.upgrade_dry || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -194,50 +112,11 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_HELSINKI,UPGRADE_FRANKFURT,UPGRADE_LA,UPGRADE_DRY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
             RELAY="89.169.139.153"
-
-            if [ "$SETUP_RELAY" = "true" ]; then
-              echo "=== SETUP RELAY on $RELAY ==="
-              mkdir -p ~/.ssh
-              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
-              chmod 600 ~/.ssh/yandex-relay
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/setup_relay.py romtan@${RELAY}:/tmp/setup_relay.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@${RELAY} "RELAY_PANEL_PASS='$RELAY_PANEL_PASS' sudo -E python3 /tmp/setup_relay.py; rm -f /tmp/setup_relay.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-relay
-              echo "=== SETUP RELAY COMPLETE ==="
-            fi
-
-            if [ "$ADD_HELSINKI_RELAY" = "true" ]; then
-              echo "=== ADD RELAY UUID TO HELSINKI :443 ==="
-              docker compose -f docker-compose.prod.yml cp backend/scripts/add_helsinki_relay_client.py backend:/tmp/ahr.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/ahr.py 2>&1
-              echo "=== ADD HELSINKI RELAY COMPLETE ==="
-            fi
-
-            if [ "$ADD_RELAY_ROW" = "true" ]; then
-              echo "=== INSERT vpn_servers ROW id=11 (RU relay) ==="
-              docker compose -f docker-compose.prod.yml cp backend/scripts/add_relay_server_row.py backend:/tmp/arr.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e RELAY_PUBKEY -e RELAY_INBOUND_ID -e RELAY_PANEL_URL -e RELAY_PANEL_PASS backend python /tmp/arr.py 2>&1
-              echo "=== ADD RELAY ROW COMPLETE ==="
-            fi
-
-            if [ "$RELAY_PANEL_HTTP" = "true" ]; then
-              echo "=== SWITCH RELAY panel_url to HTTP ==="
-              docker compose -f docker-compose.prod.yml cp backend/scripts/relay_panel_http.py backend:/tmp/rph.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python /tmp/rph.py 2>&1
-              echo "=== RELAY PANEL HTTP COMPLETE ==="
-            fi
-
-            if [ "$HELSINKI_PROBE" = "true" ]; then
-              echo "=== HELSINKI clients table for relay UUID ==="
-              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/helsinki_probe.py root@77.221.159.106:/tmp/hp.py 2>&1 || echo "  scp failed"
-              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/hp.py; rm -f /tmp/hp.py' 2>&1 || echo "  Helsinki SSH FAILED (need HELSINKI_SSH_PASS)"
-              echo "=== HELSINKI PROBE COMPLETE ==="
-            fi
 
             if [ "$RELAY_DIAG" = "true" ]; then
               echo "=== RELAY DIAG (relay_probe) on $RELAY ==="
@@ -267,89 +146,6 @@ jobs:
               echo "--- curl Helsinki panel :2053 (https, verify on) — does the bot's verify pass? ---"
               curl --max-time 8 https://77.221.159.106:2053/NrCRLHCbX0W1MCVmEH/ -o /dev/null -w "  helsinki https verify http_code=%{http_code}\n" 2>&1 || echo "  helsinki https verify FAILED (self-signed/untrusted -> bot must skip verify)"
               echo "=== PORT CHECK COMPLETE ==="
-            fi
-
-            if [ "$FIX_RELAY_ACCESS" = "true" ]; then
-              echo "=== FIX RELAY ACCESS: ufw allow 22/443/1864 ==="
-              mkdir -p ~/.ssh
-              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
-              chmod 600 ~/.ssh/yandex-relay
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/fix_relay_access.py romtan@${RELAY}:/tmp/fra.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/fra.py; rm -f /tmp/fra.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-relay
-              echo "=== FIX RELAY ACCESS COMPLETE ==="
-            fi
-
-            if [ "$HARDEN_RELAY" = "true" ]; then
-              echo "=== HARDEN RELAY: ufw source-restrict 1864 + dest camo ==="
-              mkdir -p ~/.ssh
-              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
-              chmod 600 ~/.ssh/yandex-relay
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/fix_relay_hardening.py romtan@${RELAY}:/tmp/frh.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/frh.py; rm -f /tmp/frh.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-relay
-              echo "=== HARDEN_RELAY COMPLETE ==="
-            fi
-
-            if [ "$PROBE_V3" = "true" ]; then
-              echo "=== PROBE V3 CLIENTS TABLE (read-only) on Helsinki/Frankfurt/LA ==="
-              cd /opt/bravada
-              # Pick one active user UUID to probe (any will do — gap affects all equally).
-              SAMPLE_UUID=$(docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -tAc "SELECT i.vless_uuid FROM user_identities i JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id WHERE s.state_label='active' AND i.vless_uuid IS NOT NULL LIMIT 1" 2>/dev/null | tr -d '[:space:]')
-              echo "  sample active UUID: ${SAMPLE_UUID:0:8}..."
-              PROBE=backend/scripts/probe_v3_clients.py
-
-              echo "--- Helsinki (77.221.159.106) ---"
-              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no $PROBE root@77.221.159.106:/tmp/p.py 2>&1 || true
-              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  Helsinki probe FAILED"
-
-              echo "--- Frankfurt (77.110.100.210) ---"
-              sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no $PROBE root@77.110.100.210:/tmp/p.py 2>&1 || true
-              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  Frankfurt probe FAILED"
-
-              echo "--- LA (216.227.169.120) ---"
-              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key $PROBE romtan@216.227.169.120:/tmp/p.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo env SAMPLE_UUID='$SAMPLE_UUID' python3 /tmp/p.py; rm -f /tmp/p.py" 2>&1 || echo "  LA probe FAILED"
-              rm -f ~/.ssh/la-key
-
-              echo "=== PROBE_V3 COMPLETE ==="
-            fi
-
-            if [ "$APPLY_VISION_FLOW" = "true" ] || [ "$REVERT_VISION_FLOW" = "true" ]; then
-              if [ "$REVERT_VISION_FLOW" = "true" ]; then
-                ARG="revert"; echo "=== REVERT flow -> no-flow (empty) on Reality bot clients ==="
-              else
-                ARG=""; echo "=== APPLY flow=xtls-rprx-vision to Reality bot clients ==="
-              fi
-              cd /opt/bravada
-              SCRIPT=backend/scripts/apply_vision_flow.py
-              # generic runner: scp + run($ARG) + restart x-ui + verify xray up.
-              # remote command uses single-quotes inside, $ARG expands locally.
-              run_vision() { # $1=host $2=user $3=ident-or-__pass__ $4=pass
-                local host="$1" user="$2"
-                echo "--- $host ---"
-                if [ "$3" = "__pass__" ]; then
-                  sshpass -p "$4" scp -o StrictHostKeyChecking=no $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
-                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $user@$host "python3 /tmp/avf.py $ARG; echo '--- restart x-ui ---'; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'; rm -f /tmp/avf.py" 2>&1 || echo "  $host FAILED"
-                else
-                  scp -o StrictHostKeyChecking=no -i "$3" $SCRIPT $user@$host:/tmp/avf.py 2>&1 || true
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i "$3" $user@$host "sudo python3 /tmp/avf.py $ARG; echo '--- restart x-ui ---'; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 4; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'; rm -f /tmp/avf.py" 2>&1 || echo "  $host FAILED"
-                fi
-              }
-              # password-auth servers (root)
-              run_vision "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
-              run_vision "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
-              # key-auth servers (romtan, sudo)
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-              run_vision "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              run_vision "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
-              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
-              run_vision "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
-              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
-              echo "=== VISION FLOW OP COMPLETE ==="
             fi
 
             if [ "$GRANT_SUB" = "true" ] && [ -n "$GRANT_TELEGRAM_ID" ]; then
@@ -394,7 +190,7 @@ jobs:
             fi
 
             if [ "$SERVER_COVERAGE" = "true" ]; then
-              echo "=== SERVER COVERAGE (read-only: which active users are missing from each server's panel JSON) ==="
+              echo "=== SERVER COVERAGE (read-only: which users are missing from each server's panel JSON) ==="
               cd /opt/bravada
               docker compose -f docker-compose.prod.yml cp backend/scripts/diag_server_coverage.py backend:/tmp/dsc.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
@@ -415,10 +211,8 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3; echo '--- restart x-ui ---'; sudo x-ui restart 2>/dev/null || sudo systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
                 fi
               }
-              # password-auth panels (root)
               sync_one "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
               sync_one "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
-              # key-auth panels (romtan, sudo)
               mkdir -p ~/.ssh
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
               sync_one "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
@@ -430,8 +224,8 @@ jobs:
               echo "=== SYNC TABLES COMPLETE ==="
             fi
 
-            if [ "$UPGRADE_HELSINKI" = "true" ] || [ "$UPGRADE_FRANKFURT" = "true" ] || [ "$UPGRADE_LA" = "true" ]; then
-              echo "=== UPGRADE PANELS (dry=$UPGRADE_DRY) ==="
+            if [ -n "$UPGRADE_PANEL" ]; then
+              echo "=== UPGRADE PANEL ($UPGRADE_PANEL dry=$UPGRADE_DRY) ==="
               cd /opt/bravada
               SCRIPT_B64=$(base64 -w0 backend/scripts/upgrade_panel.py)
               if [ "$UPGRADE_DRY" = "true" ]; then DRYARG="--dry"; else DRYARG=""; fi
@@ -444,17 +238,18 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3 - $DRYARG" 2>&1 || echo "  $1 FAILED"
                 fi
               }
-              if [ "$UPGRADE_HELSINKI" = "true" ]; then
-                upgrade_panel "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
-              fi
-              if [ "$UPGRADE_FRANKFURT" = "true" ]; then
-                upgrade_panel "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
-              fi
-              if [ "$UPGRADE_LA" = "true" ]; then
-                mkdir -p ~/.ssh
-                printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-                upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
-                rm -f ~/.ssh/la-key
-              fi
-              echo "=== UPGRADE PANELS COMPLETE ==="
+              case "$UPGRADE_PANEL" in
+                helsinki)
+                  upgrade_panel "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                frankfurt)
+                  upgrade_panel "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la)" ;;
+              esac
+              echo "=== UPGRADE PANEL COMPLETE ==="
             fi
