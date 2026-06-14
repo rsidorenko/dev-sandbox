@@ -225,3 +225,71 @@ def test_apply_exported_routing_is_idempotent() -> None:
     assert _outbound_tags(twice).count("ru-relay") == 1
     assert sum(1 for r in twice["routing"]["rules"] if r.get("outboundTag") == "ru-relay") == 2
 
+
+# ── repoint (re-target an existing ru-relay outbound to 89.169.139.153) ──────
+
+
+def _panel_with_wrong_target_relay() -> dict:
+    """A panel whose ru-relay outbound targets the WRONG relay (51.250.102.219),
+    as found on Frankfurt/LA live. repoint should fix only the target."""
+    return {
+        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
+            {"inboundTag": ["api"], "outboundTag": "api"},
+            {"ip": ["geoip:private"], "outboundTag": "blocked"},
+            {"domain": ["geosite:category-ru"], "outboundTag": "ru-relay"},
+            {"ip": ["geoip:ru"], "outboundTag": "ru-relay"},
+        ]},
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "blocked", "protocol": "blackhole"},
+            {"tag": "ru-relay", "protocol": "vless",
+             "settings": {"vnext": [{"address": "51.250.102.219", "port": 443,
+                                     "users": [{"id": "0b99b2fb-wrong", "encryption": "none",
+                                                "flow": ""}]}]},
+             "streamSettings": {"network": "tcp", "security": "reality",
+                                "realitySettings": {"serverName": "ya.ru",
+                                                    "publicKey": "WRONG-PBK",
+                                                    "shortId": "a1b2c3", "fingerprint": "chrome"}}},
+        ],
+    }
+
+
+def test_repoint_changes_only_target_keeps_tag_and_rules() -> None:
+    before = _panel_with_wrong_target_relay()
+    after = mre.repoint_ru_relay_outbound(before, "ru-relay")
+
+    # Target + UUID + Reality params now the canonical 89.169.139.153 ones.
+    relay = next(o for o in after["outbounds"] if o.get("tag") == "ru-relay")
+    vnext = relay["settings"]["vnext"][0]
+    assert vnext["address"] == mre.RU_RELAY_HOST        # 89.169.139.153
+    assert vnext["port"] == 443
+    assert vnext["users"][0]["id"] == mre.RELAY_UUID     # 00607f0b-…
+    rs = relay["streamSettings"]["realitySettings"]
+    assert rs["publicKey"] == mre.RU_RELAY_PBK
+    assert rs["shortId"] == mre.RU_RELAY_SID
+    assert rs["serverName"] == mre.RU_RELAY_SNI          # max.ru
+
+    # Tag preserved, all routing rules preserved (incl. the ru-relay rules).
+    assert _outbound_tags(after) == ["direct", "blocked", "ru-relay"]
+    assert _rule_tags(after) == _rule_tags(before)
+    # No new outbound or rule was added.
+    assert len(after["outbounds"]) == len(before["outbounds"])
+    assert len(after["routing"]["rules"]) == len(before["routing"]["rules"])
+    # Input not mutated.
+    wrong = next(o for o in before["outbounds"] if o.get("tag") == "ru-relay")
+    assert wrong["settings"]["vnext"][0]["address"] == "51.250.102.219"
+
+
+def test_repoint_is_idempotent() -> None:
+    once = mre.repoint_ru_relay_outbound(_panel_with_wrong_target_relay(), "ru-relay")
+    twice = mre.repoint_ru_relay_outbound(once, "ru-relay")
+    relay = next(o for o in twice["outbounds"] if o.get("tag") == "ru-relay")
+    assert relay["settings"]["vnext"][0]["address"] == mre.RU_RELAY_HOST
+    assert relay["settings"]["vnext"][0]["users"][0]["id"] == mre.RELAY_UUID
+
+
+def test_repoint_raises_when_no_such_outbound() -> None:
+    with pytest.raises(ValueError):
+        mre.repoint_ru_relay_outbound(_default_template(), "ru-relay")
+
+
