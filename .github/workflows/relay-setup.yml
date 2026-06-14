@@ -62,7 +62,7 @@ on:
         required: false
         default: "false"
       upgrade_panel:
-        description: "Upgrade one 3x-ui panel in place: helsinki | frankfurt | la (backup DB -> x-ui update -> verify -> rollback on fail)"
+        description: "Upgrade one 3x-ui panel to latest in place: helsinki | frankfurt | la | lte (backup DB -> official installer -> verify -> rollback on fail)"
         required: false
         default: ""
       upgrade_dry:
@@ -248,8 +248,13 @@ jobs:
                   printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
                   upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
                   rm -f ~/.ssh/la-key ;;
+                lte)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
+                  upgrade_panel "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
+                  rm -f ~/.ssh/yandex-cloud ;;
                 *)
-                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la)" ;;
+                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la|lte)" ;;
               esac
               echo "=== UPGRADE PANEL COMPLETE ==="
             fi
