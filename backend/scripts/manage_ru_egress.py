@@ -21,16 +21,26 @@ its inbound so the foreign panels can connect as that client.
 
 Modes (--mode):
   dump          READ-ONLY. Run ON a panel: print its current xrayTemplateConfig
-                (routing rules + outbound tags), geo files, :443, xray process.
+                (routing rules + full outbound JSON), geo files, :443, xray.
   register-uuid Run ON the RU relay (89.169.139.153): register the shared relay
                 UUID on its :443 inbound (clients + client_inbounds + settings
                 JSON — the 3-place pattern for 3x-ui v3). Idempotent.
                 Env RU_RELAY_INBOUND (default 3).
-  apply         Run ON a foreign panel: merge relay-to-russia outbound + RU rules
-                into xrayTemplateConfig. Backs up the pre-apply template first.
-                Ensures geoip.dat is present. Idempotent. Restarts x-ui + verifies.
-  revert        Run ON a foreign panel: restore the pre-apply xrayTemplateConfig
-                from the backup made by `apply`.
+  export        READ-ONLY. Run ON the SOURCE panel (e.g. Frankfurt): emit the
+                working ru-relay outbound + its routing rules as JSON
+                ({"outbound": {...}, "rules": [...]}). Env RU_RELAY_EXPORT_TAG
+                (default "ru-relay").
+  import        Run ON the TARGET panel (e.g. Helsinki): merge an exported
+                ru-relay config (env RU_RELAY_EXPORT = base64 JSON from `export`)
+                into xrayTemplateConfig so the target matches the source exactly
+                (same tag, same UUID, same rules). Backs up first; ensures geo
+                files; idempotent; restarts x-ui + verifies.
+  apply         Run ON a foreign panel: merge a built-in relay-to-russia outbound
+                + RU rules (.ru/.su/.рф + geoip:ru) into xrayTemplateConfig. An
+                alternative to export/import (different tag/rules style). Backs up,
+                idempotent, restarts x-ui + verifies.
+  revert        Run ON a foreign panel: restore the pre-apply/pre-import
+                xrayTemplateConfig from the backup.
   deactivate    Run IN the prod container (DATABASE_URL): set vpn_servers id=11
                 is_active=FALSE. Reversible (set TRUE again).
 
@@ -72,6 +82,7 @@ RELAY_OUTBOUND_TAG = "relay-to-russia"
 RU_DOMAINS = ["domain:ru", "domain:su", "domain:xn--p1ai"]
 
 GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 
 DB_CANDIDATES = [
     "/etc/x-ui/x-ui.db",
@@ -110,22 +121,24 @@ def geo_dir() -> str:
     return "/usr/local/x-ui/bin"
 
 
-def ensure_geoip() -> None:
-    """geoip.dat must be present for the geoip:ru routing rule to resolve.
-    Downloads from Loyalsoldier if missing or suspiciously small."""
-    path = os.path.join(geo_dir(), "geoip.dat")
-    if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
-        print(f"geoip.dat present ({os.path.getsize(path)} bytes)")
-        return
-    print(f"geoip.dat missing/small -> downloading to {path}")
-    r = run(f"curl -Ls -o {path} {GEOIP_URL} && test -s {path}", check=False)
-    if r.returncode != 0:
-        run(f"wget -q -O {path} {GEOIP_URL}", check=False)
-    ok = os.path.exists(path) and os.path.getsize(path) > 1_000_000
-    print(f"geoip.dat after download: {'OK' if ok else 'FAILED'}")
-    if not ok:
-        print("ERROR: geoip.dat unavailable — geoip:ru rules need it", file=sys.stderr)
-        sys.exit(1)
+def ensure_geo_files() -> None:
+    """geoip.dat (for geoip:ru) and geosite.dat (for geosite:category-ru / tld-ru)
+    must be present. Downloads from Loyalsoldier if missing/suspiciously small."""
+    d = geo_dir()
+    for name, url in (("geoip.dat", GEOIP_URL), ("geosite.dat", GEOSITE_URL)):
+        path = os.path.join(d, name)
+        if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
+            print(f"{name} present ({os.path.getsize(path)} bytes)")
+            continue
+        print(f"{name} missing/small -> downloading to {path}")
+        r = run(f"curl -Ls -o {path} {url} && test -s {path}", check=False)
+        if r.returncode != 0:
+            run(f"wget -q -O {path} {url}", check=False)
+        ok = os.path.exists(path) and os.path.getsize(path) > 1_000_000
+        print(f"{name} after download: {'OK' if ok else 'FAILED'}")
+        if not ok:
+            print(f"ERROR: {name} unavailable — RU routing rules need it", file=sys.stderr)
+            sys.exit(1)
 
 
 def restart_and_verify() -> None:
@@ -210,6 +223,41 @@ def merge_ru_routing(template: dict) -> dict:
     return t
 
 
+def apply_exported_routing(template: dict, outbound: dict, rules: list) -> dict:
+    """NON-DESTRUCTIVE merge of an EXPORTED ru-relay config (from `export`) into a
+    copy of a target panel's xrayTemplateConfig.
+
+    This is the data-driven path to make one panel match another's working ru-relay
+    config byte-for-byte (same tag, same UUID, same Reality params, same rules).
+    - sets routing.domainStrategy = IPIfNonMatch (so geoip:ru resolves);
+    - (re)places the exported outbound (by its tag — idempotent);
+    - removes any prior rules with that outboundTag (idempotent), then inserts the
+      exported rules right after the api rule / a geoip:private rule.
+
+    Existing outbounds/rules are preserved. Idempotent. Unit-tested.
+    """
+    t = copy.deepcopy(template)
+    tag = outbound.get("tag", "ru-relay")
+    routing = t.setdefault("routing", {})
+    routing["domainStrategy"] = "IPIfNonMatch"
+    trules = routing.setdefault("rules", [])
+    toutbounds = t.setdefault("outbounds", [])
+
+    toutbounds[:] = [o for o in toutbounds if o.get("tag") != tag]
+    toutbounds.append(copy.deepcopy(outbound))
+
+    trules[:] = [r for r in trules if r.get("outboundTag") != tag]
+    insert_at = 0
+    for i, r in enumerate(trules):
+        if r.get("outboundTag") == "api":
+            insert_at = i + 1
+        ips = r.get("ip") or []
+        if isinstance(ips, list) and any("geoip:private" in str(x) for x in ips):
+            insert_at = i + 1
+    trules[insert_at:insert_at] = copy.deepcopy(rules)
+    return t
+
+
 # ── modes ────────────────────────────────────────────────────────────────────
 
 def cmd_dump() -> None:
@@ -225,7 +273,9 @@ def cmd_dump() -> None:
         t = json.loads(row[0])
         routing = t.get("routing", {}) or {}
         print(f"domainStrategy: {routing.get('domainStrategy')}")
-        print(f"outbound tags: {[o.get('tag') for o in t.get('outbounds', [])]}")
+        print("outbounds:")
+        for o in t.get("outbounds", []):
+            print("  ", json.dumps(o, ensure_ascii=False))
         print("routing rules:")
         for r in routing.get("rules", []):
             print("  ", json.dumps(r, ensure_ascii=False))
@@ -305,7 +355,7 @@ def cmd_apply() -> None:
     if not db:
         print("ERROR: no x-ui.db found", file=sys.stderr)
         sys.exit(1)
-    ensure_geoip()
+    ensure_geo_files()
 
     conn = sqlite3.connect(db)
     cur = conn.cursor()
@@ -333,6 +383,86 @@ def cmd_apply() -> None:
     conn.close()
     print("merged relay-to-russia outbound + RU rules; domainStrategy=IPIfNonMatch")
     print("apply complete -> restarting x-ui")
+    restart_and_verify()
+
+
+def cmd_export() -> None:
+    """READ-ONLY. Emit the working ru-relay outbound + its routing rules as JSON.
+    Run on the SOURCE panel (Frankfurt). Output is consumed by `import`."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    tag = os.environ.get("RU_RELAY_EXPORT_TAG", "ru-relay")
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    conn.close()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    template = json.loads(row[0])
+    outbound = next((o for o in template.get("outbounds", []) if o.get("tag") == tag), None)
+    if not outbound:
+        print(f"ERROR: no outbound with tag {tag!r} on this panel", file=sys.stderr)
+        sys.exit(1)
+    rules = [r for r in template.get("routing", {}).get("rules", [])
+             if r.get("outboundTag") == tag]
+    # Single JSON line on stdout (the workflow base64s it for `import`).
+    print(json.dumps({"outbound": outbound, "rules": rules}, ensure_ascii=False))
+
+
+def cmd_import() -> None:
+    """Merge an exported ru-relay config (env RU_RELAY_EXPORT = base64 JSON) into
+    this panel's xrayTemplateConfig so it matches the source. Run on the TARGET."""
+    raw_b64 = os.environ.get("RU_RELAY_EXPORT", "").strip()
+    if not raw_b64:
+        print("ERROR: RU_RELAY_EXPORT env not set (base64 JSON from `export`)", file=sys.stderr)
+        sys.exit(1)
+    import base64
+
+    try:
+        export = json.loads(base64.b64decode(raw_b64).decode("utf-8"))
+    except Exception as e:
+        print(f"ERROR: could not decode RU_RELAY_EXPORT: {e}", file=sys.stderr)
+        sys.exit(1)
+    outbound = export.get("outbound")
+    rules = export.get("rules", [])
+    if not outbound or not outbound.get("tag"):
+        print("ERROR: export missing 'outbound' with a 'tag'", file=sys.stderr)
+        sys.exit(1)
+
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    ensure_geo_files()
+
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+
+    backup_path = db + BACKUP_SUFFIX
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+
+    merged = apply_exported_routing(template, outbound, rules)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"imported ru-relay config (tag={outbound.get('tag')}, "
+          f"{len(rules)} rules) -> matching source panel")
+    print("import complete -> restarting x-ui")
     restart_and_verify()
 
 
@@ -403,7 +533,8 @@ def main() -> None:
             if a == "--mode" and i + 1 < len(args):
                 mode = args[i + 1]
     if not mode:
-        print("usage: manage_ru_egress.py --mode {dump|register-uuid|apply|revert|deactivate}",
+        print("usage: manage_ru_egress.py --mode "
+              "{dump|register-uuid|export|import|apply|revert|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -411,6 +542,10 @@ def main() -> None:
         cmd_dump()
     elif mode == "register-uuid":
         cmd_register_uuid()
+    elif mode == "export":
+        cmd_export()
+    elif mode == "import":
+        cmd_import()
     elif mode == "apply":
         cmd_apply()
     elif mode == "revert":
