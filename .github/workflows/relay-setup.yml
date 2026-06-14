@@ -116,6 +116,10 @@ on:
         description: "READ-ONLY: dump all vpn_servers + per active server how many active users are MISSING from its panel JSON (why a server like LA 2.0 / Russia is hidden from /sub/)"
         required: false
         default: "false"
+      sync_tables:
+        description: "Mirror inbounds.settings.clients JSON -> v3 clients/client_inbounds table on ALL 5 panels + restart x-ui. Fixes '8 vs 10 keys' (bot writes JSON, xray reads the table). Idempotent"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -157,6 +161,7 @@ jobs:
           CLEANUP_GRANT: ${{ github.event.inputs.cleanup_grant || 'false' }}
           CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
           SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
+          SYNC_TABLES: ${{ github.event.inputs.sync_tables || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -169,7 +174,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -375,4 +380,32 @@ jobs:
               docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsc.py 2>&1
               echo "=== SERVER COVERAGE COMPLETE ==="
+            fi
+
+            if [ "$SYNC_TABLES" = "true" ]; then
+              echo "=== SYNC clients table (JSON -> v3 clients/client_inbounds) on ALL 5 panels ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/sync_clients_table.py)
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              sync_one() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3; echo '--- restart x-ui ---'; x-ui restart 2>/dev/null || systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3; echo '--- restart x-ui ---'; sudo x-ui restart 2>/dev/null || sudo systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              # password-auth panels (root)
+              sync_one "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
+              sync_one "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
+              # key-auth panels (romtan, sudo)
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              sync_one "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
+              sync_one "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              sync_one "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
+              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
+              echo "=== SYNC TABLES COMPLETE ==="
             fi
