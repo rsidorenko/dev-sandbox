@@ -52,6 +52,7 @@ from rebuild_panel_clients import (  # noqa: E402
     _expiry_from_datetime,
     _load_server_configs,
     _TRIAL_DEVICE_LIMIT,
+    _vless_uuid_for_transport,
 )
 
 EVENT_TYPE = "subscription_activated"  # UC05_ALLOWLISTED_EVENT_TYPES
@@ -123,9 +124,8 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
         if not info:
             print("\n!! user not found — cannot grant")
             return
-        if not info["vless_uuid"]:
-            print("\n!! user has no vless_uuid — register them first (/start)")
-            return
+        # uuid is derived per-transport (no stored vless_uuid needed); the user just
+        # needs an identity (they get keys via create_user/reconcile on /start).
 
         plan = get_plan(plan_id)
         if plan is None:
@@ -191,7 +191,8 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
             )
             email = _email_from_internal(internal_user_id, transport_type=s["transport_type"])
             ok = await pc.add_client(
-                user_uuid=info["vless_uuid"], email=email, expiry_ts=expiry_ts,
+                user_uuid=_vless_uuid_for_transport(internal_user_id, s["transport_type"]),
+                email=email, expiry_ts=expiry_ts,
                 enable=True, limit_ip=(device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT),
             )
             await pc.aclose()
@@ -227,7 +228,6 @@ async def grant_all_expired(plan_id: str, dsn: str, *, apply: bool) -> None:
                JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
                WHERE s.state_label = 'expired'
                  AND s.keys_deleted_at IS NULL
-                 AND i.vless_uuid IS NOT NULL
                ORDER BY i.telegram_user_id"""
         )
         print(f"\n=== EXPIRED WITH KEYS (not yet purged): {len(targets)} ===")
