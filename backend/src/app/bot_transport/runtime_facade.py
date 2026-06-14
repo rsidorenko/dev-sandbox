@@ -921,10 +921,23 @@ async def _handle_email_linking(
             now,
             row["id"],
         )
+        # Drop any emails previously linked to THIS telegram identity so the
+        # partial unique index (one verified row per email) stays satisfied.
         await pool.execute(
             "DELETE FROM user_emails WHERE telegram_user_id = $1",
             uid,
         )
+
+        # Merge a web-only account BEFORE inserting our own (uid, email) row.
+        # Why order matters: user_emails has idx_user_emails_email_verified — at most
+        # one VERIFIED row per email. A leftover verified web row (telegram_user_id
+        # <= 0) would make the insert below raise a unique-violation. The merge
+        # reassigns that web row onto `uid` (clearing the index) and migrates the
+        # web account's data (subscription and referral) onto the real identity.
+        from app.persistence.account_merge import merge_web_account_if_needed
+
+        merged = await merge_web_account_if_needed(pool, uid, pending["email"])
+
         await pool.execute(
             """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
                VALUES ($1, $2, TRUE, $3)
@@ -934,10 +947,13 @@ async def _handle_email_linking(
             now,
         )
 
-        # Merge web-only account if this email was previously registered on the website
-        from app.persistence.account_merge import merge_web_account_if_needed
-
-        await merge_web_account_if_needed(pool, uid, pending["email"])
+        # A merged web account had its VLESS keys provisioned under web_<hash> — a
+        # different per-transport uuid than u<uid>. Re-provision under the real
+        # identity now (instead of waiting for the hourly reconcile) and revoke the
+        # stale web clients so no orphan panel clients remain. Best-effort: never
+        # blocks the link success.
+        if merged:
+            await _reprovision_keys_after_merge(composition, uid, pending["email"])
 
         return text_link_email_success(pending["email"]), main_menu_keyboard()
 
@@ -947,14 +963,18 @@ async def _handle_email_linking(
 
     email = text.lower().strip()
 
-    # Check if already linked
+    # Check if already linked / claimed by another account
     existing = await pool.fetchrow(
         "SELECT telegram_user_id FROM user_emails WHERE email = $1 AND is_verified = TRUE",
         email,
     )
     if existing and existing["telegram_user_id"] == uid:
         return text_link_email_already_linked(email), main_menu_keyboard()
-    if existing:
+    if existing and existing["telegram_user_id"] > 0:
+        # Verified email belongs to a DIFFERENT real Telegram account — refuse.
+        # A web-only account has a non-positive telegram_user_id; claiming it by
+        # proving inbox ownership is legitimate and triggers an account merge on
+        # verify, so we let it through.
         return text_link_email_error("email_belongs_to_other_account"), link_email_keyboard()
 
     # Send verification code
@@ -992,6 +1012,60 @@ async def _handle_email_linking(
         return text_link_email_error("smtp_not_configured"), link_email_keyboard()
 
     return text_link_email_code_sent(email), link_email_code_keyboard()
+
+
+async def _reprovision_keys_after_merge(
+    composition: Slice1Composition,
+    uid: int,
+    email: str,
+) -> None:
+    """After merging a web-only account into ``uid``, move its VLESS keys onto the
+    real identity.
+
+    A web account's keys were provisioned under ``web_<hash>`` — a different
+    per-transport uuid than ``u<uid>`` — so after the merge they no longer resolve.
+    Here we revoke the stale ``web_<hash>`` clients across all panels and, if the
+    merged subscription is active, create fresh clients under ``u<uid>`` so the user
+    has working keys immediately (instead of waiting for the hourly reconcile).
+
+    Best-effort: a provider failure is logged and swallowed — the email link itself
+    already succeeded and reconcile will heal the keys regardless.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    provider = getattr(composition, "vless_provider", None)
+    pool = _get_pool_from_composition(composition)
+    if provider is None or pool is None:
+        return
+    try:
+        from app.persistence.account_merge import _web_internal_id
+
+        old_web_id = _web_internal_id(email)
+        # Revoke the stale web_<hash> clients (compute their uuids from old_web_id).
+        # Suppress: a panel hiccup must not abort the link.
+        with contextlib.suppress(Exception):
+            await provider.revoke_user(internal_user_id=old_web_id)
+
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is None:
+            return
+        # Only re-create keys if the user has an active subscription.
+        snap = await pool.fetchrow(
+            "SELECT state_label, device_count FROM subscription_snapshots WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+        if snap is None or snap["state_label"] != "active":
+            return
+        device_count = snap["device_count"]
+        if device_count:
+            await provider.create_user(
+                internal_user_id=id_rec.internal_user_id, device_count=device_count
+            )
+        else:
+            await provider.create_user(internal_user_id=id_rec.internal_user_id)
+    except Exception:
+        log.warning("email_link.reprovision_after_merge_failed uid=%s email=***", uid, exc_info=True)
 
 
 async def _handle_resend_email_code(
