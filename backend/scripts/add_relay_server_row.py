@@ -9,9 +9,9 @@ Takes the dynamic values printed by setup_relay.py as env vars:
 Runs in the production container with DATABASE_URL + FIELD_ENCRYPTION_KEY.
 
 Once inserted with is_active=TRUE, the bot picks it up (_load_server_configs) and
-reconcile_all_active_users provisions every active user's UUID on the new inbound
-at next bot restart. Split routing is purely server-side in xray — no provider
-code changes needed.
+reconcile_all_users provisions every non-deleted user's UUID on the new inbound
+(active enabled, expired disabled) at next bot restart. Split routing is purely
+server-side in xray — no provider code changes needed.
 """
 
 import asyncio
@@ -91,7 +91,7 @@ async def run():
         count = await pool.fetchval("SELECT count(*) FROM vpn_servers WHERE is_active = TRUE")
         print(f"Total active servers: {count}")
         print("\nThe bot will provision all active users on this inbound at next restart "
-              "(reconcile_all_active_users). The 🇷🇺 server appears in every subscription.")
+              "(reconcile_all_users). The 🇷🇺 server appears in every subscription.")
     finally:
         await pool.close()
 

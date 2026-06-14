@@ -7,7 +7,7 @@ settings.clients JSON. A user missing from a server's JSON won't see it.
 The earlier "active users" framing was wrong: panels hold ~23 clients but only
 ~19 are state_label='active'. The users with keys who are NOT active (trial /
 grace / expired) are provisioned on the OLD servers but were never reconciled
-onto Russia (id=11, added later; reconcile_all_active_users only covers active).
+onto Russia (id=11, added later; reconcile_all_users now also covers expired).
 
 This diagnostic diffs the panel client sets directly (ground truth of who has a
 key), independent of snapshot state:
