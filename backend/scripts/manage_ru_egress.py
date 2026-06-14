@@ -424,6 +424,16 @@ def cmd_dump() -> None:
             break
     else:
         print("  (no error log found)")
+    # journald captures xray stdout/stderr regardless of file logging — the
+    # reliable fallback when access/error files are empty/stale. Shows routing
+    # detours ([outbound] for [dest]) + connection errors + startup.
+    print("log files on disk:")
+    print(run("ls -la /var/log/xray-*.log /usr/local/x-ui/*.log 2>/dev/null").stdout or "  (none)")
+    print("journalctl x-ui (last 60, real routing/errors):")
+    j = run("sudo journalctl -u x-ui --no-pager -n 400 2>/dev/null | "
+            "grep -vE 'Fail2Ban|LimitIP' | grep -iE 'xray|started|reality|ru-relay|89\\.169|"
+            "detour|dispatcher|dial|failed|error|accepted|ozon|\\.ru' | tail -60")
+    print(j.stdout.strip() or "  (no matching journald lines)")
 
 
 def cmd_register_uuid() -> None:
