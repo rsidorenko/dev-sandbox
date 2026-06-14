@@ -378,14 +378,17 @@ def cmd_dump() -> None:
     print(":8443 (xhttp 3.0):", run("ss -tlnp 2>/dev/null | grep ':8443 '").stdout.strip() or "(not listening)")
     print("xray:", run("pgrep -af '[x]ray'").stdout.strip() or "(not running)")
     # Local xray access log: shows how each inbound's traffic is actually routed
-    # ([inbound-tag >> outbound-tag]). Crucial to see whether 2.0 (ws) RU traffic
-    # hits ru-relay or falls through to direct.
-    print("xray-access log (last 40, routing decisions):")
+    # ([inbound-tag >> outbound-tag]). Filter to REAL traffic (exclude the 127.0.0.1
+    # api pings that flood the log every 5s) so a 2.0 (ws) user's RU request and its
+    # routing decision ([inbound-8080 >> ru-relay|direct|blocked]) is visible.
+    print("xray-access log — REAL traffic (last 1000 lines, excluding 127.0.0.1 api):")
     for p in ("/var/log/xray-access.log", "/usr/local/x-ui/access.log"):
-        r = run(f"sudo tail -40 {p} 2>/dev/null")
+        r = run(f"sudo tail -1000 {p} 2>/dev/null | grep -v '127.0.0.1' | tail -60")
         if r.stdout.strip():
-            print(f"--- {p} ---")
+            print(f"--- {p} (real-traffic lines) ---")
             print(r.stdout.strip())
+            cnt = run(f"sudo tail -2000 {p} 2>/dev/null | grep -v '127.0.0.1' | wc -l")
+            print(f"(real-traffic lines in last 2000: {cnt.stdout.strip()})")
             break
     else:
         print("  (no access log found)")
