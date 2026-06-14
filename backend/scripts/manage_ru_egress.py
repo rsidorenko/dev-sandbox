@@ -57,6 +57,10 @@ Modes (--mode):
                 config that makes domain-based RU routing work — proven on the
                 tcp/xhttp inbounds). Fixes the ws/cdn (2.0) inbound whose
                 routeOnly:true broke RU-relay routing. Idempotent; restarts + verifies.
+  reset-logs    Run ON a panel: ensure the xrayTemplateConfig log section captures
+                accepted connections (loglevel info + access/error paths), TRUNCATE
+                the old (stale) access/error logs, and restart x-ui so fresh traffic
+                is logged. Diagnostic — used when logs are stuck/stale.
   deactivate    Run IN the prod container (DATABASE_URL): set vpn_servers id=11
                 is_active=FALSE. Reversible (set TRUE again).
 
@@ -121,6 +125,25 @@ def standardize_sniffing(sniffing_str: str) -> str | None:
     except Exception:
         cur = {}
     return None if cur == STANDARD_SNIFFING else STANDARD_SNIFFING_JSON
+
+
+# Diagnostic log section: info level captures accepted connections (access log,
+# shows [inbound >> outbound] routing) + dispatcher detours + connection errors.
+DIAG_LOG_SECTION = {
+    "loglevel": "info",
+    "access": "/var/log/xray-access.log",
+    "error": "/var/log/xray-error.log",
+    "dnsLog": False,
+    "maskAddress": "",
+}
+
+
+def ensure_log_section(template: dict) -> dict:
+    """Pure: return a copy of *template* with the diagnostic log section set
+    (preserving everything else). Unit-tested."""
+    t = copy.deepcopy(template)
+    t["log"] = copy.deepcopy(DIAG_LOG_SECTION)
+    return t
 
 RELAY_OUTBOUND_TAG = "relay-to-russia"
 # xn--p1ai is the punycode for .рф. TLD rules need no geo file.
@@ -540,6 +563,36 @@ def cmd_fix_sniffing() -> None:
     restart_and_verify()
 
 
+def cmd_reset_logs() -> None:
+    """Ensure the xrayTemplateConfig log section captures accepted connections
+    (info level + access/error paths), TRUNCATE the stale access/error logs, and
+    restart x-ui so fresh traffic is captured. Diagnostic."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    template = json.loads(row[0])
+    old_log = template.get("log")
+    new_template = ensure_log_section(template)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(new_template),))
+    conn.commit()
+    conn.close()
+    print(f"log section: {old_log}  ->  {new_template['log']}")
+    # Truncate the stale logs so only fresh (post-restart) traffic is captured.
+    for p in ("/var/log/xray-access.log", "/var/log/xray-error.log"):
+        run(f"sudo truncate -s 0 {p} 2>/dev/null || sudo sh -c '> {p}'", check=False)
+        print(f"truncated {p}")
+    print("reset-logs complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_apply() -> None:
     db = find_db()
     if not db:
@@ -773,7 +826,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|deactivate}",
+              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|reset-logs|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -785,6 +838,8 @@ def main() -> None:
         cmd_purge_orphans()
     elif mode == "fix-sniffing":
         cmd_fix_sniffing()
+    elif mode == "reset-logs":
+        cmd_reset_logs()
     elif mode == "export":
         cmd_export()
     elif mode == "import":

@@ -340,5 +340,32 @@ def test_standardize_sniffing_tolerates_malformed() -> None:
     assert mre.standardize_sniffing(None) is not None  # type: ignore[arg-type]
 
 
+# ── reset-logs: ensure diagnostic log section ────────────────────────────────
+
+
+def test_ensure_log_section_sets_diagnostic_log_and_preserves_rest() -> None:
+    template = {
+        "log": {"loglevel": "warning"},
+        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [{"outboundTag": "api"}]},
+        "outbounds": [{"tag": "direct"}],
+    }
+    out = mre.ensure_log_section(template)
+    assert out["log"]["loglevel"] == "info"
+    assert out["log"]["access"] == "/var/log/xray-access.log"
+    assert out["log"]["error"] == "/var/log/xray-error.log"
+    # rest preserved
+    assert out["routing"]["domainStrategy"] == "IPIfNonMatch"
+    assert out["outbounds"] == [{"tag": "direct"}]
+    # input not mutated
+    assert template["log"]["loglevel"] == "warning"
+
+
+def test_ensure_log_section_adds_log_when_absent() -> None:
+    out = mre.ensure_log_section({"routing": {}})
+    assert out["log"]["loglevel"] == "info"
+    assert out["routing"] == {}
+
+
+
 
 
