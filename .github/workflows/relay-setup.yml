@@ -101,6 +101,10 @@ on:
         description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules. Requires ru_egress_register first"
         required: false
         default: "false"
+      ru_egress_purge:
+        description: "On the RU relay (89.169.139.153): remove orphaned per-user clients left on its inbound (from former id=11), keeping the relay UUID. Idempotent"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -140,6 +144,7 @@ jobs:
           RU_EGRESS_DEACTIVATE: ${{ github.event.inputs.ru_egress_deactivate || 'false' }}
           RU_EGRESS_REPLICATE: ${{ github.event.inputs.ru_egress_replicate || 'false' }}
           RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
+          RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -152,7 +157,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -316,6 +321,17 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode register-uuid" 2>&1 || echo "  RU relay FAILED"
               rm -f ~/.ssh/yandex-relay
               echo "=== RU EGRESS REGISTER COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_PURGE" = "true" ]; then
+              echo "=== RU EGRESS: purge orphaned user clients on RU relay (89.169.139.153) ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode purge-orphans" 2>&1 || echo "  RU relay FAILED"
+              rm -f ~/.ssh/yandex-relay
+              echo "=== RU EGRESS PURGE COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ] || [ "$RU_EGRESS_REPOINT" = "true" ]; then

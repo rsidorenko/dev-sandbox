@@ -48,6 +48,10 @@ Modes (--mode):
                 relay inbound first (see register-uuid).
   revert        Run ON a foreign panel: restore the pre-apply/pre-import/pre-repoint
                 xrayTemplateConfig from the backup.
+  purge-orphans Run ON the RU relay: remove the orphaned per-user clients left on its
+                inbound from when it was a user-facing 🇷🇺 server. Keeps the relay
+                UUID (and anything non-user-format). Env RU_RELAY_INBOUND (default 3).
+                Idempotent. Restarts x-ui + verifies.
   deactivate    Run IN the prod container (DATABASE_URL): set vpn_servers id=11
                 is_active=FALSE. Reversible (set TRUE again).
 
@@ -83,6 +87,17 @@ RU_RELAY_SNI = os.environ.get("RU_RELAY_SNI", "max.ru")
 # foreign outbounds + the RU relay client in sync.
 RELAY_UUID = os.environ.get("RU_RELAY_UUID", "00607f0b-a9e7-4280-abb3-2231e1b9c2ff")
 RELAY_EMAIL = "relay-from-foreign"
+
+# Bot-provisioned per-user client emails follow this shape (transport prefixes:
+# tcp="", cdn="cdn-", xhttp="x-", then "user-<id>"). The relay UUID uses
+# "relay-from-foreign" — does NOT match, so purge-orphans keeps it.
+_USER_CLIENT_EMAIL_RE = re.compile(r"^(?:x-|cdn-)?user-")
+
+
+def _is_user_client(email: str) -> bool:
+    """True if *email* is a bot-provisioned per-user client (vs the relay UUID
+    or anything else). Pure + unit-tested."""
+    return bool(email and _USER_CLIENT_EMAIL_RE.match(email))
 
 RELAY_OUTBOUND_TAG = "relay-to-russia"
 # xn--p1ai is the punycode for .рф. TLD rules need no geo file.
@@ -394,6 +409,51 @@ def cmd_register_uuid() -> None:
     restart_and_verify()
 
 
+def cmd_purge_orphans() -> None:
+    """On the RU relay: remove the orphaned per-user clients left on its inbound
+    from when it was a user-facing 🇷🇺 server (now id=11 is inactive). Keeps the
+    relay UUID (relay-from-foreign) and anything non-user-format. Idempotent."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    inbound_id = int(os.environ.get("RU_RELAY_INBOUND", "3"))
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    rows = cur.execute(
+        "SELECT c.id, c.email, c.uuid FROM clients c "
+        "JOIN client_inbounds ci ON ci.client_id = c.id WHERE ci.inbound_id = ?",
+        (inbound_id,),
+    ).fetchall()
+    to_remove = [r for r in rows if _is_user_client(r[1] or "")]
+    keep = [r for r in rows if not _is_user_client(r[1] or "")]
+    print(f"inbound {inbound_id}: {len(rows)} clients; "
+          f"remove {len(to_remove)} user-format orphans; "
+          f"keep {len(keep)} -> {[f'{r[1]}({r[2][:8]})' for r in keep]}")
+    if not to_remove:
+        print("nothing to purge")
+        conn.close()
+        return
+    for cid, _email, _uuid in to_remove:
+        cur.execute("DELETE FROM client_inbounds WHERE client_id = ?", (cid,))
+        cur.execute("DELETE FROM clients WHERE id = ?", (cid,))
+    srow = cur.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,)).fetchone()
+    if srow and srow[0]:
+        settings = json.loads(srow[0])
+        clients = settings.get("clients", [])
+        before = len(clients)
+        settings["clients"] = [c for c in clients if not _is_user_client(c.get("email", "") or "")]
+        after = len(settings["clients"])
+        cur.execute("UPDATE inbounds SET settings = ? WHERE id = ?",
+                    (json.dumps(settings), inbound_id))
+        print(f"settings.clients JSON: {before} -> {after}")
+    conn.commit()
+    conn.close()
+    print(f"purged {len(to_remove)} orphaned user clients (relay UUID preserved)")
+    print("purge-orphans complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_apply() -> None:
     db = find_db()
     if not db:
@@ -627,7 +687,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|repoint|revert|deactivate}",
+              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -635,6 +695,8 @@ def main() -> None:
         cmd_dump()
     elif mode == "register-uuid":
         cmd_register_uuid()
+    elif mode == "purge-orphans":
+        cmd_purge_orphans()
     elif mode == "export":
         cmd_export()
     elif mode == "import":
