@@ -120,6 +120,22 @@ on:
         description: "Mirror inbounds.settings.clients JSON -> v3 clients/client_inbounds table on ALL 5 panels + restart x-ui. Fixes '8 vs 10 keys' (bot writes JSON, xray reads the table). Idempotent"
         required: false
         default: "false"
+      upgrade_helsinki:
+        description: "Upgrade Helsinki 3x-ui panel in place (backup DB -> x-ui update -> verify -> rollback on fail). Use upgrade_dry=true first"
+        required: false
+        default: "false"
+      upgrade_frankfurt:
+        description: "Upgrade Frankfurt 3x-ui panel in place (same flow as Helsinki)"
+        required: false
+        default: "false"
+      upgrade_la:
+        description: "Upgrade LA 3x-ui panel in place (same flow as Helsinki)"
+        required: false
+        default: "false"
+      upgrade_dry:
+        description: "With any upgrade_*: snapshot + version check only, NO upgrade"
+        required: false
+        default: "false"
 
 concurrency:
   group: relay-setup
@@ -162,6 +178,10 @@ jobs:
           CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
           SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
           SYNC_TABLES: ${{ github.event.inputs.sync_tables || 'false' }}
+          UPGRADE_HELSINKI: ${{ github.event.inputs.upgrade_helsinki || 'false' }}
+          UPGRADE_FRANKFURT: ${{ github.event.inputs.upgrade_frankfurt || 'false' }}
+          UPGRADE_LA: ${{ github.event.inputs.upgrade_la || 'false' }}
+          UPGRADE_DRY: ${{ github.event.inputs.upgrade_dry || 'false' }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -174,7 +194,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: SETUP_RELAY,ADD_HELSINKI_RELAY,ADD_RELAY_ROW,RELAY_DIAG,RELAY_PUBKEY,RELAY_INBOUND_ID,RELAY_PANEL_URL,BOT_LOGS,PORT_CHECK,FIX_RELAY_ACCESS,RELAY_PANEL_HTTP,HELSINKI_PROBE,HARDEN_RELAY,PROBE_V3,APPLY_VISION_FLOW,REVERT_VISION_FLOW,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_HELSINKI,UPGRADE_FRANKFURT,UPGRADE_LA,UPGRADE_DRY,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -408,4 +428,33 @@ jobs:
               sync_one "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
               echo "=== SYNC TABLES COMPLETE ==="
+            fi
+
+            if [ "$UPGRADE_HELSINKI" = "true" ] || [ "$UPGRADE_FRANKFURT" = "true" ] || [ "$UPGRADE_LA" = "true" ]; then
+              echo "=== UPGRADE PANELS (dry=$UPGRADE_DRY) ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/upgrade_panel.py)
+              if [ "$UPGRADE_DRY" = "true" ]; then DRYARG="--dry"; else DRYARG=""; fi
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              upgrade_panel() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3 - $DRYARG" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3 - $DRYARG" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              if [ "$UPGRADE_HELSINKI" = "true" ]; then
+                upgrade_panel "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
+              fi
+              if [ "$UPGRADE_FRANKFURT" = "true" ]; then
+                upgrade_panel "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
+              fi
+              if [ "$UPGRADE_LA" = "true" ]; then
+                mkdir -p ~/.ssh
+                printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+                rm -f ~/.ssh/la-key
+              fi
+              echo "=== UPGRADE PANELS COMPLETE ==="
             fi
