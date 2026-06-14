@@ -77,6 +77,23 @@ def _user_uuid_from_internal(internal_user_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"vpn.bravada.internal.{internal_user_id}"))
 
 
+def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str:
+    """Deterministic VLESS uuid per (user, transport).
+
+    3x-ui v3 keys its ``clients`` table by uuid (one row per uuid). When the SAME
+    uuid is provisioned on several inbounds of one panel (1.0 tcp / 2.0 cdn / 3.0
+    xhttp), v3 regenerates ``client_inbounds`` mapping that uuid to only ~one
+    inbound -> xray serves the user on fewer inbounds than JSON promises ("8 vs 10
+    keys"). Giving each transport its own uuid makes every inbound's client a unique
+    uuid -> unique clients row -> correct per-inbound mapping. Stable (uuid5), no
+    DB storage needed.
+    """
+    return str(uuid.uuid5(
+        uuid.NAMESPACE_DNS,
+        f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
+    ))
+
+
 async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -> str:
     """Atomically get or create VLESS UUID. First writer wins via COALESCE."""
     new_uuid = str(uuid.uuid4())
@@ -312,7 +329,6 @@ class XuiVlessProvider(VlessProviderPort):
             return await self._create_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
 
     async def _create_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
-        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -323,17 +339,14 @@ class XuiVlessProvider(VlessProviderPort):
 
         async def _add_or_update(client: XuiApiClient) -> tuple[XuiClientResult, str]:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+            # Distinct uuid per transport -> each inbound's client is a unique uuid
+            # (fixes the 3x-ui v3 client_inbounds under-mapping on multi-inbound panels).
+            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             existing_uuid = await client.resolve_client_uuid(email=email)
-            if existing_uuid is not None:
+            if existing_uuid is not None and existing_uuid != user_uuid:
+                # Stale uuid on this email (e.g. pre-migration single uuid) -> remove so
+                # add_client upserts the correct per-transport uuid cleanly.
                 await client.delete_client(user_uuid=existing_uuid)
-                result = await client.add_client(
-                    user_uuid=user_uuid,
-                    email=email,
-                    expiry_ts=expiry,
-                    enable=True,
-                    limit_ip=limit_ip,
-                )
-                return result, user_uuid
             result = await client.add_client(
                 user_uuid=user_uuid,
                 email=email,
@@ -363,19 +376,6 @@ class XuiVlessProvider(VlessProviderPort):
         if not successes:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        # Use the first panel's UUID as the canonical one; sync DB if needed
-        canonical_uuid = successes[0][1]
-        if canonical_uuid != user_uuid:
-            _LOGGER.info(
-                "syncing vless_uuid on create user=%s db=%s panel=%s",
-                internal_user_id, user_uuid, canonical_uuid,
-            )
-            await self._pool.execute(
-                "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
-                canonical_uuid,
-                internal_user_id,
-            )
-
         servers = tuple(
             VlessServerConfig(
                 server_label=c.server_config.label,
@@ -387,7 +387,7 @@ class XuiVlessProvider(VlessProviderPort):
         )
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
-            user_uuid=canonical_uuid,
+            user_uuid=_user_uuid_from_internal(internal_user_id),
             subscription_url=_web_sub_url(token),
             servers=servers,
         )
@@ -401,12 +401,14 @@ class XuiVlessProvider(VlessProviderPort):
         cached = self._config_cache.get(internal_user_id)
         if cached is not None and now - cached[0] < _CACHE_TTL_SECONDS:
             return cached[1]
-        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         clients = await self._get_clients()
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
         async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
+            # Existence probe by email (per transport). The link uuid is whatever uuid
+            # the panel actually holds for that email — works under both the legacy
+            # single-uuid scheme and the per-transport scheme (and during migration).
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             uuid = await client.resolve_client_uuid(email=email)
             return client, uuid
@@ -414,15 +416,12 @@ class XuiVlessProvider(VlessProviderPort):
         results = await asyncio.gather(*[_resolve(c) for c in clients], return_exceptions=True)
 
         servers: list[VlessServerConfig] = []
-        panel_uuid: str | None = None
         for item in results:
             if isinstance(item, Exception):
                 _LOGGER.debug("resolve_client_uuid exception: %s", item)
                 continue
             client, uuid = item
             if uuid is not None:
-                if panel_uuid is None:
-                    panel_uuid = uuid
                 servers.append(
                     VlessServerConfig(
                         server_label=client.server_config.label,
@@ -435,22 +434,9 @@ class XuiVlessProvider(VlessProviderPort):
         if not servers:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-        # Sync DB UUID with the actual panel UUID if they diverged
-        effective_uuid = panel_uuid or user_uuid
-        if panel_uuid and panel_uuid != user_uuid:
-            _LOGGER.info(
-                "syncing vless_uuid user=%s db=%s panel=%s",
-                internal_user_id, user_uuid, panel_uuid,
-            )
-            await self._pool.execute(
-                "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2",
-                panel_uuid,
-                internal_user_id,
-            )
-
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
-            user_uuid=effective_uuid,
+            user_uuid=_user_uuid_from_internal(internal_user_id),
             subscription_url=_web_sub_url(token),
             servers=tuple(servers),
         )
@@ -467,7 +453,6 @@ class XuiVlessProvider(VlessProviderPort):
             return await self._revoke_user_unlocked(internal_user_id=internal_user_id)
 
     async def _revoke_user_unlocked(self, *, internal_user_id: str) -> VlessProviderResult:
-        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         expiry = _expiry_timestamp()
 
         clients = await self._get_clients()
@@ -476,6 +461,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         async def _disable(client: XuiApiClient) -> XuiClientResult:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
         raw = await _run_sequential_per_panel(clients, _disable)
@@ -496,7 +482,6 @@ class XuiVlessProvider(VlessProviderPort):
             return await self._activate_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
 
     async def _activate_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
-        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
         expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -507,6 +492,7 @@ class XuiVlessProvider(VlessProviderPort):
         # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
         async def _reactivate(client: XuiApiClient) -> XuiClientResult:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             await client.delete_client(user_uuid=user_uuid)
             return await client.add_client(
                 user_uuid=user_uuid,
@@ -534,13 +520,13 @@ class XuiVlessProvider(VlessProviderPort):
             return await self._delete_user_unlocked(internal_user_id=internal_user_id)
 
     async def _delete_user_unlocked(self, *, internal_user_id: str) -> VlessProviderResult:
-        user_uuid = await _get_or_create_vless_uuid(self._pool, internal_user_id)
-
         clients = await self._get_clients()
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         async def _delete(client: XuiApiClient) -> XuiClientResult:
+            # Per-transport uuid (matches what create_user/reconcile provision).
+            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.delete_client(user_uuid=user_uuid)
 
         raw = await _run_sequential_per_panel(clients, _delete)
@@ -573,13 +559,12 @@ class XuiVlessProvider(VlessProviderPort):
         """
         self._clients_ts = 0.0  # Force server list refresh
         users = await self._pool.fetch(
-            "SELECT i.internal_user_id, i.vless_uuid, "
+            "SELECT i.internal_user_id, "
             "  s.state_label, s.device_count, s.active_until_utc "
             "FROM user_identities i "
             "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
             "WHERE s.state_label IN ('active', 'expired') "
-            "  AND s.keys_deleted_at IS NULL "
-            "  AND i.vless_uuid IS NOT NULL"
+            "  AND s.keys_deleted_at IS NULL"
         )
         if not users:
             _LOGGER.info("reconcile_start: no users")
@@ -597,7 +582,6 @@ class XuiVlessProvider(VlessProviderPort):
 
         for u in users:
             uid = u["internal_user_id"]
-            user_uuid = u["vless_uuid"]
             # Active subscribers get enabled keys; expired (in grace) get disabled keys.
             enable = u["state_label"] == "active"
             # Use real device_count from subscription; fall back to trial limit
@@ -629,6 +613,7 @@ class XuiVlessProvider(VlessProviderPort):
 
                 # Client missing on this server — add it (enabled iff subscription active)
                 try:
+                    user_uuid = _vless_uuid_for_transport(uid, client.server_config.transport_type)
                     result = await client.add_client(
                         user_uuid=user_uuid,
                         email=email,
