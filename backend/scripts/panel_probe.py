@@ -1,12 +1,12 @@
 """Read-only probe: dump what xray ACTUALLY runs on a VPN panel (the generated
-config.json), plus the x-ui settings that control logging.
+config.json), the LIVE access log at the path xray really uses, and the x-ui
+settings that control logging.
 
-Purpose: the manage_ru_egress `dump` shows the *template* (xrayTemplateConfig from
-the settings table) and the *inbound sniffing* (DB rows), but NOT the generated
-config.json that xray executes. When access/error logs are 0 bytes yet xray
-warnings still reach journald, x-ui is regenerating config.json WITHOUT the
-template's `log` section file paths — this probe confirms that and shows the live
-routing + which inbound is ws/cdn (2.0) + every listener.
+Purpose: manage_ru_egress `dump`/`reset-logs` check `/var/log/xray-access.log`,
+but x-ui OVERRIDES the template's log.access path to `/var/log/x-ui/xray-access.log`
+— so those checks see an empty decoy file while the real access log (with the
+[inbound >> outbound] routing decisions) sits unread elsewhere. This probe reads
+the real path from config.json and surfaces the ws (2.0) inbound's routing.
 
 Run ON the panel as root. Pure reads, no writes, no restart.
 """
@@ -22,18 +22,19 @@ def run(cmd: str) -> str:
 
 
 CONFIG = "/usr/local/x-ui/bin/config.json"
+cfg = None
 
 print("===== LIVE config.json — the config xray actually runs =====")
 try:
-    c = json.load(open(CONFIG))
-    print("log section:", json.dumps(c.get("log"), ensure_ascii=False))
-    routing = c.get("routing") or {}
+    cfg = json.load(open(CONFIG))
+    print("log section:", json.dumps(cfg.get("log"), ensure_ascii=False))
+    routing = cfg.get("routing") or {}
     print("routing.domainStrategy:", routing.get("domainStrategy"))
     print("live routing rules:")
     for rule in routing.get("rules", []):
         print("  ", json.dumps(rule, ensure_ascii=False))
     print("live inbounds (network / path / security / sniffing):")
-    for ib in c.get("inbounds", []):
+    for ib in cfg.get("inbounds", []):
         ss = ib.get("streamSettings", {}) or {}
         ws = ss.get("wsSettings") or {}
         xh = ss.get("xhttpSettings") or {}
@@ -48,19 +49,30 @@ try:
                   f"mode={xh.get('mode')!r}")
         print(f"    sniffing={ib.get('sniffing')}")
     print("live outbounds:")
-    for o in c.get("outbounds", []):
+    for o in cfg.get("outbounds", []):
         print("  ", json.dumps({k: o.get(k) for k in ("tag", "protocol")}, ensure_ascii=False))
 except Exception as e:
     print(f"  could not read {CONFIG}: {e}")
 
+# The access log: x-ui OVERRIDES the template's log.access path. Read the REAL path
+# from config.json (not the /var/log/xray-access.log decoy manage_ru_egress checks).
+access_path = ((cfg or {}).get("log") or {}).get("access")
+print("\n===== ACCESS LOG (real path from config.json) — routing decisions =====")
+print(f"path: {access_path}")
+if access_path:
+    print(run(f"ls -la {access_path} 2>/dev/null").strip() or "(file not found)")
+    print("--- ws inbound (2.0) routing decisions [in-80-tcp >> ...] (last 40) ---")
+    print(run(f"tail -8000 {access_path} 2>/dev/null | grep 'in-80-tcp' | tail -40").strip()
+          or "(no ws inbound entries)")
+    print("--- RU-destination traffic (any inbound) — does it hit ru-relay? (last 40) ---")
+    print(run(f"tail -8000 {access_path} 2>/dev/null | grep -E '\\.ru|\\.su|geosite' | tail -40").strip()
+          or "(no .ru/.su traffic in log)")
+    print("--- last 30 real-traffic lines (excluding 127.0.0.1 api) ---")
+    print(run(f"tail -2000 {access_path} 2>/dev/null | grep -v '127.0.0.1' | tail -30").strip()
+          or "(empty)")
+
 print("\n===== ALL listening TCP ports (non-loopback) — is the ws inbound bound? =====")
 print(run("ss -tlnp 2>/dev/null | grep -vE '127.0.0.1:|\\[::1\\]:'").strip() or "(none)")
-
-print("\n===== nginx in front of xray? (ws/cdn sometimes terminates at nginx) =====")
-print("nginx listening:", run("ss -tlnp 2>/dev/null | grep nginx").strip() or "(nginx not listening)")
-nginx_conf = run("grep -rEn 'proxy_pass|upgrade|server_name|listen' "
-                 "/etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | head -40")
-print(nginx_conf.strip() or "(no nginx site/conf.d ws proxy found)")
 
 print("\n===== x-ui settings — log / limit / stat / sub (access-log-free mode) =====")
 for db in ("/etc/x-ui/x-ui.db", "/usr/local/x-ui/x-ui.db", "/usr/local/x-ui/bin/x-ui.db"):
@@ -68,17 +80,15 @@ for db in ("/etc/x-ui/x-ui.db", "/usr/local/x-ui/x-ui.db", "/usr/local/x-ui/bin/
         try:
             conn = sqlite3.connect(db)
             cur = conn.cursor()
-            rows = cur.execute("SELECT key, value FROM settings").fetchall()
-            for key, value in rows:
+            for key, value in cur.execute("SELECT key, value FROM settings").fetchall():
                 k = (key or "").lower()
                 if any(t in k for t in ("log", "limit", "stat", "sub", "access", "online")):
-                    shown = (value[:400] + "…") if value and len(value) > 400 else value
+                    shown = (value[:300] + "…") if value and len(value) > 300 else value
                     print(f"  {key} = {shown}")
             conn.close()
         except Exception as e:
             print(f"  settings read error: {e}")
         break
 
-print("\n===== access/error log files + xray =====")
-print(run("ls -la /var/log/xray-*.log /usr/local/x-ui/*.log 2>/dev/null").strip() or "(none)")
-print("xray:", run("ps -ef | grep '[x]ray'").strip() or "(not running)")
+print("\n===== xray =====")
+print(run("ps -ef | grep '[x]ray'").strip() or "(not running)")
