@@ -430,8 +430,14 @@ jobs:
                   scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key /tmp/pp.py romtan@216.227.169.120:/tmp/pp.py 2>&1
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  la FAILED"
                   rm -f ~/.ssh/la-key ;;
+                relay)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+                  scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay /tmp/pp.py romtan@89.169.139.153:/tmp/pp.py 2>&1
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "sudo python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  relay FAILED"
+                  rm -f ~/.ssh/yandex-relay ;;
                 *)
-                  echo "  unknown panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la)" ;;
+                  echo "  unknown panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la|relay)" ;;
               esac
               rm -f /tmp/pp.py
               echo "=== PANEL PROBE COMPLETE ==="
