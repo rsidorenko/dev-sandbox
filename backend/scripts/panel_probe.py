@@ -84,6 +84,31 @@ if access_path:
     print("--- recent RU traffic (ANY inbound) → outbound (last 20) ---")
     print(run(f"tail -8000 {access_path} 2>/dev/null | grep -E '\\.ru|\\.su' | tail -20").strip()
           or "(no .ru/.su traffic in log)")
+    # The 2.0 (ws) smoking gun: bare-IP destinations going >> direct because sniffing
+    # can't recover a domain on ws (so geoip:ru is the only matcher, and it misses).
+    print("--- bare-IP destinations on ws (2.0) -> direct (the Ozon breakage) ---")
+    for tag in ws_tags:
+        tag_escaped = re.escape(str(tag))
+        print(f"  {tag} -> direct, top destinations:")
+        print(run(f"grep -E '\\[{tag_escaped} (>>|->) direct\\]' {access_path} 2>/dev/null "
+                  f"| grep -oE 'tcp:[^ ]+:443|tcp:[^ ]+:80' | sort | uniq -c | sort -rn | head -15").strip()
+              or "(none)")
+    # Cross-inbound check: does the same bare IP route to ru-relay on tcp/xhttp (1.0/3.0)?
+    # If yes -> sniffing recovers the domain there but not on ws. The decisive comparison.
+    print("--- bare IPs that went -> direct on ws: cross-inbound routing (whole log) ---")
+    tag_alt = "|".join(re.escape(str(t)) for t in ws_tags)
+    suspicious = run(f"grep -E '\\[({tag_alt}) (>>|->) direct\\]' "
+                     f"{access_path} 2>/dev/null | grep -oE 'tcp:[0-9.]+:|tcp:\\[[0-9a-f:]+\\]:' "
+                     f"| sort -u | head -8").splitlines()
+    for line in suspicious:
+        ip = line.replace("tcp:", "").rstrip(":").strip("[]")
+        if not ip:
+            continue
+        print(f"  {ip}:")
+        cross = run(f"grep '{ip}' {access_path} 2>/dev/null | grep -oE '\\[[^]]+\\]' | sort | uniq -c").strip()
+        print("    " + (cross.replace("\n", "\n    ") or "(never appears elsewhere)"))
+        print("    rdns: " + run(f"host {ip} 2>/dev/null | head -1").strip())
+        print("    geo: " + run(f"curl -s --max-time 5 'http://ip-api.com/line/{ip}?fields=countryCode,org,as' 2>/dev/null").strip().replace("\n", " / "))
     print("--- OZON traffic (ANY inbound, whole log) — where does it route? ---")
     print(run(f"grep -iE 'ozon' {access_path} 2>/dev/null | tail -30").strip()
           or "(NO ozon entries anywhere -> Ozon never reached this xray)")
