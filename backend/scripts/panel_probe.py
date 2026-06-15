@@ -126,13 +126,6 @@ if error_path:
 print("--- OZON .ru routing per inbound (whole log): ws vs tcp vs xhttp ---")
 print(run(f"grep -iE 'ozon' {access_path} 2>/dev/null | grep -oE '\\[(in-443-tcp|inbound-8080|inbound-8443) (->|>>) [a-z-]+\\]' "
          f"| sort | uniq -c | sort -rn").strip() or "(no ozon entries)")
-    print("--- OZON traffic (ANY inbound, whole log) — where does it route? ---")
-    print(run(f"grep -iE 'ozon' {access_path} 2>/dev/null | tail -30").strip()
-          or "(NO ozon entries anywhere -> Ozon never reached this xray)")
-    for tag in ws_tags:
-        print(f"--- LAST 40 entries on {tag} (ws/2.0, any dest) — catch the fresh test ---")
-        print(run(f"grep '{tag}' {access_path} 2>/dev/null | tail -40").strip()
-              or "(no entries)")
 
 print("\n===== ALL listening TCP ports (non-loopback) — is the ws inbound bound? =====")
 print(run("ss -tlnp 2>/dev/null | grep -vE '127.0.0.1:|\\[::1\\]:'").strip() or "(none)")
