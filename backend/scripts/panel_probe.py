@@ -13,6 +13,7 @@ Run ON the panel as root. Pure reads, no writes, no restart.
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 
@@ -64,17 +65,24 @@ if access_path:
     print("--- log time range ---")
     print(run(f"head -1 {access_path} 2>/dev/null | cut -d' ' -f1-2; echo '  ...'; "
               f"tail -1 {access_path} 2>/dev/null | cut -d' ' -f1-2").strip())
-    print("--- inbound tag breakdown (WHOLE access log) — does ws (2.0) EVER reach xray? ---")
-    print(run(f"grep -oE 'in-[0-9]+-tcp' {access_path} 2>/dev/null | sort | uniq -c").strip()
-          or "(no inbound-tagged entries at all)")
-    print("--- ANY ws inbound (in-80-tcp) entries in whole log (last 25) ---")
-    print(run(f"grep 'in-80-tcp' {access_path} 2>/dev/null | tail -25").strip()
-          or "(ZERO ws inbound entries in entire log -> 2.0 not reaching this xray's routing)")
-    print("--- RU-destination traffic on ws (in-80-tcp) — does 2.0 RU hit ru-relay? ---")
-    print(run(f"grep 'in-80-tcp' {access_path} 2>/dev/null | grep -E '\\.ru|\\.su' | tail -25").strip()
-          or "(no ws+RU entries)")
-    print("--- recent RU traffic (any inbound) → outbound (last 25) ---")
-    print(run(f"tail -8000 {access_path} 2>/dev/null | grep -E '\\.ru|\\.su' | tail -25").strip()
+    # Derive the ws (2.0) inbound tag(s) from config.json so this works on any panel
+    # (Frankfurt: in-80-tcp port 80; Helsinki: inbound-8080 port 8080).
+    ws_tags = [ib.get("tag") for ib in (cfg or {}).get("inbounds", [])
+               if ((ib.get("streamSettings") or {}).get("network") == "ws") and ib.get("tag")]
+    print(f"ws (2.0) inbound tags from config.json: {ws_tags}")
+    for tag in ws_tags:
+        tag_escaped = re.escape(str(tag))
+        print(f"--- {tag} (ws/2.0) outbound breakdown (whole log) ---")
+        print(run(f"grep -oE '\\[{tag_escaped} -> [a-z-]+\\]' {access_path} 2>/dev/null "
+                  f"| sort | uniq -c").strip() or "(no entries for this ws inbound)")
+        print(f"--- {tag} (ws/2.0) RU traffic going -> direct (routing MISS, if any) ---")
+        print(run(f"grep '{tag} -> direct' {access_path} 2>/dev/null | grep -E '\\.ru|\\.su|' "
+                  f"| tail -20").strip() or "(none — no ws RU traffic goes direct ✓)")
+        print(f"--- {tag} (ws/2.0) recent RU -> ru-relay (last 15, proof it works) ---")
+        print(run(f"grep '{tag} -> ru-relay' {access_path} 2>/dev/null | grep -E '\\.ru|\\.su' "
+                  f"| tail -15").strip() or "(no ws→ru-relay entries)")
+    print("--- recent RU traffic (ANY inbound) → outbound (last 20) ---")
+    print(run(f"tail -8000 {access_path} 2>/dev/null | grep -E '\\.ru|\\.su' | tail -20").strip()
           or "(no .ru/.su traffic in log)")
 
 print("\n===== ALL listening TCP ports (non-loopback) — is the ws inbound bound? =====")
