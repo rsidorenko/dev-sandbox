@@ -113,6 +113,14 @@ on:
         description: "On ru_egress_panel: ensure xray logs accepted connections (info level + access/error paths), TRUNCATE stale logs, restart x-ui. Diagnostic for stuck logs"
         required: false
         default: "false"
+      panel_probe:
+        description: "READ-ONLY: pipe backend/scripts/panel_probe.py FROM THE CHECKOUT to panel_probe_host and run it — dumps the LIVE config.json (log section, ws inbound network/port, all listeners, x-ui log/IP-limit settings). No deploy, no restart, no writes. Dispatch this run on a branch (--ref <branch>) so the checkout carries your probe edits."
+        required: false
+        default: "false"
+      panel_probe_host:
+        description: "Target panel for panel_probe: helsinki | frankfurt | la"
+        required: false
+        default: "frankfurt"
 
 concurrency:
   group: relay-setup
@@ -126,6 +134,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Encode panel_probe.py from the checkout
+        if: github.event.inputs.panel_probe == 'true'
+        id: pp
+        run: echo "b64=$(base64 -w0 backend/scripts/panel_probe.py)" >> "$GITHUB_OUTPUT"
 
       - name: Run on production host
         uses: appleboy/ssh-action@v1
@@ -155,6 +168,9 @@ jobs:
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
+          PANEL_PROBE: ${{ github.event.inputs.panel_probe || 'false' }}
+          PANEL_PROBE_HOST: ${{ github.event.inputs.panel_probe_host || 'frankfurt' }}
+          PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
@@ -167,7 +183,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,PANEL_PROBE,PANEL_PROBE_HOST,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -405,4 +421,28 @@ jobs:
                   echo "  export FAILED or unexpected output:"; echo "$EXPORTED" ;;
               esac
               echo "=== RU EGRESS REPLICATE COMPLETE ==="
+            fi
+
+            if [ "$PANEL_PROBE" = "true" ]; then
+              echo "=== PANEL PROBE on $PANEL_PROBE_HOST (read-only, no restart) ==="
+              printf '%s' "$PANEL_PROBE_B64" | base64 -d > /tmp/pp.py
+              echo "  probe size: $(wc -c < /tmp/pp.py) bytes"
+              case "$PANEL_PROBE_HOST" in
+                frankfurt)
+                  sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.110.100.210:/tmp/pp.py 2>&1
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  frankfurt FAILED" ;;
+                helsinki)
+                  sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.221.159.106:/tmp/pp.py 2>&1
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  helsinki FAILED" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key /tmp/pp.py romtan@216.227.169.120:/tmp/pp.py 2>&1
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  la FAILED"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown panel_probe_host='$PANEL_PROBE_HOST' (use helsinki|frankfurt|la)" ;;
+              esac
+              rm -f /tmp/pp.py
+              echo "=== PANEL PROBE COMPLETE ==="
             fi
