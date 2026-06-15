@@ -194,6 +194,8 @@ jobs:
               echo "=== BOT LOGS (reconcile / xui / relay provisioning) ==="
               cd /opt/bravada
               docker compose -f docker-compose.prod.yml logs --tail=400 backend 2>&1 | grep -iE "reconcile|xui|89\.169|server.?11|add_client|panel|login|no active|UNAVAILABLE" | tail -70 || true
+              echo "=== PAYMENT / WEBHOOK / FULFILLMENT (yookassa, last 2500 lines) ==="
+              docker compose -f docker-compose.prod.yml logs --tail=2500 backend 2>&1 | grep -iE "yookassa|webhook|payment|fulfill|billing|checkout|activation|X-Request-Signature|server_misconfigured|invalid_signature|payment\.succeeded" | tail -90 || true
               echo "=== BOT LOGS COMPLETE ==="
             fi
 
