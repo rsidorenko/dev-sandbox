@@ -109,6 +109,23 @@ if access_path:
         print("    " + (cross.replace("\n", "\n    ") or "(never appears elsewhere)"))
         print("    rdns: " + run(f"host {ip} 2>/dev/null | head -1").strip())
         print("    geo: " + run(f"curl -s --max-time 5 'http://ip-api.com/line/{ip}?fields=countryCode,org,as' 2>/dev/null").strip().replace("\n", " / "))
+
+# Error log at the REAL path (x-ui overrides it too). If ws->ru-relay connections
+# fail while tcp/xhttp work, the relay dial errors land here.
+error_path = ((cfg or {}).get("log") or {}).get("error")
+print("\n===== ERROR LOG (real path) — relay dial / ws failures =====")
+print(f"path: {error_path}")
+if error_path:
+    print(run(f"ls -la {error_path} 2>/dev/null").strip() or "(file not found)")
+    print("--- errors mentioning relay/89.169/reality/dial/ozon/reset (last 50) ---")
+    print(run(f"tail -4000 {error_path} 2>/dev/null | grep -iE '89\\.169|ru-relay|reality|dial|ozon|failed|reset|eof|timeout|broken' | tail -50").strip()
+          or "(no matching errors)")
+    print("--- last 25 error lines (any) ---")
+    print(run(f"tail -25 {error_path} 2>/dev/null").strip() or "(empty)")
+# Per-inbound Ozon routing: confirm ws and tcp route Ozon .ru identically.
+print("--- OZON .ru routing per inbound (whole log): ws vs tcp vs xhttp ---")
+print(run(f"grep -iE 'ozon' {access_path} 2>/dev/null | grep -oE '\\[(in-443-tcp|inbound-8080|inbound-8443) (->|>>) [a-z-]+\\]' "
+         f"| sort | uniq -c | sort -rn").strip() or "(no ozon entries)")
     print("--- OZON traffic (ANY inbound, whole log) — where does it route? ---")
     print(run(f"grep -iE 'ozon' {access_path} 2>/dev/null | tail -30").strip()
           or "(NO ozon entries anywhere -> Ozon never reached this xray)")
