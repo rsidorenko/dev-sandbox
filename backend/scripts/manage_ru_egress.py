@@ -363,6 +363,29 @@ def repoint_ru_relay_outbound(template: dict, tag: str = "ru-relay") -> dict:
     return t
 
 
+def clean_relay_routing(template: dict, foreign_tag: str = "relay-to-helsinki") -> dict:
+    """Turn the RU relay (89.169.139.153) into a PURE RU-egress: redirect every
+    routing rule that points at the vestigial *foreign_tag* outbound (the old
+    split-routing "rest -> Helsinki" catch-all) to `direct`, and drop that
+    outbound.
+
+    Why: the relay now only receives RU-intended traffic (foreign panels route
+    .ru/.su/.рф + geoip:ru -> ru-relay). Anything that reaches the relay's
+    catch-all (e.g. a RU service's non-.ru CDN asset, or a .ru host whose IP isn't
+    geoip:ru) must still egress from RU — NOT be forwarded to Helsinki (which
+    rejects it: "REALITY server name mismatch", and the site breaks). Egressing
+    everything directly from RU is correct because foreign panels never send
+    non-RU-intended traffic here. Pure + unit-tested. Idempotent.
+    """
+    t = copy.deepcopy(template)
+    tags = {foreign_tag}
+    t["outbounds"] = [o for o in t.get("outbounds", []) if o.get("tag") not in tags]
+    for r in t.get("routing", {}).get("rules", []):
+        if r.get("outboundTag") in tags:
+            r["outboundTag"] = "direct"
+    return t
+
+
 # ── modes ────────────────────────────────────────────────────────────────────
 
 def cmd_dump() -> None:
@@ -534,6 +557,51 @@ def cmd_purge_orphans() -> None:
     conn.close()
     print(f"purged {len(to_remove)} orphaned user clients (relay UUID preserved)")
     print("purge-orphans complete -> restarting x-ui")
+    restart_and_verify()
+
+
+def cmd_clean_relay() -> None:
+    """On the RU relay (89.169.139.153): convert it to a pure RU-egress by
+    removing the vestigial `relay-to-helsinki` outbound and redirecting its
+    routing rules to `direct`. Fixes the Max/some-sites breakage where traffic
+    that missed the RU rules fell to the old "rest -> Helsinki" catch-all and was
+    rejected by Helsinki (86MB of REALITY server-name-mismatch errors). Run ON the
+    relay. Env RU_RELAY_FOREIGN_TAG (default relay-to-helsinki). Backs up,
+    idempotent, restarts x-ui + verifies."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    tag = os.environ.get("RU_RELAY_FOREIGN_TAG", "relay-to-helsinki")
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+    has_ob = any(o.get("tag") == tag for o in template.get("outbounds", []))
+    n_rules = sum(1 for r in template.get("routing", {}).get("rules", [])
+                  if r.get("outboundTag") == tag)
+    if not has_ob and n_rules == 0:
+        print(f"clean-relay: no '{tag}' outbound/rules present — already a pure egress")
+        conn.close()
+        return
+    backup_path = db + ".pre-clean-relay.bak"
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+    merged = clean_relay_routing(template, tag)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"clean-relay: removed '{tag}' outbound + redirected {n_rules} rule(s) -> direct")
+    print("clean-relay complete -> restarting x-ui")
     restart_and_verify()
 
 
@@ -836,7 +904,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|reset-logs|deactivate}",
+              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -846,6 +914,8 @@ def main() -> None:
         cmd_register_uuid()
     elif mode == "purge-orphans":
         cmd_purge_orphans()
+    elif mode == "clean-relay":
+        cmd_clean_relay()
     elif mode == "fix-sniffing":
         cmd_fix_sniffing()
     elif mode == "reset-logs":

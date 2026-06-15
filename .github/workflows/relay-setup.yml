@@ -340,14 +340,20 @@ jobs:
             fi
 
             if [ "$RU_EGRESS_PURGE" = "true" ]; then
-              echo "=== RU EGRESS: purge orphaned user clients on RU relay (89.169.139.153) ==="
+              if [ "$RU_EGRESS_PANEL" = "clean-relay" ]; then
+                RELAY_MODE=clean-relay
+                echo "=== RU EGRESS: clean-relay (pure RU egress) on RU relay (89.169.139.153) ==="
+              else
+                RELAY_MODE=purge-orphans
+                echo "=== RU EGRESS: purge orphaned user clients on RU relay (89.169.139.153) ==="
+              fi
               cd /opt/bravada
               SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
               mkdir -p ~/.ssh
               printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode purge-orphans" 2>&1 || echo "  RU relay FAILED"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode $RELAY_MODE" 2>&1 || echo "  RU relay FAILED"
               rm -f ~/.ssh/yandex-relay
-              echo "=== RU EGRESS PURGE COMPLETE ==="
+              echo "=== RU EGRESS $RELAY_MODE COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ] || [ "$RU_EGRESS_REPOINT" = "true" ] || [ "$RU_EGRESS_FIX_SNIFFING" = "true" ] || [ "$RU_EGRESS_RESET_LOGS" = "true" ]; then

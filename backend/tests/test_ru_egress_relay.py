@@ -366,6 +366,69 @@ def test_ensure_log_section_adds_log_when_absent() -> None:
     assert out["routing"] == {}
 
 
+# ── clean-relay: convert the RU relay to a pure RU-egress ────────────────────
+
+
+def _relay_with_helsinki_catchall() -> dict:
+    """The RU relay's live config: RU rules -> direct, but a vestigial catch-all
+    forwards the rest to Helsinki (which rejects it -> sites break)."""
+    return {
+        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
+            {"inboundTag": ["api"], "outboundTag": "api"},
+            {"ip": ["geoip:private"], "outboundTag": "direct"},
+            {"inboundTag": ["in-443-tcp"], "domain": ["domain:ru", "domain:su"], "outboundTag": "direct"},
+            {"inboundTag": ["in-443-tcp"], "ip": ["geoip:ru"], "outboundTag": "direct"},
+            {"inboundTag": ["in-443-tcp"], "network": "tcp,udp", "outboundTag": "relay-to-helsinki"},
+        ]},
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "relay-to-helsinki", "protocol": "vless",
+             "settings": {"vnext": [{"address": "77.221.159.106", "port": 443}]}},
+            {"tag": "blocked", "protocol": "blackhole"},
+        ],
+    }
+
+
+def test_clean_relay_redirects_catchall_to_direct_and_drops_outbound() -> None:
+    after = mre.clean_relay_routing(_relay_with_helsinki_catchall())
+    tags = [o.get("tag") for o in after["outbounds"]]
+    assert "relay-to-helsinki" not in tags
+    assert "direct" in tags and "blocked" in tags   # other outbounds preserved
+    # The catch-all now egresses directly from RU instead of forwarding to Helsinki.
+    catchall = next(r for r in after["routing"]["rules"] if r.get("network") == "tcp,udp")
+    assert catchall["outboundTag"] == "direct"
+
+
+def test_clean_relay_preserves_ru_direct_and_api_rules() -> None:
+    after = mre.clean_relay_routing(_relay_with_helsinki_catchall())
+    ob_tags = [r.get("outboundTag") for r in after["routing"]["rules"]]
+    assert "api" in ob_tags                      # api rule preserved
+    ru_rule = next(r for r in after["routing"]["rules"] if "domain:ru" in (r.get("domain") or []))
+    assert ru_rule["outboundTag"] == "direct"    # RU-domain rule untouched
+
+
+def test_clean_relay_is_idempotent() -> None:
+    once = mre.clean_relay_routing(_relay_with_helsinki_catchall())
+    twice = mre.clean_relay_routing(once)
+    assert once == twice
+    assert "relay-to-helsinki" not in [o.get("tag") for o in twice["outbounds"]]
+
+
+def test_clean_relay_noop_when_already_pure_egress() -> None:
+    pure = {
+        "routing": {"rules": [{"network": "tcp,udp", "outboundTag": "direct"}]},
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+    }
+    assert mre.clean_relay_routing(pure) == pure
+
+
+def test_clean_relay_does_not_mutate_input() -> None:
+    before = _relay_with_helsinki_catchall()
+    mre.clean_relay_routing(before)
+    assert "relay-to-helsinki" in [o.get("tag") for o in before["outbounds"]]   # input unchanged
+
+
+
 
 
 
