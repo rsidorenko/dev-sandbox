@@ -280,7 +280,7 @@ jobs:
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
               sync_one "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              sync_one "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
+              sync_one "89.169.154.50" "romtan" "$HOME/.ssh/yandex-cloud"
               printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
               sync_one "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
@@ -314,7 +314,7 @@ jobs:
                 lte)
                   mkdir -p ~/.ssh
                   printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-                  upgrade_panel "62.84.118.140" "romtan" "$HOME/.ssh/yandex-cloud"
+                  upgrade_panel "89.169.154.50" "romtan" "$HOME/.ssh/yandex-cloud"
                   rm -f ~/.ssh/yandex-cloud ;;
                 *)
                   echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la|lte)" ;;

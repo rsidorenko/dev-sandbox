@@ -21,7 +21,7 @@ jobs:
           test_endpoints 77.110.100.210 8443 vk.com "Frankfurt 3.0 xhttp"
           test_endpoints 216.227.169.120 443 vk.com "LA 1.0"
           test_endpoints 216.227.169.120 8443 vk.com "LA 3.0 xhttp"
-          test_endpoints 62.84.118.140 443 vk.com "LTE"
+          test_endpoints 89.169.154.50 443 vk.com "LTE"
       - name: Discover webBasePath on Frankfurt + LA panels
         env:
           FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}

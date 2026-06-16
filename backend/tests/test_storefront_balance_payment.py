@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
@@ -276,8 +276,8 @@ def test_balance_payment_extends_active_subscription():
     c, uid = _make_composition_with_balance(user_id=400, balance_kopecks=2000_00)
     from app.application.interfaces import SubscriptionSnapshot
 
-    # Set subscription active until 2026-06-15 (still in the future relative to test runtime)
-    existing_until = datetime(2026, 6, 15, 0, 0, 0, tzinfo=UTC)
+    # active_until clearly in the future → renewal must extend from it, not from now
+    existing_until = datetime.now(UTC) + timedelta(days=10)
     _run(
         c.snapshots.upsert_state(
             SubscriptionSnapshot(
@@ -296,11 +296,10 @@ def test_balance_payment_extends_active_subscription():
 
     snap = _run(c.snapshots.get_for_user(uid))
     assert snap is not None
-    # Should extend from 2026-06-15 by 30 days → 2026-07-15
     assert snap.active_until_utc is not None
-    assert snap.active_until_utc.year == 2026
-    assert snap.active_until_utc.month == 7
-    assert snap.active_until_utc.day == 15
+    # Extends from existing_until by the 1m plan's 30 days — NOT from now (which would be
+    # ~10 days earlier). date() comparison is robust to any time-of-day normalization.
+    assert snap.active_until_utc.date() == (existing_until + timedelta(days=30)).date()
 
 
 def test_balance_payment_new_subscription_starts_from_now():
@@ -325,7 +324,7 @@ def test_balance_payment_extends_3m():
     c, uid = _make_composition_with_balance(user_id=402, balance_kopecks=2000_00)
     from app.application.interfaces import SubscriptionSnapshot
 
-    existing_until = datetime(2026, 6, 15, 0, 0, 0, tzinfo=UTC)
+    existing_until = datetime.now(UTC) + timedelta(days=10)
     _run(
         c.snapshots.upsert_state(
             SubscriptionSnapshot(
@@ -343,9 +342,9 @@ def test_balance_payment_extends_3m():
     assert "реферального баланса" in pkg.message_text
 
     snap = _run(c.snapshots.get_for_user(uid))
-    assert snap.active_until_utc.year == 2026
-    assert snap.active_until_utc.month == 9
-    assert snap.active_until_utc.day == 13  # June 15 + 90 days
+    assert snap.active_until_utc is not None
+    # Extends from existing_until by the 3m plan's 90 days (not from now)
+    assert snap.active_until_utc.date() == (existing_until + timedelta(days=90)).date()
 
 
 def test_settings_shows_tariff_devices_expiry():
