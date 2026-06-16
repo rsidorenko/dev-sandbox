@@ -563,7 +563,7 @@ jobs:
 
             if [ "$LTE_SSH" = "true" ]; then
               echo "=== LTE SSH DIAGNOSTIC ==="
-              LTE="51.250.0.72"
+              LTE="93.77.188.217"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -578,7 +578,7 @@ jobs:
 
             if [ "$LTE_LOGS" = "true" ]; then
               echo "=== LTE XRAY LOGS + REALITY KEY CHECK ==="
-              LTE="51.250.0.72"
+              LTE="93.77.188.217"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -589,7 +589,7 @@ jobs:
 
             if [ "$FIX_LTE_RELAY" = "true" ]; then
               echo "=== FIX LTE RELAY: remove xtls-rprx-vision flow from 3x-ui DB ==="
-              LTE="51.250.0.72"
+              LTE="93.77.188.217"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -638,7 +638,7 @@ jobs:
 
             if [ "$CHECK_LTE_PANEL" = "true" ]; then
               echo "=== CHECK LTE PANEL CREDS + LOGIN ==="
-              LTE="51.250.0.72"
+              LTE="93.77.188.217"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -650,7 +650,7 @@ jobs:
 
             if [ "$RESET_LTE_USER" = "true" ]; then
               echo "=== RESET LTE PANEL USER (bcrypt in users table) ==="
-              LTE="51.250.0.72"
+              LTE="93.77.188.217"
               mkdir -p ~/.ssh
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
               chmod 600 ~/.ssh/yandex-cloud
@@ -690,7 +690,7 @@ jobs:
             if [ "$CHECK_BANS" = "true" ]; then
               echo "=== CHECK BANS (fail2ban / iptables / xray-rejected) ==="
               # Check VPN servers reachable via SSH keys from runner
-              for spec in "LTE|51.250.0.72|romtan|yandex-cloud|LTE_SSH_KEY" "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
+              for spec in "LTE|93.77.188.217|romtan|yandex-cloud|LTE_SSH_KEY" "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
                 IFS='|' read -r name ip user keyfile secret <<< "$spec"
                 echo "--- $name ($ip) ---"
                 mkdir -p ~/.ssh
@@ -739,8 +739,8 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
               # LTE (via key)
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              echo "--- LTE (51.250.0.72) ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@51.250.0.72 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              echo "--- LTE (93.77.188.217) ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
               rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud
               echo "=== ALL ROUTING CHECK COMPLETE ==="
             fi
@@ -848,10 +848,10 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
               rm -f ~/.ssh/la-key
 
-              echo "  LTE (51.250.0.72)"
+              echo "  LTE (93.77.188.217)"
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@51.250.0.72:/tmp/sync_clients.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@51.250.0.72 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@93.77.188.217:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
               rm -f ~/.ssh/yandex-cloud
 
               echo "--- Step 5: Post-verify ---"
@@ -879,10 +879,10 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
               rm -f ~/.ssh/la-key
 
-              echo "--- LTE (51.250.0.72) ---"
+              echo "--- LTE (93.77.188.217) ---"
               printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@51.250.0.72:/tmp/sync_clients.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@51.250.0.72 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@93.77.188.217:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
               rm -f ~/.ssh/yandex-cloud
 
               echo "=== SYNC CLIENTS COMPLETE ==="

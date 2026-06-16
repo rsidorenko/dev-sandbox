@@ -196,7 +196,7 @@ def main():
     print(f"REALITY_PRIVKEY={priv}")
     print(f"INBOUND_ID={inbound_id}")
     print(f"RELAY_UUID={relay_uuid}")
-    print(f"SERVER_HOST=51.250.0.72")
+    print(f"SERVER_HOST=93.77.188.217")
     print("=" * 60)
     print("\n" + "!" * 60)
     print("IMPORTANT: Register relay UUID on Frankfurt!")
