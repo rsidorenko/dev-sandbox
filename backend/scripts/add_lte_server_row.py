@@ -42,8 +42,8 @@ async def run():
             "Франкфурт 📶 LTE",        # label
             "DE",                       # country_code
             "🇩🇪",                       # country_flag
-            "62.84.118.140",            # server_host
-            "https://62.84.118.140:54023/Cq6xxAccNLaSEBcR0L",  # panel_url
+            "89.169.154.50",            # server_host
+            "https://89.169.154.50:54023/Cq6xxAccNLaSEBcR0L",  # panel_url
             "bravada",                  # panel_username
             encrypted,                  # encrypted_password
             7,                          # inbound_id (created by setup_lte)
