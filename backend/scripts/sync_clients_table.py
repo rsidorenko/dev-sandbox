@@ -159,10 +159,14 @@ def run_sync(db_path: str = DB_PATH) -> dict:
             else:
                 skipped += 1
 
-            # Add client_inbounds mapping if missing
+            # Add client_inbounds mapping if missing. INSERT OR IGNORE: the
+            # (client_id, inbound_id) pair is UNIQUE, and the in-memory set can
+            # miss a pre-existing row when a client's uuid was re-bound in this
+            # run (email-collision path) — ignore-if-exists is the correct
+            # ensure-mapping semantic regardless.
             if (client_id, inbound_id) not in existing_mappings:
                 c.execute("""
-                    INSERT INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
+                    INSERT OR IGNORE INTO client_inbounds (client_id, inbound_id, flow_override, created_at)
                     VALUES (?, ?, '', ?)
                 """, (client_id, inbound_id, now_ms))
                 existing_mappings.add((client_id, inbound_id))
