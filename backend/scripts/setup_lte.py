@@ -63,6 +63,56 @@ def run(cmd, check=True):
     return r
 
 
+def setup_camo(sni: str) -> str:
+    """Reality camouflage: a Let's Encrypt cert for `sni` served by nginx on
+    127.0.0.1:10443 (mirrors Frankfurt/Helsinki). Returns the Reality `dest`.
+
+    On success -> "127.0.0.1:10443" (proper camo: cert matches the SNI).
+    Falls back to "yandex.ru:443" (a reachable external TLS target) if certbot
+    can't obtain a cert — e.g. the SNI's DNS isn't pointing at this server yet,
+    or inbound :80 is closed in the cloud SG (HTTP-01 challenge). The fallback
+    keeps Reality working (handshake borrows yandex's TLS); camo quality is
+    lower but function is intact. Re-run after DNS/:80 are ready to upgrade.
+
+    Requires (for the proper path): `sni` DNS -> this server, and inbound :80
+    open (cloud SG + no OS firewall). Run this script as root."""
+    print(f"\n=== Step: Reality camo (LE cert + nginx on 10443 for {sni}) ===")
+    run("sudo apt-get install -y -qq nginx certbot", check=False)
+    run("sudo systemctl stop nginx", check=False)  # free :80 for certbot --standalone
+    r = run(f"sudo certbot certonly --standalone --non-interactive --agree-tos "
+            f"-m admin@bravada-connect.ru -d {sni}", check=False)
+    cert_dir = f"/etc/letsencrypt/live/{sni}"
+    if r.returncode != 0 or not os.path.isdir(cert_dir):
+        print("  certbot failed (DNS not at this server yet? :80 closed in cloud SG?) "
+              "-> fallback dest=yandex.ru:443 (camo uses yandex cert; re-run later to upgrade)")
+        return "yandex.ru:443"
+    site = (
+        "server {\n"
+        "    listen 127.0.0.1:10443 ssl;\n"
+        f"    server_name {sni};\n"
+        f"    ssl_certificate {cert_dir}/fullchain.pem;\n"
+        f"    ssl_certificate_key {cert_dir}/privkey.pem;\n"
+        "    ssl_protocols TLSv1.3;\n"
+        "    location / { return 200 'OK'; add_header Content-Type text/plain; }\n"
+        "}\n"
+    )
+    open("/etc/nginx/sites-available/le-tls", "w").write(site)
+    try:
+        if not os.path.exists("/etc/nginx/sites-enabled/le-tls"):
+            os.symlink("/etc/nginx/sites-available/le-tls", "/etc/nginx/sites-enabled/le-tls")
+    except FileExistsError:
+        pass
+    if os.path.exists("/etc/nginx/sites-enabled/default"):
+        os.remove("/etc/nginx/sites-enabled/default")
+    if run("sudo nginx -t", check=False).returncode == 0:
+        run("sudo systemctl start nginx", check=False)
+        print(f"  nginx serving {sni} cert on 127.0.0.1:10443 -> dest=127.0.0.1:10443 (proper camo)")
+        return "127.0.0.1:10443"
+    print("  nginx -t failed -> fallback dest=yandex.ru:443")
+    return "yandex.ru:443"
+
+
+
 def main():
     # PANEL_PASS is only required when LTE_RESET_PANEL=1 (default: keep existing
     # panel credentials, e.g. the ones set during the 3x-ui panel install).
@@ -159,17 +209,19 @@ def main():
 
     # ── Step 5: Create VLESS+reality inbound on 443 ──
     print("\n=== Step 5: Create inbound 443 ===")
+    # Reality camo dest: proper LE cert + nginx on 10443 when DNS/:80 are ready,
+    # else a reachable external TLS target (yandex.ru:443) so the handshake works.
+    dest = setup_camo(LTE_SNI)
     settings = json.dumps({"clients": [], "decryption": "none", "fallbacks": []})
     stream_settings = json.dumps({
         "network": "tcp", "security": "reality",
         "externalProxy": [],
         "realitySettings": {
-            # dest MUST be a reachable TLS target — Reality dials it for the
-            # handshake camouflage. A fresh server has nothing on 127.0.0.1:10443,
-            # so every handshake fails ("REALITY: failed to dial dest: connection
-            # refused"). Use a real reachable site (Frankfurt runs a local nginx on
-            # 10443; a fresh box points at a stable external TLS server instead).
-            "show": False, "xver": 0, "dest": "yandex.ru:443",
+            # dest: set by setup_camo() above — 127.0.0.1:10443 (nginx + LE cert
+            # for the SNI, proper camo) when available, else yandex.ru:443 (a
+            # reachable external TLS target so the handshake still works). MUST be
+            # reachable or every handshake fails ("REALITY: failed to dial dest").
+            "show": False, "xver": 0, "dest": dest,
             "serverNames": [LTE_SNI], "privateKey": priv,
             "minClientVer": "", "maxClientVer": "", "maxTimeDiff": 0,
             "shortIds": ["a1b2c3d4e5f6", "37", "", "6ba8", "a1b2c3"],
