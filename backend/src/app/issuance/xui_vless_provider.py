@@ -166,9 +166,9 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    # Default: TCP + Reality. flow is appended only when flow_for_transport enables it
-    # (currently disabled — see flow_for_transport docstring; vision broke all tcp).
-    flow = flow_for_transport("tcp")
+    # Default: TCP + Reality. Vision flow is appended for servers in _VISION_SERVERS
+    # (LTE only — extra DPI resistance for whitelist bypass; see flow_for_transport).
+    flow = flow_for_transport("tcp", server.server_id)
     flow_seg = f"&flow={flow}" if flow else ""
     return (
         f"vless://{user_uuid}@{host}:{port}"

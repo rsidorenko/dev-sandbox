@@ -33,17 +33,29 @@ def _should_verify_ssl() -> bool:
 # vision is invalid for those transports.
 REALITY_TCP_FLOW = "xtls-rprx-vision"
 
+# Servers that use Vision flow for tcp+Reality (extra DPI resistance for whitelist
+# bypass). Per-server: emitting Vision WITHOUT setting client_inbounds.flow_override
+# to the same value breaks the connection (xray reads flow_override, not clients.flow).
+# To enable on a server: add its id here AND set flow_override=xtls-rprx-vision in
+# client_inbounds for that server's tcp inbound (via the periodic sync or manually).
+_VISION_SERVERS = {10}  # LTE (Yandex Cloud — mobile-jamming whitelist bypass)
 
-def flow_for_transport(transport_type: str) -> str:
+
+def flow_for_transport(transport_type: str, server_id: int | None = None) -> str:
     """VLESS flow appropriate for a server's transport.
 
-    DISABLED 2026-06-14: emitting flow=xtls-rprx-vision + setting it on server clients
-    broke ALL tcp/Reality connections (including the previously-working LTE). Most
-    likely xray reads the per-inbound client_inbounds.flow_override (left at "") and
-    not clients.flow, so vision links mismatched. Returning "" everywhere restores the
-    known-working no-flow config. Re-enable by returning REALITY_TCP_FLOW for tcp AFTER
-    the flow_override mechanism is understood and set consistently. See PR #304/#305.
+    LTE (server 10, Yandex Cloud — the mobile whitelist-bypass entry) uses
+    xtls-rprx-vision for extra DPI resistance (per openlibrecommunity's
+    whitelist guide). Vision requires client_inbounds.flow_override to match on
+    the server side (set via the periodic sync or manually).
+
+    Other servers use no-flow: emitting vision without flow_override set broke
+    ALL tcp/Reality connections (xray reads client_inbounds.flow_override, not
+    clients.flow, so vision links mismatched). To enable on a server: add its id
+    to _VISION_SERVERS AND set flow_override on that server.
     """
+    if transport_type == "tcp" and server_id in _VISION_SERVERS:
+        return REALITY_TCP_FLOW
     return ""
 
 
@@ -222,7 +234,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": flow_for_transport(self._config.transport_type),
+            "flow": flow_for_transport(self._config.transport_type, self._config.server_id),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
@@ -269,7 +281,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": flow_for_transport(self._config.transport_type),
+            "flow": flow_for_transport(self._config.transport_type, self._config.server_id),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
