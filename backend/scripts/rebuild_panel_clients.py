@@ -279,13 +279,15 @@ class PanelClient:
 # ---------------------------------------------------------------------------
 
 async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
-    """Load all active users with VLESS UUIDs."""
+    """Load all active users. VLESS UUIDs are derived per-transport (uuid5), so we
+    do NOT filter on user_identities.vless_uuid (it is NULL for everyone since
+    PR #320); the per-transport uuid is computed via _vless_uuid_for_transport."""
     rows = await pool.fetch(
         """SELECT i.internal_user_id, i.vless_uuid,
                   s.device_count, s.active_until_utc
            FROM user_identities i
            JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-           WHERE s.state_label = 'active' AND i.vless_uuid IS NOT NULL
+           WHERE s.state_label = 'active'
            ORDER BY i.internal_user_id"""
     )
     return [
@@ -471,10 +473,12 @@ async def phase_verify(users: list[dict], panels: list[PanelClient]) -> dict:
 
     for u in users:
         uid = u["internal_user_id"]
-        expected_uuid = u["vless_uuid"]
 
         for pc in panels:
             email = _email_from_internal(uid, transport_type=pc.transport_type)
+            # Expected uuid is DERIVED per (user, transport), not the stored
+            # user_identities.vless_uuid (NULL since PR #320).
+            expected_uuid = _vless_uuid_for_transport(uid, pc.transport_type)
             found_uuid = await pc.resolve_client_uuid(email=email)
             if found_uuid is None:
                 total_missing += 1
