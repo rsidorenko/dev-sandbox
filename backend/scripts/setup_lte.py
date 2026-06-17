@@ -6,7 +6,8 @@ Does:
 1. Reset panel username='bravada' password=$LTE_PANEL_PASS via x-ui CLI
 2. Generate fresh Reality keypair (xray x25519)
 3. Generate relay UUID
-4. Set xrayTemplateConfig (relay-to-frankfurt outbound via TCP+reality, routing)
+4. Set xrayTemplateConfig (RU→direct egress from this RU/Yandex IP; foreign→
+   relay-to-frankfurt via TCP+reality; domainStrategy=IPIfNonMatch)
 5. Create VLESS+reality inbound on port 443 (SQLite insert)
 6. Restart x-ui
 7. Print summary: REALITY_PUBKEY, INBOUND_ID, RELAY_UUID, PANEL_USER
@@ -50,6 +51,10 @@ LTE_SNI = "bgg.bravada-connect.online"
 INBOUND_TAG = "in-443-tcp"
 INBOUND_PORT = 443
 
+# RU TLDs routed to `direct` (egress from this server's own RU IP) instead of
+# Frankfurt. Mirrors manage_ru_egress.RU_DOMAINS.
+RU_DOMAINS = ["domain:ru", "domain:su", "domain:xn--p1ai"]
+
 
 def run(cmd, check=True):
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -59,14 +64,20 @@ def run(cmd, check=True):
 
 
 def main():
-    if not PANEL_PASS:
-        print("ERROR: LTE_PANEL_PASS env not set", file=sys.stderr)
+    # PANEL_PASS is only required when LTE_RESET_PANEL=1 (default: keep existing
+    # panel credentials, e.g. the ones set during the 3x-ui panel install).
+    reset_panel = os.environ.get("LTE_RESET_PANEL") == "1"
+    if reset_panel and not PANEL_PASS:
+        print("ERROR: LTE_RESET_PANEL=1 but LTE_PANEL_PASS not set", file=sys.stderr)
         sys.exit(1)
 
-    # ── Step 1: Reset panel creds ──
-    print("=== Step 1: Reset panel credentials ===")
-    r = run(f"sudo x-ui setting -username {PANEL_USER} -password '{PANEL_PASS}'", check=False)
-    print(f"x-ui setting: rc={r.returncode} out={r.stdout.strip()[:80]}")
+    # ── Step 1: Reset panel creds (optional) ──
+    if reset_panel:
+        print("=== Step 1: Reset panel credentials ===")
+        r = run(f"sudo x-ui setting -username {PANEL_USER} -password '{PANEL_PASS}'", check=False)
+        print(f"x-ui setting: rc={r.returncode} out={r.stdout.strip()[:80]}")
+    else:
+        print("=== Step 1: SKIPPED (keep existing creds; set LTE_RESET_PANEL=1 to reset) ===")
 
     # ── Step 2: Generate Reality keypair ──
     print("\n=== Step 2: Generate Reality keypair ===")
@@ -97,10 +108,17 @@ def main():
                    "system": {"statsInboundUplink": True, "statsInboundDownlink": True,
                               "statsOutboundUplink": True, "statsOutboundDownlink": True}},
         "routing": {
-            "domainStrategy": "AsIs",
+            # IPIfNonMatch so geoip:ru resolves domain-based connections to IPs
+            # before matching (matches manage_ru_egress).
+            "domainStrategy": "IPIfNonMatch",
             "rules": [
                 {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
                 {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+                # RU traffic egresses DIRECTLY from this server (a Yandex RU IP),
+                # NOT via Frankfurt — so RU apps/services see a RU source IP.
+                {"type": "field", "domain": RU_DOMAINS, "outboundTag": "direct"},
+                {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"},
+                # Everything else -> Frankfurt (foreign egress).
                 {"type": "field", "inboundTag": [INBOUND_TAG],
                  "network": "tcp,udp", "outboundTag": "relay-to-frankfurt"},
             ],
@@ -146,7 +164,12 @@ def main():
         "network": "tcp", "security": "reality",
         "externalProxy": [],
         "realitySettings": {
-            "show": False, "xver": 0, "dest": "127.0.0.1:10443",
+            # dest MUST be a reachable TLS target — Reality dials it for the
+            # handshake camouflage. A fresh server has nothing on 127.0.0.1:10443,
+            # so every handshake fails ("REALITY: failed to dial dest: connection
+            # refused"). Use a real reachable site (Frankfurt runs a local nginx on
+            # 10443; a fresh box points at a stable external TLS server instead).
+            "show": False, "xver": 0, "dest": "yandex.ru:443",
             "serverNames": [LTE_SNI], "privateKey": priv,
             "minClientVer": "", "maxClientVer": "", "maxTimeDiff": 0,
             "shortIds": ["a1b2c3d4e5f6", "37", "", "6ba8", "a1b2c3"],
@@ -196,7 +219,7 @@ def main():
     print(f"REALITY_PRIVKEY={priv}")
     print(f"INBOUND_ID={inbound_id}")
     print(f"RELAY_UUID={relay_uuid}")
-    print(f"SERVER_HOST=93.77.188.217")
+    print(f"SERVER_HOST=158.160.221.185")
     print("=" * 60)
     print("\n" + "!" * 60)
     print("IMPORTANT: Register relay UUID on Frankfurt!")
