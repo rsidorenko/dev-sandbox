@@ -1,0 +1,14 @@
+[Unit]
+Description=Sync 3x-ui inbounds.settings clients into the v3 clients table (desync fix)
+Documentation=https://github.com/rsidorenko/startprojectformillion backend/scripts/sync_clients_table.py
+After=x-ui.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Mirrors inbounds.settings JSON clients → clients + client_inbounds tables, and
+# restarts x-ui only when the table actually changed (near-zero impact when idle).
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/python3 /usr/local/bin/sync_clients_table.py --restart-if-changed
+# Non-zero exit (10) means "changed" — that is expected/success for a timer run.
+SuccessExitStatus=0 10
