@@ -41,6 +41,10 @@ def _make_v3_db(tmp_path: Path) -> Path:
             created_at INTEGER, updated_at INTEGER
         );
         CREATE TABLE client_inbounds (client_id INTEGER, inbound_id INTEGER, flow_override TEXT, created_at INTEGER);
+        CREATE TABLE client_traffics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, inbound_id INTEGER, enable INTEGER, email TEXT,
+            up INTEGER, down INTEGER, expiry_time INTEGER, total INTEGER, reset INTEGER, last_online INTEGER
+        );
         """
     )
     con.commit()
@@ -106,7 +110,8 @@ def test_skip_when_no_clients_table(tmp_path: Path) -> None:
 
     script = _load_script_module()
     s = script.run_sync(db_path=str(db_path))
-    assert s == {"added_clients": 0, "updated_clients": 0, "added_mappings": 0, "skipped": 0}
+    assert s == {"added_clients": 0, "updated_clients": 0, "added_mappings": 0,
+                 "added_traffics": 0, "updated_traffics": 0, "skipped": 0}
 
 
 def test_email_collision_reuses_row(tmp_path: Path) -> None:
@@ -125,6 +130,39 @@ def test_email_collision_reuses_row(tmp_path: Path) -> None:
     row = con.execute("SELECT uuid FROM clients WHERE email='user-ccc'").fetchone()
     assert row[0] == "uuid-new"  # uuid updated in place, no new row
     con.close()
+
+
+def test_mirrors_client_traffics_enable_and_expiry(tmp_path: Path) -> None:
+    """client_traffics.enable gates xray config inclusion. A client disabled in
+    client_traffics but enabled in settings JSON must be re-enabled by the sync
+    (this is the core fix for the 'keys disabled' bug)."""
+    script = _load_script_module()
+    db = _make_v3_db(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO client_traffics (inbound_id, enable, email, expiry_time) VALUES (1, 0, 'user-aaa', 111)")
+    con.commit(); con.close()
+    _add_inbound(db, 1, [{"id": "uuid-a", "email": "user-aaa", "enable": True, "expiryTime": 222}])
+
+    s = script.run_sync(db_path=str(db))
+    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+    row = con.execute("SELECT enable, expiry_time FROM client_traffics WHERE email='user-aaa' AND inbound_id=1").fetchone()
+    assert row is not None and row["enable"] == 1 and row["expiry_time"] == 222
+    con.close()
+    assert s["updated_traffics"] == 1
+
+
+def test_inserts_client_traffics_when_missing(tmp_path: Path) -> None:
+    """A settings client with no client_traffics row gets one inserted (enable + expiry from JSON)."""
+    script = _load_script_module()
+    db = _make_v3_db(tmp_path)
+    _add_inbound(db, 1, [{"id": "uuid-a", "email": "user-aaa", "enable": True, "expiryTime": 555}])
+
+    s = script.run_sync(db_path=str(db))
+    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+    row = con.execute("SELECT enable, expiry_time FROM client_traffics WHERE email='user-aaa'").fetchone()
+    assert row is not None and row["enable"] == 1 and row["expiry_time"] == 555
+    con.close()
+    assert s["added_traffics"] == 1
 
 
 def test_main_exit_code_and_restart_gate(monkeypatch: pytest.MonkeyPatch) -> None:

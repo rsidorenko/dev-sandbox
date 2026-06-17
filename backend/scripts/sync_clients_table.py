@@ -44,7 +44,8 @@ def run_sync(db_path: str = DB_PATH) -> dict:
     if not c.fetchone():
         print("SKIP: No 'clients' table (3x-ui v2.x — uses inbounds.settings directly)")
         db.close()
-        return {"added_clients": 0, "updated_clients": 0, "added_mappings": 0, "skipped": 0}
+        return {"added_clients": 0, "updated_clients": 0, "added_mappings": 0,
+                "added_traffics": 0, "updated_traffics": 0, "skipped": 0}
 
     now_ms = int(time.time() * 1000)
 
@@ -60,9 +61,22 @@ def run_sync(db_path: str = DB_PATH) -> dict:
     for row in c.fetchall():
         existing_mappings.add((row["client_id"], row["inbound_id"]))
 
+    # client_traffics is the table x-ui v3 reads to generate xray config.json — a
+    # client with client_traffics.enable=0 is EXCLUDED from config even when it is
+    # enable=1 in `clients` + settings JSON + client_inbounds. So mirror enable +
+    # expiry here too (this is the fix for the "keys disabled / stale expiry" bug).
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='client_traffics'")
+    has_traffics = c.fetchone() is not None
+    existing_traffics: dict[tuple, tuple] = {}  # (email, inbound_id) -> (id, enable, expiry_time)
+    if has_traffics:
+        for row in c.execute("SELECT id, inbound_id, email, enable, expiry_time FROM client_traffics"):
+            existing_traffics[(row["email"], row["inbound_id"])] = (row["id"], row["enable"], row["expiry_time"])
+
     added_clients = 0
     updated_clients = 0
     added_mappings = 0
+    added_traffics = 0
+    updated_traffics = 0
     skipped = 0
 
     # Build email→client_id index for collision detection
@@ -155,6 +169,29 @@ def run_sync(db_path: str = DB_PATH) -> dict:
                 added_mappings += 1
                 print(f"  + mapping client_id={client_id} → inbound_id={inbound_id}")
 
+            # Mirror enable + expiry into client_traffics (the config-gating table).
+            if has_traffics:
+                t_enable = 1 if jc.get("enable", True) else 0
+                t_expiry = jc.get("expiryTime", 0)
+                tkey = (email, inbound_id)
+                ct = existing_traffics.get(tkey)
+                if ct is None:
+                    c.execute(
+                        "INSERT INTO client_traffics "
+                        "(inbound_id, enable, email, up, down, expiry_time, total, reset, last_online) "
+                        "VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0)",
+                        (inbound_id, t_enable, email, t_expiry))
+                    existing_traffics[tkey] = (
+                        c.execute("SELECT last_insert_rowid()").fetchone()[0], t_enable, t_expiry)
+                    added_traffics += 1
+                    print(f"  + traffics email={email} enable={t_enable} expiry={t_expiry} (inbound {inbound_id})")
+                elif ct[1] != t_enable or ct[2] != t_expiry:
+                    c.execute("UPDATE client_traffics SET enable=?, expiry_time=? WHERE id=?",
+                              (t_enable, t_expiry, ct[0]))
+                    existing_traffics[tkey] = (ct[0], t_enable, t_expiry)
+                    updated_traffics += 1
+                    print(f"  ~ traffics email={email} enable={t_enable} expiry={t_expiry} (inbound {inbound_id})")
+
     db.commit()
 
     # Summary
@@ -168,14 +205,15 @@ def run_sync(db_path: str = DB_PATH) -> dict:
         print(f"  inbound {r[0]}: {r[1]} clients")
 
     print("\n=== SYNC COMPLETE ===")
-    print(f"Added:   {added_clients} clients, {added_mappings} inbound mappings")
-    print(f"Updated: {updated_clients} (email collision, UUID replaced)")
+    print(f"Added:   {added_clients} clients, {added_mappings} inbound mappings, {added_traffics} traffics")
+    print(f"Updated: {updated_clients} clients, {updated_traffics} traffics (enable/expiry)")
     print(f"Skipped: {skipped} (already in clients table)")
     print(f"Total:   {total_clients} clients, {total_mappings} inbound mappings")
 
     db.close()
     return {"added_clients": added_clients, "updated_clients": updated_clients,
-            "added_mappings": added_mappings, "skipped": skipped}
+            "added_mappings": added_mappings, "added_traffics": added_traffics,
+            "updated_traffics": updated_traffics, "skipped": skipped}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,11 +225,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     stats = run_sync()
-    changed = (stats["added_clients"] + stats["updated_clients"] + stats["added_mappings"]) > 0
+    changed = (stats["added_clients"] + stats["updated_clients"] + stats["added_mappings"]
+               + stats.get("added_traffics", 0) + stats.get("updated_traffics", 0)) > 0
     print(f"\nSYNC_RESULT changed={1 if changed else 0} "
           f"added_clients={stats['added_clients']} "
           f"updated_clients={stats['updated_clients']} "
-          f"added_mappings={stats['added_mappings']}")
+          f"added_mappings={stats['added_mappings']} "
+          f"added_traffics={stats.get('added_traffics', 0)} "
+          f"updated_traffics={stats.get('updated_traffics', 0)}")
 
     if changed and args.restart_if_changed:
         print("Table changed + --restart-if-changed: restarting x-ui so xray regenerates config...")
