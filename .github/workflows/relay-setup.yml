@@ -117,6 +117,26 @@ on:
         description: "Prod-only: INSERT a vpn_servers LTE-fleet row from lte_fleet_row_json (id/label/flag/host/panel/inbound/pbk/sni). Runs add_lte_fleet_row.py in the prod container (DATABASE_URL + FIELD_ENCRYPTION_KEY). Idempotent (DELETE+INSERT by id; guards wrong-id clobber)"
         required: false
         default: ""
+      lte_fleet_prep:
+        description: "Prod: repoint a vpn_servers row (id/host/url, preserves encrypted_password) + dump foreign-target Reality keys. Runs lte_fleet_prep.py. Use to repoint id=10 after a Yandex IP swap and fetch Helsinki/LA pbk/sid/sni"
+        required: false
+        default: "false"
+      lte_repoint_id:
+        description: "repoint row id (default 10 = bgg LTE)"
+        required: false
+        default: "10"
+      lte_repoint_host:
+        description: "new server_host (default 84.201.144.227)"
+        required: false
+        default: "84.201.144.227"
+      lte_repoint_url:
+        description: "new panel_url (default https://84.201.144.227:54023/dbf0bfab7261389940a39a79/)"
+        required: false
+        default: "https://84.201.144.227:54023/dbf0bfab7261389940a39a79/"
+      lte_dump_hosts:
+        description: "comma-separated hosts to dump Reality keys for (default Helsinki,LA)"
+        required: false
+        default: "77.221.159.106,216.227.169.120"
 
 concurrency:
   group: relay-setup
@@ -165,6 +185,11 @@ jobs:
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           LTE_FLEET_ROW_JSON: ${{ github.event.inputs.lte_fleet_row || '' }}
+          LTE_FLEET_PREP: ${{ github.event.inputs.lte_fleet_prep || 'false' }}
+          LTE_REPOINT_ID: ${{ github.event.inputs.lte_repoint_id || '10' }}
+          LTE_REPOINT_HOST: ${{ github.event.inputs.lte_repoint_host || '84.201.144.227' }}
+          LTE_REPOINT_URL: ${{ github.event.inputs.lte_repoint_url || 'https://84.201.144.227:54023/dbf0bfab7261389940a39a79/' }}
+          LTE_DUMP_HOSTS: ${{ github.event.inputs.lte_dump_hosts || '77.221.159.106,216.227.169.120' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -178,7 +203,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,LTE_REPOINT_ID,LTE_REPOINT_HOST,LTE_REPOINT_URL,LTE_DUMP_HOSTS,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -433,6 +458,17 @@ jobs:
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL \
                 -e LTE_ROW_JSON="$LTE_FLEET_ROW_JSON" backend python /tmp/add_lte_fleet_row.py 2>&1
               echo "=== LTE FLEET ROW COMPLETE ==="
+            fi
+
+            if [ "$LTE_FLEET_PREP" = "true" ]; then
+              echo "=== LTE FLEET PREP: repoint vpn_servers row + dump foreign Reality keys ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/lte_fleet_prep.py backend:/tmp/lte_fleet_prep.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL \
+                -e REPOINT_ID="$LTE_REPOINT_ID" -e REPOINT_HOST="$LTE_REPOINT_HOST" \
+                -e REPOINT_URL="$LTE_REPOINT_URL" -e DUMP_HOSTS="$LTE_DUMP_HOSTS" \
+                backend python /tmp/lte_fleet_prep.py 2>&1
+              echo "=== LTE FLEET PREP COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
