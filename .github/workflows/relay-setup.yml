@@ -113,6 +113,10 @@ on:
         description: "On ru_egress_panel: ensure xray logs accepted connections (info level + access/error paths), TRUNCATE stale logs, restart x-ui. Diagnostic for stuck logs"
         required: false
         default: "false"
+      lte_fleet_row:
+        description: "Prod-only: INSERT a vpn_servers LTE-fleet row from lte_fleet_row_json (id/label/flag/host/panel/inbound/pbk/sni). Runs add_lte_fleet_row.py in the prod container (DATABASE_URL + FIELD_ENCRYPTION_KEY). Idempotent (DELETE+INSERT by id; guards wrong-id clobber)"
+        required: false
+        default: ""
 
 concurrency:
   group: relay-setup
@@ -160,6 +164,7 @@ jobs:
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
+          LTE_FLEET_ROW_JSON: ${{ github.event.inputs.lte_fleet_row || '' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -173,7 +178,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -419,6 +424,15 @@ jobs:
                   echo "  export FAILED or unexpected output:"; echo "$EXPORTED" ;;
               esac
               echo "=== RU EGRESS REPLICATE COMPLETE ==="
+            fi
+
+            if [ -n "$LTE_FLEET_ROW_JSON" ]; then
+              echo "=== LTE FLEET: insert vpn_servers row from JSON (prod container) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/add_lte_fleet_row.py backend:/tmp/add_lte_fleet_row.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL \
+                -e LTE_ROW_JSON="$LTE_FLEET_ROW_JSON" backend python /tmp/add_lte_fleet_row.py 2>&1
+              echo "=== LTE FLEET ROW COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
