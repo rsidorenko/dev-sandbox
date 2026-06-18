@@ -85,10 +85,10 @@ on:
         description: "On ru_egress_panel: restore the pre-apply xrayTemplateConfig from the backup made by ru_egress_apply"
         required: false
         default: "false"
-      ru_egress_deactivate:
-        description: "In prod container: set vpn_servers id=11 (🇷🇺 Россия 🔄) is_active=FALSE (reversible)"
+      lte_register:
+        description: "Register an LTE entry's relay UUID on a foreign target panel (frankfurt|helsinki|la) in all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs register_relay_uuid.py over SSH (per-entry UUID; best practice)"
         required: false
-        default: "false"
+        default: ""
       ru_egress_repoint:
         description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules"
         required: false
@@ -153,7 +153,7 @@ jobs:
           RU_EGRESS_DUMP: ${{ github.event.inputs.ru_egress_dump || 'false' }}
           RU_EGRESS_APPLY: ${{ github.event.inputs.ru_egress_apply || 'false' }}
           RU_EGRESS_REVERT: ${{ github.event.inputs.ru_egress_revert || 'false' }}
-          RU_EGRESS_DEACTIVATE: ${{ github.event.inputs.ru_egress_deactivate || 'false' }}
+          LTE_REGISTER_JSON: ${{ github.event.inputs.lte_register || '' }}
           RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
@@ -173,7 +173,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,LTE_REGISTER_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -322,12 +322,32 @@ jobs:
               echo "=== UPGRADE PANEL COMPLETE ==="
             fi
 
-            if [ "$RU_EGRESS_DEACTIVATE" = "true" ]; then
-              echo "=== RU EGRESS: deactivate 🇷🇺 id=11 (prod container) ==="
+            if [ -n "$LTE_REGISTER_JSON" ]; then
+              echo "=== LTE REGISTER: relay UUID on foreign target ==="
               cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/manage_ru_egress.py backend:/tmp/mre.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL backend python /tmp/mre.py --mode deactivate 2>&1
-              echo "=== RU EGRESS DEACTIVATE COMPLETE ==="
+              SCRIPT_B64=$(base64 -w0 backend/scripts/register_relay_uuid.py)
+              TARGET=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['target'])")
+              UUID=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['uuid'])")
+              EMAIL=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('email','relay-from-lte'))")
+              INBOUND=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('inbound_id',1))")
+              echo "  target=$TARGET uuid=${UUID:0:8}... email=$EMAIL inbound=$INBOUND"
+              case "$TARGET" in
+                frankfurt)
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  frankfurt FAILED" ;;
+                helsinki)
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  helsinki FAILED" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  la FAILED"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
+              esac
+              echo "=== LTE REGISTER COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_PURGE" = "true" ]; then
