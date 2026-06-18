@@ -34,8 +34,9 @@ async def run():
     conn = await asyncpg.connect(os.environ["DATABASE_URL"])
     try:
         repoint_id = os.environ.get("REPOINT_ID", "10").strip()
-        repoint_host = os.environ.get("REPOINT_HOST", "").strip()
-        repoint_url = os.environ.get("REPOINT_URL", "").strip()
+        repoint_host = os.environ.get("REPOINT_HOST", "84.201.144.227").strip()
+        repoint_url = os.environ.get(
+            "REPOINT_URL", "https://84.201.144.227:54023/dbf0bfab7261389940a39a79/").strip()
         if repoint_id and repoint_host:
             before = await conn.fetchrow(
                 "SELECT id, label, server_host, panel_url, panel_username, inbound_id, "

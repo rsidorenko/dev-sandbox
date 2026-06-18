@@ -77,10 +77,6 @@ on:
         description: "READ-ONLY: dump xrayTemplateConfig (routing/outbounds) + geo files + :443 of ru_egress_panel"
         required: false
         default: "false"
-      ru_egress_register:
-        description: "On the RU relay (89.169.139.153): register the shared relay UUID on its :443 inbound (idempotent)"
-        required: false
-        default: "false"
       ru_egress_apply:
         description: "On ru_egress_panel: MERGE relay-to-russia outbound + RU routing rules into xrayTemplateConfig (backs up, idempotent, restarts x-ui, verifies)"
         required: false
@@ -93,12 +89,8 @@ on:
         description: "In prod container: set vpn_servers id=11 (🇷🇺 Россия 🔄) is_active=FALSE (reversible)"
         required: false
         default: "false"
-      ru_egress_replicate:
-        description: "Export the working ru-relay config from Frankfurt, import it 1:1 onto ru_egress_panel (default helsinki) so it matches exactly (same UUID/rules). No register needed (UUID already on RU relay)"
-        required: false
-        default: "false"
       ru_egress_repoint:
-        description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules. Requires ru_egress_register first"
+        description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules"
         required: false
         default: "false"
       ru_egress_purge:
@@ -118,25 +110,9 @@ on:
         required: false
         default: ""
       lte_fleet_prep:
-        description: "Prod: repoint a vpn_servers row (id/host/url, preserves encrypted_password) + dump foreign-target Reality keys. Runs lte_fleet_prep.py. Use to repoint id=10 after a Yandex IP swap and fetch Helsinki/LA pbk/sid/sni"
+        description: "Prod: repoint id=10 (bgg LTE) server_host/panel_url to its current Yandex IP (hardcoded in lte_fleet_prep.py; preserves encrypted_password) + dump Helsinki/LA Reality keys (pbk/sid/sni). Runs lte_fleet_prep.py"
         required: false
         default: "false"
-      lte_repoint_id:
-        description: "repoint row id (default 10 = bgg LTE)"
-        required: false
-        default: "10"
-      lte_repoint_host:
-        description: "new server_host (default 84.201.144.227)"
-        required: false
-        default: "84.201.144.227"
-      lte_repoint_url:
-        description: "new panel_url (default https://84.201.144.227:54023/dbf0bfab7261389940a39a79/)"
-        required: false
-        default: "https://84.201.144.227:54023/dbf0bfab7261389940a39a79/"
-      lte_dump_hosts:
-        description: "comma-separated hosts to dump Reality keys for (default Helsinki,LA)"
-        required: false
-        default: "77.221.159.106,216.227.169.120"
 
 concurrency:
   group: relay-setup
@@ -175,21 +151,15 @@ jobs:
           UPGRADE_DRY: ${{ github.event.inputs.upgrade_dry || 'false' }}
           RU_EGRESS_PANEL: ${{ github.event.inputs.ru_egress_panel || '' }}
           RU_EGRESS_DUMP: ${{ github.event.inputs.ru_egress_dump || 'false' }}
-          RU_EGRESS_REGISTER: ${{ github.event.inputs.ru_egress_register || 'false' }}
           RU_EGRESS_APPLY: ${{ github.event.inputs.ru_egress_apply || 'false' }}
           RU_EGRESS_REVERT: ${{ github.event.inputs.ru_egress_revert || 'false' }}
           RU_EGRESS_DEACTIVATE: ${{ github.event.inputs.ru_egress_deactivate || 'false' }}
-          RU_EGRESS_REPLICATE: ${{ github.event.inputs.ru_egress_replicate || 'false' }}
           RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           LTE_FLEET_ROW_JSON: ${{ github.event.inputs.lte_fleet_row || '' }}
           LTE_FLEET_PREP: ${{ github.event.inputs.lte_fleet_prep || 'false' }}
-          LTE_REPOINT_ID: ${{ github.event.inputs.lte_repoint_id || '10' }}
-          LTE_REPOINT_HOST: ${{ github.event.inputs.lte_repoint_host || '84.201.144.227' }}
-          LTE_REPOINT_URL: ${{ github.event.inputs.lte_repoint_url || 'https://84.201.144.227:54023/dbf0bfab7261389940a39a79/' }}
-          LTE_DUMP_HOSTS: ${{ github.event.inputs.lte_dump_hosts || '77.221.159.106,216.227.169.120' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -203,7 +173,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_REGISTER,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPLICATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,LTE_REPOINT_ID,LTE_REPOINT_HOST,LTE_REPOINT_URL,LTE_DUMP_HOSTS,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_DEACTIVATE,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -360,17 +330,6 @@ jobs:
               echo "=== RU EGRESS DEACTIVATE COMPLETE ==="
             fi
 
-            if [ "$RU_EGRESS_REGISTER" = "true" ]; then
-              echo "=== RU EGRESS: register relay UUID on RU relay (89.169.139.153) ==="
-              cd /opt/bravada
-              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
-              mkdir -p ~/.ssh
-              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode register-uuid" 2>&1 || echo "  RU relay FAILED"
-              rm -f ~/.ssh/yandex-relay
-              echo "=== RU EGRESS REGISTER COMPLETE ==="
-            fi
-
             if [ "$RU_EGRESS_PURGE" = "true" ]; then
               if [ "$RU_EGRESS_PANEL" = "clean-relay" ]; then
                 RELAY_MODE=clean-relay
@@ -423,34 +382,6 @@ jobs:
               echo "=== RU EGRESS $RU_EGRESS_OP COMPLETE ==="
             fi
 
-            if [ "$RU_EGRESS_REPLICATE" = "true" ]; then
-              echo "=== RU EGRESS: replicate ru-relay Frankfurt -> ${RU_EGRESS_PANEL:-helsinki} ==="
-              cd /opt/bravada
-              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
-              echo "--- export working ru-relay from Frankfurt (77.110.100.210) ---"
-              EXPORTED=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=30 root@77.110.100.210 "echo $SCRIPT_B64 | base64 -d | python3 - --mode export" 2>/dev/null)
-              case "$EXPORTED" in
-                "{"*)
-                  echo "  export OK ($(printf '%s' "$EXPORTED" | wc -c) bytes)"
-                  EXPORTED_B64=$(printf '%s' "$EXPORTED" | base64 -w0)
-                  echo "--- import to ${RU_EGRESS_PANEL:-helsinki} ---"
-                  case "${RU_EGRESS_PANEL:-helsinki}" in
-                    helsinki)
-                      sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=30 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | RU_RELAY_EXPORT=$EXPORTED_B64 python3 - --mode import" 2>&1 || echo "  helsinki import FAILED" ;;
-                    la)
-                      mkdir -p ~/.ssh
-                      printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-                      ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo env RU_RELAY_EXPORT=$EXPORTED_B64 python3 - --mode import" 2>&1 || echo "  la import FAILED"
-                      rm -f ~/.ssh/la-key ;;
-                    *)
-                      echo "  unknown target panel '${RU_EGRESS_PANEL}' (use helsinki|la)" ;;
-                  esac ;;
-                *)
-                  echo "  export FAILED or unexpected output:"; echo "$EXPORTED" ;;
-              esac
-              echo "=== RU EGRESS REPLICATE COMPLETE ==="
-            fi
-
             if [ -n "$LTE_FLEET_ROW_JSON" ]; then
               echo "=== LTE FLEET: insert vpn_servers row from JSON (prod container) ==="
               cd /opt/bravada
@@ -461,12 +392,10 @@ jobs:
             fi
 
             if [ "$LTE_FLEET_PREP" = "true" ]; then
-              echo "=== LTE FLEET PREP: repoint vpn_servers row + dump foreign Reality keys ==="
+              echo "=== LTE FLEET PREP: repoint id=10 + dump foreign Reality keys ==="
               cd /opt/bravada
               docker compose -f docker-compose.prod.yml cp backend/scripts/lte_fleet_prep.py backend:/tmp/lte_fleet_prep.py 2>/dev/null || true
               docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL \
-                -e REPOINT_ID="$LTE_REPOINT_ID" -e REPOINT_HOST="$LTE_REPOINT_HOST" \
-                -e REPOINT_URL="$LTE_REPOINT_URL" -e DUMP_HOSTS="$LTE_DUMP_HOSTS" \
                 backend python /tmp/lte_fleet_prep.py 2>&1
               echo "=== LTE FLEET PREP COMPLETE ==="
             fi
