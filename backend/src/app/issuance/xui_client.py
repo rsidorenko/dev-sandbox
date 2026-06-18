@@ -34,11 +34,14 @@ def _should_verify_ssl() -> bool:
 REALITY_TCP_FLOW = "xtls-rprx-vision"
 
 # Servers that use Vision flow for tcp+Reality (extra DPI resistance for whitelist
-# bypass). Per-server: emitting Vision WITHOUT setting client_inbounds.flow_override
-# to the same value breaks the connection (xray reads flow_override, not clients.flow).
-# To enable on a server: add its id here AND set flow_override=xtls-rprx-vision in
-# client_inbounds for that server's tcp inbound (via the periodic sync or manually).
-_VISION_SERVERS = {10}  # LTE (Yandex Cloud — mobile-jamming whitelist bypass)
+# bypass). These are the LTE entries — whitelisted RU IPs mobile users reach under
+# carrier jamming; Vision masks TLS records against active TSPU probing. Per-server:
+# emitting Vision WITHOUT setting client_inbounds.flow_override to the same value
+# breaks the connection (xray reads flow_override, not clients.flow) — the periodic
+# sync_clients_table.py mirrors flow -> flow_override for these.
+# ids: 10=Франкфурт LTE (bgg/Yandex), 12=ЛА LTE (lla), 13=Хельсинки LTE (lhh),
+# 14=Франкфурт 2 LTE (lff). Each is inserted with its explicit id by add_lte_server_row.
+_VISION_SERVERS = {10, 12, 13, 14}
 
 
 def flow_for_transport(transport_type: str, server_id: int | None = None) -> str:
