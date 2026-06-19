@@ -58,10 +58,10 @@ async def run():
         # music.yandex.ru, rutube.ru, max.ru). Run when SET_LTE_SNI=true.
         if os.environ.get("SET_LTE_SNI", "true") == "true":
             sni_map = {
-                10: ("eh.vk.com", "d5ba"),              # bgg
-                14: ("music.yandex.ru", "d5ba"),        # lff
-                12: ("rutube.ru", "3b7b444fb3"),         # lla
-                13: ("max.ru", "4aabe94ad1279c7f"),      # lhh
+                10: ("yandex.ru", "d5ba"),   # Франкфурт LTE (Yandex 84.201.144.227)
+                14: ("vk.com", "d5ba"),      # Франкфурт 2 LTE (80.78.254.171)
+                12: ("mail.ru", "d5ba"),     # Лос-Анджелес LTE (194.67.120.48)
+                13: ("max.ru", "d5ba"),      # Хельсинки LTE (95.163.223.132)
             }
             for sid_row, (sni, sid) in sni_map.items():
                 await conn.execute(
