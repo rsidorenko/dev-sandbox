@@ -52,6 +52,23 @@ async def run():
         else:
             print("REPOINT skipped (REPOINT_ID/REPOINT_HOST not set)")
 
+        # Apply whitelist-SNI Reality camo to the LTE fleet (DPI disguise: clientHello
+        # SNI = a popular whitelisted domain; fp=firefox). Each LTE row gets one
+        # whitelisted SNI + its shortId (the panels accept all of eh.vk.com,
+        # music.yandex.ru, rutube.ru, max.ru). Run when SET_LTE_SNI=true.
+        if os.environ.get("SET_LTE_SNI", "true") == "true":
+            sni_map = {
+                10: ("eh.vk.com", "d5ba"),              # bgg
+                14: ("music.yandex.ru", "d5ba"),        # lff
+                12: ("rutube.ru", "3b7b444fb3"),         # lla
+                13: ("max.ru", "4aabe94ad1279c7f"),      # lhh
+            }
+            for sid_row, (sni, sid) in sni_map.items():
+                await conn.execute(
+                    "UPDATE vpn_servers SET reality_sni=$1, reality_sid=$2, reality_fp='firefox' "
+                    "WHERE id=$3", sni, sid, sid_row)
+            print(f"LTE fleet reality_sni/sid/fp updated -> firefox + whitelist SNIs ({sni_map})")
+
         dump_hosts = [h.strip() for h in os.environ.get(
             "DUMP_HOSTS", "77.221.159.106,216.227.169.120").split(",") if h.strip()]
         print("\n=== FOREIGN TARGET Reality keys (tcp row) ===")
