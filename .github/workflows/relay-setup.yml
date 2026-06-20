@@ -105,6 +105,10 @@ on:
         description: "Remove a relay UUID from a foreign target panel (frankfurt|helsinki|la) — all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs unregister_relay_uuid.py over SSH. Idempotent"
         required: false
         default: ""
+      vk_tunnel:
+        description: "vk-tunnel LTE entry (84.201.144.227) — whitelist bypass via VK edge. JSON {action,...}. action=setup: SSH setup_vk_tunnel.py (host,user,local_port,ws_path,tunnel_token). action=row: add_vk_tunnel_row.py (inbound_id,panel_url,ws_domain,ws_path,label). action=sync: read /var/lib/vk-tunnel/current-domain -> UPDATE vpn_servers.tls_sni"
+        required: false
+        default: ""
 
 concurrency:
   group: relay-setup
@@ -150,6 +154,7 @@ jobs:
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
+          VK_TUNNEL_JSON: ${{ github.event.inputs.vk_tunnel || '' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -162,7 +167,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -381,6 +386,64 @@ jobs:
                   echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
               esac
               echo "=== RELAY UNREGISTER COMPLETE ==="
+            fi
+
+            if [ -n "$VK_TUNNEL_JSON" ]; then
+              VKT_ACTION=$(printf '%s' "$VK_TUNNEL_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('action',''))")
+              echo "=== VK TUNNEL: action=$VKT_ACTION ==="
+              cd /opt/bravada
+              _vkt_get() { printf '%s' "$VK_TUNNEL_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+              case "$VKT_ACTION" in
+                setup)
+                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
+                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
+                  VKT_LOCAL_PORT=$(_vkt_get local_port); [ -z "$VKT_LOCAL_PORT" ] && VKT_LOCAL_PORT=12345
+                  VKT_WS_PATH=$(_vkt_get ws_path); [ -z "$VKT_WS_PATH" ] && VKT_WS_PATH=/vkt/
+                  VKT_TOKEN=$(_vkt_get tunnel_token)
+                  echo "  host=$VKT_HOST user=$VKT_USER port=$VKT_LOCAL_PORT path=$VKT_WS_PATH token=${VKT_TOKEN:+set}"
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+                  SCRIPT_B64=$(base64 -w0 backend/scripts/setup_vk_tunnel.py)
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay "$VKT_USER@$VKT_HOST" \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env VKT_LOCAL_PORT=$VKT_LOCAL_PORT VKT_WS_PATH=$VKT_WS_PATH VKT_PANEL_PASS='$RELAY_PANEL_PASS' VKT_TUNNEL_TOKEN='$VKT_TOKEN' VKT_SERVER_HOST=$VKT_HOST python3" 2>&1 || echo "  setup FAILED"
+                  rm -f ~/.ssh/yandex-relay
+                  ;;
+                row)
+                  VKT_INBOUND_ID=$(_vkt_get inbound_id)
+                  VKT_PANEL_URL=$(_vkt_get panel_url)
+                  VKT_WS_DOMAIN=$(_vkt_get ws_domain)
+                  VKT_WS_PATH=$(_vkt_get ws_path); [ -z "$VKT_WS_PATH" ] && VKT_WS_PATH=/vkt/
+                  VKT_LABEL=$(_vkt_get label); [ -z "$VKT_LABEL" ] && VKT_LABEL="Россия 📶 VK"
+                  docker compose -f docker-compose.prod.yml cp backend/scripts/add_vk_tunnel_row.py backend:/tmp/add_vk_tunnel_row.py 2>/dev/null || true
+                  docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL \
+                    -e VKT_INBOUND_ID="$VKT_INBOUND_ID" -e VKT_PANEL_URL="$VKT_PANEL_URL" \
+                    -e VKT_PANEL_PASS="$RELAY_PANEL_PASS" -e VKT_WS_DOMAIN="$VKT_WS_DOMAIN" \
+                    -e VKT_WS_PATH="$VKT_WS_PATH" -e VKT_LABEL="$VKT_LABEL" \
+                    backend python /tmp/add_vk_tunnel_row.py 2>&1 || echo "  row FAILED"
+                  ;;
+                sync)
+                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
+                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
+                  echo "  reading current wss domain from $VKT_HOST"
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+                  VKT_DOMAIN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay "$VKT_USER@$VKT_HOST" \
+                    "cat /var/lib/vk-tunnel/current-domain 2>/dev/null" 2>/dev/null | tr -d '[:space:]')
+                  rm -f ~/.ssh/yandex-relay
+                  if [ -z "$VKT_DOMAIN" ]; then
+                    echo "  no current-domain on $VKT_HOST (tunnel down / OAuth pending?) — skipping"
+                  else
+                    echo "  current wss domain: $VKT_DOMAIN"
+                    docker compose -f docker-compose.prod.yml cp backend/scripts/sync_vk_tunnel_domain.py backend:/tmp/sync_vk_tunnel_domain.py 2>/dev/null || true
+                    docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL -e VKT_WS_DOMAIN="$VKT_DOMAIN" -e VKT_HOST="$VKT_HOST" \
+                      backend python /tmp/sync_vk_tunnel_domain.py 2>&1 || echo "  sync FAILED"
+                  fi
+                  ;;
+                *)
+                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync)"
+                  ;;
+              esac
+              echo "=== VK TUNNEL $VKT_ACTION COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
