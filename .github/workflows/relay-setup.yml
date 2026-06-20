@@ -106,7 +106,7 @@ on:
         required: false
         default: ""
       vk_tunnel:
-        description: "vk-tunnel LTE entry (84.201.144.227) — whitelist bypass via VK edge. JSON {action,...}. action=setup: SSH setup_vk_tunnel.py (host,user,local_port,ws_path,tunnel_token). action=start: enable+restart vk-tunnel, dump the OAuth URL from its journal. action=row: add_vk_tunnel_row.py (inbound_id,panel_url,ws_domain,ws_path,label). action=sync: read /var/lib/vk-tunnel/current-domain -> UPDATE vpn_servers.tls_sni"
+        description: "vk-tunnel LTE entry (84.201.144.227) — whitelist bypass via VK edge. JSON {action,...}. action=setup: SSH setup_vk_tunnel.py (host,user,local_port,ws_path,tunnel_token). action=start: enable+restart vk-tunnel, dump the OAuth URL from its journal. action=oauth: stop service + run vk-tunnel once under a PTY to capture the OAuth URL. action=row: add_vk_tunnel_row.py (inbound_id,panel_url,ws_domain,ws_path,label). action=sync: read /var/lib/vk-tunnel/current-domain -> UPDATE vpn_servers.tls_sni"
         required: false
         default: ""
 
@@ -424,6 +424,21 @@ jobs:
                     echo '====== current-domain (empty until OAuth completes) ======'
                     sudo cat /var/lib/vk-tunnel/current-domain 2>/dev/null || echo '(empty — OAuth not completed yet)'
                   " 2>&1 || echo "  start FAILED"
+                  rm -f ~/.ssh/vk-key
+                  ;;
+                oauth)
+                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
+                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
+                  echo "  stopping service + running vk-tunnel ONCE under a PTY to capture the OAuth URL"
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
+                    sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
+                    sudo rm -f /tmp/vkt-oauth.log
+                    sudo timeout 25 script -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log >/dev/null 2>&1 || true
+                    echo "====== vk-tunnel OAuth output (authorization URL + redirect_uri) ======"
+                    sudo cat /tmp/vkt-oauth.log 2>/dev/null | tr -d "\r" | tail -60
+                  ' 2>&1 || echo "  oauth FAILED"
                   rm -f ~/.ssh/vk-key
                   ;;
                 row)
