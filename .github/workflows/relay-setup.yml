@@ -435,7 +435,7 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
                     sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
                     sudo rm -f /tmp/vkt-oauth.log
-                    sudo timeout 360 script -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log || true
+                    (sleep 120; echo; sleep 600) | sudo timeout 600 script -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log || true
                     echo "====== vk-tunnel OAuth output (URL near top; wss://domain if authorized) ======"
                     sudo cat /tmp/vkt-oauth.log 2>/dev/null | tr -d "\r" | tail -50
                   ' 2>&1 || echo "  oauth FAILED"
