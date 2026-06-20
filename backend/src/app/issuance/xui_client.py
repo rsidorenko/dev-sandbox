@@ -33,29 +33,20 @@ def _should_verify_ssl() -> bool:
 # vision is invalid for those transports.
 REALITY_TCP_FLOW = "xtls-rprx-vision"
 
-# Servers that use Vision flow for tcp+Reality (extra DPI resistance for whitelist
-# bypass). These are the LTE entries — whitelisted RU IPs mobile users reach under
-# carrier jamming; Vision masks TLS records against active TSPU probing. Per-server:
-# emitting Vision WITHOUT setting client_inbounds.flow_override to the same value
-# breaks the connection (xray reads flow_override, not clients.flow) — the periodic
-# sync_clients_table.py mirrors flow -> flow_override for these.
-# ids: 10=Франкфурт LTE (bgg/Yandex), 12=ЛА LTE (lla), 13=Хельсинки LTE (lhh),
-# 14=Франкфурт 2 LTE (lff). Each is inserted with its explicit id by add_lte_server_row.
-_VISION_SERVERS = {10, 12, 13, 14}
+# Servers that use Vision flow for tcp+Reality (extra DPI resistance). Empty now —
+# the LTE fleet (the only Vision users, ids 10/12/13/14) was decommissioned. To
+# re-enable on a server: add its id here AND set client_inbounds.flow_override to
+# REALITY_TCP_FLOW on that server (xray reads flow_override, not clients.flow;
+# sync_clients_table.py mirrors flow -> flow_override).
+_VISION_SERVERS: set[int] = set()
 
 
 def flow_for_transport(transport_type: str, server_id: int | None = None) -> str:
     """VLESS flow appropriate for a server's transport.
 
-    LTE (server 10, Yandex Cloud — the mobile whitelist-bypass entry) uses
-    xtls-rprx-vision for extra DPI resistance (per openlibrecommunity's
-    whitelist guide). Vision requires client_inbounds.flow_override to match on
-    the server side (set via the periodic sync or manually).
-
-    Other servers use no-flow: emitting vision without flow_override set broke
-    ALL tcp/Reality connections (xray reads client_inbounds.flow_override, not
-    clients.flow, so vision links mismatched). To enable on a server: add its id
-    to _VISION_SERVERS AND set flow_override on that server.
+    Returns xtls-rprx-vision for tcp+Reality servers listed in _VISION_SERVERS
+    (currently none — the LTE fleet was removed), else an empty flow. Vision
+    requires client_inbounds.flow_override to match on the server side.
     """
     if transport_type == "tcp" and server_id in _VISION_SERVERS:
         return REALITY_TCP_FLOW
