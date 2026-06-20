@@ -21,58 +21,6 @@ on:
         description: "Remove duplicate VLESS clients from 3x-ui panels (fix after botched reissue)"
         required: false
         default: "false"
-      fix_lte:
-        description: "Re-create VLESS clients on LTE servers (10, 12) only"
-        required: false
-        default: "false"
-      run_diag:
-        description: "Run LTE relay chain diagnostic script"
-        required: false
-        default: "false"
-      lte_ssh:
-        description: "SSH to LTE, dump xray config + test Frankfurt connectivity"
-        required: false
-        default: "false"
-      lte_logs:
-        description: "SSH to LTE, dump xray access/error logs + Reality key check"
-        required: false
-        default: "false"
-      fix_lte_relay:
-        description: "Fix LTE relay outbound: remove xtls-rprx-vision flow"
-        required: false
-        default: "false"
-      fix_lte_pbk:
-        description: "Sync vpn_servers.reality_pbk to actual LTE server Reality public key"
-        required: false
-        default: "false"
-      query_frankfurt:
-        description: "Query Frankfurt 8443 xhttp/reality keys for relay config"
-        required: false
-        default: "false"
-      add_frankfurt_relay:
-        description: "Add LTE relay UUID to Frankfurt inbound 2 (8443)"
-        required: false
-        default: "false"
-      add_lte_row:
-        description: "Insert vpn_servers row id=10 for rebuilt LTE"
-        required: false
-        default: "false"
-      check_lte_panel:
-        description: "Check LTE panel stored creds + test login"
-        required: false
-        default: "false"
-      reset_lte_user:
-        description: "Reset LTE panel user via bcrypt in users table"
-        required: false
-        default: "false"
-      debug_lte_addclient:
-        description: "Debug LTE inbound 7 addClient + update (report errors)"
-        required: false
-        default: "false"
-      sync_lte_inbound:
-        description: "Sync LTE inbound 7 clients to user_identities UUIDs (update API)"
-        required: false
-        default: "false"
       diagnose_sub:
         description: "Diagnose why a subscription's keys don't connect (UUID presence per panel)"
         required: false
@@ -90,7 +38,7 @@ on:
         required: false
         default: "false"
       check_all_routing:
-        description: "Check routing rules on Helsinki, LA, LTE, Frankfurt for blackhole bug"
+        description: "Check routing rules on Helsinki, LA, Frankfurt for blackhole bug"
         required: false
         default: "false"
       fix_panel_url:
@@ -164,19 +112,6 @@ jobs:
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
           REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
           CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
-          FIX_LTE: ${{ github.event.inputs.fix_lte || 'false' }}
-          RUN_DIAG: ${{ github.event.inputs.run_diag || 'false' }}
-          LTE_SSH: ${{ github.event.inputs.lte_ssh || 'false' }}
-          LTE_LOGS: ${{ github.event.inputs.lte_logs || 'false' }}
-          FIX_LTE_RELAY: ${{ github.event.inputs.fix_lte_relay || 'false' }}
-          FIX_LTE_PBK: ${{ github.event.inputs.fix_lte_pbk || 'false' }}
-          QUERY_FRANKFURT: ${{ github.event.inputs.query_frankfurt || 'false' }}
-          ADD_FRANKFURT_RELAY: ${{ github.event.inputs.add_frankfurt_relay || 'false' }}
-          ADD_LTE_ROW: ${{ github.event.inputs.add_lte_row || 'false' }}
-          CHECK_LTE_PANEL: ${{ github.event.inputs.check_lte_panel || 'false' }}
-          RESET_LTE_USER: ${{ github.event.inputs.reset_lte_user || 'false' }}
-          DEBUG_LTE_ADDCLIENT: ${{ github.event.inputs.debug_lte_addclient || 'false' }}
-          SYNC_LTE_INBOUND: ${{ github.event.inputs.sync_lte_inbound || 'false' }}
           DIAGNOSE_SUB: ${{ github.event.inputs.diagnose_sub || 'false' }}
           CHECK_BANS: ${{ github.event.inputs.check_bans || 'false' }}
           CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
@@ -187,8 +122,6 @@ jobs:
           REBUILD_CLIENTS: ${{ github.event.inputs.rebuild_clients || 'false' }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
-          LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
-          LTE_PANEL_PASS: ${{ secrets.LTE_PANEL_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
@@ -197,7 +130,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,FIX_LTE,RUN_DIAG,LTE_SSH,LTE_LOGS,FIX_LTE_RELAY,FIX_LTE_PBK,QUERY_FRANKFURT,ADD_FRANKFURT_RELAY,ADD_LTE_ROW,CHECK_LTE_PANEL,RESET_LTE_USER,DEBUG_LTE_ADDCLIENT,SYNC_LTE_INBOUND,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,SYNC_CLIENTS,REBUILD_CLIENTS,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS,LTE_SSH_KEY,LTE_PANEL_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,SYNC_CLIENTS,REBUILD_CLIENTS,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS_KEY,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -543,141 +476,6 @@ jobs:
               echo "=== CLEANUP COMPLETE ==="
             fi
 
-            if [ "$FIX_LTE" = "true" ]; then
-              echo "=== FIX LTE SERVERS (10, 12) ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/fix_lte_servers.py backend:/tmp/fix_lte_servers.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_servers.py 2>&1
-              rm -f /tmp/fix_lte_servers.py
-              echo "=== FIX LTE COMPLETE ==="
-            fi
-
-            if [ "$RUN_DIAG" = "true" ]; then
-              echo "=== LTE RELAY CHAIN DIAGNOSTIC ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/diagnose_lte.py backend:/tmp/diagnose_lte.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/diagnose_lte.py 2>&1
-              rm -f /tmp/diagnose_lte.py
-              echo "=== DIAG COMPLETE ==="
-            fi
-
-            if [ "$LTE_SSH" = "true" ]; then
-              echo "=== LTE SSH DIAGNOSTIC ==="
-              LTE="93.77.188.217"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              echo "--- xray config.json ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "cat /usr/local/x-ui/bin/config.json" 2>&1
-              echo ""
-              echo "--- Frankfurt connectivity from LTE ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/yandex-cloud romtan@${LTE} "for p in 443 2053 8443 10000; do timeout 3 bash -c \"echo > /dev/tcp/77.110.100.210/\$p\" 2>/dev/null && echo \"Frankfurt:\$p REACHABLE\" || echo \"Frankfurt:\$p UNREACHABLE\"; done" 2>&1
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== LTE SSH DIAG COMPLETE ==="
-            fi
-
-            if [ "$LTE_LOGS" = "true" ]; then
-              echo "=== LTE XRAY LOGS + REALITY KEY CHECK ==="
-              LTE="93.77.188.217"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@${LTE} 'echo "=== xray error log (last 30) ==="; sudo tail -30 /var/log/xray-error.log 2>/dev/null || echo "no error log"; echo ""; echo "=== xray access log (last 30) ==="; sudo tail -30 /var/log/xray-access.log 2>/dev/null || echo "no access log"; echo ""; echo "=== Reality key pair (443 inbound) ==="; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(\"privKey:\",s.get(\"realitySettings\",{}).get(\"privateKey\",\"\")[:16]+\"...\") or print(\"pubKey:\",s.get(\"realitySettings\",{}).get(\"publicKey\",\"\") or \"(none)\") for ib in c.get(\"inbounds\",[]) if ib.get(\"port\")==443 for s in [ib]]"; echo ""; echo "=== Relay outbound flow ==="; sudo python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(\"flow:\",repr(u.get(\"flow\",\"\"))) for o in c.get(\"outbounds\",[]) if o.get(\"tag\")==\"relay-to-frankfurt\" for v in o.get(\"settings\",{}).get(\"vnext\",[]) for u in v.get(\"users\",[])]"; echo ""; echo "=== xray process ==="; ps aux | grep xray-linux | grep -v grep | head -1' 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== LTE LOGS COMPLETE ==="
-            fi
-
-            if [ "$FIX_LTE_RELAY" = "true" ]; then
-              echo "=== FIX LTE RELAY: remove xtls-rprx-vision flow from 3x-ui DB ==="
-              LTE="93.77.188.217"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/fix_lte_relay.py romtan@${LTE}:/tmp/fix_lte_relay.py 2>&1 || true
-              echo "--- Fix DB + restart x-ui service ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} 'sudo python3 /tmp/fix_lte_relay.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 5; echo "--- Verify config ---"; sudo grep -A1 "relay-to-frankfurt" /usr/local/x-ui/bin/config.json | grep -E "flow|tag" | head -4; echo "--- Xray running? ---"; pgrep -f xray-linux-amd64 && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/fix_lte_relay.py' 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== FIX LTE RELAY COMPLETE ==="
-            fi
-
-            if [ "$FIX_LTE_PBK" = "true" ]; then
-              echo "=== FIX LTE PBK: sync reality_pbk to server's actual key ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/fix_lte_reality_pbk.py backend:/tmp/fix_lte_reality_pbk.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/fix_lte_reality_pbk.py 2>&1
-              rm -f /tmp/fix_lte_reality_pbk.py
-              echo "=== FIX LTE PBK COMPLETE ==="
-            fi
-
-            if [ "$QUERY_FRANKFURT" = "true" ]; then
-              echo "=== QUERY FRANKFURT REALITY KEYS ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/query_frankfurt_keys.py backend:/tmp/qf.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/qf.py 2>&1
-              rm -f /tmp/qf.py
-              echo "=== QUERY COMPLETE ==="
-            fi
-
-            if [ "$ADD_FRANKFURT_RELAY" = "true" ]; then
-              echo "=== ADD LTE RELAY UUID TO FRANKFURT INBOUND 2 ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/add_frankfurt_relay_client.py backend:/tmp/afr.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/afr.py 2>&1
-              rm -f /tmp/afr.py
-              echo "=== ADD FRANKFURT RELAY COMPLETE ==="
-            fi
-
-            if [ "$ADD_LTE_ROW" = "true" ]; then
-              echo "=== INSERT vpn_servers ROW id=10 ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/add_lte_server_row.py backend:/tmp/alr.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL -e LTE_PANEL_PASS backend python /tmp/alr.py 2>&1
-              rm -f /tmp/alr.py
-              echo "=== ADD LTE ROW COMPLETE ==="
-            fi
-
-            if [ "$CHECK_LTE_PANEL" = "true" ]; then
-              echo "=== CHECK LTE PANEL CREDS + LOGIN ==="
-              LTE="93.77.188.217"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/check_lte_panel_ssh.py romtan@${LTE}:/tmp/check_lte.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/check_lte.py; rm -f /tmp/check_lte.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== CHECK COMPLETE ==="
-            fi
-
-            if [ "$RESET_LTE_USER" = "true" ]; then
-              echo "=== RESET LTE PANEL USER (bcrypt in users table) ==="
-              LTE="93.77.188.217"
-              mkdir -p ~/.ssh
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud
-              chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/reset_lte_panel_user.py romtan@${LTE}:/tmp/reset_lte_user.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-cloud romtan@${LTE} "LTE_PANEL_PASS='$LTE_PANEL_PASS' sudo -E python3 /tmp/reset_lte_user.py; rm -f /tmp/reset_lte_user.py" 2>&1 || true
-              rm -f ~/.ssh/yandex-cloud
-              echo "=== RESET LTE USER COMPLETE ==="
-            fi
-
-            if [ "$DEBUG_LTE_ADDCLIENT" = "true" ]; then
-              echo "=== DEBUG LTE ADD CLIENT ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/debug_lte_addclient.py backend:/tmp/dlac.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dlac.py 2>&1
-              rm -f /tmp/dlac.py
-              echo "=== DEBUG COMPLETE ==="
-            fi
-
-            if [ "$SYNC_LTE_INBOUND" = "true" ]; then
-              echo "=== SYNC LTE INBOUND 7 CLIENTS ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/sync_lte_inbound.py backend:/tmp/sli.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/sli.py 2>&1
-              rm -f /tmp/sli.py
-              echo "=== SYNC COMPLETE ==="
-            fi
-
             if [ "$DIAGNOSE_SUB" = "true" ]; then
               echo "=== DIAGNOSE SUBSCRIPTION ==="
               cd /opt/bravada
@@ -690,7 +488,7 @@ jobs:
             if [ "$CHECK_BANS" = "true" ]; then
               echo "=== CHECK BANS (fail2ban / iptables / xray-rejected) ==="
               # Check VPN servers reachable via SSH keys from runner
-              for spec in "LTE|93.77.188.217|romtan|yandex-cloud|LTE_SSH_KEY" "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
+              for spec in "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
                 IFS='|' read -r name ip user keyfile secret <<< "$spec"
                 echo "--- $name ($ip) ---"
                 mkdir -p ~/.ssh
@@ -737,11 +535,7 @@ jobs:
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
               echo "--- LA (216.227.169.120) ---"
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
-              # LTE (via key)
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              echo "--- LTE (93.77.188.217) ---"
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
-              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud
+              rm -f ~/.ssh/la-key
               echo "=== ALL ROUTING CHECK COMPLETE ==="
             fi
 
@@ -848,11 +642,6 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
               rm -f ~/.ssh/la-key
 
-              echo "  LTE (93.77.188.217)"
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@93.77.188.217:/tmp/sync_clients.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
-              rm -f ~/.ssh/yandex-cloud
 
               echo "--- Step 5: Post-verify ---"
               docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --verify 2>&1
@@ -879,11 +668,6 @@ jobs:
               ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
               rm -f ~/.ssh/la-key
 
-              echo "--- LTE (93.77.188.217) ---"
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-cloud backend/scripts/sync_clients_table.py romtan@93.77.188.217:/tmp/sync_clients.py 2>&1 || true
-              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/yandex-cloud romtan@93.77.188.217 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LTE sync FAILED"
-              rm -f ~/.ssh/yandex-cloud
 
               echo "=== SYNC CLIENTS COMPLETE ==="
             fi
