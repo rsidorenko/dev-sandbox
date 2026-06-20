@@ -18,10 +18,10 @@ from app.shared.test_helpers import run_async as _run
 def _config(inbound_id: int = 7) -> XuiServerConfig:
     return XuiServerConfig(
         server_id=10,
-        label="LTE",
+        label="test-server",
         country_code="DE",
         country_flag="x",
-        server_host="93.77.188.217",
+        server_host="203.0.113.10",
         server_port=443,
         ws_path="/ws",
         tls_sni=None,
