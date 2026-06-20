@@ -7,7 +7,7 @@ name: relay-setup
 # via `docker compose exec backend`.
 #
 # Secrets used: SERVER_HOST/SERVER_USER/SERVER_SSH_KEY (prod), HELSINKI_SSH_PASS,
-# FRANKFURT_SSH_PASS, LA_SSH_KEY, LTE_SSH_KEY, RELAY_SSH_KEY, RELAY_PANEL_PASS,
+# FRANKFURT_SSH_PASS, LA_SSH_KEY, RELAY_SSH_KEY, RELAY_PANEL_PASS,
 # FIELD_ENCRYPTION_KEY.
 
 on:
@@ -62,7 +62,7 @@ on:
         required: false
         default: "false"
       upgrade_panel:
-        description: "Upgrade one 3x-ui panel to latest in place: helsinki | frankfurt | la | lte (backup DB -> official installer -> verify -> rollback on fail)"
+        description: "Upgrade one 3x-ui panel to latest in place: helsinki | frankfurt | la (backup DB -> official installer -> verify -> rollback on fail)"
         required: false
         default: ""
       upgrade_dry:
@@ -85,10 +85,6 @@ on:
         description: "On ru_egress_panel: restore the pre-apply xrayTemplateConfig from the backup made by ru_egress_apply"
         required: false
         default: "false"
-      lte_register:
-        description: "Register an LTE entry's relay UUID on a foreign target panel (frankfurt|helsinki|la) in all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs register_relay_uuid.py over SSH (per-entry UUID; best practice)"
-        required: false
-        default: ""
       ru_egress_repoint:
         description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules"
         required: false
@@ -103,14 +99,6 @@ on:
         default: "false"
       ru_egress_reset_logs:
         description: "On ru_egress_panel: ensure xray logs accepted connections (info level + access/error paths), TRUNCATE stale logs, restart x-ui. Diagnostic for stuck logs"
-        required: false
-        default: "false"
-      lte_fleet_row:
-        description: "Prod-only: INSERT a vpn_servers LTE-fleet row from lte_fleet_row_json (id/label/flag/host/panel/inbound/pbk/sni). Runs add_lte_fleet_row.py in the prod container (DATABASE_URL + FIELD_ENCRYPTION_KEY). Idempotent (DELETE+INSERT by id; guards wrong-id clobber)"
-        required: false
-        default: ""
-      lte_fleet_prep:
-        description: "Prod: repoint id=10 (bgg LTE) server_host/panel_url to its current Yandex IP (hardcoded in lte_fleet_prep.py; preserves encrypted_password) + dump Helsinki/LA Reality keys (pbk/sid/sni). Runs lte_fleet_prep.py"
         required: false
         default: "false"
 
@@ -153,27 +141,23 @@ jobs:
           RU_EGRESS_DUMP: ${{ github.event.inputs.ru_egress_dump || 'false' }}
           RU_EGRESS_APPLY: ${{ github.event.inputs.ru_egress_apply || 'false' }}
           RU_EGRESS_REVERT: ${{ github.event.inputs.ru_egress_revert || 'false' }}
-          LTE_REGISTER_JSON: ${{ github.event.inputs.lte_register || '' }}
           RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
-          LTE_FLEET_ROW_JSON: ${{ github.event.inputs.lte_fleet_row || '' }}
-          LTE_FLEET_PREP: ${{ github.event.inputs.lte_fleet_prep || 'false' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
           HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
           FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
           LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
-          LTE_SSH_KEY: ${{ secrets.LTE_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,LTE_FLEET_ROW_JSON,LTE_FLEET_PREP,LTE_REGISTER_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,LTE_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -279,11 +263,8 @@ jobs:
               mkdir -p ~/.ssh
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
               sync_one "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
-              printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-              sync_one "93.77.188.217" "romtan" "$HOME/.ssh/yandex-cloud"
               printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
               sync_one "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
-              rm -f ~/.ssh/la-key ~/.ssh/yandex-cloud ~/.ssh/yandex-relay
               echo "=== SYNC TABLES COMPLETE ==="
             fi
 
@@ -311,43 +292,10 @@ jobs:
                   printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
                   upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
                   rm -f ~/.ssh/la-key ;;
-                lte)
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$LTE_SSH_KEY" > ~/.ssh/yandex-cloud; chmod 600 ~/.ssh/yandex-cloud
-                  upgrade_panel "93.77.188.217" "romtan" "$HOME/.ssh/yandex-cloud"
-                  rm -f ~/.ssh/yandex-cloud ;;
                 *)
-                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la|lte)" ;;
+                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la)" ;;
               esac
               echo "=== UPGRADE PANEL COMPLETE ==="
-            fi
-
-            if [ -n "$LTE_REGISTER_JSON" ]; then
-              echo "=== LTE REGISTER: relay UUID on foreign target ==="
-              cd /opt/bravada
-              SCRIPT_B64=$(base64 -w0 backend/scripts/register_relay_uuid.py)
-              TARGET=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['target'])")
-              UUID=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['uuid'])")
-              EMAIL=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('email','relay-from-lte'))")
-              INBOUND=$(printf '%s' "$LTE_REGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('inbound_id',1))")
-              echo "  target=$TARGET uuid=${UUID:0:8}... email=$EMAIL inbound=$INBOUND"
-              case "$TARGET" in
-                frankfurt)
-                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 \
-                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  frankfurt FAILED" ;;
-                helsinki)
-                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 \
-                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  helsinki FAILED" ;;
-                la)
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 \
-                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  la FAILED"
-                  rm -f ~/.ssh/la-key ;;
-                *)
-                  echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
-              esac
-              echo "=== LTE REGISTER COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_PURGE" = "true" ]; then
@@ -400,24 +348,6 @@ jobs:
                   echo "  unknown ru_egress_panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la)" ;;
               esac
               echo "=== RU EGRESS $RU_EGRESS_OP COMPLETE ==="
-            fi
-
-            if [ -n "$LTE_FLEET_ROW_JSON" ]; then
-              echo "=== LTE FLEET: insert vpn_servers row from JSON (prod container) ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/add_lte_fleet_row.py backend:/tmp/add_lte_fleet_row.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL \
-                -e LTE_ROW_JSON="$LTE_FLEET_ROW_JSON" backend python /tmp/add_lte_fleet_row.py 2>&1
-              echo "=== LTE FLEET ROW COMPLETE ==="
-            fi
-
-            if [ "$LTE_FLEET_PREP" = "true" ]; then
-              echo "=== LTE FLEET PREP: repoint id=10 + dump foreign Reality keys ==="
-              cd /opt/bravada
-              docker compose -f docker-compose.prod.yml cp backend/scripts/lte_fleet_prep.py backend:/tmp/lte_fleet_prep.py 2>/dev/null || true
-              docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL \
-                backend python /tmp/lte_fleet_prep.py 2>&1
-              echo "=== LTE FLEET PREP COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
