@@ -450,11 +450,10 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
                     sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
                     sudo pkill -f "vk-tunnel --insecure" 2>/dev/null || true
-                    sudo rm -f /tmp/vkt.log
-                    # Detached vk-tunnel under a PTY (so it prints the device-flow URL) with a
-                    # never-EOF stdin (sleep pipe) so its "press ENTER" prompt does not abort on
-                    # EOF and it keeps polling VK until the operator confirms in the browser.
-                    sudo setsid bash -c '"'"'sleep 100000 | script -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt.log'"'"' </dev/null >/dev/null 2>&1 &
+                    sudo rm -f /tmp/vkt.log /tmp/vkt-start.sh
+                    echo "IyEvYmluL2Jhc2gKc2xlZXAgMTAwMDAwIHwgc2NyaXB0IC1xZWMgInZrLXR1bm5lbCAtLWluc2VjdXJlPTEgLS1odHRwLXByb3RvY29sPWh0dHBzIC0td3MtcHJvdG9jb2w9d3NzIC0taG9zdD0xMjcuMC4wLjEgLS1wb3J0PTEyMzQ1IiAvdG1wL3ZrdC5sb2cK" | base64 -d | sudo tee /tmp/vkt-start.sh >/dev/null
+                    sudo chmod +x /tmp/vkt-start.sh
+                    sudo setsid /tmp/vkt-start.sh </dev/null >/dev/null 2>&1 &
                     sleep 12
                     echo "====== OPEN THIS URL, LOG IN TO VK, CONFIRM (vk-tunnel is polling in the background) ======"
                     sudo cat /tmp/vkt.log 2>/dev/null | tr -d "\r" | grep -aoE "https://oauth\.vk\.[a-z]+/code_auth[^ ]*" | head -1
