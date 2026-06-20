@@ -101,6 +101,10 @@ on:
         description: "On ru_egress_panel: ensure xray logs accepted connections (info level + access/error paths), TRUNCATE stale logs, restart x-ui. Diagnostic for stuck logs"
         required: false
         default: "false"
+      relay_unregister:
+        description: "Remove a relay UUID from a foreign target panel (frankfurt|helsinki|la) — all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs unregister_relay_uuid.py over SSH. Idempotent"
+        required: false
+        default: ""
 
 concurrency:
   group: relay-setup
@@ -145,6 +149,7 @@ jobs:
           RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
+          RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -157,7 +162,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -348,6 +353,34 @@ jobs:
                   echo "  unknown ru_egress_panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la)" ;;
               esac
               echo "=== RU EGRESS $RU_EGRESS_OP COMPLETE ==="
+            fi
+
+            if [ -n "$RELAY_UNREGISTER_JSON" ]; then
+              echo "=== RELAY UNREGISTER: remove relay UUID from foreign target ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/unregister_relay_uuid.py)
+              TARGET=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['target'])")
+              UUID=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['uuid'])")
+              EMAIL=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('email',''))")
+              INBOUND=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('inbound_id',1))")
+              echo "  target=$TARGET uuid=${UUID:0:8}... email=$EMAIL inbound=$INBOUND"
+              case "$TARGET" in
+                frankfurt)
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  frankfurt FAILED" ;;
+                helsinki)
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  helsinki FAILED" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  la FAILED"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
+              esac
+              echo "=== RELAY UNREGISTER COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
