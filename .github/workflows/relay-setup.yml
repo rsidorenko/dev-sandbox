@@ -449,9 +449,9 @@ jobs:
                   printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
                     sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
-                    sudo pkill -f "vk-tunnel --insecure" 2>/dev/null || true
-                    sudo rm -f /tmp/vkt.log /tmp/vkt-start.sh
-                    echo "IyEvYmluL2Jhc2gKc2xlZXAgMTAwMDAwIHwgc2NyaXB0IC1xZWMgInZrLXR1bm5lbCAtLWluc2VjdXJlPTEgLS1odHRwLXByb3RvY29sPWh0dHBzIC0td3MtcHJvdG9jb2w9d3NzIC0taG9zdD0xMjcuMC4wLjEgLS1wb3J0PTEyMzQ1IiAvdG1wL3ZrdC5sb2cK" | base64 -d | sudo tee /tmp/vkt-start.sh >/dev/null
+                    if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
+                    sudo rm -f /tmp/vkt.log /tmp/vkt-start.sh /tmp/vkt-start.pid
+                    echo "IyEvYmluL2Jhc2gKZWNobyAkJCA+IC90bXAvdmt0LXN0YXJ0LnBpZApzbGVlcCAxMDAwMDAgfCBzY3JpcHQgLXFlYyAidmstdHVubmVsIC0taW5zZWN1cmU9MSAtLWh0dHAtcHJvdG9jb2w9aHR0cHMgLS13cy1wcm90b2NvbD13c3MgLS1ob3N0PTEyNy4wLjEuMSAtLXBvcnQ9MTIzNDUiIC90bXAvdmt0LmxvZwo=" | base64 -d | sudo tee /tmp/vkt-start.sh >/dev/null
                     sudo chmod +x /tmp/vkt-start.sh
                     sudo setsid /tmp/vkt-start.sh </dev/null >/dev/null 2>&1 &
                     sleep 12
@@ -471,8 +471,8 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
                     echo "=== bg vk-tunnel log tail (look for wss:// + Tunnel ready) ==="
                     sudo cat /tmp/vkt.log 2>/dev/null | tr -d "\r" | tail -25
-                    echo "=== kill bg, enable+start systemd service (uses cached session) ==="
-                    sudo pkill -f "vk-tunnel --insecure" 2>/dev/null || true
+                    echo "=== kill bg poller (PID group), enable+start systemd service (uses cached session) ==="
+                    if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
                     sudo systemctl enable vk-tunnel 2>&1 | tail -1
                     sudo systemctl restart vk-tunnel
                     sleep 13
