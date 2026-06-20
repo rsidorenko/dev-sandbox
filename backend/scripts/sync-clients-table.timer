@@ -1,6 +1,6 @@
 [Unit]
 Description=Periodically sync the 3x-ui v3 clients table (desync prevention)
-Documentation=https://github.com/rsidorenko/startprojectformillion backend/scripts/sync_clients_table.py
+Documentation=https://github.com/rsidorenko/dev-sandbox backend/scripts/sync_clients_table.py
 
 [Timer]
 # First run ~2 min after boot, then every 5 minutes. x-ui restart happens only

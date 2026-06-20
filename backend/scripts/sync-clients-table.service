@@ -1,6 +1,6 @@
 [Unit]
 Description=Sync 3x-ui inbounds.settings clients into the v3 clients table (desync fix)
-Documentation=https://github.com/rsidorenko/startprojectformillion backend/scripts/sync_clients_table.py
+Documentation=https://github.com/rsidorenko/dev-sandbox backend/scripts/sync_clients_table.py
 After=x-ui.service network-online.target
 Wants=network-online.target
 

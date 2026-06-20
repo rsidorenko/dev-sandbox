@@ -10,7 +10,7 @@ source of truth — this file provides workflow rules and context, not a substit
 
 **TelegramBotVPN** (branded "Bravada VPN") is a production Telegram bot + web backend for selling and managing VPN subscriptions via VLESS/Reality protocol through 3x-ui panels.
 
-- **GitHub remote:** `https://github.com/rsidorenko/startprojectformillion.git` (remote name: `origin`)
+- **GitHub remote:** `https://github.com/rsidorenko/dev-sandbox.git` (remote name: `origin`)
 - **Local path:** `D:\TelegramBotVPN`
 - **Primary language:** Python 3.12+
 - **Runtime stack:** httpx, starlette/uvicorn, asyncpg (PostgreSQL), Telegram Bot API (polling + webhook)
@@ -231,7 +231,7 @@ Return a concise delivery report using the format below. Do not invent output, c
 
 ## GitHub and CI workflow
 
-**Repository:** `rsidorenko/startprojectformillion` on GitHub (remote `origin`)
+**Repository:** `rsidorenko/dev-sandbox` on GitHub (remote `origin`)
 
 **Useful commands:**
 ```bash
