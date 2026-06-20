@@ -155,6 +155,7 @@ jobs:
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
           VK_TUNNEL_JSON: ${{ github.event.inputs.vk_tunnel || '' }}
+          VK_SSH_KEY: ${{ secrets.VK_SSH_KEY }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -167,7 +168,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,VK_SSH_KEY,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -402,11 +403,11 @@ jobs:
                   VKT_TOKEN=$(_vkt_get tunnel_token)
                   echo "  host=$VKT_HOST user=$VKT_USER port=$VKT_LOCAL_PORT path=$VKT_WS_PATH token=${VKT_TOKEN:+set}"
                   mkdir -p ~/.ssh
-                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
                   SCRIPT_B64=$(base64 -w0 backend/scripts/setup_vk_tunnel.py)
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay "$VKT_USER@$VKT_HOST" \
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" \
                     "echo $SCRIPT_B64 | base64 -d | sudo env VKT_LOCAL_PORT=$VKT_LOCAL_PORT VKT_WS_PATH=$VKT_WS_PATH VKT_PANEL_PASS='$RELAY_PANEL_PASS' VKT_TUNNEL_TOKEN='$VKT_TOKEN' VKT_SERVER_HOST=$VKT_HOST python3" 2>&1 || echo "  setup FAILED"
-                  rm -f ~/.ssh/yandex-relay
+                  rm -f ~/.ssh/vk-key
                   ;;
                 row)
                   VKT_INBOUND_ID=$(_vkt_get inbound_id)
@@ -426,10 +427,10 @@ jobs:
                   VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
                   echo "  reading current wss domain from $VKT_HOST"
                   mkdir -p ~/.ssh
-                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
-                  VKT_DOMAIN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay "$VKT_USER@$VKT_HOST" \
+                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
+                  VKT_DOMAIN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" \
                     "cat /var/lib/vk-tunnel/current-domain 2>/dev/null" 2>/dev/null | tr -d '[:space:]')
-                  rm -f ~/.ssh/yandex-relay
+                  rm -f ~/.ssh/vk-key
                   if [ -z "$VKT_DOMAIN" ]; then
                     echo "  no current-domain on $VKT_HOST (tunnel down / OAuth pending?) — skipping"
                   else
