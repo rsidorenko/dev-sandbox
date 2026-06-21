@@ -1,0 +1,14 @@
+[Unit]
+Description=Periodically re-provision active users (enable/expiry desync auto-heal)
+Documentation=https://github.com/rsidorenko/dev-sandbox backend/scripts/reprovision_active.py
+
+[Timer]
+# First run ~3 min after the timer activates, then every 30 min. The service does
+# idempotent API upserts with NO xray restart, so runs are non-disruptive even
+# under load. Heals the renewal→panel-expiry desync within ~30 min.
+OnBootSec=3min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

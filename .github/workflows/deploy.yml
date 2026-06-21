@@ -730,3 +730,6 @@ jobs:
             docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/panel_diag.py 2>&1 || echo "  Panel diagnostic failed"
             rm -f /tmp/panel_diag.py
             echo "=== PANEL DIAGNOSTIC COMPLETE ==="
+
+            echo "=== Install/refresh reprovision-active timer (enable/expiry desync auto-heal, every 30 min, no xray restart) ==="
+            bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true

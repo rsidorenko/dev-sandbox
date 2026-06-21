@@ -1,0 +1,34 @@
+name: reprovision-active
+
+# MANUAL one-off sweep (workflow_dispatch): re-provision every active user's VLESS
+# keys on all panels (enable=True + correct expiry). Use for an immediate heal
+# without waiting for the on-server systemd timer (reprovision-active.timer on
+# PROD, every 30 min, installed by install_reprovision_timer.sh via deploy.yml).
+#
+# The recurring prevention is the on-server timer (not a GitHub cron) — keeps it
+# server-side, free, non-disruptive (no xray restart).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reprovision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Re-provision active users on all panels (manual sweep)
+        uses: appleboy/ssh-action@v1
+        env:
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 12m
+          envs: FIELD_ENCRYPTION_KEY
+          script: |
+            set -e
+            cd /opt/bravada
+            docker compose -f docker-compose.prod.yml cp backend/scripts/reprovision_active.py backend:/tmp/reprovision_active.py 2>/dev/null || true
+            docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/reprovision_active.py 2>&1
