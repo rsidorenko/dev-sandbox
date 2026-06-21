@@ -11,4 +11,4 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Copy the current script into the backend container, then run it there (the
 # container has DATABASE_URL + FIELD_ENCRYPTION_KEY). Idempotent upserts, no xray
 # restart -> connected users feel nothing; steady-state runs are cheap no-ops.
-ExecStart=/bin/bash -c '/usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml cp /opt/bravada/backend/scripts/reprovision_active.py backend:/tmp/reprovision_active.py && /usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml exec -T backend python /tmp/reprovision_active.py'
+ExecStart=/bin/bash -c '/usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml cp /opt/bravada/backend/scripts/reprovision_active.py backend:/tmp/reprovision_active.py && /usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml cp /opt/bravada/backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py && /usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml exec -T backend python /tmp/reprovision_active.py'
