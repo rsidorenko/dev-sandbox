@@ -437,7 +437,7 @@ jobs:
                     sudo pkill -9 -x node 2>/dev/null || true
                     if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
                     sudo rm -f /tmp/vkt-oauth.log /tmp/vkt.log /tmp/vkt-start.pid /tmp/vkt-start.sh
-                    sudo timeout 600 script -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log || true
+                    sudo timeout 600 script -f -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log || true
                     echo "====== vk-tunnel OAuth output (URL near top; wss://domain if authorized) ======"
                     sudo cat /tmp/vkt-oauth.log 2>/dev/null | tr -d "\r" | tail -50
                   ' 2>&1 || echo "  oauth FAILED"
