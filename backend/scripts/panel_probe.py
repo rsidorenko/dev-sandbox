@@ -148,3 +148,19 @@ for db in ("/etc/x-ui/x-ui.db", "/usr/local/x-ui/x-ui.db", "/usr/local/x-ui/bin/
 
 print("\n===== xray =====")
 print(run("ps -ef | grep '[x]ray'").strip() or "(not running)")
+
+# sync-clients-table timer — does it actually restart x-ui often? (the question)
+# Restarts are change-gated (--restart-if-changed); steady state = 0 restarts.
+print("\n===== sync-clients-table timer — actual restart frequency =====")
+print("timer is-active :", run("systemctl is-active sync-clients-table.timer 2>/dev/null").strip())
+print("timer is-enabled:", run("systemctl is-enabled sync-clients-table.timer 2>/dev/null").strip())
+runs_24h = run('journalctl -u sync-clients-table.service --since "24 hours ago" --no-pager 2>/dev/null | grep -c "SYNC_RESULT"').strip()
+restarts_24h = run('journalctl -u sync-clients-table.service --since "24 hours ago" --no-pager 2>/dev/null | grep -c "restarting x-ui"').strip()
+print(f"service runs in last 24h   : {runs_24h}")
+print(f"x-ui RESTARTS in last 24h  : {restarts_24h}  <- change-gated; 0 = steady state, no disruption")
+print("--- last 10 SYNC_RESULT lines (changed=0 means no-op, no restart) ---")
+print(run('journalctl -u sync-clients-table.service --no-pager 2>/dev/null | grep "SYNC_RESULT" | tail -10').strip()
+      or "(no SYNC_RESULT lines — timer never ran here?)")
+print("--- last restart event(s) with timestamp (if any) ---")
+print(run('journalctl -u sync-clients-table.service --no-pager 2>/dev/null | grep -E "restarting x-ui|Table changed" | tail -8').strip()
+      or "(no restarts logged — timer has never restarted x-ui on this panel)")
