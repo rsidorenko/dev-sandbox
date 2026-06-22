@@ -522,8 +522,18 @@ jobs:
                       backend python /tmp/sync_vk_tunnel_domain.py 2>&1 || echo "  sync FAILED"
                   fi
                   ;;
+                cleanup)
+                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
+                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
+                  echo "  cleaning vk-tunnel leftovers on $VKT_HOST"
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
+                  SCRIPT_B64=$(base64 -w0 backend/scripts/cleanup_vktunnel.sh)
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" "echo $SCRIPT_B64 | base64 -d | sudo bash" 2>&1 || echo "  cleanup FAILED"
+                  rm -f ~/.ssh/vk-key
+                  ;;
                 *)
-                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync)"
+                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync|cleanup)"
                   ;;
               esac
               echo "=== VK TUNNEL $VKT_ACTION COMPLETE ==="
