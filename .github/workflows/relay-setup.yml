@@ -522,8 +522,32 @@ jobs:
                       backend python /tmp/sync_vk_tunnel_domain.py 2>&1 || echo "  sync FAILED"
                   fi
                   ;;
+                cleanup)
+                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
+                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
+                  echo "  cleaning vk-tunnel leftovers on $VKT_HOST"
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
+                  CLEANUP=$(cat <<'CLEANUP_EOF'
+systemctl disable --now vk-tunnel 2>/dev/null || true
+rm -f /etc/systemd/system/vk-tunnel.service
+systemctl daemon-reload 2>/dev/null || true
+DB=$(for p in /etc/x-ui/x-ui.db /usr/local/x-ui/x-ui.db /usr/local/x-ui/bin/x-ui.db /opt/x-ui/x-ui.db; do [ -f "$p" ] && echo "$p" && break; done)
+if [ -n "$DB" ]; then
+  sqlite3 "$DB" "DELETE FROM inbounds WHERE tag='in-vk-tunnel-ws' OR port=12345 OR remark='VK-Tunnel-WS';" 2>/dev/null && echo "  removed vk-tunnel inbound from $DB"
+fi
+rm -rf /var/lib/vk-tunnel
+rm -f /usr/local/bin/vk-tunnel-domain.sh /etc/cron.d/vk-tunnel-domain
+npm uninstall -g @vkontakte/vk-tunnel 2>/dev/null || true
+x-ui restart 2>/dev/null || systemctl restart x-ui 2>/dev/null || true
+echo "vk-tunnel cleanup done"
+CLEANUP_EOF
+)
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" "echo $(printf '%s' "$CLEANUP" | base64 -w0) | base64 -d | sudo bash" 2>&1 || echo "  cleanup FAILED"
+                  rm -f ~/.ssh/vk-key
+                  ;;
                 *)
-                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync)"
+                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync|cleanup)"
                   ;;
               esac
               echo "=== VK TUNNEL $VKT_ACTION COMPLETE ==="
