@@ -142,6 +142,34 @@ def panel_url(db_path: str) -> str:
     return f"https://{host}:{port}/{base}/" if base else f"https://{host}:{port}/"
 
 
+def open_firewall_port() -> None:
+    """Open the origin port in the host firewall so the MWS edge can reach it.
+
+    Tries ufw (typical on 3x-ui Debian), falls back to iptables. The MWS edge
+    connects from the internet, so the port must be publicly reachable — a
+    timeout (vs connection-refused) means a firewall DROP.
+    """
+    print(f"\n=== Open firewall port {MWS_PORT}/tcp ===")
+    r = run(f"ufw status 2>/dev/null", check=False)
+    ufw_active = "Status: active" in r.stdout
+    if ufw_active:
+        run(f"ufw allow {MWS_PORT}/tcp", check=False)
+        chk = run(f"ufw status | grep -E '{MWS_PORT}'", check=False)
+        print(f"  ufw active -> allowed {MWS_PORT}/tcp: {chk.stdout.strip() or '(check ufw status)'}")
+    else:
+        # ufw inactive or absent -> ensure iptables INPUT accept (idempotent)
+        run(
+            f"iptables -C INPUT -p tcp --dport {MWS_PORT} -j ACCEPT 2>/dev/null || "
+            f"iptables -I INPUT -p tcp --dport {MWS_PORT} -j ACCEPT",
+            check=False,
+        )
+        print(f"  ufw inactive -> iptables INPUT accept for {MWS_PORT}/tcp ensured")
+    print(
+        "  NOTE: if still unreachable, check the hosting provider's security group "
+        "/ cloud firewall (separate from the host firewall)."
+    )
+
+
 def restart_xui() -> None:
     run("x-ui restart 2>/dev/null || systemctl restart x-ui 2>/dev/null || true", check=False)
     # confirm xray is up
@@ -159,6 +187,8 @@ def main() -> None:
     print("\n=== Create VLESS+WS origin inbound (+ test client) ===")
     inbound_id = create_inbound_with_test_client(db_path)
     print(f"inbound id={inbound_id} port={MWS_PORT} path={MWS_PATH} test_uuid={TEST_UUID}")
+
+    open_firewall_port()
 
     print("\n=== Restart x-ui ===")
     restart_xui()
