@@ -109,6 +109,10 @@ on:
         description: "vk-tunnel LTE entry (84.201.144.227) — whitelist bypass via VK edge. JSON {action,...}. action=setup: SSH setup_vk_tunnel.py (host,user,local_port,ws_path,tunnel_token). action=start: enable+restart vk-tunnel, dump the OAuth URL from its journal. action=oauth: stop service + run vk-tunnel once under a PTY to capture the OAuth URL. action=oauth-bg: launch vk-tunnel DETACHED (PTY) for device-flow polling + return the code_auth URL. action=oauth-finish: after operator confirms — kill bg, start systemd service, report current-domain. action=row: add_vk_tunnel_row.py (inbound_id,panel_url,ws_domain,ws_path,label). action=sync: read /var/lib/vk-tunnel/current-domain -> UPDATE vpn_servers.tls_sni"
         required: false
         default: ""
+      mws:
+        description: "MWS (МТС Web Services) CDN-front entry: VLESS+WS origin behind the MWS edge (AS8359 МТС, candidate whitelisted during ЧС). JSON {action,...}. action=setup: create WS origin inbound on Frankfurt 3x-ui (host/port/ws_path/hostname/test_uuid). action=row: add_mws_row.py (inbound_id, hostname, ws_path, label) — copies Frankfurt panel creds."
+        required: false
+        default: ""
 
 concurrency:
   group: relay-setup
@@ -155,6 +159,7 @@ jobs:
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
           VK_TUNNEL_JSON: ${{ github.event.inputs.vk_tunnel || '' }}
+          MWS_JSON: ${{ github.event.inputs.mws || '' }}
           VK_SSH_KEY: ${{ secrets.VK_SSH_KEY }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
@@ -168,7 +173,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,VK_SSH_KEY,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,MWS_JSON,VK_SSH_KEY,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -522,6 +527,43 @@ jobs:
                   ;;
               esac
               echo "=== VK TUNNEL $VKT_ACTION COMPLETE ==="
+            fi
+
+            if [ -n "$MWS_JSON" ]; then
+              MWS_ACTION=$(printf '%s' "$MWS_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('action',''))")
+              echo "=== MWS CDN: action=$MWS_ACTION ==="
+              cd /opt/bravada
+              _mws_get() { printf '%s' "$MWS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+              case "$MWS_ACTION" in
+                setup)
+                  MWS_HOST=$(_mws_get host); [ -z "$MWS_HOST" ] && MWS_HOST=77.110.100.210
+                  MWS_PORT=$(_mws_get port); [ -z "$MWS_PORT" ] && MWS_PORT=20999
+                  MWS_PATH=$(_mws_get ws_path); [ -z "$MWS_PATH" ] && MWS_PATH=/mws
+                  MWS_HOSTNAME=$(_mws_get hostname)
+                  MWS_TEST_UUID=$(_mws_get test_uuid)
+                  echo "  origin=$MWS_HOST port=$MWS_PORT path=$MWS_PATH hostname=$MWS_HOSTNAME"
+                  SCRIPT_B64=$(base64 -w0 backend/scripts/setup_mws_origin.py)
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@"$MWS_HOST" \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env MWS_PORT=$MWS_PORT MWS_PATH='$MWS_PATH' MWS_HOSTNAME='$MWS_HOSTNAME' MWS_TEST_UUID='$MWS_TEST_UUID' MWS_PANEL_HOST=$MWS_HOST python3" 2>&1 || echo "  mws setup FAILED"
+                  ;;
+                row)
+                  MWS_HOSTNAME=$(_mws_get hostname)
+                  MWS_INBOUND_ID=$(_mws_get inbound_id)
+                  MWS_WS_PATH=$(_mws_get ws_path); [ -z "$MWS_WS_PATH" ] && MWS_WS_PATH=/mws
+                  MWS_LABEL=$(_mws_get label)
+                  MWS_ORIGIN_PANEL_HOST=$(_mws_get origin_panel_host); [ -z "$MWS_ORIGIN_PANEL_HOST" ] && MWS_ORIGIN_PANEL_HOST=77.110.100.210
+                  docker compose -f docker-compose.prod.yml cp backend/scripts/add_mws_row.py backend:/tmp/add_mws_row.py 2>/dev/null || true
+                  docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL \
+                    -e MWS_HOSTNAME="$MWS_HOSTNAME" -e MWS_INBOUND_ID="$MWS_INBOUND_ID" \
+                    -e MWS_WS_PATH="$MWS_WS_PATH" -e MWS_LABEL="$MWS_LABEL" \
+                    -e MWS_ORIGIN_PANEL_HOST="$MWS_ORIGIN_PANEL_HOST" \
+                    backend python /tmp/add_mws_row.py 2>&1 || echo "  mws row FAILED"
+                  ;;
+                *)
+                  echo "  unknown mws action='$MWS_ACTION' (use setup|row)"
+                  ;;
+              esac
+              echo "=== MWS $MWS_ACTION COMPLETE ==="
             fi
 
             if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
