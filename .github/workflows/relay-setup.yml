@@ -105,10 +105,6 @@ on:
         description: "Remove a relay UUID from a foreign target panel (frankfurt|helsinki|la) — all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs unregister_relay_uuid.py over SSH. Idempotent"
         required: false
         default: ""
-      vk_tunnel:
-        description: "vk-tunnel LTE entry (84.201.144.227) — whitelist bypass via VK edge. JSON {action,...}. action=setup: SSH setup_vk_tunnel.py (host,user,local_port,ws_path,tunnel_token). action=start: enable+restart vk-tunnel, dump the OAuth URL from its journal. action=oauth: stop service + run vk-tunnel once under a PTY to capture the OAuth URL. action=oauth-bg: launch vk-tunnel DETACHED (PTY) for device-flow polling + return the code_auth URL. action=oauth-finish: after operator confirms — kill bg, start systemd service, report current-domain. action=row: add_vk_tunnel_row.py (inbound_id,panel_url,ws_domain,ws_path,label). action=sync: read /var/lib/vk-tunnel/current-domain -> UPDATE vpn_servers.tls_sni"
-        required: false
-        default: ""
       mws:
         description: "MWS (МТС Web Services) CDN-front entry: VLESS+WS origin behind the MWS edge (AS8359 МТС, candidate whitelisted during ЧС). JSON {action,...}. action=setup: create WS origin inbound on Frankfurt 3x-ui (host/port/ws_path/hostname/test_uuid). action=row: add_mws_row.py (inbound_id, hostname, ws_path, label) — copies Frankfurt panel creds."
         required: false
@@ -158,9 +154,7 @@ jobs:
           RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
           RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
           RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
-          VK_TUNNEL_JSON: ${{ github.event.inputs.vk_tunnel || '' }}
           MWS_JSON: ${{ github.event.inputs.mws || '' }}
-          VK_SSH_KEY: ${{ secrets.VK_SSH_KEY }}
           PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
           RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
@@ -173,7 +167,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,VK_TUNNEL_JSON,MWS_JSON,VK_SSH_KEY,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,MWS_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
           script: |
             set -e
             cd /opt/bravada
@@ -392,151 +386,6 @@ jobs:
                   echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
               esac
               echo "=== RELAY UNREGISTER COMPLETE ==="
-            fi
-
-            if [ -n "$VK_TUNNEL_JSON" ]; then
-              VKT_ACTION=$(printf '%s' "$VK_TUNNEL_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('action',''))")
-              echo "=== VK TUNNEL: action=$VKT_ACTION ==="
-              cd /opt/bravada
-              _vkt_get() { printf '%s' "$VK_TUNNEL_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
-              case "$VKT_ACTION" in
-                setup)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  VKT_LOCAL_PORT=$(_vkt_get local_port); [ -z "$VKT_LOCAL_PORT" ] && VKT_LOCAL_PORT=12345
-                  VKT_WS_PATH=$(_vkt_get ws_path); [ -z "$VKT_WS_PATH" ] && VKT_WS_PATH=/vkt/
-                  VKT_TOKEN=$(_vkt_get tunnel_token)
-                  echo "  host=$VKT_HOST user=$VKT_USER port=$VKT_LOCAL_PORT path=$VKT_WS_PATH token=${VKT_TOKEN:+set}"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  SCRIPT_B64=$(base64 -w0 backend/scripts/setup_vk_tunnel.py)
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" \
-                    "echo $SCRIPT_B64 | base64 -d | sudo env VKT_LOCAL_PORT=$VKT_LOCAL_PORT VKT_WS_PATH=$VKT_WS_PATH VKT_PANEL_PASS='$RELAY_PANEL_PASS' VKT_TUNNEL_TOKEN='$VKT_TOKEN' VKT_SERVER_HOST=$VKT_HOST python3" 2>&1 || echo "  setup FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                start)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  enabling + starting vk-tunnel on $VKT_HOST (surfaces the OAuth URL)"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" "
-                    sudo systemctl enable vk-tunnel 2>&1 | tail -1
-                    sudo systemctl restart vk-tunnel
-                    sleep 15
-                    echo '====== VK-TUNNEL JOURNAL — OAuth authorization URL ======'
-                    sudo journalctl -u vk-tunnel -n 150 --no-pager 2>&1 | grep -aiE 'http|oauth|vk\.com|authoriz|token|wss|tunnel|error|invalid' | tail -45
-                    echo '====== current-domain (empty until OAuth completes) ======'
-                    sudo cat /var/lib/vk-tunnel/current-domain 2>/dev/null || echo '(empty — OAuth not completed yet)'
-                  " 2>&1 || echo "  start FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                oauth)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  stopping service + running vk-tunnel FOREGROUND (360s, live) — it prints the device-flow URL, then polls VK while you authorize"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
-                    sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
-                    sudo pkill -9 -x node 2>/dev/null || true
-                    if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
-                    sudo rm -f /tmp/vkt-oauth.log /tmp/vkt.log /tmp/vkt-start.pid /tmp/vkt-start.sh
-                    sudo timeout 600 script -f -qec "vk-tunnel --insecure=1 --http-protocol=https --ws-protocol=wss --host=127.0.0.1 --port=12345" /tmp/vkt-oauth.log || true
-                    echo "====== vk-tunnel OAuth output (URL near top; wss://domain if authorized) ======"
-                    sudo cat /tmp/vkt-oauth.log 2>/dev/null | tr -d "\r" | tail -50
-                  ' 2>&1 || echo "  oauth FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                oauth-bg)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  launching vk-tunnel DETACHED (PTY) for VK device-flow polling; returns the code_auth URL"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
-                    sudo systemctl disable --now vk-tunnel 2>&1 | tail -1
-                    if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
-                    sudo rm -f /tmp/vkt.log /tmp/vkt-start.sh /tmp/vkt-start.pid
-                    echo "IyEvYmluL2Jhc2gKZWNobyAkJCA+IC90bXAvdmt0LXN0YXJ0LnBpZApzbGVlcCAxMDAwMDAgfCBzY3JpcHQgLXFlYyAidmstdHVubmVsIC0taW5zZWN1cmU9MSAtLWh0dHAtcHJvdG9jb2w9aHR0cHMgLS13cy1wcm90b2NvbD13c3MgLS1ob3N0PTEyNy4wLjEuMSAtLXBvcnQ9MTIzNDUiIC90bXAvdmt0LmxvZwo=" | base64 -d | sudo tee /tmp/vkt-start.sh >/dev/null
-                    sudo chmod +x /tmp/vkt-start.sh
-                    sudo setsid /tmp/vkt-start.sh </dev/null >/dev/null 2>&1 &
-                    sleep 12
-                    echo "====== OPEN THIS URL, LOG IN TO VK, CONFIRM (vk-tunnel is polling in the background) ======"
-                    sudo cat /tmp/vkt.log 2>/dev/null | tr -d "\r" | grep -aoE "https://oauth\.vk\.[a-z]+/code_auth[^ ]*" | head -1
-                    echo "====== /tmp/vkt.log tail ======"
-                    sudo cat /tmp/vkt.log 2>/dev/null | tr -d "\r" | tail -6
-                  ' 2>&1 || echo "  oauth-bg FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                oauth-finish)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  finishing OAuth: dump bg log, kill bg, start systemd service, prime extractor"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" '
-                    echo "=== bg vk-tunnel log tail (look for wss:// + Tunnel ready) ==="
-                    sudo cat /tmp/vkt.log 2>/dev/null | tr -d "\r" | tail -25
-                    echo "=== kill bg poller (PID group), enable+start systemd service (uses cached session) ==="
-                    if [ -f /tmp/vkt-start.pid ]; then sudo kill -- -$(cat /tmp/vkt-start.pid) 2>/dev/null || true; fi
-                    sudo systemctl enable vk-tunnel 2>&1 | tail -1
-                    sudo systemctl restart vk-tunnel
-                    sleep 13
-                    sudo /usr/local/bin/vk-tunnel-domain.sh 2>/dev/null || true
-                    echo "=== service is-active + current-domain + journal tail ==="
-                    sudo systemctl is-active vk-tunnel
-                    sudo cat /var/lib/vk-tunnel/current-domain 2>/dev/null || echo "(empty)"
-                    sudo journalctl -u vk-tunnel -n 25 --no-pager 2>&1 | tr -d "\r" | tail -18
-                  ' 2>&1 || echo "  oauth-finish FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                row)
-                  VKT_INBOUND_ID=$(_vkt_get inbound_id)
-                  VKT_PANEL_URL=$(_vkt_get panel_url)
-                  VKT_WS_DOMAIN=$(_vkt_get ws_domain)
-                  VKT_WS_PATH=$(_vkt_get ws_path); [ -z "$VKT_WS_PATH" ] && VKT_WS_PATH=/vkt/
-                  VKT_LABEL=$(_vkt_get label); [ -z "$VKT_LABEL" ] && VKT_LABEL="Россия 📶 VK"
-                  docker compose -f docker-compose.prod.yml cp backend/scripts/add_vk_tunnel_row.py backend:/tmp/add_vk_tunnel_row.py 2>/dev/null || true
-                  docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL \
-                    -e VKT_INBOUND_ID="$VKT_INBOUND_ID" -e VKT_PANEL_URL="$VKT_PANEL_URL" \
-                    -e VKT_PANEL_PASS="$RELAY_PANEL_PASS" -e VKT_WS_DOMAIN="$VKT_WS_DOMAIN" \
-                    -e VKT_WS_PATH="$VKT_WS_PATH" -e VKT_LABEL="$VKT_LABEL" \
-                    backend python /tmp/add_vk_tunnel_row.py 2>&1 || echo "  row FAILED"
-                  ;;
-                sync)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  reading current wss domain from $VKT_HOST"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  VKT_DOMAIN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" \
-                    "cat /var/lib/vk-tunnel/current-domain 2>/dev/null" 2>/dev/null | tr -d '[:space:]')
-                  rm -f ~/.ssh/vk-key
-                  if [ -z "$VKT_DOMAIN" ]; then
-                    echo "  no current-domain on $VKT_HOST (tunnel down / OAuth pending?) — skipping"
-                  else
-                    echo "  current wss domain: $VKT_DOMAIN"
-                    docker compose -f docker-compose.prod.yml cp backend/scripts/sync_vk_tunnel_domain.py backend:/tmp/sync_vk_tunnel_domain.py 2>/dev/null || true
-                    docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL -e VKT_WS_DOMAIN="$VKT_DOMAIN" -e VKT_HOST="$VKT_HOST" \
-                      backend python /tmp/sync_vk_tunnel_domain.py 2>&1 || echo "  sync FAILED"
-                  fi
-                  ;;
-                cleanup)
-                  VKT_HOST=$(_vkt_get host); [ -z "$VKT_HOST" ] && VKT_HOST=84.201.144.227
-                  VKT_USER=$(_vkt_get user); [ -z "$VKT_USER" ] && VKT_USER=romtan
-                  echo "  cleaning vk-tunnel leftovers on $VKT_HOST"
-                  mkdir -p ~/.ssh
-                  printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
-                  SCRIPT_B64=$(base64 -w0 backend/scripts/cleanup_vktunnel.sh)
-                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/vk-key "$VKT_USER@$VKT_HOST" "echo $SCRIPT_B64 | base64 -d | sudo bash" 2>&1 || echo "  cleanup FAILED"
-                  rm -f ~/.ssh/vk-key
-                  ;;
-                *)
-                  echo "  unknown vk_tunnel action='$VKT_ACTION' (use setup|row|sync|cleanup)"
-                  ;;
-              esac
-              echo "=== VK TUNNEL $VKT_ACTION COMPLETE ==="
             fi
 
             if [ -n "$MWS_JSON" ]; then
