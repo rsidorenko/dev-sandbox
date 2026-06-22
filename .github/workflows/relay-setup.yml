@@ -541,10 +541,11 @@ jobs:
                   MWS_PATH=$(_mws_get ws_path); [ -z "$MWS_PATH" ] && MWS_PATH=/mws
                   MWS_HOSTNAME=$(_mws_get hostname)
                   MWS_TEST_UUID=$(_mws_get test_uuid)
-                  echo "  origin=$MWS_HOST port=$MWS_PORT path=$MWS_PATH hostname=$MWS_HOSTNAME"
+                  MWS_NETWORK=$(_mws_get network); [ -z "$MWS_NETWORK" ] && MWS_NETWORK=xhttp
+                  echo "  origin=$MWS_HOST port=$MWS_PORT path=$MWS_PATH network=$MWS_NETWORK hostname=$MWS_HOSTNAME"
                   SCRIPT_B64=$(base64 -w0 backend/scripts/setup_mws_origin.py)
                   sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@"$MWS_HOST" \
-                    "echo $SCRIPT_B64 | base64 -d | sudo env MWS_PORT=$MWS_PORT MWS_PATH='$MWS_PATH' MWS_HOSTNAME='$MWS_HOSTNAME' MWS_TEST_UUID='$MWS_TEST_UUID' MWS_PANEL_HOST=$MWS_HOST python3" 2>&1 || echo "  mws setup FAILED"
+                    "echo $SCRIPT_B64 | base64 -d | sudo env MWS_PORT=$MWS_PORT MWS_PATH='$MWS_PATH' MWS_NETWORK=$MWS_NETWORK MWS_HOSTNAME='$MWS_HOSTNAME' MWS_TEST_UUID='$MWS_TEST_UUID' MWS_PANEL_HOST=$MWS_HOST python3" 2>&1 || echo "  mws setup FAILED"
                   ;;
                 row)
                   MWS_HOSTNAME=$(_mws_get hostname)

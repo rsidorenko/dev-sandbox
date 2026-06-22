@@ -42,7 +42,11 @@ DB_CANDIDATES = [
 
 MWS_PORT = int(os.environ.get("MWS_PORT", "20999"))
 MWS_PATH = os.environ.get("MWS_PATH", "/mws")
-INBOUND_TAG = "in-mws-ws"
+# Origin transport: "xhttp" (CDN-friendly plain HTTP — works through CDNs that
+# don't support WebSocket, like MWS) or "ws" (needs a CDN with a WS toggle, like
+# EdgeCenter/Cloudflare). MWS has no WS support -> default xhttp.
+MWS_NETWORK = os.environ.get("MWS_NETWORK", "xhttp")
+INBOUND_TAG = "in-mws-origin"
 TEST_UUID = os.environ.get("MWS_TEST_UUID") or str(uuid.uuid4())
 
 
@@ -65,23 +69,41 @@ def find_db() -> str | None:
     return line[0] if line else None
 
 
-def ws_inbound_stream_settings() -> str:
-    """3x-ui streamSettings JSON for the VLESS+WS origin inbound. Pure (unit-testable).
+def origin_stream_settings(network: str = MWS_NETWORK) -> str:
+    """3x-ui streamSettings JSON for the origin inbound. Pure (unit-testable).
 
-    security:none because the MWS edge terminates TLS to the client and forwards
-    plain WS here. Clients still use security=tls in their link (to the MWS
-    hostname); the mismatch is intended — MWS bridges it.
+    security:none — the CDN edge terminates TLS to the client and forwards plain
+    traffic here. Clients still use security=tls in their link (to the CDN
+    hostname); the CDN bridges the TLS.
+
+    network:
+      "xhttp" — CDN-friendly plain HTTP (works through CDNs with NO WebSocket
+                support, like MWS). Default.
+      "ws"    — WebSocket (needs a CDN with a WS toggle: EdgeCenter/Cloudflare).
     """
+    if network == "ws":
+        return json.dumps({
+            "network": "ws",
+            "security": "none",
+            "externalProxy": [],
+            "wsSettings": {
+                "acceptProxyProtocol": False,
+                "path": MWS_PATH,
+                "host": "",
+                "headers": {},
+                "heartbeatPeriod": 0,
+            },
+        })
+    # xhttp (default) — plain HTTP, no WS upgrade
     return json.dumps({
-        "network": "ws",
+        "network": "xhttp",
         "security": "none",
         "externalProxy": [],
-        "wsSettings": {
-            "acceptProxyProtocol": False,
+        "xhttpSettings": {
             "path": MWS_PATH,
             "host": "",
-            "headers": {},
-            "heartbeatPeriod": 0,
+            "mode": "auto",
+            "extra": {},
         },
     })
 
@@ -103,7 +125,7 @@ def create_inbound_with_test_client(db_path: str) -> int:
         "subId": "",
     }
     settings = json.dumps({"clients": [client], "decryption": "none", "fallbacks": []})
-    stream = ws_inbound_stream_settings()
+    stream = origin_stream_settings(MWS_NETWORK)
     sniffing = json.dumps({
         "enabled": True,
         "destOverride": ["http", "tls", "quic"],
@@ -184,7 +206,7 @@ def main() -> None:
         sys.exit(1)
     print(f"3x-ui DB: {db_path}")
 
-    print("\n=== Create VLESS+WS origin inbound (+ test client) ===")
+    print(f"\n=== Create VLESS+{MWS_NETWORK.upper()} origin inbound (+ test client) ===")
     inbound_id = create_inbound_with_test_client(db_path)
     print(f"inbound id={inbound_id} port={MWS_PORT} path={MWS_PATH} test_uuid={TEST_UUID}")
 
@@ -196,11 +218,18 @@ def main() -> None:
     url = panel_url(db_path)
     hostname = os.environ.get("MWS_HOSTNAME", "MWS_HOSTNAME")
     path_clean = MWS_PATH.strip("/")
-    test_link = (
-        f"vless://{TEST_UUID}@{hostname}:443"
-        f"?security=tls&type=ws&path=%2F{path_clean}"
-        f"&host={hostname}&sni={hostname}&fp=chrome#MWS-test"
-    )
+    if MWS_NETWORK == "ws":
+        test_link = (
+            f"vless://{TEST_UUID}@{hostname}:443"
+            f"?security=tls&type=ws&path=%2F{path_clean}"
+            f"&host={hostname}&sni={hostname}&fp=chrome#MWS-test"
+        )
+    else:
+        test_link = (
+            f"vless://{TEST_UUID}@{hostname}:443"
+            f"?security=tls&type=xhttp&path=%2F{path_clean}"
+            f"&host={hostname}&sni={hostname}&fp=chrome&mode=auto#MWS-test"
+        )
 
     print("\n" + "=" * 60)
     print("SETUP SUMMARY")
