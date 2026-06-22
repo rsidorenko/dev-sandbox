@@ -25,11 +25,11 @@ from app.issuance.vless_provider import (
     VlessUserConfig,
 )
 from app.issuance.xui_client import (
+    REALITY_TCP_FLOW,
     XuiApiClient,
     XuiClientResult,
     XuiOutcome,
     XuiServerConfig,
-    flow_for_transport,
 )
 from app.security.field_encryption import decrypt_field
 from app.shared.site_url import get_site_base_url
@@ -166,10 +166,16 @@ def _build_vless_link(
             f"#{label}"
         )
 
-    # Default: TCP + Reality. Vision flow is appended for servers in _VISION_SERVERS
-    # (LTE only — extra DPI resistance for whitelist bypass; see flow_for_transport).
-    flow = flow_for_transport("tcp", server.server_id)
-    flow_seg = f"&flow={flow}" if flow else ""
+    # Default: TCP + Reality. 3x-ui serves reality+tcp clients with the
+    # xtls-rprx-vision flow (the panel's reality+tcp default — the bot's empty-flow
+    # upsert does NOT override it on v3 panels). The link MUST carry the matching
+    # flow or the reality handshake silently hangs. A link/server flow mismatch is
+    # exactly what took every 1.0 (tcp/Reality) key down across all panels on
+    # 2026-06-22: the link emitted no flow while the server kept vision. (The
+    # 2026-06-14 "revert vision — broke tcp/Reality" was the inverse mismatch: the
+    # server was no-flow then. Vision is the only valid flow for tcp+Reality and
+    # also resists active DPI probing — see REALITY_TCP_FLOW.)
+    flow_seg = f"&flow={REALITY_TCP_FLOW}"
     return (
         f"vless://{user_uuid}@{host}:{port}"
         f"?type=tcp&security=reality"
