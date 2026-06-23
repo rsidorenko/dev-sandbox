@@ -40,7 +40,16 @@ def _update(
 class FakeTelegramPollingClient:
     """In-memory double: records sends; optional fetch queue."""
 
-    __slots__ = ("_fetch_queue", "fetch_calls", "last_fetch_limit", "send_calls", "send_fail")
+    __slots__ = (
+        "_fetch_queue",
+        "delete_calls",
+        "fetch_calls",
+        "last_fetch_limit",
+        "media_calls",
+        "media_fail_remaining",
+        "send_calls",
+        "send_fail",
+    )
 
     def __init__(self, fetch_queue: list[dict[str, object]] | None = None) -> None:
         self._fetch_queue = list(fetch_queue or ())
@@ -48,6 +57,10 @@ class FakeTelegramPollingClient:
         self.last_fetch_limit: int | None = None
         self.send_calls: list[tuple[int, str, str]] = []
         self.send_fail = False
+        # Media send recording + controlled failure for fallback tests.
+        self.media_calls: list[dict[str, object]] = []
+        self.media_fail_remaining = 0
+        self.delete_calls: list[tuple[int, int]] = []
 
     async def fetch_updates(self, *, limit: int):
         self.fetch_calls += 1
@@ -74,12 +87,13 @@ class FakeTelegramPollingClient:
         chat_id: int,
         video_path: str,
         *,
-        correlation_id: str,
         caption: str | None = None,
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
-        return 1
+        return await self._record_media(
+            "video", chat_id, video_path, caption=caption, reply_markup=reply_markup, parse_mode=parse_mode
+        )
 
     async def send_photo(
         self,
@@ -90,7 +104,9 @@ class FakeTelegramPollingClient:
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
-        return 1
+        return await self._record_media(
+            "photo", chat_id, photo_path, caption=caption, reply_markup=reply_markup, parse_mode=parse_mode
+        )
 
     async def send_document(
         self,
@@ -101,13 +117,40 @@ class FakeTelegramPollingClient:
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
+        return await self._record_media(
+            "document", chat_id, document_path, caption=caption, reply_markup=reply_markup, parse_mode=parse_mode
+        )
+
+    async def _record_media(
+        self,
+        method: str,
+        chat_id: int,
+        path: str,
+        *,
+        caption: str | None,
+        reply_markup,
+        parse_mode: str | None,
+    ) -> int:
+        if self.media_fail_remaining > 0:
+            self.media_fail_remaining -= 1
+            raise RuntimeError(f"{method} send failed (simulated)")
+        self.media_calls.append(
+            {
+                "method": method,
+                "chat_id": chat_id,
+                "path": path,
+                "caption": caption,
+                "reply_markup": reply_markup,
+                "parse_mode": parse_mode,
+            }
+        )
         return 1
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
         pass
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
-        pass
+        self.delete_calls.append((chat_id, message_id))
 
     async def edit_message_text(
         self,
@@ -206,6 +249,140 @@ def test_send_failure_does_not_abort_batch() -> None:
         assert r.send_count == 0
         assert r.send_failure_count == 1
         assert r.processing_failure_count == 0
+
+    _run(main())
+
+
+def _callback_update(
+    *,
+    data: str,
+    user_id: int = 42,
+    origin_message_id: int = 100,
+    update_id: int = 7,
+) -> dict[str, object]:
+    """A callback_query update whose origin message is (user_id, origin_message_id)."""
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": "cq_1",
+            "from": {"id": user_id, "is_bot": False, "first_name": "U"},
+            "message": {
+                "message_id": origin_message_id,
+                "date": 1,
+                "chat": {"id": user_id, "type": "private"},
+                "from": {"id": 1, "is_bot": True, "first_name": "Bot"},
+                "text": "previous step",
+            },
+            "data": data,
+        },
+    }
+
+
+def _patch_media_resolvable(monkeypatch) -> None:
+    """Force the connection-step media file to resolve so process_batch takes the media
+    branch, independent of whether the large media binaries are present in the env."""
+    import os as _os
+
+    import app.runtime.polling as pr
+
+    real_isfile = _os.path.isfile
+
+    def _fake_isfile(path: object) -> bool:
+        if isinstance(path, str) and "karing_windows_x64.exe" in path:
+            return True
+        return real_isfile(path)
+
+    monkeypatch.setattr(pr.os.path, "isfile", _fake_isfile)
+
+
+def _register_user(rt: Slice1PollingRuntime) -> object:
+    return rt.process_batch(
+        [_update(update_id=1, message=_base_message(text="/start"))],
+        correlation_id=new_correlation_id(),
+    )
+
+
+def test_connect_step_sends_media_with_caption_in_one_message(monkeypatch) -> None:
+    """A connection step is delivered as ONE message: media + caption (step text) +
+    navigation keyboard; the previous step's message is deleted so old media does not
+    pile up in chat history."""
+    _patch_media_resolvable(monkeypatch)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        client = FakeTelegramPollingClient()
+        rt = Slice1PollingRuntime(c, client)
+        await _register_user(rt)
+        client.send_calls.clear()
+
+        cb = _callback_update(data="connect_win", update_id=2)
+        r = await rt.process_batch([cb], correlation_id=new_correlation_id())
+
+        assert r.send_count == 1
+        # Exactly one media message; no separate text follow-up.
+        assert len(client.media_calls) == 1
+        media = client.media_calls[0]
+        assert media["method"] == "document"
+        assert media["caption"]  # step text attached as caption
+        assert media["reply_markup"] is not None  # nav keyboard on the media message
+        assert media["parse_mode"] == "HTML"
+        assert client.send_calls == []
+        # Previous step's message deleted -> old media removed from history.
+        assert client.delete_calls == [(42, 100)]
+
+    _run(main())
+
+
+def test_connect_step_retries_media_without_parse_mode_on_caption_error(monkeypatch) -> None:
+    """If the captioned media send fails (e.g. Telegram rejects HTML in the caption),
+    retry the SAME media send WITHOUT parse_mode so media + caption stay in one message
+    instead of dropping the media entirely."""
+    _patch_media_resolvable(monkeypatch)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        client = FakeTelegramPollingClient()
+        client.media_fail_remaining = 1  # first (captioned) send fails; retry succeeds
+        rt = Slice1PollingRuntime(c, client)
+        await _register_user(rt)
+        client.send_calls.clear()
+
+        cb = _callback_update(data="connect_win", update_id=2)
+        r = await rt.process_batch([cb], correlation_id=new_correlation_id())
+
+        assert r.send_count == 1
+        # Media still delivered in one message, caption preserved, formatting dropped.
+        assert len(client.media_calls) == 1
+        media = client.media_calls[0]
+        assert media["method"] == "document"
+        assert media["caption"]
+        assert media["parse_mode"] is None
+        assert client.send_calls == []  # no text-only fallback
+
+    _run(main())
+
+
+def test_connect_step_falls_back_to_text_when_media_unsendable(monkeypatch) -> None:
+    """When the media itself cannot be sent (both media attempts fail), deliver a
+    text-only step so the user still sees the instructions."""
+    _patch_media_resolvable(monkeypatch)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        client = FakeTelegramPollingClient()
+        client.media_fail_remaining = 2  # both captioned and plain media sends fail
+        rt = Slice1PollingRuntime(c, client)
+        await _register_user(rt)
+        client.send_calls.clear()
+
+        cb = _callback_update(data="connect_win", update_id=2)
+        r = await rt.process_batch([cb], correlation_id=new_correlation_id())
+
+        assert r.send_count == 1
+        # No media delivered; a single text-only message carries the step text.
+        assert client.media_calls == []
+        assert len(client.send_calls) == 1
+        assert client.send_calls[0][0] == 42
 
     _run(main())
 

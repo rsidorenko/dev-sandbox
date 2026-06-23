@@ -38,6 +38,7 @@ export function Header() {
   const links = [
     { href: "/#how-it-works", label: "Как это работает" },
     { href: "/#tariffs", label: "Тарифы" },
+    { href: "/instructions", label: "Инструкция по подключению" },
     { href: "/#faq", label: "FAQ" },
     { href: "/contacts", label: "Контакты" },
   ];

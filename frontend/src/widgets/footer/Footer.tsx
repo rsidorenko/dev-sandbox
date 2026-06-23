@@ -34,6 +34,12 @@ export function Footer() {
               >
                 FAQ
               </Link>
+              <Link
+                href="/instructions"
+                className="text-sm text-gray-500 transition hover:text-brand-600 dark:text-gray-400 dark:hover:text-brand-400"
+              >
+                Инструкция по подключению
+              </Link>
             </nav>
           </div>
 
