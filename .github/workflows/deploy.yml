@@ -162,6 +162,11 @@ jobs:
             docker compose -f docker-compose.prod.yml build --no-cache
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate || docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
+            # Reclaim build cache left behind by the --no-cache build above (grows
+            # ~GBs per deploy otherwise). Safe here: images are already built and
+            # containers are up, so cache is no longer needed. Guarded so a prune
+            # hiccup can never abort the deploy.
+            docker builder prune -f || echo "  builder prune: skipped (non-fatal)"
             echo "Deploy complete: $(date)"
 
             if [ "$RUN_HARDENING" = "true" ]; then
