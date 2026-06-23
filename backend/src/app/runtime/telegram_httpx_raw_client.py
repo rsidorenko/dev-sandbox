@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -19,6 +20,23 @@ from app.runtime.polling_policy import (
 
 _DEFAULT_OWNED_ASYNC_CLIENT_TIMEOUT = httpx.Timeout(35.0)
 _MEDIA_UPLOAD_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
+
+
+def _multipart_form_fields(body: Mapping[str, Any]) -> dict[str, Any]:
+    """Build form fields for a multipart upload.
+
+    Multipart form values must be primitives; a nested ``reply_markup`` dict would make
+    httpx raise ``TypeError: Invalid type for value ... got <class 'dict'>``. Telegram
+    expects complex fields (``reply_markup``) as a JSON-serialized string in multipart
+    form data, so we JSON-encode any non-primitive value here.
+    """
+    out: dict[str, Any] = {}
+    for key, value in body.items():
+        if isinstance(value, str | int | float | bool) or value is None:
+            out[key] = value
+        else:
+            out[key] = json.dumps(value, ensure_ascii=False)
+    return out
 
 
 def _default_base_url(bot_token: str) -> str:
@@ -154,6 +172,7 @@ class HttpxTelegramRawPollingClient:
         response = await self._client.post(f"{self._base}sendMessage", json=body, **post_kw)
         if response.status_code >= 400:
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "sendMessage failed status=%s body=%s", response.status_code, response.text[:500]
             )
@@ -237,10 +256,16 @@ class HttpxTelegramRawPollingClient:
             response = await self._client.post(f"{self._base}sendVideo", json=body, **post_kw)
         else:
             td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            post_kw = (
+                _httpx_post_timeout_kwargs(td)
+                if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE
+                else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            )
             with open(video_path, "rb") as vf:
                 files = {"video": (video_path.rsplit("/", 1)[-1], vf, "video/mp4")}
-                response = await self._client.post(f"{self._base}sendVideo", data=body, files=files, **post_kw)
+                response = await self._client.post(
+                    f"{self._base}sendVideo", data=_multipart_form_fields(body), files=files, **post_kw
+                )
 
         response.raise_for_status()
         result_data = _parse_json_object(response)
@@ -285,10 +310,16 @@ class HttpxTelegramRawPollingClient:
             response = await self._client.post(f"{self._base}sendPhoto", json=body, **post_kw)
         else:
             td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            post_kw = (
+                _httpx_post_timeout_kwargs(td)
+                if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE
+                else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            )
             with open(photo_path, "rb") as pf:
                 files = {"photo": (photo_path.rsplit("/", 1)[-1], pf, "image/jpeg")}
-                response = await self._client.post(f"{self._base}sendPhoto", data=body, files=files, **post_kw)
+                response = await self._client.post(
+                    f"{self._base}sendPhoto", data=_multipart_form_fields(body), files=files, **post_kw
+                )
 
         response.raise_for_status()
         result_data = _parse_json_object(response)
@@ -334,10 +365,16 @@ class HttpxTelegramRawPollingClient:
             response = await self._client.post(f"{self._base}sendDocument", json=body, **post_kw)
         else:
             td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
-            post_kw = _httpx_post_timeout_kwargs(td) if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            post_kw = (
+                _httpx_post_timeout_kwargs(td)
+                if td.mode == OVERRIDE_HTTPX_TIMEOUT_MODE
+                else {"timeout": _MEDIA_UPLOAD_TIMEOUT}
+            )
             with open(document_path, "rb") as df:
                 files = {"document": (document_path.rsplit("/", 1)[-1], df, "application/octet-stream")}
-                response = await self._client.post(f"{self._base}sendDocument", data=body, files=files, **post_kw)
+                response = await self._client.post(
+                    f"{self._base}sendDocument", data=_multipart_form_fields(body), files=files, **post_kw
+                )
 
         response.raise_for_status()
         result_data = _parse_json_object(response)
