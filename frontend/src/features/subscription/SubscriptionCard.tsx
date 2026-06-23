@@ -235,6 +235,13 @@ export function SubscriptionCard({
               </button>
             </div>
 
+            <Link
+              href="/instructions"
+              className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-200 dark:hover:bg-zinc-700/50"
+            >
+              Инструкция по подключению
+            </Link>
+
             <div className="text-center">
               <button
                 onClick={() => setShowCancelConfirm(true)}

@@ -1,7 +1,10 @@
+import Link from "next/link";
+
 type Step = {
   step: number;
   title: string;
   description: string;
+  link?: { href: string; label: string };
 };
 
 type Props = {
@@ -33,6 +36,14 @@ export function HowItWorks({ steps }: Props) {
               <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
                 {s.description}
               </p>
+              {s.link && (
+                <Link
+                  href={s.link.href}
+                  className="mt-3 inline-block text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
+                >
+                  {s.link.label}
+                </Link>
+              )}
               {s.step < steps.length && (
                 <div className="absolute right-0 top-7 hidden h-0.5 w-1/2 translate-x-1/2 bg-brand-100 dark:bg-brand-900/40 lg:block" />
               )}
