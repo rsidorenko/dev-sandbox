@@ -26,6 +26,33 @@ def _should_verify_ssl() -> bool:
     return raw not in ("0", "false", "no")
 
 
+# VLESS flow for TCP+Reality. xtls-rprx-vision is the ONLY valid flow and is what
+# lets Reality-TCP resist active DPI probing on foreign IPs (a no-flow Reality-TCP
+# config gets fingerprinted and blocked at the RU border; the TLS/ws and RU-IP
+# entries evade DPI by other means). ws/grpc/xhttp/cdn MUST use an empty flow —
+# vision is invalid for those transports.
+REALITY_TCP_FLOW = "xtls-rprx-vision"
+
+# Servers that use Vision flow for tcp+Reality (extra DPI resistance). Empty now —
+# the LTE fleet (the only Vision users, ids 10/12/13/14) was decommissioned. To
+# re-enable on a server: add its id here AND set client_inbounds.flow_override to
+# REALITY_TCP_FLOW on that server (xray reads flow_override, not clients.flow;
+# sync_clients_table.py mirrors flow -> flow_override).
+_VISION_SERVERS: set[int] = set()
+
+
+def flow_for_transport(transport_type: str, server_id: int | None = None) -> str:
+    """VLESS flow appropriate for a server's transport.
+
+    Returns xtls-rprx-vision for tcp+Reality servers listed in _VISION_SERVERS
+    (currently none — the LTE fleet was removed), else an empty flow. Vision
+    requires client_inbounds.flow_override to match on the server side.
+    """
+    if transport_type == "tcp" and server_id in _VISION_SERVERS:
+        return REALITY_TCP_FLOW
+    return ""
+
+
 class XuiOutcome(StrEnum):
     SUCCESS = "success"
     UNAUTHORIZED = "unauthorized"
@@ -123,6 +150,10 @@ class XuiApiClient:
                 if resp.status_code == 200:
                     self._last_login_ts = time.monotonic()
                     return True
+                _LOGGER.warning(
+                    "xui api_token auth failed server=%s url=%s status=%s",
+                    self._config.server_id, self._base, resp.status_code,
+                )
                 return False
             # Establish session cookie
             await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
@@ -158,9 +189,21 @@ class XuiApiClient:
                     self._last_login_ts = time.monotonic()
                     self._csrf_token = csrf_token
                     return True
+                _LOGGER.warning(
+                    "xui login rejected server=%s url=%s msg=%s",
+                    self._config.server_id, self._base, body.get("msg", "unknown"),
+                )
+            else:
+                _LOGGER.warning(
+                    "xui login http error server=%s url=%s status=%s",
+                    self._config.server_id, self._base, resp.status_code,
+                )
             return False
         except Exception:
-            _LOGGER.debug("xui login failed for server %s", self._config.server_id, exc_info=True)
+            _LOGGER.warning(
+                "xui login exception server=%s url=%s",
+                self._config.server_id, self._base, exc_info=True,
+            )
             return False
 
     async def _ensure_session(self) -> bool:
@@ -185,7 +228,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "xtls-rprx-vision" if self._config.transport_type == "tcp" else "",
+            "flow": flow_for_transport(self._config.transport_type, self._config.server_id),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
@@ -232,7 +275,7 @@ class XuiApiClient:
             "email": email,
             "enable": enable,
             "expiryTime": expiry_ts,
-            "flow": "xtls-rprx-vision" if self._config.transport_type == "tcp" else "",
+            "flow": flow_for_transport(self._config.transport_type, self._config.server_id),
             "limitIp": limit_ip,
             "totalGB": 0,
             "tgId": "",
@@ -250,12 +293,20 @@ class XuiApiClient:
         )
 
     async def delete_client(self, *, user_uuid: str) -> XuiClientResult:
-        return await self._do_client_op(
+        # v3 panels lack delClient — go straight to read-modify-write
+        if self._v3_mode:
+            return await self._delete_client_via_update(user_uuid)
+        result = await self._do_client_op(
             "POST",
             f"{self._base}/panel/api/inbounds/{self._config.inbound_id}/delClient/{user_uuid}",
             None,
             user_uuid=user_uuid,
         )
+        if result.outcome != XuiOutcome.NOT_FOUND:
+            return result
+        # Fallback: v3+ panels lack delClient — use read-modify-write via update
+        self._v3_mode = True
+        return await self._delete_client_via_update(user_uuid)
 
     async def disable_client(self, *, user_uuid: str, email: str, expiry_ts: int, limit_ip: int = 0) -> XuiClientResult:
         return await self.update_client(
@@ -322,8 +373,9 @@ class XuiApiClient:
             _LOGGER.debug("get_inbound failed server=%s", self._config.server_id, exc_info=True)
         return None
 
-    async def _add_client_via_update(self, client_settings: dict) -> XuiClientResult:
-        """Add client via inbound update (v3 panels without addClient endpoint). Serialized per panel to prevent read-modify-write races."""
+    async def _delete_client_via_update(self, user_uuid: str) -> XuiClientResult:
+        """Delete client via inbound update (v3 panels without delClient endpoint).
+        Serialized per panel to prevent read-modify-write races."""
         async with self._mutation_lock:
             inbound = await self._get_inbound()
             if not inbound:
@@ -331,7 +383,55 @@ class XuiApiClient:
             settings = inbound.get("settings", {})
             if isinstance(settings, str):
                 settings = json.loads(settings)
-            settings.setdefault("clients", []).append(client_settings)
+            clients = settings.get("clients", [])
+            # Remove by uuid; if not found by uuid, no-op (idempotent)
+            new_clients = [c for c in clients if c.get("id") != user_uuid]
+            settings["clients"] = new_clients
+            payload = {
+                "id": inbound["id"],
+                "settings": json.dumps(settings),
+                "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
+                "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
+                "protocol": inbound["protocol"],
+                "port": inbound["port"],
+                "listen": inbound.get("listen", ""),
+                "tag": inbound.get("tag", ""),
+                "remark": inbound.get("remark", ""),
+                "enable": inbound.get("enable", True),
+                "expiryTime": inbound.get("expiryTime", 0),
+                "total": inbound.get("total", 0),
+                "up": inbound.get("up", 0),
+                "down": inbound.get("down", 0),
+            }
+            return await self._do_client_op(
+                "POST",
+                f"{self._base}/panel/api/inbounds/update/{self._config.inbound_id}",
+                payload,
+                user_uuid=user_uuid,
+            )
+
+    async def _add_client_via_update(self, client_settings: dict) -> XuiClientResult:
+        """Add client via inbound update (v3 panels without addClient endpoint). Serialized per panel to prevent read-modify-write races.
+        Upsert by email/id: replaces an existing client with the same email or id instead of appending a duplicate."""
+        async with self._mutation_lock:
+            inbound = await self._get_inbound()
+            if not inbound:
+                return XuiClientResult(outcome=XuiOutcome.UNAVAILABLE)
+            settings = inbound.get("settings", {})
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            clients = settings.setdefault("clients", [])
+            email = client_settings.get("email")
+            cid = client_settings.get("id")
+            # Upsert: replace first client with same email or id, else append
+            replaced = False
+            for i, c in enumerate(clients):
+                if (email and c.get("email") == email) or (cid and c.get("id") == cid):
+                    clients[i] = client_settings
+                    replaced = True
+                    break
+            if not replaced:
+                clients.append(client_settings)
             payload = {
                 "id": inbound["id"],
                 "settings": json.dumps(settings),

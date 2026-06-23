@@ -141,11 +141,12 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         except Exception:
             _LOGGER.warning("notification_scheduler_start_failed", exc_info=True)
 
-        # Reconcile: ensure all active users have VLESS keys on all active servers.
-        # Runs as a background task so it doesn't block message processing.
+        # Reconcile: ensure every non-deleted user has VLESS keys on all active
+        # servers (active enabled, expired disabled). Background task so it
+        # doesn't block message processing.
         async def _run_reconcile(vp: XuiVlessProvider) -> None:
             try:
-                added, fail, total = await vp.reconcile_all_active_users()
+                added, fail, total = await vp.reconcile_all_users()
                 _log_lifecycle_event(
                     intent="startup",
                     outcome="completed",
@@ -160,6 +161,18 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
                 asyncio.create_task(_run_reconcile(vp))
         except Exception:
             _LOGGER.warning("startup_reconcile_init_failed", exc_info=True)
+
+        # Periodic sync: reconcile VLESS users across all servers every hour.
+        # Non-destructive — only adds missing clients, never modifies or deletes.
+        try:
+            from app.runtime.server_sync_scheduler import ServerSyncScheduler
+
+            vp = process.app.bundle.bundle.composition.vless_provider
+            if isinstance(vp, XuiVlessProvider):
+                _sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                asyncio.create_task(_sync_scheduler.run())
+        except Exception:
+            _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
 
         try:
             summary = await process.run_until_stopped()

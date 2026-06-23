@@ -1,0 +1,113 @@
+name: coordinated-conn-test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup xray client
+        run: |
+          cd /tmp
+          VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
+          curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o x.zip
+          unzip -o x.zip xray >/dev/null && chmod +x xray
+          echo "RUNNER_IP=$(curl -s https://api.ipify.org)" >> $GITHUB_ENV
+          # Frankfurt 1.0 config
+          cat > cfg_fra.json <<'EOF'
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10808,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.110.100.210","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"Q_wpt7L8sU2O1OVBV-mpsSvgLAChIhN4hgTm0XZH4Do","shortId":"a1b2c3d4e5f6","spiderX":"/"}}}]}
+          EOF
+          # LA 1.0 config (different server)
+          cat > cfg_la.json <<'EOF'
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10809,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"216.227.169.120","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"vk.com","fingerprint":"chrome","publicKey":"cBbhJrcUvRo_MDNq6aaUSDLSBvVOqCTEUD7jpAy1O08","shortId":"1f94","spiderX":"/"}}}]}
+          EOF
+          sed -i 's/^          //' cfg_fra.json cfg_la.json
+      - name: Test BOTH Frankfurt and LA
+        run: |
+          set +e
+          cd /tmp
+          ./xray run -config cfg_fra.json &> fra.log &
+          ./xray run -config cfg_la.json &> la.log &
+          sleep 5
+          echo "=== Frankfurt exit IP (expect 77.110.100.210) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo
+          echo "=== LA exit IP (expect 216.227.169.120) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10809 https://api.ipify.org; echo
+          echo "=== Frankfurt client log ==="
+          grep -E "tunneling|failed|error|dial" fra.log | tail -5
+          echo "=== LA client log ==="
+          grep -E "tunneling|failed|error|dial" la.log | tail -5
+          kill %1 %2 2>/dev/null
+      - name: Dump Frankfurt clients table schema
+        env:
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+        run: |
+          sudo apt-get install -y sshpass >/dev/null 2>&1
+          SCHEMA_B64="aW1wb3J0IHNxbGl0ZTMsIGpzb24KZGIgPSBzcWxpdGUzLmNvbm5lY3QoIi9ldGMveC11aS94LXVpLmRiIikKZGIucm93X2ZhY3RvcnkgPSBzcWxpdGUzLlJvdwpjID0gZGIuY3Vyc29yKCkKcHJpbnQoIj09PSBjbGllbnRzIHRhYmxlIHNjaGVtYSA9PT0iKQpmb3Igcm93IGluIGMuZXhlY3V0ZSgiUFJBR01BIHRhYmxlX2luZm8oY2xpZW50cykiKToKICAgIHByaW50KGYiICB7cm93WyduYW1lJ119IHtyb3dbJ3R5cGUnXX0gZGVmYXVsdD17cm93WydkZmx0X3ZhbHVlJ119IikKYy5leGVjdXRlKCJTRUxFQ1QgKiBGUk9NIGNsaWVudHMgTElNSVQgMSIpCnIgPSBjLmZldGNob25lKCkKaWYgcjoKICAgIHByaW50KCJcbj09PSBzYW1wbGUgY2xpZW50IHJvdyA9PT0iKQogICAgcHJpbnQoanNvbi5kdW1wcyh7azogcltrXSBmb3IgayBpbiByLmtleXMoKX0sIGluZGVudD0yLCBkZWZhdWx0PXN0cikpCnByaW50KCJcbj09PSBjbGllbnRfaW5ib3VuZHMgc2NoZW1hID09PSIpCmZvciByb3cgaW4gYy5leGVjdXRlKCJQUkFHTUEgdGFibGVfaW5mbyhjbGllbnRfaW5ib3VuZHMpIik6CiAgICBwcmludChmIiAge3Jvd1snbmFtZSddfSB7cm93Wyd0eXBlJ119IGRlZmF1bHQ9e3Jvd1snZGZsdF92YWx1ZSddfSIpCmMuZXhlY3V0ZSgiU0VMRUNUIGNvdW50KCopIEZST00gY2xpZW50X2luYm91bmRzIikKcHJpbnQoIlxuY2xpZW50X2luYm91bmRzIGNvdW50OiIsIGMuZmV0Y2hvbmUoKVswXSkKYy5leGVjdXRlKCJTRUxFQ1QgKiBGUk9NIGNsaWVudF9pbmJvdW5kcyBMSU1JVCAzIikKZm9yIHIgaW4gYy5mZXRjaGFsbCgpOgogICAgcHJpbnQoanNvbi5kdW1wcyh7azogcltrXSBmb3IgayBpbiByLmtleXMoKX0sIGRlZmF1bHQ9c3RyKSkKcHJpbnQoIlxuPT09IGNsaWVudHMgcGVyIGluYm91bmQgPT09IikKZm9yIHIgaW4gYy5leGVjdXRlKCJTRUxFQ1QgaW5ib3VuZF9pZCwgY291bnQoKikgYXMgY250IEZST00gY2xpZW50X2luYm91bmRzIEdST1VQIEJZIGluYm91bmRfaWQiKToKICAgIHByaW50KGYiICBpbmJvdW5kIHtyWydpbmJvdW5kX2lkJ119OiB7clsnY250J119IGNsaWVudHMiKQpwcmludCgiXG49PT0gYWxsIHRhYmxlcyA9PT0iKQpmb3IgciBpbiBjLmV4ZWN1dGUoIlNFTEVDVCBuYW1lIEZST00gc3FsaXRlX21hc3RlciBXSEVSRSB0eXBlPSd0YWJsZSciKToKICAgIGMyID0gZGIuY3Vyc29yKCkKICAgIGMyLmV4ZWN1dGUoZiJTRUxFQ1QgY291bnQoKikgRlJPTSBcIntyWyduYW1lJ119XCIiKQogICAgcHJpbnQoZiIgIHtyWyduYW1lJ119OiB7YzIuZmV0Y2hvbmUoKVswXX0gcm93cyIpCmRiLmNsb3NlKCkK"
+          echo "=== Frankfurt clients table schema + sample ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "echo $SCHEMA_B64 | base64 -d | python3" 2>&1 || echo "SSH FAILED"
+      - name: Diagnose panel webBasePath + panel_url mismatch
+        env:
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
+          printf '%s\n' "$LA_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
+
+          echo "=== Frankfurt webBasePath ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+          echo "=== Helsinki webBasePath ==="
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+          echo "=== LA webBasePath ==="
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT key,value FROM settings WHERE key IN (chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104),chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116))')
+for r in c.fetchall(): print(r[0]+'='+r[1])
+db.close()
+\"" 2>&1
+
+          echo "=== Production panel_url from DB ==="
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 "
+            BACKEND=\$(docker ps --format '{{.Names}}' | grep backend | head -1)
+            echo \"Backend: \$BACKEND\"
+            docker exec \$BACKEND python3 -c '
+import asyncio,asyncpg,os
+async def m():
+ p=await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
+ r=await p.fetch(\"SELECT id, label, panel_url, is_active FROM vpn_servers ORDER BY id\")
+ for x in r: print(\"  id=%s label=%s url=%s active=%s\" % (x[\"id\"],x[\"label\"],x[\"panel_url\"],x[\"is_active\"]))
+ await p.close()
+asyncio.run(m())' 2>&1
+            echo '=== Bot logs (csrf/unauthorized) ==='
+            docker logs --tail 500 \$BACKEND 2>&1 | grep -iE 'csrf|unauthorized|reconcile.*failed' | tail -15
+          " 2>&1 || echo "SSH FAILED"
+
+      - name: Re-test connection after restart
+        run: |
+          set +e
+          cd /tmp
+          ./xray run -config cfg_fra.json &> fra2.log &
+          sleep 5
+          echo "=== Frankfurt exit IP AFTER restart (expect 77.110.100.210) ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org; echo
+          grep -E "tunneling|accepted|failed" fra2.log | tail -5
+          kill %1 2>/dev/null

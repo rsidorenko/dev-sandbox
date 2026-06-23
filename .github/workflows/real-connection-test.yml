@@ -1,0 +1,124 @@
+name: real-connection-test
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download xray-core
+        run: |
+          cd /tmp
+          VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | head -1 | cut -d'"' -f4)
+          echo "xray version: $VER"
+          curl -sL "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip" -o xray.zip
+          unzip -o xray.zip xray geoip.dat geosite.dat
+          chmod +x xray
+          ./xray version
+      - name: Write xray client config (Frankfurt 1.0, user's real key)
+        run: |
+          cat > /tmp/config.json <<'EOF'
+          {
+            "log": {"loglevel": "debug"},
+            "inbounds": [{
+              "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
+              "settings": {"udp": true}
+            }],
+            "outbounds": [{
+              "protocol": "vless",
+              "settings": {"vnext": [{"address": "77.110.100.210", "port": 443,
+                "users": [{"id": "fe54c7f1-7a12-44f6-9956-f0578a87fd2f", "encryption": "none", "flow": ""}]}]},
+              "streamSettings": {
+                "network": "tcp", "security": "reality",
+                "realitySettings": {"serverName": "vk.com", "fingerprint": "chrome",
+                  "publicKey": "Q_wpt7L8sU2O1OVBV-mpsSvgLAChIhN4hgTm0XZH4Do", "shortId": "a1b2c3d4e5f6", "spiderX": "/"}
+              }
+            }]
+          }
+          EOF
+          # fix leading spaces from heredoc indent
+          sed -i 's/^          //' /tmp/config.json
+      - name: Start xray + test connection
+        run: |
+          set +e
+          cd /tmp
+          ./xray run -config config.json &> xray.log &
+          XRAY_PID=$!
+          sleep 5
+          echo "=== xray running (pid $XRAY_PID) ==="
+          cat xray.log | head -20
+          echo "=== runner's own IP ==="
+          curl -s --max-time 10 https://api.ipify.org; echo
+          echo "=== IP through VLESS+Reality (Frankfurt) — expect 77.110.100.210 ==="
+          EXIT_IP=$(curl -s --max-time 30 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org)
+          echo "exit IP: ${EXIT_IP:-<FAILED/empty>}"
+          if [ "$EXIT_IP" = "77.110.100.210" ]; then
+            echo "RESULT=SUCCESS: FULL CHAIN WORKS — VLESS+Reality auth + routing succeeded (exit IP = Frankfurt server)"
+          else
+            echo "RESULT=FAILED: keys do not work end-to-end from neutral network"
+          fi
+          echo "=== try fetching a page through the tunnel ==="
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://ifconfig.co 2>&1 | head -c 200; echo
+          echo "=== xray log (last 40) ==="
+          tail -40 xray.log
+          kill $XRAY_PID 2>/dev/null
+          exit 0
+      - name: Discover webBasePath on all panels
+        env:
+          FRANKFURT_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          LA_KEY: ${{ secrets.LA_SSH_KEY }}
+          SERVER_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          sudo apt-get install -y sshpass >/dev/null 2>&1
+
+          echo "=== Frankfurt webBasePath ==="
+          sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116)')
+r2=c.fetchone(); print('webPort='+str(r2[0]) if r2 else 'webPort=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== Helsinki webBasePath ==="
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116)')
+r2=c.fetchone(); print('webPort='+str(r2[0]) if r2 else 'webPort=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== LA webBasePath ==="
+          mkdir -p ~/.ssh && printf '%s\n' "$LA_KEY" > ~/.ssh/la-key && chmod 600 ~/.ssh/la-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"
+import sqlite3
+db=sqlite3.connect('/etc/x-ui/x-ui.db')
+c=db.cursor()
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(66)+chr(97)+chr(115)+chr(101)+chr(80)+chr(97)+chr(116)+chr(104)')
+r=c.fetchone(); print('webBasePath='+str(r[0]) if r else 'webBasePath=MISSING')
+c.execute('SELECT value FROM settings WHERE key=chr(119)+chr(101)+chr(98)+chr(80)+chr(111)+chr(114)+chr(116)')
+r2=c.fetchone(); print('webPort='+str(r2[0]) if r2 else 'webPort=MISSING')
+db.close()
+\"" 2>&1
+
+          echo "=== Production panel_url from DB ==="
+          printf '%s\n' "$SERVER_KEY" > ~/.ssh/server-key && chmod 600 ~/.ssh/server-key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/server-key root@109.120.178.49 '
+            BACKEND=$(docker ps --format "{{.Names}}" | grep backend | head -1)
+            echo "Backend: $BACKEND"
+            docker exec $BACKEND python3 -c "
+import asyncio,asyncpg,os
+async def m():
+ p=await asyncpg.create_pool(os.environ[\"DATABASE_URL\"])
+ r=await p.fetch(\"SELECT id, label, panel_url, is_active FROM vpn_servers ORDER BY id\")
+ for x in r: print(\"  id=%s label=%s url=%s active=%s\" % (x[\"id\"],x[\"label\"],x[\"panel_url\"],x[\"is_active\"]))
+ await p.close()
+asyncio.run(m())" 2>&1
+          ' 2>&1 || echo "SSH FAILED"

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -25,28 +24,62 @@ from app.shared.types import OperationOutcomeCategory
 _LOGGER = logging.getLogger(__name__)
 
 ENV_YOOKASSA_PROVIDER_KEY = "YOOKASSA_PROVIDER_KEY"
-ENV_YOOKASSA_WEBHOOK_SECRET = "YOOKASSA_WEBHOOK_SECRET"
 
 _DEFAULT_PROVIDER_KEY = "yookassa_v1"
 
+# YooKassa notification source IP ranges (Notification authentication — IP auth).
+# YooKassa does NOT send an HMAC signature header; per its docs, authenticity is
+# checked by source IP and/or by re-fetching the object. We do both: the IP check
+# here + the authoritative client.get_payment() re-fetch downstream (object-status
+# auth). The previous HMAC-signature check rejected every real notification
+# (401 'missing signature header') and broke ALL YooKassa payments.
+# https://yookassa.ru/developers/using-api/webhooks
+_YOOKASSA_IP_NETWORKS = (
+    ipaddress.ip_network("185.71.76.0/27"),
+    ipaddress.ip_network("185.71.77.0/27"),
+    ipaddress.ip_network("77.75.153.0/25"),
+    ipaddress.ip_network("77.75.156.11/32"),
+    ipaddress.ip_network("77.75.156.35/32"),
+    ipaddress.ip_network("77.75.154.128/25"),
+    ipaddress.ip_network("2a02:5180::/32"),
+)
 
-def _verify_yookassa_signature(raw_body: bytes, request: Request) -> JSONResponse | None:
-    """Verify YooKassa webhook HMAC-SHA256 signature. Returns error response or None if OK."""
-    secret = os.environ.get(ENV_YOOKASSA_WEBHOOK_SECRET, "").strip()
-    if not secret:
-        _LOGGER.critical(
-            "yookassa webhook: %s not configured — REJECTING webhook (signature verification is mandatory)",
-            ENV_YOOKASSA_WEBHOOK_SECRET,
-        )
-        return _safe_json_error(500, "server_misconfigured")
-    sig_header = request.headers.get("X-Request-Signature-SHA256", "").strip()
-    if not sig_header:
-        _LOGGER.warning("yookassa webhook: missing signature header")
-        return _safe_json_error(401, "invalid_signature")
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig_header, expected):
-        _LOGGER.warning("yookassa webhook: signature mismatch")
-        return _safe_json_error(401, "invalid_signature")
+
+def _client_ip(request: Request) -> str | None:
+    """The real sender IP. Behind nginx the connection host is the proxy, so prefer
+    X-Forwarded-For / X-Real-IP (set by nginx to the original client = YooKassa).
+    X-Forwarded-For may be a chain; the leftmost entry is the original client."""
+    for header in ("x-forwarded-for", "x-real-ip"):
+        value = request.headers.get(header, "").strip()
+        if value:
+            return value.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+def _is_yookassa_ip(ip_str: str) -> bool:
+    """True if *ip_str* is in one of YooKassa's documented notification ranges."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(ip in net for net in _YOOKASSA_IP_NETWORKS)
+
+
+def _verify_yookassa_source(request: Request) -> JSONResponse | None:
+    """Verify the notification comes from YooKassa (IP auth, per YooKassa docs).
+    Returns an error response to reject, or None to proceed. Authenticity is also
+    enforced authoritatively downstream by re-fetching the payment via the YooKassa
+    API (object-status auth) — so if no forwarded client IP is available we still
+    proceed and rely on that re-fetch rather than rejecting (which would break
+    deployments where the reverse proxy does not set X-Forwarded-For)."""
+    ip = _client_ip(request)
+    has_forwarded = bool(request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip"))
+    if ip is not None and _is_yookassa_ip(ip):
+        return None  # verified YooKassa source
+    if has_forwarded:
+        _LOGGER.warning("yookassa webhook: source IP %s not in YooKassa ranges — rejected", ip)
+        return _safe_json_error(401, "invalid_source")
+    _LOGGER.warning("yookassa webhook: no forwarded client IP (%s) — relying on API re-fetch", ip)
     return None
 
 
@@ -87,12 +120,11 @@ def create_yookassa_webhook_handler(
         return _telegram_edit_client
 
     async def handle_yookassa_webhook(request: Request) -> JSONResponse:
+        src_err = _verify_yookassa_source(request)
+        if src_err is not None:
+            return src_err
+
         raw_body = await request.body()
-
-        sig_err = _verify_yookassa_signature(raw_body, request)
-        if sig_err is not None:
-            return sig_err
-
         try:
             notification = json.loads(raw_body.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):

@@ -495,18 +495,8 @@ def _extract_user_id_from_update(update: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_STOREFRONT = frozenset({"identity_ready", "slice1_help", "store_menu"})
 
-_MARKDOWN_CODES = frozenset(
-    {
-        CB_TRIAL,
-        CB_MY_KEYS,
-        CB_REISSUE_CONFIRM,
-        CB_REFERRAL,
-        CB_CONNECT_NEXT,
-        CB_ALL_KEYS,
-    }
-)
-
-_MARKDOWN_PREFIXES = (CB_SERVER,)
+# All storefront callbacks now use HTML parse mode (more robust than Markdown).
+# Previously some used Markdown v1 (fragile with special chars in URLs/keys).
 
 _CALLBACK_ONLY_STOREFRONT = frozenset(
     {
@@ -931,10 +921,23 @@ async def _handle_email_linking(
             now,
             row["id"],
         )
+        # Drop any emails previously linked to THIS telegram identity so the
+        # partial unique index (one verified row per email) stays satisfied.
         await pool.execute(
-            "UPDATE user_emails SET is_verified = FALSE WHERE telegram_user_id = $1 AND is_verified = TRUE",
+            "DELETE FROM user_emails WHERE telegram_user_id = $1",
             uid,
         )
+
+        # Merge a web-only account BEFORE inserting our own (uid, email) row.
+        # Why order matters: user_emails has idx_user_emails_email_verified — at most
+        # one VERIFIED row per email. A leftover verified web row (telegram_user_id
+        # <= 0) would make the insert below raise a unique-violation. The merge
+        # reassigns that web row onto `uid` (clearing the index) and migrates the
+        # web account's data (subscription and referral) onto the real identity.
+        from app.persistence.account_merge import merge_web_account_if_needed
+
+        merged = await merge_web_account_if_needed(pool, uid, pending["email"])
+
         await pool.execute(
             """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
                VALUES ($1, $2, TRUE, $3)
@@ -944,10 +947,13 @@ async def _handle_email_linking(
             now,
         )
 
-        # Merge web-only account if this email was previously registered on the website
-        from app.persistence.account_merge import merge_web_account_if_needed
-
-        await merge_web_account_if_needed(pool, uid, pending["email"])
+        # A merged web account had its VLESS keys provisioned under web_<hash> — a
+        # different per-transport uuid than u<uid>. Re-provision under the real
+        # identity now (instead of waiting for the hourly reconcile) and revoke the
+        # stale web clients so no orphan panel clients remain. Best-effort: never
+        # blocks the link success.
+        if merged:
+            await _reprovision_keys_after_merge(composition, uid, pending["email"])
 
         return text_link_email_success(pending["email"]), main_menu_keyboard()
 
@@ -957,14 +963,18 @@ async def _handle_email_linking(
 
     email = text.lower().strip()
 
-    # Check if already linked
+    # Check if already linked / claimed by another account
     existing = await pool.fetchrow(
         "SELECT telegram_user_id FROM user_emails WHERE email = $1 AND is_verified = TRUE",
         email,
     )
     if existing and existing["telegram_user_id"] == uid:
         return text_link_email_already_linked(email), main_menu_keyboard()
-    if existing:
+    if existing and existing["telegram_user_id"] > 0:
+        # Verified email belongs to a DIFFERENT real Telegram account — refuse.
+        # A web-only account has a non-positive telegram_user_id; claiming it by
+        # proving inbox ownership is legitimate and triggers an account merge on
+        # verify, so we let it through.
         return text_link_email_error("email_belongs_to_other_account"), link_email_keyboard()
 
     # Send verification code
@@ -1002,6 +1012,60 @@ async def _handle_email_linking(
         return text_link_email_error("smtp_not_configured"), link_email_keyboard()
 
     return text_link_email_code_sent(email), link_email_code_keyboard()
+
+
+async def _reprovision_keys_after_merge(
+    composition: Slice1Composition,
+    uid: int,
+    email: str,
+) -> None:
+    """After merging a web-only account into ``uid``, move its VLESS keys onto the
+    real identity.
+
+    A web account's keys were provisioned under ``web_<hash>`` — a different
+    per-transport uuid than ``u<uid>`` — so after the merge they no longer resolve.
+    Here we revoke the stale ``web_<hash>`` clients across all panels and, if the
+    merged subscription is active, create fresh clients under ``u<uid>`` so the user
+    has working keys immediately (instead of waiting for the hourly reconcile).
+
+    Best-effort: a provider failure is logged and swallowed — the email link itself
+    already succeeded and reconcile will heal the keys regardless.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    provider = getattr(composition, "vless_provider", None)
+    pool = _get_pool_from_composition(composition)
+    if provider is None or pool is None:
+        return
+    try:
+        from app.persistence.account_merge import _web_internal_id
+
+        old_web_id = _web_internal_id(email)
+        # Revoke the stale web_<hash> clients (compute their uuids from old_web_id).
+        # Suppress: a panel hiccup must not abort the link.
+        with contextlib.suppress(Exception):
+            await provider.revoke_user(internal_user_id=old_web_id)
+
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is None:
+            return
+        # Only re-create keys if the user has an active subscription.
+        snap = await pool.fetchrow(
+            "SELECT state_label, device_count FROM subscription_snapshots WHERE internal_user_id = $1",
+            id_rec.internal_user_id,
+        )
+        if snap is None or snap["state_label"] != "active":
+            return
+        device_count = snap["device_count"]
+        if device_count:
+            await provider.create_user(
+                internal_user_id=id_rec.internal_user_id, device_count=device_count
+            )
+        else:
+            await provider.create_user(internal_user_id=id_rec.internal_user_id)
+    except Exception:
+        log.warning("email_link.reprovision_after_merge_failed uid=%s email=***", uid, exc_info=True)
 
 
 async def _handle_resend_email_code(
@@ -1232,16 +1296,17 @@ async def _process_balance_payment(
             for _attempt in range(3):
                 try:
                     snap_check = await pool.fetchrow(
-                        """SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots
+                        """SELECT keys_deactivated_at, keys_deleted_at, device_count FROM subscription_snapshots
                            WHERE internal_user_id = $1""",
                         internal_user_id,
                     )
+                    dc = (snap_check.get("device_count") or 0) if snap_check else 0
                     if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                        await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+                        await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
                     elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                        await composition.vless_provider.activate_user(internal_user_id=internal_user_id)
+                        await composition.vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
                     else:
-                        await composition.vless_provider.create_user(internal_user_id=internal_user_id)
+                        await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
                     vless_ok = True
                     break
                 except Exception:
@@ -1813,14 +1878,17 @@ async def _render_storefront_response(
 
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
-                # Clear stored UUID so reissue generates a fresh random key
+                # Step 1: Revoke FIRST (while old UUID still exists in DB)
+                # so the provider can find and disable/delete old keys on panels.
+                await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
+                # Step 2: Clear stored UUID so create_user generates a fresh random key
                 pool = _get_pool_from_composition(composition)
                 if pool is not None:
                     await pool.execute(
                         "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
                         id_rec.internal_user_id,
                     )
-                await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
+                # Step 3: Create new keys with a fresh UUID
                 vless_result = await composition.vless_provider.create_user(internal_user_id=id_rec.internal_user_id)
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
                     text = "✅ Ключи перевыпущены!\n\n" + text_my_keys(vless_result.config)
@@ -1835,6 +1903,7 @@ async def _render_storefront_response(
     elif code == CB_REFERRAL:
         if uid is not None and composition.bot_username:
             from app.application.referral_handler import ReferralInfo, get_referral_info
+            from app.shared.site_url import get_site_base_url
 
             id_rec = await composition.identity.find_by_telegram_user_id(uid)
             if id_rec is not None:
@@ -1844,12 +1913,13 @@ async def _render_storefront_response(
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
                     bot_username=composition.bot_username,
+                    site_base_url=get_site_base_url(),
                 )
                 text, keyboard = text_referral_program(info), back_only_keyboard(CB_MAIN_MENU)
             else:
                 text, keyboard = (
                     text_referral_program(
-                        ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                        ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
                     ),
                     back_only_keyboard(CB_MAIN_MENU),
                 )
@@ -1858,7 +1928,7 @@ async def _render_storefront_response(
 
             text, keyboard = (
                 text_referral_program(
-                    ReferralInfo(referral_code="", referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                    ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
                 ),
                 back_only_keyboard(CB_MAIN_MENU),
             )
@@ -2063,7 +2133,7 @@ async def _render_storefront_response(
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)
 
-    parse_mode = "Markdown" if code in _MARKDOWN_CODES or code.startswith(_MARKDOWN_PREFIXES) else None
+    parse_mode = "HTML"
     # Connection step initial renders (CB_CONNECT_*) also use HTML step texts
     if code in (CB_CONNECT_IOS, CB_CONNECT_MAC, CB_CONNECT_TV, CB_CONNECT_WIN, CB_CONNECT_ANDROID):
         parse_mode = "HTML"

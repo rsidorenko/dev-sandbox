@@ -44,11 +44,15 @@ export function LoginForm() {
     setServerError("");
     const result = await authApi.sendCode(email);
     if (!result.ok) {
-      setServerError(
-        result.error === "rate_limited"
-          ? "Слишком много попыток. Попробуйте позже."
-          : "Не удалось отправить код. Попробуйте позже.",
-      );
+      if (result.error === "disposable_email") {
+        setServerError(
+          "Регистрация с временной почтой недоступна. Используйте постоянный email (Gmail, Яндекс, Mail.ru и т. п.).",
+        );
+      } else if (result.error === "rate_limited") {
+        setServerError("Слишком много попыток. Попробуйте позже.");
+      } else {
+        setServerError("Не удалось отправить код. Попробуйте позже.");
+      }
       return;
     }
     setCodeTtl(result.data.ttl_minutes || 10);
@@ -65,7 +69,10 @@ export function LoginForm() {
   const onVerifyCode = codeForm.handleSubmit(async ({ code }) => {
     setServerError("");
     const email = emailForm.getValues("email");
-    const result = await authApi.verifyCode(email, code);
+    const referralCode = typeof window !== "undefined"
+      ? localStorage.getItem("pending_referral_code") || undefined
+      : undefined;
+    const result = await authApi.verifyCode(email, code, referralCode);
     if (!result.ok) {
       if (result.error === "invalid_code") {
         setServerError("Неверный код. Попробуйте снова.");
@@ -83,6 +90,9 @@ export function LoginForm() {
         setServerError("Не удалось войти. Попробуйте позже.");
       }
       return;
+    }
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("pending_referral_code");
     }
     const next = searchParams.get("next") || "/dashboard";
     window.location.href = next;

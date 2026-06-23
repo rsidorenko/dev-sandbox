@@ -49,19 +49,6 @@ jobs:
 
             echo "=== Step 2: Run migration 029 ==="
             cd /opt/bravada
-            docker compose -f docker-compose.prod.yml exec -T backend python -c "
-import asyncio, asyncpg, os
-async def migrate():
-    dsn = os.environ.get('DATABASE_URL', '')
-    if not dsn:
-        # Build DSN from compose env
-        user = 'vpnbot'
-        password = open('.env').read().split('POSTGRES_PASSWORD=')[1].split('\n')[0].strip()
-        dsn = f'postgresql://{user}:{password}@postgres:5432/vpnbot?sslmode=disable'
-    # Run via psql in postgres container instead
-    print('Running migration via psql...')
-migrate()
-" 2>/dev/null || true
 
             # Run migration directly in postgres container
             docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \

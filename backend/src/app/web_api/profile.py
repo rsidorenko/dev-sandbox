@@ -124,10 +124,14 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
 
     referral = None
     if row["referral_code"] is not None:
+        from app.shared.site_url import get_site_base_url
+
+        site_url = get_site_base_url()
         referral = {
             "code": row["referral_code"],
             "balance_rubles": round((row["balance_kopecks"] or 0) / 100, 2),
             "referrals_count": row["referral_count"] or 0,
+            "web_referral_link": f"{site_url}/?ref={row['referral_code']}",
         }
 
     return JSONResponse(
@@ -221,12 +225,15 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
         )
         old_uuid = old_uuid_row["vless_uuid"] if old_uuid_row else None
 
-        # Clear stored UUID so reissue generates a fresh random key
+        # Step 1: Revoke FIRST (while old UUID still exists in DB)
+        # so the provider can find and disable/delete old keys on panels.
+        await provider.revoke_user(internal_user_id=internal_user_id)
+        # Step 2: Clear stored UUID so create_user generates a fresh random key
         await pool.execute(
             "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
             internal_user_id,
         )
-        await provider.revoke_user(internal_user_id=internal_user_id)
+        # Step 3: Create new keys with a fresh UUID
         result = await provider.create_user(internal_user_id=internal_user_id)
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
             # Compensation: restore old UUID so user isn't left keyless

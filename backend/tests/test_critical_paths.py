@@ -491,7 +491,15 @@ def test_default_device_limit():
 
 
 def test_vless_link_uses_reality_tls():
-    """VLESS links must use Reality TLS (security=reality) with correct flow."""
+    """VLESS Reality-TCP links use Reality TLS AND the xtls-rprx-vision flow.
+
+    3x-ui serves reality+tcp clients with vision (the panel's reality+tcp default),
+    so the link MUST carry flow=xtls-rprx-vision or the reality handshake silently
+    hangs. A link/server flow mismatch took every 1.0 (tcp/Reality) key down across
+    all panels on 2026-06-22 (the link emitted no flow while the server kept vision).
+    The earlier 2026-06-14 no-flow decision was the inverse mismatch (the server was
+    no-flow then) — reversed now that the server is vision.
+    """
     from app.issuance.xui_vless_provider import _build_vless_link
     from app.issuance.xui_vless_provider import XuiServerConfig
 
@@ -505,7 +513,7 @@ def test_vless_link_uses_reality_tls():
     link = _build_vless_link(server, "user-uuid-123")
 
     assert "security=reality" in link
-    assert "flow=xtls-rprx-vision" in link
+    assert "flow=xtls-rprx-vision" in link, "tcp/Reality link must carry vision flow to match the panel (2026-06-22)"
     assert "pbk=test-pbk" in link
     assert "sid=test-sid" in link
     assert "sni=example.com" in link

@@ -216,9 +216,9 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
 
 
 def text_welcome(*, trial_available: bool = False) -> str:
-    base = "👋 Добро пожаловать в VPN-сервис!\n\nВыберите действие в меню ниже."
+    base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\nВыберите действие в меню ниже."
     if trial_available:
-        base = "👋 Добро пожаловать в VPN-сервис!\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
+        base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
     return base
 
 
@@ -234,12 +234,12 @@ def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
 
 
 def text_main_menu() -> str:
-    return "🏠 Главное меню"
+    return "<b>🏠 Главное меню</b>"
 
 
 def text_buy_vpn_intro() -> str:
     return (
-        "🔑 Выберите тариф VPN-подписки:\n\n"
+        "<b>🔑 Выберите тариф VPN-подписки:</b>\n\n"
         "⚪ — 1 день\n"
         "🟡 — 7 дней\n"
         "🟠 — 2 недели\n"
@@ -258,7 +258,7 @@ def text_device_select(plan_id: str, price_rubles: int, duration_days: int, devi
     extra_cost = extra_device_cost(device_count, duration_days=duration_days)
     total = price_rubles + extra_cost
     lines = [
-        f"📦 Тариф: {plan_display_name(plan_id)}",
+        f"<b>📦 Тариф: {plan_display_name(plan_id)}</b>",
         f"💰 Базовая цена: {price_rubles} ₽",
         f"📱 Устройств: {device_count}",
     ]
@@ -272,7 +272,7 @@ def text_device_select(plan_id: str, price_rubles: int, duration_days: int, devi
 
 def text_purchase_summary(summary: PurchaseSummary) -> str:
     lines = [
-        "📋 Заказ:",
+        "<b>📋 Заказ:</b>",
         "",
         f"  Тариф: {summary.plan_display_name}",
         f"  Устройств: {summary.device_count}",
@@ -297,7 +297,7 @@ def text_subscription_active(
     *,
     remaining_days: int | None = None,
 ) -> str:
-    lines = ["✅ Ваша подписка активна!"]
+    lines = ["<b>✅ Ваша подписка активна!</b>"]
     if remaining_days is not None:
         lines.append(f"⏳ Осталось: {remaining_days} дн.")
     if device_count is not None:
@@ -309,7 +309,7 @@ def text_subscription_active(
 
 
 def text_subscription_expired() -> str:
-    return "❌ Ваша подписка истекла.\n\nДля продления нажмите «🔑 Купить VPN»."
+    return "<b>❌ Ваша подписка истекла.</b>\n\nДля продления нажмите «🔑 Купить VPN»."
 
 
 def text_no_subscription() -> str:
@@ -318,9 +318,9 @@ def text_no_subscription() -> str:
 
 def text_my_keys(config: VlessUserConfig) -> str:
     lines = [
-        "🔐 Ваши настройки подключения:\n",
+        "<b>🔐 Ваши настройки подключения:</b>\n",
         "📎 Ссылка для подписки (нажмите, чтобы скопировать):",
-        f"`{config.subscription_url}`\n",
+        f"<code>{config.subscription_url}</code>\n",
         "🔑 Ключи:",
     ]
     lines.append(format_key_list(config.servers))
@@ -357,15 +357,15 @@ def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, A
 
 
 def text_my_keys_menu(*, subscription_url: str | None = None) -> str:
-    lines = ["🔐 Ваши ключи\n"]
+    lines = ["<b>🔐 Ваши ключи</b>\n"]
     if subscription_url:
-        lines.append(f"🔗 Ссылка для подписки:\n`{subscription_url}`\n")
+        lines.append(f"🔗 Ссылка для подписки:\n<code>{subscription_url}</code>\n")
     lines.append("Выберите сервер или нажмите «Все ключи списком»:")
     return "\n".join(lines)
 
 
 def text_single_server_key(server: VlessServerConfig) -> str:
-    return f"🔑 {server.country_flag} {server.server_label}\n\n`{server.vless_link}`\n\n💡 Нажмите на ключ, чтобы скопировать."
+    return f"🔑 {server.country_flag} {server.server_label}\n\n<code>{server.vless_link}</code>\n\n💡 Нажмите на ключ, чтобы скопировать."
 
 
 def single_server_key_keyboard() -> dict[str, Any]:
@@ -373,7 +373,7 @@ def single_server_key_keyboard() -> dict[str, Any]:
 
 
 def text_all_keys_list(config: VlessUserConfig) -> str:
-    lines = ["🔐 Все ваши ключи:\n"]
+    lines = ["<b>🔐 Все ваши ключи:</b>\n"]
     lines.append(format_key_list(config.servers))
     lines.append("💡 Нажмите на ключ, чтобы скопировать.")
     return "\n".join(lines)
@@ -385,7 +385,7 @@ def all_keys_list_keyboard() -> dict[str, Any]:
 
 def text_reissue_confirm() -> str:
     return (
-        "⚠️ Перевыпуск ключей\n\n"
+        "<b>⚠️ Перевыпуск ключей</b>\n\n"
         "Старые ключи перестанут работать.\n"
         "Все устройства нужно будет переподключить.\n\n"
         "Продолжить?"
@@ -405,7 +405,7 @@ def reissue_confirm_keyboard() -> dict[str, Any]:
 
 _PLATFORM_TEXTS: dict[str, str] = {
     "win": (
-        "🖥 *Windows*\n\n"
+        "<b>🖥 Windows</b>\n\n"
         "Скачайте приложение:\n\n"
         "🔹 Karing\n"
         "https://github.com/KaringX/karing/releases\n\n"
@@ -414,7 +414,7 @@ _PLATFORM_TEXTS: dict[str, str] = {
         "Скачайте, установите и нажмите «Далее»."
     ),
     "android": (
-        "📱 *Android*\n\n"
+        "<b>📱 Android</b>\n\n"
         "Скачайте приложение:\n\n"
         "🔹 Karing\n"
         "https://github.com/KaringX/karing/releases\n\n"
@@ -425,7 +425,7 @@ _PLATFORM_TEXTS: dict[str, str] = {
         "Скачайте, установите и нажмите «Далее»."
     ),
     "ios": (
-        "📱 *iOS*\n\n"
+        "<b>📱 iOS</b>\n\n"
         "Скачайте приложение:\n\n"
         "🔹 Karing\n"
         "https://apps.apple.com/app/karing/id6472431552\n\n"
@@ -434,7 +434,7 @@ _PLATFORM_TEXTS: dict[str, str] = {
         "Скачайте, установите и нажмите «Далее»."
     ),
     "mac": (
-        "💻 *macOS*\n\n"
+        "<b>💻 macOS</b>\n\n"
         "Скачайте приложение:\n\n"
         "🔹 Karing\n"
         "https://apps.apple.com/app/karing/id6472431552\n\n"
@@ -453,7 +453,7 @@ _PLATFORM_CB: dict[str, str] = {
 
 
 def text_connect_device() -> str:
-    return "📱 Выберите ваше устройство:"
+    return "<b>📱 Выберите ваше устройство:</b>"
 
 
 def connect_device_keyboard() -> dict[str, Any]:
@@ -496,9 +496,9 @@ def connect_platform_keyboard() -> dict[str, Any]:
 
 def text_connect_config(config: VlessUserConfig) -> str:
     return (
-        "⚙️ Подключение\n\n"
+        "<b>⚙️ Подключение</b>\n\n"
         "Скопируйте ссылку ниже:\n"
-        f"`{config.subscription_url}`\n\n"
+        f"<code>{config.subscription_url}</code>\n\n"
         "Откройте приложение и:\n"
         "1. Найдите раздел «Подписка» или «Subscription»\n"
         "2. Вставьте скопированную ссылку\n"
@@ -519,7 +519,7 @@ def connect_config_keyboard() -> dict[str, Any]:
 
 def text_connect_done() -> str:
     return (
-        "🎉 Вы подключены!\n\nНастройки защищённого соединения активны.\nЕсли возникнут вопросы — напишите в поддержку."
+        "<b>🎉 Вы подключены!</b>\n\nНастройки защищённого соединения активны.\nЕсли возникнут вопросы — напишите в поддержку."
     )
 
 
@@ -857,7 +857,7 @@ _TV_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happ
 
 def tv_step_1_text() -> str:
     return (
-        "📺 *Инструкция для Smart TV*\n\n"
+        "<b>📺 Инструкция для Smart TV</b>\n\n"
         "⚠️ Важно! Только для телевизоров на Android TV!\n\n"
         f"📺 <b>Шаг 1 из {_TV_TOTAL_STEPS}</b>\n\n"
         "Пожалуйста, после каждого шага возвращайтесь обратно в бота и нажимайте «готово»!\n\n"
@@ -1332,8 +1332,8 @@ def win_problem_keyboard() -> dict[str, Any]:
 
 def text_subscription_url(config: VlessUserConfig) -> str:
     return (
-        "📎 Ссылка для приложений:\n\n"
-        f"`{config.subscription_url}`\n\n"
+        "<b>📎 Ссылка для приложений:</b>\n\n"
+        f"<code>{config.subscription_url}</code>\n\n"
         "💡 Скопируйте эту ссылку и вставьте в приложение:\n"
         "Karing, v2rayTune, Happ, v2rayNG и др.\n"
         "Все ключи подтянутся автоматически."
@@ -1341,27 +1341,49 @@ def text_subscription_url(config: VlessUserConfig) -> str:
 
 
 def text_keys_not_available() -> str:
-    return "⚠️ Ключи недоступны.\n\nВозможно, у вас нет активной подписки.\nНажмите «🔑 Купить VPN» для оформления."
+    return "<b>⚠️ Ключи недоступны.</b>\n\nВозможно, у вас нет активной подписки.\nНажмите «🔑 Купить VPN» для оформления."
 
 
 def text_referral_program(info: ReferralInfo) -> str:
+    links_section = (
+        "🔗 <b>Для Telegram</b> — друг без сайта:\n"
+        f"<code>{info.referral_link}</code>\n\n"
+    )
+    if info.web_referral_link:
+        links_section += (
+            "🌐 <b>Для сайта</b> — друг без Telegram:\n"
+            f"<code>{info.web_referral_link}</code>\n\n"
+        )
     return (
-        "👥 Реферальная программа\n\n"
-        f"🔗 Ваша ссылка:\n`{info.referral_link}`\n\n"
-        f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
-        f"👤 Прямых рефералов: {info.direct_referrals_count}\n\n"
-        "📤 Отправляйте ссылку друзьям и получайте:\n"
-        "  1 день — 10% | 7 дней — 15% | 2 недели — 20%\n"
-        "  1 мес — 35% | 3 мес — 30% | 6 мес — 25% | 1 год — 25%\n"
-        "Со 2-го уровня:\n"
-        "  1 день — 1% | 7 дней — 2% | 2 недели — 3%\n"
-        "  1 мес — 5% | 3 мес — 3% | 6 мес — 2% | 1 год — 2%\n\n"
-        "💰 Реферальными деньгами можно оплачивать подписку."
+        "<b>👥 Реферальная программа</b>\n\n"
+        "Отправьте ссылку другу — получите процент с его оплаты.\n"
+        "Выбирайте удобную ссылку:\n\n"
+        + links_section
+        + f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
+        f"👤 Приглашено: {info.direct_referrals_count}\n\n"
+        "📊 <b>Ваш заработок:</b>\n\n"
+        "<b>Прямые рефералы:</b>\n"
+        "  1 день — 10%\n"
+        "  7 дней — 15%\n"
+        "  2 недели — 20%\n"
+        "  1 месяц — 35%\n"
+        "  3 месяца — 30%\n"
+        "  6 месяцев — 25%\n"
+        "  1 год — 25%\n\n"
+        "<b>Со 2-го уровня:</b>\n"
+        "  1 день — 1%\n"
+        "  7 дней — 2%\n"
+        "  2 недели — 3%\n"
+        "  1 месяц — 5%\n"
+        "  3 месяца — 3%\n"
+        "  6 месяцев — 2%\n"
+        "  1 год — 2%\n\n"
+        "💡 Реферальными деньгами можно оплачивать подписку."
     )
 
 
 def text_balance(info: ReferralBalanceInfo) -> str:
-    return f"💰 Ваш баланс: {info.balance_rubles:.2f} ₽"
+    return f"<b>💰 Ваш баланс:</b> {info.balance_rubles:.2f} ₽"
 
 
 def balance_keyboard() -> dict[str, Any]:
@@ -1380,7 +1402,7 @@ def text_settings(
     device_count: int | None = None,
     active_until: str | None = None,
 ) -> str:
-    lines = ["⚙️ Настройки подписки\n"]
+    lines = ["<b>⚙️ Настройки подписки</b>\n"]
     if has_subscription:
         if plan_name:
             lines.append(f"📦 Тариф: {plan_name}")
@@ -1396,12 +1418,12 @@ def text_settings(
 
 
 def text_router_soon() -> str:
-    return "📶 Конфиг для роутера\n\n🔜 Эта функция скоро будет доступна!\nСледите за обновлениями."
+    return "<b>📶 Конфиг для роутера</b>\n\n🔜 Эта функция скоро будет доступна!\nСледите за обновлениями."
 
 
 def text_help() -> str:
     return (
-        "❓ Помощь\n\n"
+        "<b>❓ Помощь</b>\n\n"
         "🔑 Купить VPN — выбор тарифа и оплата\n"
         "📋 Моя подписка — статус и срок действия\n"
         "🔐 Мои ключи — список VLESS-ключей\n"
@@ -1417,7 +1439,7 @@ def text_help() -> str:
 
 
 def text_fulfillment_success(active_until: str | None) -> str:
-    lines = ["✅ Оплата получена!", "", "Ваша подписка активирована."]
+    lines = ["<b>✅ Оплата получена!</b>", "", "Ваша подписка активирована."]
     if active_until:
         lines.extend(["", f"📅 Действует до: {active_until}"])
     lines.extend(
@@ -1439,7 +1461,7 @@ def text_rate_limited() -> str:
 
 
 def text_balance_payment_success(active_until: str | None) -> str:
-    lines = ["✅ Подписка оплачена с реферального баланса!", "", "Ваша подписка активирована."]
+    lines = ["<b>✅ Подписка оплачена с реферального баланса!</b>", "", "Ваша подписка активирована."]
     if active_until:
         lines.extend(["", f"📅 Действует до: {active_until}"])
     lines.extend(["", "🔐 Нажмите «Мои ключи» для получения VPN-ключей."])
@@ -1485,7 +1507,7 @@ def add_device_confirm_keyboard(new_count: int, *, balance_kopecks: int = 0, cos
 
 def text_add_device_intro(current_count: int) -> str:
     lines = [
-        "📱 Добавление устройств",
+        "<b>📱 Добавление устройств</b>",
         "",
         f"Текущее количество: {current_count}",
         f"Стоимость: {EXTRA_DEVICE_PRICE_RUBLES / 30:.1f} ₽/день за каждое дополнительное устройство.",
@@ -1502,7 +1524,7 @@ def text_add_device_confirm(current_count: int, new_count: int, *, duration_days
     cost = _calc_cost(new_count, current_count, duration_days)
     daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
     lines = [
-        "📱 Подтверждение",
+        "<b>📱 Подтверждение</b>",
         "",
         f"Добавляем устройств: {extra}",
         f"Стоимость: {extra} × {daily_price:.1f} ₽/день × {duration_days} дн = {cost} ₽",
@@ -1534,7 +1556,7 @@ def remove_device_keyboard(current: int) -> dict[str, Any]:
 
 def text_remove_device_confirm(current: int, new_count: int) -> str:
     return (
-        f"📱 Снижение устройств\n\n"
+        f"<b>📱 Снижение устройств</b>\n\n"
         f"Текущее: {current}\n"
         f"Новое: {new_count}\n\n"
         f"Новое количество будет учтено при следующем продлении."
@@ -1564,12 +1586,12 @@ def link_email_code_keyboard() -> dict[str, Any]:
 def text_link_email_intro(email: str | None = None) -> str:
     if email:
         return (
-            "📧 Привязка email\n\n"
+            "<b>📧 Привязка email</b>\n\n"
             f"Текущий email: {email}\n\n"
             "Если хотите заменить, введите новый email.\n"
             "Для подтверждения на почту будет отправлен код."
         )
-    return "📧 Привязка email\n\nВведите ваш email-адрес.\nНа него будет отправлен код подтверждения."
+    return "<b>📧 Привязка email</b>\n\nВведите ваш email-адрес.\nНа него будет отправлен код подтверждения."
 
 
 def text_link_email_code_sent(email: str) -> str:
@@ -1603,7 +1625,7 @@ def text_link_email_error(error: str) -> str:
 
 def text_trial_offer() -> str:
     return (
-        "🎁 Попробуйте VPN бесплатно!\n\n"
+        "<b>🎁 Попробуйте VPN бесплатно!</b>\n\n"
         "3 дня полного доступа ко всем серверам.\n"
         "Ключи для всех стран, ссылка для автонастройки в Karing, Happ, v2rayTune.\n\n"
         "Без обязательств — просто попробуйте."
@@ -1621,10 +1643,10 @@ def trial_offer_keyboard() -> dict[str, Any]:
 
 def text_trial_activated(config: VlessUserConfig) -> str:
     lines = [
-        "🎉 Пробный период активирован!\n",
+        "<b>🎉 Пробный период активирован!</b>\n",
         "⏳ Действует 3 дня.\n",
         "📎 Ссылка для подписки (нажмите, чтобы скопировать):",
-        f"`{config.subscription_url}`\n",
+        f"<code>{config.subscription_url}</code>\n",
         "🔑 Ключи:",
     ]
     lines.append(format_key_list(config.servers))

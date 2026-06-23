@@ -1,0 +1,457 @@
+name: relay-setup
+
+# Operator workflow for VPN panel / issuance operations that need prod SSH or
+# the prod container. Kept separate from deploy.yml so deploy stays untouched.
+# Runs scripts from the PRODUCTION host (/opt/bravada): the appleboy/ssh-action
+# lands on prod and from there SSHes/scps to the VPN panels; container tasks run
+# via `docker compose exec backend`.
+#
+# Secrets used: SERVER_HOST/SERVER_USER/SERVER_SSH_KEY (prod), HELSINKI_SSH_PASS,
+# FRANKFURT_SSH_PASS, LA_SSH_KEY, RELAY_SSH_KEY, RELAY_PANEL_PASS,
+# FIELD_ENCRYPTION_KEY.
+
+on:
+  workflow_dispatch:
+    inputs:
+      relay_diag:
+        description: "SSH to RU relay (89.169.139.153): dump routing/outbounds, xray status, settings.clients + client_inbounds counts, access log"
+        required: false
+        default: "false"
+      bot_logs:
+        description: "Dump bot container logs (reconcile/xui/relay provisioning)"
+        required: false
+        default: "false"
+      port_check:
+        description: "From prod, test TCP reachability to relay ports + Helsinki panel TLS verify"
+        required: false
+        default: "false"
+      grant_sub:
+        description: "Operator: analyze subscription state for grant_telegram_id (read-only). Set grant_apply=true to actually grant"
+        required: false
+        default: "false"
+      grant_apply:
+        description: "With grant_sub=true OR grant_all_expired=true: actually GRANT (activate + ledger fact + UC-05 apply + keys)"
+        required: false
+        default: "false"
+      grant_telegram_id:
+        description: "Telegram user id to analyze/grant (e.g. 8158783115)"
+        required: false
+        default: ""
+      grant_plan:
+        description: "plan_id to grant (default 1m = 1 month; price from code app.domain.plans)"
+        required: false
+        default: "1m"
+      grant_all_expired:
+        description: "Operator: GRANT grant_plan to EVERY expired user whose keys are not yet purged (keys_deleted_at IS NULL). Dry-run without grant_apply=true"
+        required: false
+        default: "false"
+      cleanup_grant:
+        description: "Operator: dry-run — list grant ledger facts for grant_telegram_id and show which duplicate(s) would be removed"
+        required: false
+        default: "false"
+      cleanup_apply:
+        description: "With cleanup_grant=true: actually DELETE the older duplicate grant fact(s) + their apply/audit rows"
+        required: false
+        default: "false"
+      server_coverage:
+        description: "READ-ONLY: dump all vpn_servers + per active server how many users are MISSING from its panel JSON (why a server is hidden from /sub/)"
+        required: false
+        default: "false"
+      sync_tables:
+        description: "Mirror inbounds.settings.clients JSON -> v3 clients/client_inbounds table on ALL 5 panels + restart x-ui. Fixes '8 vs 10 keys'. Idempotent"
+        required: false
+        default: "false"
+      upgrade_panel:
+        description: "Upgrade one 3x-ui panel to latest in place: helsinki | frankfurt | la (backup DB -> official installer -> verify -> rollback on fail)"
+        required: false
+        default: ""
+      upgrade_dry:
+        description: "With upgrade_panel set: snapshot + version check only, NO upgrade"
+        required: false
+        default: "false"
+      ru_egress_panel:
+        description: "RU egress relay: target panel for dump/apply/revert — helsinki | frankfurt | la"
+        required: false
+        default: ""
+      ru_egress_dump:
+        description: "READ-ONLY: dump xrayTemplateConfig (routing/outbounds) + geo files + :443 of ru_egress_panel"
+        required: false
+        default: "false"
+      ru_egress_apply:
+        description: "On ru_egress_panel: MERGE relay-to-russia outbound + RU routing rules into xrayTemplateConfig (backs up, idempotent, restarts x-ui, verifies)"
+        required: false
+        default: "false"
+      ru_egress_revert:
+        description: "On ru_egress_panel: restore the pre-apply xrayTemplateConfig from the backup made by ru_egress_apply"
+        required: false
+        default: "false"
+      ru_egress_repoint:
+        description: "On ru_egress_panel: repoint the EXISTING ru-relay outbound to the canonical RU relay 89.169.139.153 (pbk/sid/sni=max.ru, UUID 00607f0b), keeping tag + rules"
+        required: false
+        default: "false"
+      ru_egress_purge:
+        description: "On the RU relay (89.169.139.153): remove orphaned per-user clients left on its inbound (from former id=11), keeping the relay UUID. Idempotent"
+        required: false
+        default: "false"
+      ru_egress_fix_sniffing:
+        description: "On ru_egress_panel: standardize each user-facing inbound's sniffing to destOverride[http,tls,quic]+routeOnly:false. Fixes the ws/cdn (2.0) inbound whose routeOnly:true broke RU-relay routing"
+        required: false
+        default: "false"
+      ru_egress_reset_logs:
+        description: "On ru_egress_panel: ensure xray logs accepted connections (info level + access/error paths), TRUNCATE stale logs, restart x-ui. Diagnostic for stuck logs"
+        required: false
+        default: "false"
+      relay_unregister:
+        description: "Remove a relay UUID from a foreign target panel (frankfurt|helsinki|la) — all 4 v3 stores + restart x-ui. JSON: {target, uuid, email, inbound_id}. Runs unregister_relay_uuid.py over SSH. Idempotent"
+        required: false
+        default: ""
+      mws:
+        description: "MWS (МТС Web Services) CDN-front entry: VLESS+WS origin behind the MWS edge (AS8359 МТС, candidate whitelisted during ЧС). JSON {action,...}. action=setup: create WS origin inbound on Frankfurt 3x-ui (host/port/ws_path/hostname/test_uuid). action=row: add_mws_row.py (inbound_id, hostname, ws_path, label) — copies Frankfurt panel creds."
+        required: false
+        default: ""
+
+concurrency:
+  group: relay-setup
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    name: Operator panel/issuance task
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Encode panel_probe.py from the checkout
+        if: github.event.inputs.ru_egress_dump == 'true'
+        id: pp
+        run: echo "b64=$(base64 -w0 backend/scripts/panel_probe.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Run on production host
+        uses: appleboy/ssh-action@v1
+        env:
+          RELAY_DIAG: ${{ github.event.inputs.relay_diag || 'false' }}
+          BOT_LOGS: ${{ github.event.inputs.bot_logs || 'false' }}
+          PORT_CHECK: ${{ github.event.inputs.port_check || 'false' }}
+          GRANT_SUB: ${{ github.event.inputs.grant_sub || 'false' }}
+          GRANT_APPLY: ${{ github.event.inputs.grant_apply || 'false' }}
+          GRANT_TELEGRAM_ID: ${{ github.event.inputs.grant_telegram_id || '' }}
+          GRANT_PLAN: ${{ github.event.inputs.grant_plan || '1m' }}
+          GRANT_ALL_EXPIRED: ${{ github.event.inputs.grant_all_expired || 'false' }}
+          CLEANUP_GRANT: ${{ github.event.inputs.cleanup_grant || 'false' }}
+          CLEANUP_APPLY: ${{ github.event.inputs.cleanup_apply || 'false' }}
+          SERVER_COVERAGE: ${{ github.event.inputs.server_coverage || 'false' }}
+          SYNC_TABLES: ${{ github.event.inputs.sync_tables || 'false' }}
+          UPGRADE_PANEL: ${{ github.event.inputs.upgrade_panel || '' }}
+          UPGRADE_DRY: ${{ github.event.inputs.upgrade_dry || 'false' }}
+          RU_EGRESS_PANEL: ${{ github.event.inputs.ru_egress_panel || '' }}
+          RU_EGRESS_DUMP: ${{ github.event.inputs.ru_egress_dump || 'false' }}
+          RU_EGRESS_APPLY: ${{ github.event.inputs.ru_egress_apply || 'false' }}
+          RU_EGRESS_REVERT: ${{ github.event.inputs.ru_egress_revert || 'false' }}
+          RU_EGRESS_REPOINT: ${{ github.event.inputs.ru_egress_repoint || 'false' }}
+          RU_EGRESS_PURGE: ${{ github.event.inputs.ru_egress_purge || 'false' }}
+          RU_EGRESS_FIX_SNIFFING: ${{ github.event.inputs.ru_egress_fix_sniffing || 'false' }}
+          RU_EGRESS_RESET_LOGS: ${{ github.event.inputs.ru_egress_reset_logs || 'false' }}
+          RELAY_UNREGISTER_JSON: ${{ github.event.inputs.relay_unregister || '' }}
+          MWS_JSON: ${{ github.event.inputs.mws || '' }}
+          PANEL_PROBE_B64: ${{ steps.pp.outputs.b64 }}
+          RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}
+          RELAY_PANEL_PASS: ${{ secrets.RELAY_PANEL_PASS }}
+          HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 30m
+          envs: RELAY_DIAG,BOT_LOGS,PORT_CHECK,GRANT_SUB,GRANT_APPLY,GRANT_TELEGRAM_ID,GRANT_PLAN,GRANT_ALL_EXPIRED,CLEANUP_GRANT,CLEANUP_APPLY,SERVER_COVERAGE,SYNC_TABLES,UPGRADE_PANEL,UPGRADE_DRY,RU_EGRESS_PANEL,RU_EGRESS_DUMP,RU_EGRESS_APPLY,RU_EGRESS_REVERT,RU_EGRESS_REPOINT,RU_EGRESS_PURGE,RU_EGRESS_FIX_SNIFFING,RU_EGRESS_RESET_LOGS,RELAY_UNREGISTER_JSON,MWS_JSON,PANEL_PROBE_B64,RELAY_SSH_KEY,RELAY_PANEL_PASS,HELSINKI_SSH_PASS,FRANKFURT_SSH_PASS,LA_SSH_KEY,FIELD_ENCRYPTION_KEY
+          script: |
+            set -e
+            cd /opt/bravada
+            RELAY="89.169.139.153"
+
+            if [ "$RELAY_DIAG" = "true" ]; then
+              echo "=== RELAY DIAG (relay_probe) on $RELAY ==="
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay
+              chmod 600 ~/.ssh/yandex-relay
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/yandex-relay backend/scripts/relay_probe.py romtan@${RELAY}:/tmp/relay_probe.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/yandex-relay romtan@${RELAY} "sudo python3 /tmp/relay_probe.py; rm -f /tmp/relay_probe.py" 2>&1 || true
+              rm -f ~/.ssh/yandex-relay
+              echo "=== RELAY DIAG COMPLETE ==="
+            fi
+
+            if [ "$BOT_LOGS" = "true" ]; then
+              echo "=== BOT LOGS (reconcile / xui / relay provisioning) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml logs --tail=400 backend 2>&1 | grep -iE "reconcile|xui|89\.169|server.?11|add_client|panel|login|no active|UNAVAILABLE" | tail -70 || true
+              echo "=== PAYMENT / WEBHOOK / FULFILLMENT (yookassa, last 2500 lines) ==="
+              docker compose -f docker-compose.prod.yml logs --tail=2500 backend 2>&1 | grep -iE "yookassa|webhook|payment|fulfill|billing|checkout|activation|X-Request-Signature|server_misconfigured|invalid_signature|payment\.succeeded" | tail -90 || true
+              echo "=== BOT LOGS COMPLETE ==="
+            fi
+
+            if [ "$PORT_CHECK" = "true" ]; then
+              echo "=== PROD -> 89.169.139.153 port reachability ==="
+              for p in 22 443 1864 2053; do
+                timeout 5 bash -c "echo > /dev/tcp/89.169.139.153/$p" 2>/dev/null && echo "  :$p REACHABLE" || echo "  :$p UNREACHABLE"
+              done
+              echo "--- curl relay panel :1864 (https, verify on) ---"
+              curl --max-time 8 https://89.169.139.153:1864/ -o /dev/null -w "  relay https verify http_code=%{http_code}\n" 2>&1 || echo "  relay https verify FAILED (HTTP panel or cert)"
+              echo "--- curl Helsinki panel :2053 (https, verify on) — does the bot's verify pass? ---"
+              curl --max-time 8 https://77.221.159.106:2053/NrCRLHCbX0W1MCVmEH/ -o /dev/null -w "  helsinki https verify http_code=%{http_code}\n" 2>&1 || echo "  helsinki https verify FAILED (self-signed/untrusted -> bot must skip verify)"
+              echo "=== PORT CHECK COMPLETE ==="
+            fi
+
+            if [ "$GRANT_SUB" = "true" ] && [ -n "$GRANT_TELEGRAM_ID" ]; then
+              echo "=== GRANT SUBSCRIPTION (telegram_id=$GRANT_TELEGRAM_ID plan=$GRANT_PLAN apply=$GRANT_APPLY) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/grant_subscription.py backend:/tmp/grant_subscription.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+              if [ "$GRANT_APPLY" = "true" ]; then
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --telegram-id "$GRANT_TELEGRAM_ID" --grant --plan "$GRANT_PLAN" 2>&1
+              else
+                echo "--- ANALYZE ONLY (read-only) ---"
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --telegram-id "$GRANT_TELEGRAM_ID" 2>&1
+              fi
+              echo "=== GRANT SUBSCRIPTION COMPLETE ==="
+            fi
+
+            if [ "$GRANT_ALL_EXPIRED" = "true" ]; then
+              echo "=== GRANT ALL EXPIRED (plan=$GRANT_PLAN apply=$GRANT_APPLY) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/grant_subscription.py backend:/tmp/grant_subscription.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+              if [ "$GRANT_APPLY" = "true" ]; then
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --all-expired --grant --plan "$GRANT_PLAN" 2>&1
+              else
+                echo "--- DRY RUN (list expired-with-keys only) ---"
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/grant_subscription.py --all-expired 2>&1
+              fi
+              echo "=== GRANT ALL EXPIRED COMPLETE ==="
+            fi
+
+            if [ "$CLEANUP_GRANT" = "true" ] && [ -n "$GRANT_TELEGRAM_ID" ]; then
+              echo "=== CLEANUP DUPLICATE GRANT (telegram_id=$GRANT_TELEGRAM_ID apply=$CLEANUP_APPLY) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/cleanup_duplicate_grant.py backend:/tmp/cleanup_duplicate_grant.py 2>/dev/null || true
+              if [ "$CLEANUP_APPLY" = "true" ]; then
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_duplicate_grant.py --telegram-id "$GRANT_TELEGRAM_ID" --apply 2>&1
+              else
+                echo "--- DRY RUN ---"
+                docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_duplicate_grant.py --telegram-id "$GRANT_TELEGRAM_ID" 2>&1
+              fi
+              echo "=== CLEANUP COMPLETE ==="
+            fi
+
+            if [ "$SERVER_COVERAGE" = "true" ]; then
+              echo "=== SERVER COVERAGE (read-only: which users are missing from each server's panel JSON) ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/diag_server_coverage.py backend:/tmp/dsc.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsc.py 2>&1
+              echo "=== SERVER COVERAGE COMPLETE ==="
+            fi
+
+            if [ "$SYNC_TABLES" = "true" ]; then
+              echo "=== SYNC clients table (JSON -> v3 clients/client_inbounds) on ALL 5 panels ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/sync_clients_table.py)
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              sync_one() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3; echo '--- restart x-ui ---'; x-ui restart 2>/dev/null || systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3; echo '--- restart x-ui ---'; sudo x-ui restart 2>/dev/null || sudo systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              sync_one "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
+              sync_one "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
+              mkdir -p ~/.ssh
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              sync_one "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              sync_one "89.169.139.153" "romtan" "$HOME/.ssh/yandex-relay"
+              echo "=== SYNC TABLES COMPLETE ==="
+            fi
+
+            if [ -n "$UPGRADE_PANEL" ]; then
+              echo "=== UPGRADE PANEL ($UPGRADE_PANEL dry=$UPGRADE_DRY) ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/upgrade_panel.py)
+              if [ "$UPGRADE_DRY" = "true" ]; then DRYARG="--dry"; else DRYARG=""; fi
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              upgrade_panel() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3 - $DRYARG" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3 - $DRYARG" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              case "$UPGRADE_PANEL" in
+                helsinki)
+                  upgrade_panel "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                frankfurt)
+                  upgrade_panel "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  upgrade_panel "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown upgrade_panel='$UPGRADE_PANEL' (use helsinki|frankfurt|la)" ;;
+              esac
+              echo "=== UPGRADE PANEL COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_PURGE" = "true" ]; then
+              if [ "$RU_EGRESS_PANEL" = "clean-relay" ]; then
+                RELAY_MODE=clean-relay
+                echo "=== RU EGRESS: clean-relay (pure RU egress) on RU relay (89.169.139.153) ==="
+              else
+                RELAY_MODE=purge-orphans
+                echo "=== RU EGRESS: purge orphaned user clients on RU relay (89.169.139.153) ==="
+              fi
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
+              mkdir -p ~/.ssh
+              printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode $RELAY_MODE" 2>&1 || echo "  RU relay FAILED"
+              rm -f ~/.ssh/yandex-relay
+              echo "=== RU EGRESS $RELAY_MODE COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_DUMP" = "true" ] || [ "$RU_EGRESS_APPLY" = "true" ] || [ "$RU_EGRESS_REVERT" = "true" ] || [ "$RU_EGRESS_REPOINT" = "true" ] || [ "$RU_EGRESS_FIX_SNIFFING" = "true" ] || [ "$RU_EGRESS_RESET_LOGS" = "true" ]; then
+              if [ "$RU_EGRESS_APPLY" = "true" ]; then RU_EGRESS_OP=apply
+              elif [ "$RU_EGRESS_REVERT" = "true" ]; then RU_EGRESS_OP=revert
+              elif [ "$RU_EGRESS_REPOINT" = "true" ]; then RU_EGRESS_OP=repoint
+              elif [ "$RU_EGRESS_FIX_SNIFFING" = "true" ]; then RU_EGRESS_OP=fix-sniffing
+              elif [ "$RU_EGRESS_RESET_LOGS" = "true" ]; then RU_EGRESS_OP=reset-logs
+              else RU_EGRESS_OP=dump; fi
+              echo "=== RU EGRESS: $RU_EGRESS_OP on panel=$RU_EGRESS_PANEL ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/manage_ru_egress.py)
+              # $1=host $2=user $3=ident-or-__pass__ $4=pass
+              ru_run() {
+                echo "--- $1 ---"
+                if [ "$3" = "__pass__" ]; then
+                  sshpass -p "$4" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$2@$1" "echo $SCRIPT_B64 | base64 -d | python3 - --mode $RU_EGRESS_OP" 2>&1 || echo "  $1 FAILED"
+                else
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3 - --mode $RU_EGRESS_OP" 2>&1 || echo "  $1 FAILED"
+                fi
+              }
+              case "$RU_EGRESS_PANEL" in
+                helsinki)
+                  ru_run "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                frankfurt)
+                  ru_run "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  ru_run "216.227.169.120" "romtan" "$HOME/.ssh/la-key"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown ru_egress_panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la)" ;;
+              esac
+              echo "=== RU EGRESS $RU_EGRESS_OP COMPLETE ==="
+            fi
+
+            if [ -n "$RELAY_UNREGISTER_JSON" ]; then
+              echo "=== RELAY UNREGISTER: remove relay UUID from foreign target ==="
+              cd /opt/bravada
+              SCRIPT_B64=$(base64 -w0 backend/scripts/unregister_relay_uuid.py)
+              TARGET=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['target'])")
+              UUID=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin)['uuid'])")
+              EMAIL=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('email',''))")
+              INBOUND=$(printf '%s' "$RELAY_UNREGISTER_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('inbound_id',1))")
+              echo "  target=$TARGET uuid=${UUID:0:8}... email=$EMAIL inbound=$INBOUND"
+              case "$TARGET" in
+                frankfurt)
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  frankfurt FAILED" ;;
+                helsinki)
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  helsinki FAILED" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  la FAILED"
+                  rm -f ~/.ssh/la-key ;;
+                *)
+                  echo "  unknown target='$TARGET' (use frankfurt|helsinki|la)" ;;
+              esac
+              echo "=== RELAY UNREGISTER COMPLETE ==="
+            fi
+
+            if [ -n "$MWS_JSON" ]; then
+              MWS_ACTION=$(printf '%s' "$MWS_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('action',''))")
+              echo "=== MWS CDN: action=$MWS_ACTION ==="
+              cd /opt/bravada
+              _mws_get() { printf '%s' "$MWS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+              case "$MWS_ACTION" in
+                setup)
+                  MWS_HOST=$(_mws_get host); [ -z "$MWS_HOST" ] && MWS_HOST=77.110.100.210
+                  MWS_PORT=$(_mws_get port); [ -z "$MWS_PORT" ] && MWS_PORT=20999
+                  MWS_PATH=$(_mws_get ws_path); [ -z "$MWS_PATH" ] && MWS_PATH=/mws
+                  MWS_HOSTNAME=$(_mws_get hostname)
+                  MWS_TEST_UUID=$(_mws_get test_uuid)
+                  MWS_NETWORK=$(_mws_get network); [ -z "$MWS_NETWORK" ] && MWS_NETWORK=xhttp
+                  echo "  origin=$MWS_HOST port=$MWS_PORT path=$MWS_PATH network=$MWS_NETWORK hostname=$MWS_HOSTNAME"
+                  SCRIPT_B64=$(base64 -w0 backend/scripts/setup_mws_origin.py)
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@"$MWS_HOST" \
+                    "echo $SCRIPT_B64 | base64 -d | sudo env MWS_PORT=$MWS_PORT MWS_PATH='$MWS_PATH' MWS_NETWORK=$MWS_NETWORK MWS_HOSTNAME='$MWS_HOSTNAME' MWS_TEST_UUID='$MWS_TEST_UUID' MWS_PANEL_HOST=$MWS_HOST python3" 2>&1 || echo "  mws setup FAILED"
+                  ;;
+                row)
+                  MWS_HOSTNAME=$(_mws_get hostname)
+                  MWS_INBOUND_ID=$(_mws_get inbound_id)
+                  MWS_WS_PATH=$(_mws_get ws_path); [ -z "$MWS_WS_PATH" ] && MWS_WS_PATH=/mws
+                  MWS_LABEL=$(_mws_get label)
+                  MWS_ORIGIN_PANEL_HOST=$(_mws_get origin_panel_host); [ -z "$MWS_ORIGIN_PANEL_HOST" ] && MWS_ORIGIN_PANEL_HOST=77.110.100.210
+                  docker compose -f docker-compose.prod.yml cp backend/scripts/add_mws_row.py backend:/tmp/add_mws_row.py 2>/dev/null || true
+                  docker compose -f docker-compose.prod.yml exec -T -e DATABASE_URL \
+                    -e MWS_HOSTNAME="$MWS_HOSTNAME" -e MWS_INBOUND_ID="$MWS_INBOUND_ID" \
+                    -e MWS_WS_PATH="$MWS_WS_PATH" -e MWS_LABEL="$MWS_LABEL" \
+                    -e MWS_ORIGIN_PANEL_HOST="$MWS_ORIGIN_PANEL_HOST" \
+                    backend python /tmp/add_mws_row.py 2>&1 || echo "  mws row FAILED"
+                  ;;
+                *)
+                  echo "  unknown mws action='$MWS_ACTION' (use setup|row)"
+                  ;;
+              esac
+              echo "=== MWS $MWS_ACTION COMPLETE ==="
+            fi
+
+            if [ "$RU_EGRESS_DUMP" = "true" ] && [ -n "$PANEL_PROBE_B64" ]; then
+              echo "=== PANEL PROBE (live config.json) on $RU_EGRESS_PANEL — read-only, no restart ==="
+              printf '%s' "$PANEL_PROBE_B64" | base64 -d > /tmp/pp.py
+              echo "  probe size: $(wc -c < /tmp/pp.py) bytes"
+              case "$RU_EGRESS_PANEL" in
+                frankfurt)
+                  sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.110.100.210:/tmp/pp.py 2>&1
+                  sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  frankfurt FAILED" ;;
+                helsinki)
+                  sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.221.159.106:/tmp/pp.py 2>&1
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  helsinki FAILED" ;;
+                la)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+                  scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key /tmp/pp.py romtan@216.227.169.120:/tmp/pp.py 2>&1
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  la FAILED"
+                  rm -f ~/.ssh/la-key ;;
+                relay)
+                  mkdir -p ~/.ssh
+                  printf '%s\n' "$RELAY_SSH_KEY" > ~/.ssh/yandex-relay; chmod 600 ~/.ssh/yandex-relay
+                  scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay /tmp/pp.py romtan@89.169.139.153:/tmp/pp.py 2>&1
+                  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/yandex-relay romtan@89.169.139.153 "sudo python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  relay FAILED"
+                  rm -f ~/.ssh/yandex-relay ;;
+                *)
+                  echo "  unknown panel='$RU_EGRESS_PANEL' (use helsinki|frankfurt|la|relay)" ;;
+              esac
+              rm -f /tmp/pp.py
+              echo "=== PANEL PROBE COMPLETE ==="
+            fi

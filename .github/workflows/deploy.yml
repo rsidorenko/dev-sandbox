@@ -13,6 +13,46 @@ on:
         description: "Clean all user data and VLESS keys from database (destructive!)"
         required: false
         default: "false"
+      reissue_keys:
+        description: "Reissue VLESS keys for all users (clears xtls-rprx-vision flow on panels)"
+        required: false
+        default: "false"
+      cleanup_duplicates:
+        description: "Remove duplicate VLESS clients from 3x-ui panels (fix after botched reissue)"
+        required: false
+        default: "false"
+      diagnose_sub:
+        description: "Diagnose why a subscription's keys don't connect (UUID presence per panel)"
+        required: false
+        default: "false"
+      check_bans:
+        description: "Check fail2ban + iptables bans + recent xray-rejected IPs on all servers"
+        required: false
+        default: "false"
+      check_frankfurt_logs:
+        description: "SSH to Frankfurt via main, dump xray access/error logs (Reality reject reasons)"
+        required: false
+        default: "false"
+      check_frankfurt_routing:
+        description: "Check Frankfurt outbounds + routing (client traffic blackhole?)"
+        required: false
+        default: "false"
+      check_all_routing:
+        description: "Check routing rules on Helsinki, LA, Frankfurt for blackhole bug"
+        required: false
+        default: "false"
+      fix_panel_url:
+        description: "SSH to Frankfurt/LA, discover webBasePath, update panel_url in DB"
+        required: false
+        default: "false"
+      sync_clients:
+        description: "Sync inbounds.settings → clients table on all 3x-ui v3.x panels, then restart xray"
+        required: false
+        default: "false"
+      rebuild_clients:
+        description: "Wipe all bot-managed clients from panels and rebuild from DB (wipe + re-add + sync + verify)"
+        required: false
+        default: "false"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -70,6 +110,19 @@ jobs:
         env:
           RUN_HARDENING: ${{ github.event.inputs.run_hardening || 'false' }}
           RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
+          REISSUE_KEYS: ${{ github.event.inputs.reissue_keys || 'false' }}
+          CLEANUP_DUPLICATES: ${{ github.event.inputs.cleanup_duplicates || 'false' }}
+          DIAGNOSE_SUB: ${{ github.event.inputs.diagnose_sub || 'false' }}
+          CHECK_BANS: ${{ github.event.inputs.check_bans || 'false' }}
+          CHECK_FRANKFURT_LOGS: ${{ github.event.inputs.check_frankfurt_logs || 'false' }}
+          CHECK_FRANKFURT_ROUTING: ${{ github.event.inputs.check_frankfurt_routing || 'false' }}
+          CHECK_ALL_ROUTING: ${{ github.event.inputs.check_all_routing || 'false' }}
+          FIX_PANEL_URL: ${{ github.event.inputs.fix_panel_url || 'false' }}
+          SYNC_CLIENTS: ${{ github.event.inputs.sync_clients || 'false' }}
+          REBUILD_CLIENTS: ${{ github.event.inputs.rebuild_clients || 'false' }}
+          FRANKFURT_SSH_PASS: ${{ secrets.FRANKFURT_SSH_PASS }}
+          HELSINKI_SSH_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
+          LA_SSH_KEY: ${{ secrets.LA_SSH_KEY }}
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
           INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
         with:
@@ -77,7 +130,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
-          envs: RUN_HARDENING,RUN_CLEANUP,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
+          envs: RUN_HARDENING,RUN_CLEANUP,REISSUE_KEYS,CLEANUP_DUPLICATES,DIAGNOSE_SUB,CHECK_BANS,CHECK_FRANKFURT_LOGS,CHECK_FRANKFURT_ROUTING,CHECK_ALL_ROUTING,FIX_PANEL_URL,SYNC_CLIENTS,REBUILD_CLIENTS,FRANKFURT_SSH_PASS,HELSINKI_SSH_PASS_KEY,LA_SSH_KEY,FIELD_ENCRYPTION_KEY,INTERNAL_API_SECRET
           script: |
             set -e
 
@@ -303,3 +356,380 @@ jobs:
 
               echo "=== DATABASE + VLESS CLEANUP COMPLETE ==="
             fi
+
+            if [ "$REISSUE_KEYS" = "true" ]; then
+              echo "=== REISSUE ALL VLESS KEYS ==="
+              cd /opt/bravada
+              cat > /tmp/reissue_all_keys.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys
+            sys.path.insert(0, '/app/src')
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT internal_user_id FROM user_identities WHERE vless_uuid IS NOT NULL"
+                    )
+                    user_ids = [r['internal_user_id'] for r in rows]
+                    print(f"Found {len(user_ids)} users with VLESS keys")
+
+                    from app.issuance.xui_vless_provider import XuiVlessProvider
+                    from app.issuance.vless_provider import VlessProviderOutcome
+                    provider = XuiVlessProvider(pool)
+
+                    success = 0
+                    failed = 0
+                    for i, uid in enumerate(user_ids, 1):
+                        try:
+                            # 1. Clear stored UUID so reissue generates fresh one
+                            await pool.execute(
+                                "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1", uid)
+                            # 2. Revoke (disable) old keys on all panels
+                            await provider.revoke_user(internal_user_id=uid)
+                            # 3. Create fresh keys with flow="" (no xtls-rprx-vision)
+                            result = await provider.create_user(internal_user_id=uid)
+                            if result.outcome == VlessProviderOutcome.SUCCESS and result.config:
+                                srv = len(result.config.servers)
+                                print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> ok ({srv} servers)")
+                                success += 1
+                            else:
+                                print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> FAILED: {result.outcome}")
+                                failed += 1
+                        except Exception as exc:
+                            print(f"  [{i}/{len(user_ids)}] {uid[:16]}... -> ERROR: {type(exc).__name__}")
+                            failed += 1
+
+                    print(f"\nDone: {success} reissued, {failed} failed out of {len(user_ids)} users")
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/reissue_all_keys.py backend:/tmp/reissue_all_keys.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/reissue_all_keys.py 2>&1
+              rm -f /tmp/reissue_all_keys.py
+              echo "=== REISSUE COMPLETE ==="
+            fi
+
+            if [ "$CLEANUP_DUPLICATES" = "true" ]; then
+              echo "=== CLEANUP DUPLICATE VLESS CLIENTS ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/cleanup_duplicate_clients.py backend:/tmp/cleanup_duplicate_clients.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/cleanup_duplicate_clients.py 2>&1
+              rm -f /tmp/cleanup_duplicate_clients.py
+
+              echo "--- Restarting xray on all panels ---"
+              cat > /tmp/restart_xray.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, json
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT id, label, panel_url, panel_username, panel_password, "
+                        "COALESCE(encrypted_password, '') AS encrypted_password "
+                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                    )
+                    import httpx
+                    for row in rows:
+                        panel_url = row['panel_url'].rstrip('/')
+                        password = row['encrypted_password'] if row['encrypted_password'] else row['panel_password']
+                        if row['encrypted_password']:
+                            password = decrypt_field(row['encrypted_password'])
+                        print(f'  Server {row["id"]}: {row["label"]}')
+                        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as client:
+                            import re
+                            page = await client.get(f'{panel_url}/')
+                            csrf = None
+                            m = re.search(r'csrf-token" content="([^"]+)"', page.text)
+                            if m:
+                                csrf = m.group(1)
+                            headers = {"Content-Type": "application/json"}
+                            if csrf:
+                                headers["X-CSRF-Token"] = csrf
+                            login = await client.post(f'{panel_url}/login',
+                                json={"username": row['panel_username'], "password": password}, headers=headers)
+                            if login.status_code != 200 or not login.json().get('success'):
+                                print(f'    Login FAILED')
+                                continue
+                            resp = await client.post(f'{panel_url}/panel/api/setting/restartXrayService', headers=headers)
+                            ok = 'OK' if resp.status_code == 200 else f'FAIL({resp.status_code})'
+                            print(f'    Restart xray: {ok}')
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+              docker compose -f docker-compose.prod.yml cp /tmp/restart_xray.py backend:/tmp/restart_xray.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/restart_xray.py 2>&1
+              rm -f /tmp/restart_xray.py
+              echo "=== CLEANUP COMPLETE ==="
+            fi
+
+            if [ "$DIAGNOSE_SUB" = "true" ]; then
+              echo "=== DIAGNOSE SUBSCRIPTION ==="
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml cp backend/scripts/diagnose_subscription.py backend:/tmp/dsub.py 2>/dev/null || true
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/dsub.py 2>&1
+              rm -f /tmp/dsub.py
+              echo "=== DIAGNOSE COMPLETE ==="
+            fi
+
+            if [ "$CHECK_BANS" = "true" ]; then
+              echo "=== CHECK BANS (fail2ban / iptables / xray-rejected) ==="
+              # Check VPN servers reachable via SSH keys from runner
+              for spec in "LA|216.227.169.120|romtan|la-key|LA_SSH_KEY"; do
+                IFS='|' read -r name ip user keyfile secret <<< "$spec"
+                echo "--- $name ($ip) ---"
+                mkdir -p ~/.ssh
+                printf '%s\n' "${!secret}" > ~/.ssh/$keyfile
+                chmod 600 ~/.ssh/$keyfile
+                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=12 -i ~/.ssh/$keyfile $user@${ip} '
+                  echo "  fail2ban:"; sudo fail2ban-client status 2>/dev/null | grep -iE "Jail|ssh|filter" || echo "    not installed/running"
+                  sudo fail2ban-client status sshd 2>/dev/null | grep -iE "Banned IP" || true
+                  echo "  iptables DROP/REJECT:"; sudo iptables -L -n 2>/dev/null | grep -iE "DROP|REJECT" | head -20 || echo "    none"
+                  echo "  f2b chains:"; sudo iptables -L -n 2>/dev/null | grep -iE "f2b|fail2ban" | head -10 || echo "    none"
+                  echo "  xray recent rejected (last 15):"; sudo tail -200 /var/log/xray-access.log 2>/dev/null | grep -iE "rejected|invalid|failed" | tail -15 || echo "    no rejections"
+                ' 2>&1 || echo "  SSH FAILED"
+                rm -f ~/.ssh/$keyfile
+              done
+              # Main server (this host) bans
+              echo "--- Main/production ($(hostname)) ---"
+              sudo fail2ban-client status 2>/dev/null | grep -iE "Jail" || echo "  fail2ban not running"
+              sudo fail2ban-client status sshd 2>/dev/null | grep -iE "Banned IP" || true
+              sudo iptables -L -n 2>/dev/null | grep -iE "DROP|REJECT|f2b" | head -20 || echo "  no DROP rules"
+              echo "=== CHECK BANS COMPLETE ==="
+            fi
+
+            if [ "$CHECK_FRANKFURT_LOGS" = "true" ]; then
+              echo "=== FRANKFURT XRAY LOGS (via main) ==="
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'echo "=== inbound realitySettings (id=1, port 443) ==="; python3 -c "import json; c=json.load(open(\"/usr/local/x-ui/bin/config.json\")); [print(json.dumps({\"tag\":ib.get(\"tag\"),\"port\":ib.get(\"port\"),\"reality\":ib.get(\"streamSettings\",{}).get(\"realitySettings\",{})},indent=1)[:600]) for ib in c.get(\"inbounds\",[]) if ib.get(\"port\")==443]"; echo ""; echo "=== access log last 20 ==="; tail -20 /var/log/xray-access.log 2>/dev/null || echo "none"; echo ""; echo "=== error log last 20 ==="; tail -20 /var/log/xray-error.log 2>/dev/null || echo "none"; echo ""; echo "=== xray process ==="; ps aux | grep xray | grep -v grep | head -1' 2>&1 || echo "SSH to Frankfurt FAILED (need FRANKFURT_SSH_PASS secret)"
+              echo "=== FRANKFURT LOGS COMPLETE ==="
+            fi
+
+            if [ "$CHECK_FRANKFURT_ROUTING" = "true" ]; then
+              echo "=== FRANKFURT ROUTING/OUTBOUNDS ==="
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_frankfurt_routing.sh 2>&1 || echo "SSH FAILED"
+              echo "=== FRANKFURT ROUTING COMPLETE ==="
+            fi
+
+            if [ "$CHECK_ALL_ROUTING" = "true" ]; then
+              echo "=== CHECK ROUTING ON ALL VPN SERVERS ==="
+              mkdir -p ~/.ssh
+              # Helsinki (via password from main)
+              echo "--- Helsinki (77.221.159.106) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED (need HELSINKI_SSH_PASS)"
+              echo "--- Frankfurt (77.110.100.210) ---"
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              # LA (via key)
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              echo "--- LA (216.227.169.120) ---"
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
+              rm -f ~/.ssh/la-key
+              echo "=== ALL ROUTING CHECK COMPLETE ==="
+            fi
+
+            if [ "$FIX_PANEL_URL" = "true" ]; then
+              echo "=== FIX PANEL URL: discover webBasePath and update DB ==="
+              mkdir -p ~/.ssh
+
+              echo "--- Frankfurt webBasePath ---"
+              FRA_PATH=$(sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$FRA_PATH'"
+
+              echo "--- Helsinki webBasePath ---"
+              HEL_PATH=$(sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$HEL_PATH'"
+
+              echo "--- LA webBasePath ---"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              LA_PATH=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              echo "  webBasePath='$LA_PATH'"
+              rm -f ~/.ssh/la-key
+
+              echo "--- Current panel_url in DB ---"
+              cd /opt/bravada
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "SELECT id, label, panel_url FROM vpn_servers WHERE is_active = TRUE ORDER BY id;" 2>&1
+
+              echo "--- Updating panel_url in DB ---"
+              if [ -n "$FRA_PATH" ] && [ "$FRA_PATH" != " " ]; then
+                # Normalize: ensure leading slash and trailing slash
+                FRA_NORM="/${FRA_PATH#/}"
+                FRA_NORM="${FRA_NORM%/}/"
+                FRA_NEW="https://77.110.100.210:2053${FRA_NORM}"
+                echo "  Frankfurt -> $FRA_NEW"
+                # Update by server_host (matches rows 4, 6) AND by id (catches row 5 with different host)
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$FRA_NEW' WHERE (server_host = '77.110.100.210' OR id = 5) AND is_active = TRUE;" 2>&1
+              else
+                echo "  Frankfurt: no webBasePath set, skipping"
+              fi
+
+              if [ -n "$HEL_PATH" ] && [ "$HEL_PATH" != " " ]; then
+                HEL_NORM="/${HEL_PATH#/}"
+                HEL_NORM="${HEL_NORM%/}/"
+                HEL_NEW="https://77.221.159.106:2053${HEL_NORM}"
+                echo "  Helsinki -> $HEL_NEW"
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$HEL_NEW' WHERE server_host = '77.221.159.106' AND is_active = TRUE;" 2>&1
+              else
+                echo "  Helsinki: no webBasePath set, skipping"
+              fi
+
+              if [ -n "$LA_PATH" ] && [ "$LA_PATH" != " " ]; then
+                LA_NORM="/${LA_PATH#/}"
+                LA_NORM="${LA_NORM%/}/"
+                LA_NEW="https://216.227.169.120:2053${LA_NORM}"
+                echo "  LA -> $LA_NEW"
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$LA_NEW' WHERE server_host = '216.227.169.120' AND is_active = TRUE;" 2>&1
+              else
+                echo "  LA: no webBasePath set, skipping"
+              fi
+
+              echo "--- Verify updated panel_url ---"
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "SELECT id, label, panel_url FROM vpn_servers WHERE is_active = TRUE ORDER BY id;" 2>&1
+
+              echo "--- Restarting backend to pick up new URLs ---"
+              docker compose -f docker-compose.prod.yml restart backend 2>&1 || true
+
+              echo "=== FIX PANEL URL COMPLETE ==="
+            fi
+
+            if [ "$REBUILD_CLIENTS" = "true" ]; then
+              echo "=== REBUILD PANEL CLIENTS (wipe + re-add from DB) ==="
+              cd /opt/bravada
+
+              docker compose -f docker-compose.prod.yml cp backend/scripts/rebuild_panel_clients.py backend:/tmp/rebuild_panel_clients.py 2>/dev/null || true
+
+              echo "--- Step 0: User statistics ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --stats 2>&1
+
+              echo "--- Step 1: Pre-verify (check current state) ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --verify 2>&1 || echo "  Pre-verify showed missing clients (expected before rebuild)"
+
+              echo "--- Step 2: Dry run ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --dry-run 2>&1
+
+              echo "--- Step 3: Full rebuild (extend expired +30d, wipe + re-add) ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --extend-expired=30 2>&1
+              REBUILD_EXIT=$?
+              if [ $REBUILD_EXIT -ne 0 ]; then
+                echo "  ⚠️  REBUILD FAILED with exit code $REBUILD_EXIT"
+              fi
+
+              echo "--- Step 4: Sync clients table on all servers ---"
+              mkdir -p ~/.ssh
+
+              echo "  Frankfurt (77.110.100.210)"
+              sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.110.100.210:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Frankfurt sync FAILED"
+
+              echo "  Helsinki (77.221.159.106)"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.221.159.106:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
+
+              echo "  LA (216.227.169.120)"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key backend/scripts/sync_clients_table.py romtan@216.227.169.120:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
+              rm -f ~/.ssh/la-key
+
+
+              echo "--- Step 5: Post-verify ---"
+              docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/rebuild_panel_clients.py --verify 2>&1
+
+              rm -f /tmp/rebuild_panel_clients.py
+              echo "=== REBUILD PANEL CLIENTS COMPLETE ==="
+            fi
+
+            if [ "$SYNC_CLIENTS" = "true" ]; then
+              echo "=== SYNC CLIENTS TABLE (3x-ui v3.x) ==="
+              mkdir -p ~/.ssh
+
+              echo "--- Frankfurt (77.110.100.210) ---"
+              sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.110.100.210:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Frankfurt sync FAILED"
+
+              echo "--- Helsinki (77.221.159.106) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.221.159.106:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
+
+              echo "--- LA (216.227.169.120) ---"
+              printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
+              scp -o StrictHostKeyChecking=no -i ~/.ssh/la-key backend/scripts/sync_clients_table.py romtan@216.227.169.120:/tmp/sync_clients.py 2>&1 || true
+              ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 'sudo python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; sudo systemctl restart x-ui 2>/dev/null || sudo x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  LA sync FAILED"
+              rm -f ~/.ssh/la-key
+
+
+              echo "=== SYNC CLIENTS COMPLETE ==="
+            fi
+
+            # Always-run: print panel_url + test login to each panel
+            echo "=== POST-DEPLOY PANEL DIAGNOSTIC (always runs) ==="
+            cd /opt/bravada
+            cat > /tmp/panel_diag.py << 'PYEOF'
+            import asyncio, asyncpg, os, sys, re
+            sys.path.insert(0, '/app/src')
+            from app.security.field_encryption import decrypt_field
+
+            async def main():
+                dsn = os.environ.get('DATABASE_URL', '')
+                if not dsn:
+                    print('ERROR: DATABASE_URL not set')
+                    return
+                pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+                try:
+                    rows = await pool.fetch(
+                        "SELECT id, label, panel_url, panel_username, "
+                        "COALESCE(encrypted_password, '') AS enc_pwd, panel_password "
+                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                    )
+                    import httpx
+                    for row in rows:
+                        url = row['panel_url'].rstrip('/')
+                        pwd = decrypt_field(row['enc_pwd']) if row['enc_pwd'] else row['panel_password']
+                        print(f'  [{row["id"]}] {row["label"]}: {url}')
+                        try:
+                            async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as client:
+                                # Try csrf-token endpoint
+                                csrf_resp = await client.get(f'{url}/csrf-token')
+                                csrf = ''
+                                if csrf_resp.status_code == 200:
+                                    d = csrf_resp.json()
+                                    csrf = d.get('obj', '') or d.get('token', '')
+                                if not csrf:
+                                    page = await client.get(f'{url}/')
+                                    m = re.search(r'csrf-token.*?content="([^"]+)"', page.text)
+                                    csrf = m.group(1) if m else ''
+                                hdrs = {'Content-Type': 'application/json'}
+                                if csrf:
+                                    hdrs['X-CSRF-Token'] = csrf
+                                login = await client.post(f'{url}/login',
+                                    json={'username': row['panel_username'], 'password': pwd},
+                                    headers=hdrs, timeout=10)
+                                if login.status_code == 200 and login.json().get('success'):
+                                    print(f'    LOGIN OK')
+                                else:
+                                    print(f'    LOGIN FAILED: status={login.status_code} body={login.text[:200]}')
+                        except Exception as e:
+                            print(f'    ERROR: {e}')
+                finally:
+                    await pool.close()
+
+            asyncio.run(main())
+            PYEOF
+            docker compose -f docker-compose.prod.yml cp /tmp/panel_diag.py backend:/tmp/panel_diag.py 2>/dev/null || true
+            docker compose -f docker-compose.prod.yml exec -T -e FIELD_ENCRYPTION_KEY -e DATABASE_URL backend python /tmp/panel_diag.py 2>&1 || echo "  Panel diagnostic failed"
+            rm -f /tmp/panel_diag.py
+            echo "=== PANEL DIAGNOSTIC COMPLETE ==="
+
+            echo "=== Install/refresh reprovision-active timer (enable/expiry desync auto-heal, every 30 min, no xray restart) ==="
+            bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true

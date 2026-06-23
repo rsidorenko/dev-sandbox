@@ -1,0 +1,39 @@
+name: vk-tunnel-probe
+# Read-only probe of the vk-tunnel OAuth state on bgg (84.201.144.227). Has NO
+# concurrency group, so it can run ALONGSIDE a long relay-setup `oauth` run:
+# while vk-tunnel polls in the foreground (writing the device-flow URL + later the
+# wss domain to /tmp/vkt-oauth.log), this workflow reads that file so the operator
+# can be handed the URL and later confirm authorization completed.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read /tmp/vkt-oauth.log + current-domain on bgg
+        uses: appleboy/ssh-action@v1
+        env:
+          VK_SSH_KEY: ${{ secrets.VK_SSH_KEY }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 2m
+          envs: VK_SSH_KEY
+          script: |
+            mkdir -p ~/.ssh
+            printf '%s\n' "$VK_SSH_KEY" > ~/.ssh/vk-key; chmod 600 ~/.ssh/vk-key
+            echo "=== /tmp/vkt-oauth.log tail (device-flow code_auth URL; wss://domain if authorized) ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/vk-key romtan@84.201.144.227 \
+              "sudo cat /tmp/vkt-oauth.log 2>/dev/null | tr -d '\r' | tail -30 || echo '(empty or missing)'"
+            echo "=== /var/lib/vk-tunnel/current-domain ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/vk-key romtan@84.201.144.227 \
+              "sudo cat /var/lib/vk-tunnel/current-domain 2>/dev/null || echo '(empty)'"
+            echo "=== vk-tunnel processes ==="
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i ~/.ssh/vk-key romtan@84.201.144.227 \
+              "pgrep -af '[v]k-tunnel' || echo '(none running)'"
+            rm -f ~/.ssh/vk-key

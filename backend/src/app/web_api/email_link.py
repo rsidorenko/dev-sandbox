@@ -130,8 +130,10 @@ async def handle_bot_verify_code(request: Request) -> JSONResponse:
     )
 
     # Remove any existing verified email for this user (replace)
+    # DELETE old rows instead of marking unverified — prevents stale
+    # verified_at timestamps and garbage accumulation in user_emails.
     await pool.execute(
-        "UPDATE user_emails SET is_verified = FALSE WHERE telegram_user_id = $1 AND is_verified = TRUE",
+        "DELETE FROM user_emails WHERE telegram_user_id = $1",
         telegram_user_id,
     )
 
