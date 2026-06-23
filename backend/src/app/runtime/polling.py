@@ -290,33 +290,54 @@ class Slice1PollingRuntime:
                                 msg_id,
                             )
                         except Exception:
+                            # Keep media + caption in ONE message: a captioned send can
+                            # fail when Telegram rejects HTML in the caption (parse_mode).
+                            # Retry the same media send WITHOUT parse_mode so the media is
+                            # still delivered with a plain-text caption, rather than
+                            # dropping the media and falling back to a text-only message.
                             _LOGGER.warning(
-                                "polling.send_%s_failed chat_id=%s -> fallback text",
+                                "polling.send_%s_failed chat_id=%s -> retry media without parse_mode",
                                 media_type,
                                 action.chat_id,
                                 exc_info=True,
                             )
                             try:
-                                msg_id = await self._client.send_text_message(
+                                msg_id = await _send_method(
                                     action.chat_id,
-                                    text,
-                                    correlation_id=action.correlation_id,
+                                    media_path,
+                                    caption=text if text.strip() else None,
                                     reply_markup=markup,
-                                    parse_mode=pmode,
                                 )
                             except Exception:
+                                # Media itself is unsendable (missing/invalid file):
+                                # fall back to a text-only message so the step is readable.
                                 _LOGGER.warning(
-                                    "polling.send_%s_fallback_also_failed chat_id=%s -> retry without parse_mode",
+                                    "polling.send_%s_media_unavailable chat_id=%s -> fallback text",
                                     media_type,
                                     action.chat_id,
                                     exc_info=True,
                                 )
-                                msg_id = await self._client.send_text_message(
-                                    action.chat_id,
-                                    text,
-                                    correlation_id=action.correlation_id,
-                                    reply_markup=markup,
-                                )
+                                try:
+                                    msg_id = await self._client.send_text_message(
+                                        action.chat_id,
+                                        text,
+                                        correlation_id=action.correlation_id,
+                                        reply_markup=markup,
+                                        parse_mode=pmode,
+                                    )
+                                except Exception:
+                                    _LOGGER.warning(
+                                        "polling.send_%s_fallback_also_failed chat_id=%s -> retry without parse_mode",
+                                        media_type,
+                                        action.chat_id,
+                                        exc_info=True,
+                                    )
+                                    msg_id = await self._client.send_text_message(
+                                        action.chat_id,
+                                        text,
+                                        correlation_id=action.correlation_id,
+                                        reply_markup=markup,
+                                    )
                     elif first and cb_origin is not None:
                         origin_chat_id, origin_msg_id = cb_origin
                         try:
