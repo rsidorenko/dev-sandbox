@@ -18,7 +18,10 @@ from app.application.interfaces import SubscriptionSnapshot
 from app.bot_transport.message_catalog import render_telegram_outbound_plan
 from app.bot_transport.outbound import build_fulfillment_success_notification_plan
 from app.domain.plans import DEFAULT_DEVICE_LIMIT, get_plan
-from app.persistence.billing_events_ledger_contracts import BillingEventLedgerStatus
+from app.persistence.billing_events_ledger_contracts import (
+    BillingEventAmountCurrency,
+    BillingEventLedgerStatus,
+)
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
 from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply
@@ -83,6 +86,24 @@ def _plan_id_from_period_days(period_days: int) -> str:
         365: "365d",
     }
     return _KNOWN.get(period_days, f"custom:{period_days}")
+
+
+# Every real payment in this system is denominated in RUB (YooKassa creates RUB
+# payments; the provider-agnostic ingress and the operator grant tool are RUB too).
+# Amount is expressed in kopecks (minor units), matching billing_events_ledger.
+_LEDGER_CURRENCY_CODE = "RUB"
+
+
+def _ledger_amount_currency(amount_kopecks: int | None) -> BillingEventAmountCurrency | None:
+    """Build the normalized amount/currency for the billing ledger from paid kopecks.
+
+    Returns None when the paid amount is unknown (the ledger amount column is
+    intentionally nullable). Otherwise captures the paid amount so the append-only
+    ledger can answer "how much was actually paid" for reconciliation.
+    """
+    if amount_kopecks is None:
+        return None
+    return BillingEventAmountCurrency(amount_minor_units=amount_kopecks, currency_code=_LEDGER_CURRENCY_CODE)
 
 
 async def _send_activation_notice_best_effort(
@@ -254,7 +275,7 @@ async def process_fulfillment(
         ingestion_correlation_id=correlation_id,
         internal_user_id=inp.internal_user_id,
         checkout_attempt_id=inp.external_payment_id,
-        amount_currency=None,
+        amount_currency=_ledger_amount_currency(inp.amount_kopecks),
         internal_fact_ref=None,
     )
 
