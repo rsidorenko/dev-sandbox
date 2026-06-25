@@ -34,7 +34,14 @@ from app.issuance.xui_client import (
 from app.security.field_encryption import decrypt_field
 from app.shared.site_url import get_site_base_url
 
-_CACHE_TTL_SECONDS = 600  # 10 minutes
+_CACHE_TTL_SECONDS = 600  # 10 minutes — panel-client (server list) cache
+# User-config cache (get_user_config / /sub/). The probe fans out one panel call per
+# active server (~14), so a cold miss costs ~2s. Serve recent entries instantly and
+# refresh in the background so repeat /sub/ imports stop paying that cost every time.
+# Probe logic and result semantics are unchanged — only the cache timing around it.
+_USER_CONFIG_FRESH_SECONDS = 120    # served without triggering a refresh
+_USER_CONFIG_STALE_SECONDS = 3600   # served (background-refreshed) up to this age; block beyond
+_CONFIG_CACHE_MAX_ENTRIES = 10000
 _SUBSCRIPTION_TOKEN_TTL_DAYS = int(os.environ.get("SUBSCRIPTION_TOKEN_TTL_DAYS", "90"))
 
 _LOGGER = logging.getLogger(__name__)
@@ -279,7 +286,12 @@ class XuiVlessProvider(VlessProviderPort):
         self._clients_ts: float = 0.0
         self._plaintext_warning_logged = False
         self._user_locks: dict[str, asyncio.Lock] = {}
-        self._config_cache: dict[str, tuple[float, VlessProviderResult]] = {}
+        self._config_cache: dict[str, tuple[float, VlessProviderResult, int]] = {}
+        # Epoch is bumped on every invalidation so an in-flight (background) refresh
+        # can detect that a mutation invalidated the entry and refuse to clobber it.
+        self._cache_epoch: dict[str, int] = {}
+        self._refreshing: set[str] = set()
+        self._refresh_tasks: set[asyncio.Task] = set()
 
     async def _check_plaintext_passwords(self) -> None:
         if self._plaintext_warning_logged:
@@ -327,6 +339,8 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def aclose(self) -> None:
         """Close all cached HTTP clients. Call on shutdown."""
+        for task in list(self._refresh_tasks):
+            task.cancel()
         await self._close_clients()
 
     async def create_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
@@ -400,16 +414,41 @@ class XuiVlessProvider(VlessProviderPort):
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
     def _invalidate_config_cache(self, internal_user_id: str) -> None:
+        """Clear cached user config and bump its epoch so an in-flight background
+        refresh can detect the invalidation and refuse to clobber the fresher state."""
         self._config_cache.pop(internal_user_id, None)
+        self._cache_epoch[internal_user_id] = self._cache_epoch.get(internal_user_id, 0) + 1
 
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
+        """User config with serve-stale-while-revalidate caching.
+
+        A fresh or recently-cached entry is returned instantly. An entry older than the
+        fresh window is still returned instantly while a background panel probe refreshes
+        it — so repeat /sub/ imports stop paying the ~2s (one-call-per-panel) probe on
+        every cold hit. A missing or stale-beyond-limit entry falls back to a blocking
+        probe. The probe itself and its result semantics are unchanged from before; only
+        the cache timing around it differs.
+        """
         now = time.monotonic()
         cached = self._config_cache.get(internal_user_id)
-        if cached is not None and now - cached[0] < _CACHE_TTL_SECONDS:
-            return cached[1]
+        if cached is not None:
+            cached_ts, result, _epoch = cached
+            age = now - cached_ts
+            if age < _USER_CONFIG_STALE_SECONDS:
+                if age >= _USER_CONFIG_FRESH_SECONDS:
+                    self._schedule_refresh(internal_user_id)
+                return result
+        return await self._compute_user_config(internal_user_id)
+
+    async def _probe_user_config(self, internal_user_id: str) -> VlessProviderResult | None:
+        """Probe every active panel for the user's per-transport client uuid and build
+        the link set. Returns the result, or ``None`` when there are no active servers
+        (so the caller can decide the UNAVAILABLE vs NOT_FOUND semantics). Slow — one
+        panel round-trip per active server, parallelised — so always call via the cache.
+        """
         clients = await self._get_clients()
         if not clients:
-            return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+            return None
 
         async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
             # Existence probe by email (per transport). The link uuid is whatever uuid
@@ -446,11 +485,67 @@ class XuiVlessProvider(VlessProviderPort):
             subscription_url=_web_sub_url(token),
             servers=tuple(servers),
         )
-        result = VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
-        if len(self._config_cache) > 10000:
+        return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
+
+    async def _compute_user_config(self, internal_user_id: str) -> VlessProviderResult:
+        """Blocking probe + cache, serialized per user so concurrent cold reads don't
+        each fan out ~14 panel calls. The epoch guard drops the result if a mutation
+        (create/revoke/delete/activate) invalidated the entry mid-probe."""
+        async with self._user_lock(internal_user_id):
+            # Double-check after acquiring the lock — another read may have just filled it.
+            cached = self._config_cache.get(internal_user_id)
+            if cached is not None and time.monotonic() - cached[0] < _USER_CONFIG_FRESH_SECONDS:
+                return cached[1]
+            epoch = self._cache_epoch.get(internal_user_id, 0)
+            probed = await self._probe_user_config(internal_user_id)
+            result = (
+                probed
+                if probed is not None
+                else VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+            )
+            self._store_config_cache(internal_user_id, epoch, result)
+            return result
+
+    def _schedule_refresh(self, internal_user_id: str) -> None:
+        """Fire-and-forget background refresh; deduped so at most one runs per user."""
+        if internal_user_id in self._refreshing:
+            return
+        epoch = self._cache_epoch.get(internal_user_id, 0)
+        self._refreshing.add(internal_user_id)
+        task = asyncio.create_task(self._refresh_user_config(internal_user_id, epoch))
+        # Keep a strong reference until completion (create_task docs: task may otherwise
+        # be garbage-collected mid-execution).
+        self._refresh_tasks.add(task)
+        task.add_done_callback(lambda done, uid=internal_user_id: self._on_refresh_done(uid, done))
+
+    def _on_refresh_done(self, internal_user_id: str, task: asyncio.Task) -> None:
+        self._refreshing.discard(internal_user_id)
+        self._refresh_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _LOGGER.warning("background user-config refresh failed user=%s: %r", internal_user_id, exc)
+
+    async def _refresh_user_config(self, internal_user_id: str, epoch_at_schedule: int) -> None:
+        """Background refresh. Deliberately does NOT take the user lock (must not block
+        user mutations like create/revoke); the epoch guard in ``_store_config_cache``
+        discards the result if a mutation invalidated the entry while this probe ran."""
+        probed = await self._probe_user_config(internal_user_id)
+        if probed is None:
+            return  # no active servers — leave whatever is cached (or empty)
+        self._store_config_cache(internal_user_id, epoch_at_schedule, probed)
+
+    def _store_config_cache(
+        self, internal_user_id: str, epoch_at_compute: int, result: VlessProviderResult
+    ) -> None:
+        # Don't clobber a fresher state: a mutation bumps the epoch; if it changed since
+        # we read it (before the probe), drop our result so the next read recomputes.
+        if self._cache_epoch.get(internal_user_id, 0) != epoch_at_compute:
+            return
+        if len(self._config_cache) > _CONFIG_CACHE_MAX_ENTRIES:
             self._config_cache.clear()
-        self._config_cache[internal_user_id] = (time.monotonic(), result)
-        return result
+        self._config_cache[internal_user_id] = (time.monotonic(), result, epoch_at_compute)
 
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
