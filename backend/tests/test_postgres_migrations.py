@@ -89,6 +89,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "049_drop_empty_notification_state.sql",
         "050_drop_lte_servers.sql",
         "051_sync_subscription_plans_to_code.sql",
+        "052_remove_cdn_transport.sql",
     ]
 
 

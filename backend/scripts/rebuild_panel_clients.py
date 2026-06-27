@@ -47,7 +47,10 @@ _DEFAULT_EXPIRY_DAYS = 365
 _LOGIN_SESSION_TTL_SECONDS = 300
 _DEFAULT_TIMEOUT = 10.0
 
-# Bot-managed email prefixes (see _email_from_internal in xui_vless_provider.py)
+# Bot-managed email prefixes (see _email_from_internal in xui_vless_provider.py).
+# "cdn-user-" is retained deliberately: the CDN transport was retired (migration 052)
+# and its clients deleted, but keeping the prefix here means any legacy cdn-user-
+# client still gets recognized and wiped during a full panel rebuild.
 _BOT_EMAIL_PREFIXES = ("user-", "x-user-", "cdn-user-")
 
 
@@ -58,7 +61,7 @@ def _is_bot_email(email: str) -> bool:
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
     """Mirror of xui_vless_provider._email_from_internal."""
-    prefix = {"xhttp": "x-", "cdn": "cdn-"}.get(transport_type, "")
+    prefix = {"xhttp": "x-"}.get(transport_type, "")
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
