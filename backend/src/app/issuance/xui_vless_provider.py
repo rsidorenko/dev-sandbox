@@ -114,7 +114,7 @@ async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -
 
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
-    prefix = {"xhttp": "x-", "cdn": "cdn-"}.get(transport_type, "")
+    prefix = {"xhttp": "x-"}.get(transport_type, "")
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
@@ -160,16 +160,6 @@ def _build_vless_link(
             f"vless://{user_uuid}@{ws_host}:{port}"
             f"?type=ws&security=tls&path=%2F{path}"
             f"&host={ws_host}&fp={fp}&sni={ws_host}"
-            f"#{label}"
-        )
-
-    if server.transport_type == "cdn":
-        path = server.ws_path.strip("/")
-        cdn_host = server.tls_sni or host
-        return (
-            f"vless://{user_uuid}@{cdn_host}:{port}"
-            f"?type=ws&security=tls&path=%2F{path}"
-            f"&host={cdn_host}&sni={cdn_host}"
             f"#{label}"
         )
 
