@@ -9,8 +9,9 @@ from app.domain.referral import (
     resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
-from app.application.referral_handler import apply_referral_on_registration
+from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.persistence.in_memory import (
+    InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
 )
@@ -258,5 +259,70 @@ def test_apply_referral_skips_if_user_already_has_referrer() -> None:
         rels = await rel_repo.find_referrers("user_new")
         assert len(rels) == 1
         assert rels[0].referrer_user_id == "user_old_referrer"
+
+    _run(main())
+
+
+# --- Tests for count_direct_referrals / get_referral_info direct count ---
+# Regression: direct_referrals_count must be the number of users THIS user invited
+# (referrer_user_id = them). The old code used find_referrers (referred_user_id =
+# them = their referrers), so referrers showed 0 and referred users showed 1.
+
+
+def test_count_direct_referrals_counts_users_they_invited() -> None:
+    async def main() -> None:
+        rel_repo = InMemoryReferralRelationshipRepository()
+        # referrer invited two users (L1)
+        for referred in ("user_invited_a", "user_invited_b"):
+            await rel_repo.create_relationship(
+                referred_user_id=referred,
+                referrer_user_id="user_referrer",
+                level=1,
+                referrer_of_referrer_user_id=None,
+            )
+        # an L2 relationship (grand-referrer) — must NOT count as a direct referral
+        await rel_repo.create_relationship(
+            referred_user_id="user_invited_a",
+            referrer_user_id="user_grand",
+            level=2,
+            referrer_of_referrer_user_id="user_referrer",
+        )
+
+        assert await rel_repo.count_direct_referrals("user_referrer") == 2
+        # A user who was invited but invited nobody -> 0 (old bug returned 1 here)
+        assert await rel_repo.count_direct_referrals("user_invited_a") == 0
+        # L2 relationships don't count as direct
+        assert await rel_repo.count_direct_referrals("user_grand") == 0
+
+    _run(main())
+
+
+def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+        bal_repo = InMemoryReferralBalanceRepository()
+
+        # referrer invited two users
+        await code_repo.get_or_create("user_referrer")
+        for referred in ("user_invited_a", "user_invited_b"):
+            await rel_repo.create_relationship(
+                referred_user_id=referred,
+                referrer_user_id="user_referrer",
+                level=1,
+                referrer_of_referrer_user_id=None,
+            )
+
+        info = await get_referral_info(
+            internal_user_id="user_referrer",
+            code_repo=code_repo,
+            balance_repo=bal_repo,
+            relationship_repo=rel_repo,
+            bot_username="bot",
+            site_base_url="https://site.example",
+        )
+        # The referrer invited 2 — must show 2, not 0 (the old find_referrers-based
+        # count returned 0 because the referrer was never referred by anyone).
+        assert info.direct_referrals_count == 2
 
     _run(main())
