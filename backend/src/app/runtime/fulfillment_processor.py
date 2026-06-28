@@ -65,6 +65,11 @@ class FulfillmentInput:
     paid_at: datetime
     period_days: int
     amount_kopecks: int | None = None
+    # Device limit to apply on the snapshot. Defaults to the plan default; the
+    # YooKassa webhook passes the device_count the user paid for so a card
+    # purchase with extra devices actually grants those devices (previously the
+    # snapshot was always reset to DEFAULT_DEVICE_LIMIT, ignoring the purchase).
+    device_count: int = DEFAULT_DEVICE_LIMIT
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,7 +336,7 @@ async def process_fulfillment(
                         state_label="active",
                         active_until_utc=active_until_utc,
                         plan_id=snapshot_plan_id,
-                        device_count=DEFAULT_DEVICE_LIMIT,
+                        device_count=inp.device_count,
                     ),
                 )
             is_new_active = (

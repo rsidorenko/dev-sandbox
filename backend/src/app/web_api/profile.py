@@ -332,44 +332,6 @@ async def handle_change_plan(request: Request) -> JSONResponse:
         return _safe_json_error(500, "internal_error")
 
 
-async def handle_change_devices(request: Request) -> JSONResponse:
-    try:
-        data = await request.json()
-    except Exception:
-        return _safe_json_error(400, "invalid_request")
-
-    try:
-        device_count = int(data.get("device_count", 0))
-    except (ValueError, TypeError):
-        return _safe_json_error(400, "invalid_device_count")
-
-    if device_count < 1 or device_count > 20:
-        return _safe_json_error(400, "invalid_device_count")
-
-    try:
-        result = await _get_identity(request)
-        if isinstance(result, JSONResponse):
-            return result
-        pool, internal_user_id = result
-
-        await pool.execute(
-            """UPDATE subscription_snapshots
-               SET device_count = $1, updated_at = NOW()
-               WHERE internal_user_id = $2""",
-            device_count,
-            internal_user_id,
-        )
-
-        # Sync device limit to 3x-ui panels
-        provider = request.app.state.vless_provider
-        await provider.activate_user(internal_user_id=internal_user_id, device_count=device_count)
-
-        return JSONResponse({"ok": True, "device_count": device_count})
-    except Exception:
-        _LOGGER.exception("change_devices_error")
-        return _safe_json_error(500, "internal_error")
-
-
 async def handle_cancel_subscription(request: Request) -> JSONResponse:
     try:
         result = await _get_identity(request)

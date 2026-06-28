@@ -10,3 +10,13 @@ export interface PaymentCreateResponse {
   payment_url?: string;
   payment_id?: string;
 }
+
+export interface AddDevicesResponse {
+  ok: boolean;
+  status: string;
+  device_count: number;
+  amount_rubles: number;
+  amount_kopecks: number;
+  payment_url?: string;
+  payment_id?: string;
+}

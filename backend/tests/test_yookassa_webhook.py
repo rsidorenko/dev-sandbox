@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import UTC, datetime
 
 from app.yookassa.webhook import (
     _client_ip,
@@ -156,3 +157,43 @@ def test_validate_add_device_amount_rejects_mismatch() -> None:
     assert _validate_add_device_amount(16000, 15000) is False
     assert _validate_add_device_amount(16000, None) is False
     assert _validate_add_device_amount(0, 100) is False
+
+
+# ── subscription amount with extra devices (regression: card purchases) ──────
+
+
+def test_expected_subscription_kopecks_includes_extra_devices() -> None:
+    """A card purchase with >5 devices must expect plan + extra-device cost.
+
+    Previously the webhook expected only plan.price_rubles, so a 1m + 2 extra
+    devices purchase (charged 409 RUB) was rejected as amount_mismatch (expected
+    249 RUB) — user charged but not subscribed. Now it expects the full amount.
+    """
+    from app.domain.plans import get_plan
+    from app.yookassa.webhook import _expected_subscription_kopecks
+
+    plan_1m = get_plan("1m")
+    # Default 5 devices: no extra -> just the plan price (unchanged behavior).
+    assert _expected_subscription_kopecks(plan_1m, 5) == plan_1m.price_rubles * 100
+    # 7 devices = 2 extra × 80 RUB (1m/30d) on top of 249 RUB.
+    assert _expected_subscription_kopecks(plan_1m, 7) == (plan_1m.price_rubles + 160) * 100
+
+
+def test_fulfillment_input_carries_device_count_default_and_override() -> None:
+    """FulfillmentInput has a device_count field (default 5) the webhook sets so a
+    card purchase with extra devices actually grants them (was hardcoded to 5)."""
+    from app.domain.plans import DEFAULT_DEVICE_LIMIT
+    from app.runtime.fulfillment_processor import FulfillmentInput
+
+    assert FulfillmentInput.__dataclass_fields__["device_count"].default == DEFAULT_DEVICE_LIMIT
+    inp = FulfillmentInput(
+        provider_key="yookassa_v1",
+        external_event_id="yookassa:p1",
+        external_payment_id="p1",
+        telegram_user_id=1,
+        internal_user_id="u1",
+        paid_at=datetime.now(UTC),
+        period_days=30,
+        device_count=7,
+    )
+    assert inp.device_count == 7

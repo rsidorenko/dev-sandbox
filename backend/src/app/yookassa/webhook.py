@@ -124,6 +124,18 @@ def _validate_add_device_amount(expected_amount_kopecks: int, paid_kopecks: int 
     return abs(paid_kopecks - expected_amount_kopecks) <= 1
 
 
+def _expected_subscription_kopecks(plan: Any, device_count: int) -> int:
+    """Kopecks a subscription purchase is expected to cost: plan price + extra devices.
+
+    The bot/web charge ``calculate_total_price(plan, device_count)`` at creation, so
+    the webhook must expect the same — checking only ``plan.price_rubles`` rejected
+    every card purchase with >5 devices (charged for devices, but unmatched → 409).
+    """
+    from app.domain.plans import calculate_total_price
+
+    return calculate_total_price(plan, device_count) * 100
+
+
 def create_yookassa_webhook_handler(
     *,
     pool: asyncpg.Pool,
@@ -415,7 +427,11 @@ def create_yookassa_webhook_handler(
         except (ValueError, TypeError):
             pass
 
-        expected_kopecks = plan.price_rubles * 100
+        # Expected amount must cover the plan PLUS any extra devices the user paid
+        # for (the bot/web charge calculate_total_price at creation). Checking only
+        # plan.price_rubles rejected every card purchase with >5 devices and left
+        # the user charged-but-unsubscribed.
+        expected_kopecks = _expected_subscription_kopecks(plan, device_count)
         if amount_kopecks is not None and abs(amount_kopecks - expected_kopecks) > 1:
             _LOGGER.warning(
                 "yookassa webhook: amount mismatch expected=%d got=%d id=%s",
@@ -449,6 +465,7 @@ def create_yookassa_webhook_handler(
             paid_at=paid_at,
             period_days=period_days,
             amount_kopecks=amount_kopecks,
+            device_count=device_count,
         )
 
         try:
