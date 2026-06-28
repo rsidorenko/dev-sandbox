@@ -13,6 +13,25 @@ def internal_user_id_for_telegram(telegram_user_id: int) -> str:
     return f"u{telegram_user_id}"
 
 
+def telegram_user_id_from_internal(internal_user_id: str) -> int | None:
+    """Inverse of internal_user_id_for_telegram: parse the telegram id out of `u{telegram_user_id}`.
+
+    Returns None for malformed input. NB web users carry a NEGATIVE telegram id (u-12345 → -12345);
+    callers MUST skip non-positive ids — those accounts have no Telegram chat to deliver to. This
+    is a documented invariant: keep in sync with internal_user_id_for_telegram. Pure + unit-tested.
+    """
+    if (
+        not isinstance(internal_user_id, str)
+        or len(internal_user_id) < 2
+        or internal_user_id[0] != "u"
+    ):
+        return None
+    try:
+        return int(internal_user_id[1:])
+    except ValueError:
+        return None
+
+
 class PostgresUserIdentityRepository:
     """Telegram id → internal user id; find-or-create is concurrency-safe at the row level."""
 

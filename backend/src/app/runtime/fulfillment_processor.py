@@ -26,7 +26,7 @@ from app.persistence.billing_subscription_apply_contracts import BillingSubscrip
 from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
 from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
-from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
+from app.persistence.postgres_user_identity import PostgresUserIdentityRepository, telegram_user_id_from_internal
 from app.shared.types import OperationOutcomeCategory
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +78,15 @@ class FulfillmentResult:
     idempotent_replay: bool
     apply_outcome: BillingSubscriptionApplyOutcome | None
     correlation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreditedCommission:
+    """A referral commission that was actually credited to a referrer's balance on a payment
+    (the idempotent transaction insert succeeded). Drives the best-effort referrer notification."""
+    referrer_internal_user_id: str
+    amount_kopecks: int
+    level: int  # 1 (direct) or 2 (indirect)
 
 
 def _plan_id_from_period_days(period_days: int) -> str:
@@ -206,7 +215,13 @@ async def _process_referral_commissions_best_effort(
     payment_amount_kopecks: int,
     period_days: int,
     correlation_id: str,
-) -> None:
+) -> list[CreditedCommission]:
+    """Credit referral commissions for a payment (idempotent by description) and RETURN the
+    commissions that were actually credited, so the caller can best-effort notify each referrer.
+
+    Only commissions whose idempotent transaction insert succeeded (`inserted=True`) are credited
+    AND returned — a replayed payment yields no credits and an empty list (→ no notification).
+    Any error is swallowed (best-effort) and an empty list returned so fulfillment never breaks."""
     try:
         from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
         from app.persistence.postgres_referral import (
@@ -218,7 +233,7 @@ async def _process_referral_commissions_best_effort(
 
         referrers = await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id)
         if not referrers:
-            return
+            return []
 
         direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
 
@@ -232,8 +247,9 @@ async def _process_referral_commissions_best_effort(
         )
 
         if not commissions:
-            return
+            return []
 
+        credited: list[CreditedCommission] = []
         async with pool.acquire() as conn, conn.transaction():
             for comm in commissions:
                 dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
@@ -250,8 +266,56 @@ async def _process_referral_commissions_best_effort(
                 inserted = await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(conn, tx_record)
                 if inserted:
                     await PostgresReferralBalanceRepository.credit_in_connection(conn, comm.referrer_user_id, comm.amount_kopecks)
+                    credited.append(CreditedCommission(
+                        referrer_internal_user_id=comm.referrer_user_id,
+                        amount_kopecks=comm.amount_kopecks,
+                        level=comm.level,
+                    ))
+        return credited
     except Exception:
-        return
+        return []
+
+
+async def _notify_referrers_of_commission_best_effort(
+    *,
+    pool: asyncpg.Pool,
+    notifier: FulfillmentActivationTelegramNotifier,
+    credited: list[CreditedCommission],
+    correlation_id: str,
+) -> None:
+    """Best-effort: tell each newly-credited referrer that a referral paid and how much they earned.
+
+    Skips referrers with no deliverable Telegram chat (web users → non-positive telegram id). The
+    balance shown is read AFTER the credit commit and is therefore approximate under concurrent
+    payouts to the same referrer — acceptable for a notification. Each referrer is notified
+    independently (one failure never blocks another); all errors are swallowed. NB: reuses the
+    generic activation notifier method (a plain send_text_message wrapper), with reply_markup=None."""
+    from app.domain.referral import rubles_from_kopecks
+    from app.persistence.postgres_referral import PostgresReferralBalanceRepository
+
+    for comm in credited:
+        try:
+            tg_id = telegram_user_id_from_internal(comm.referrer_internal_user_id)
+            if tg_id is None or tg_id <= 0:
+                continue  # web user (negative id) — no Telegram chat to deliver to.
+            balance_record = await PostgresReferralBalanceRepository(pool).get_balance(comm.referrer_internal_user_id)
+            balance_kopecks = balance_record.balance_kopecks if balance_record is not None else 0
+            earned = rubles_from_kopecks(comm.amount_kopecks)
+            total = rubles_from_kopecks(balance_kopecks)
+            who = "Ваш реферал оплатил подписку" if comm.level == 1 else "Реферал 2-го уровня оплатил подписку"
+            text = (
+                "💰 Реферальная программа\n\n"
+                f"{who}. Вам начислено {earned:g} ₽ на баланс.\n"
+                f"Текущий баланс: {total:g} ₽"
+            )
+            await notifier.send_subscription_activated_notice(
+                telegram_user_id=tg_id,
+                text=text,
+                reply_markup=None,
+                correlation_id=correlation_id,
+            )
+        except Exception:
+            continue
 
 
 async def process_fulfillment(
@@ -370,13 +434,20 @@ async def process_fulfillment(
                 correlation_id=correlation_id,
             )
         if should_process_referral:
-            await _process_referral_commissions_best_effort(
+            credited = await _process_referral_commissions_best_effort(
                 pool=pool,
                 payer_internal_user_id=inp.internal_user_id,
                 payment_amount_kopecks=ref_amount_kopecks,
                 period_days=inp.period_days,
                 correlation_id=correlation_id,
             )
+            if credited and notify_activation is not None:
+                await _notify_referrers_of_commission_best_effort(
+                    pool=pool,
+                    notifier=notify_activation,
+                    credited=credited,
+                    correlation_id=correlation_id,
+                )
         if should_ensure_vless:
             await _ensure_vless_keys_after_payment(
                 pool=pool,
