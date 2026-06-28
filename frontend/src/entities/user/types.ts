@@ -7,6 +7,7 @@ export interface UserProfile {
   subscription: {
     state: string;
     active_until: string | null;
+    remaining_days: number | null;
     plan_id: string | null;
     device_count: number | null;
   } | null;

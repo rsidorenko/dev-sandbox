@@ -779,9 +779,8 @@ async def _render_subscription_status(
         SafeUserStatusCategory.SUBSCRIPTION_ACTIVE_ACCESS_READY,
     ):
         active_until = result.active_until_utc.date().isoformat() if result.active_until_utc else None
-        remaining_days = None
-        if result.active_until_utc is not None:
-            remaining_days = (result.active_until_utc.date() - datetime.now(UTC).date()).days
+        from app.domain.status_view import remaining_days as _remaining_days
+        remaining_days = _remaining_days(result.active_until_utc) if result.active_until_utc is not None else None
         plan_name = None
         device_count = None
         id_rec = await composition.identity.find_by_telegram_user_id(uid)

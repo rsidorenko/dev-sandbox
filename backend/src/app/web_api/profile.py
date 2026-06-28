@@ -10,6 +10,7 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.domain.status_view import remaining_days
 from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,6 +99,9 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         subscription = {
             "state": "active" if is_active else row["state_label"],
             "active_until": row["active_until_utc"].isoformat() if row["active_until_utc"] else None,
+            "remaining_days": (
+                remaining_days(row["active_until_utc"]) if row["active_until_utc"] else None
+            ),
             "plan_id": row["plan_id"],
             "device_count": row["device_count"],
             "trial_started_at": row["trial_started_at"].isoformat() if row["trial_started_at"] else None,
