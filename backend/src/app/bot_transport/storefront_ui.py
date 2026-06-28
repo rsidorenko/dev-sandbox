@@ -1489,18 +1489,23 @@ def add_device_select_keyboard(current: int) -> dict[str, Any]:
 
 
 def add_device_confirm_keyboard(new_count: int, *, balance_kopecks: int = 0, cost_kopecks: int = 0) -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
+    # Mirror confirm_pay_keyboard: the card ("💳 Оплатить") button is ALWAYS shown
+    # (real YooKassa payment), and the balance button is added ONLY when the user
+    # has enough referral balance. Previously the card path was a dead-end stub
+    # ("payment unavailable") shown when balance was insufficient — see
+    # _process_add_device_yookassa for the real payment now backing this button.
+    rows: list[list[dict[str, str]]] = [
+        [{"text": "💳 Оплатить", "callback_data": f"add_dev_pay:{new_count}"}],
+    ]
     if balance_kopecks >= cost_kopecks and cost_kopecks > 0:
         rows.append(
             [
                 {
-                    "text": f"💰 Оплатить с баланса ({cost_kopecks // 100} ₽)",
+                    "text": f"💰 С баланса ({cost_kopecks // 100} ₽)",
                     "callback_data": f"{CB_ADD_DEV_BALANCE}{new_count}",
                 }
             ]
         )
-    else:
-        rows.append([{"text": "💳 Оплатить", "callback_data": f"add_dev_pay:{new_count}"}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}])
     return _inline_kb(rows)
 
