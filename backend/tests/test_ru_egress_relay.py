@@ -428,6 +428,126 @@ def test_clean_relay_does_not_mutate_input() -> None:
     assert "relay-to-helsinki" in [o.get("tag") for o in before["outbounds"]]   # input unchanged
 
 
+# ── apply-vk: explicit VK-domains -> ru-relay routing ────────────────────────
+
+
+def _panel_with_ru_relay(tag: str = "ru-relay") -> dict:
+    """A foreign panel that already has the RU relay configured (outbound + RU
+    rules), as found live on Helsinki/Frankfurt/Lithuania/Albania (tag ru-relay,
+    IPIfNonMatch) and LA (tag ru-relay, AsIs, no geoip:ru). merge_vk_routing adds
+    the explicit VK rule on top of this."""
+    return {
+        "log": {"loglevel": "warning"},
+        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
+            {"inboundTag": ["api"], "outboundTag": "api"},
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
+            {"type": "field", "domain": ["geosite:CATEGORY-RU", "geosite:TLD-RU",
+                                         "domain-suffix:ru", "domain-suffix:su",
+                                         "domain-suffix:xn--p1ai"], "outboundTag": tag},
+            {"type": "field", "ip": ["geoip:ru"], "outboundTag": tag},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
+        ]},
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "blocked", "protocol": "blackhole"},
+            {"tag": tag, "protocol": "vless",
+             "settings": {"vnext": [{"address": mre.RU_RELAY_HOST, "port": 443,
+                                     "users": [{"id": mre.RELAY_UUID, "encryption": "none",
+                                                "flow": ""}]}]}},
+        ],
+    }
+
+
+def test_merge_vk_routing_adds_vk_rule_pointing_to_relay() -> None:
+    after = mre.merge_vk_routing(_panel_with_ru_relay())
+    assert ("ru-relay", tuple(mre.VK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_vk_routing_auto_detects_tag_both_styles() -> None:
+    # The canonical ru-relay tag (export/import path) AND the built-in
+    # relay-to-russia tag (apply path) must both be detected via the outbound's
+    # vnext address.
+    for tag in ("ru-relay", "relay-to-russia"):
+        after = mre.merge_vk_routing(_panel_with_ru_relay(tag))
+        assert (tag, tuple(mre.VK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_vk_routing_uses_explicit_tag_when_given() -> None:
+    # An explicit tag is honored even when no relay outbound is detectable
+    # (cmd_apply_vk guards detection; the pure function trusts the caller's tag).
+    after = mre.merge_vk_routing(_default_template(), relay_tag="ru-relay")
+    assert ("ru-relay", tuple(mre.VK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_vk_routing_inserts_after_ru_rules_before_catchall() -> None:
+    after = mre.merge_vk_routing(_panel_with_ru_relay())
+    rules = after["routing"]["rules"]
+    vk_idx = next(i for i, r in enumerate(rules)
+                  if set(r.get("domain") or []) == set(mre.VK_DOMAINS))
+    catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
+    # VK rule comes AFTER the ru-relay rules and BEFORE the catch-all.
+    assert rules.index(next(r for r in rules if r.get("outboundTag") == "ru-relay")) < vk_idx
+    assert vk_idx < catchall_idx
+
+
+def test_merge_vk_routing_preserves_existing_rules_and_outbounds() -> None:
+    before = _panel_with_ru_relay()
+    after = mre.merge_vk_routing(before)
+    # All original outbounds still present.
+    assert set(_outbound_tags(before)).issubset(set(_outbound_tags(after)))
+    # The existing RU rules are kept.
+    assert ("ru-relay", (), ("geoip:ru",)) in _rule_tags(after)
+    assert ("ru-relay", ("geosite:CATEGORY-RU", "geosite:TLD-RU", "domain-suffix:ru",
+                         "domain-suffix:su", "domain-suffix:xn--p1ai"), ()) in _rule_tags(after)
+    # Exactly one VK rule added.
+    vk = [r for r in after["routing"]["rules"] if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]
+    assert len(vk) == 1
+
+
+def test_merge_vk_routing_is_idempotent() -> None:
+    once = mre.merge_vk_routing(_panel_with_ru_relay())
+    twice = mre.merge_vk_routing(once)
+    assert _outbound_tags(once) == _outbound_tags(twice)
+    assert _rule_tags(once) == _rule_tags(twice)
+    vk = [r for r in twice["routing"]["rules"] if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]
+    assert len(vk) == 1
+
+
+def test_merge_vk_routing_raises_when_no_relay_outbound() -> None:
+    # _default_template has no vless/relay outbound -> detection fails -> refuse.
+    with pytest.raises(ValueError):
+        mre.merge_vk_routing(_default_template())
+
+
+def test_merge_vk_routing_does_not_mutate_input() -> None:
+    before = _panel_with_ru_relay()
+    before_rules = _rule_tags(before)
+    mre.merge_vk_routing(before)
+    assert _rule_tags(before) == before_rules
+    assert not any(set(r.get("domain") or []) == set(mre.VK_DOMAINS)
+                   for r in before["routing"]["rules"])
+
+
+def test_detect_relay_tag_finds_by_address_then_rule_fallback() -> None:
+    # By outbound vnext address.
+    assert mre._detect_relay_tag(_panel_with_ru_relay("ru-relay")) == "ru-relay"
+    # Fallback: tag inferred from a domain:ru rule when no matching vnext address.
+    fallback = {"outbounds": [{"tag": "direct", "protocol": "freedom"}],
+                "routing": {"rules": [{"domain": ["domain:ru"], "outboundTag": "my-relay"}]}}
+    assert mre._detect_relay_tag(fallback) == "my-relay"
+    # None when neither signal is present.
+    assert mre._detect_relay_tag(_default_template()) is None
+
+
+def test_has_vk_rule_detects_exact_domain_set() -> None:
+    tag = "ru-relay"
+    assert mre._has_vk_rule([{"outboundTag": tag, "domain": list(mre.VK_DOMAINS)}], tag) is True
+    # A partial / different domain set is NOT the VK rule.
+    assert mre._has_vk_rule([{"outboundTag": tag, "domain": ["domain:vk.com"]}], tag) is False
+    assert mre._has_vk_rule([], tag) is False
+
+
+
 
 
 
