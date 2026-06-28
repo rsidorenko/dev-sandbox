@@ -13,8 +13,8 @@ _LEVEL1_RATES: dict[str, float] = {
     PlanId.TWO_WEEKS: 0.20,
     PlanId.ONE_MONTH: 0.35,
     PlanId.THREE_MONTHS: 0.30,
-    PlanId.SIX_MONTHS: 0.25,
-    PlanId.ONE_YEAR: 0.25,
+    PlanId.SIX_MONTHS: 0.20,
+    PlanId.ONE_YEAR: 0.17,
 }
 
 # Level 2 (referral of referral) commission rates by plan
