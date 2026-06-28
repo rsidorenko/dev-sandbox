@@ -21,7 +21,8 @@ from app.shared.test_helpers import run_async as _run
 def test_level1_rates():
     assert level1_commission_rate("1m") == 0.35
     assert level1_commission_rate("3m") == 0.30
-    assert level1_commission_rate("6m") == 0.25
+    assert level1_commission_rate("6m") == 0.20
+    assert level1_commission_rate("365d") == 0.17
 
 
 def test_level2_rates():
@@ -97,7 +98,7 @@ def test_six_months_commissions():
     assert len(result) == 2
     l1 = next(c for c in result if c.level == 1)
     l2 = next(c for c in result if c.level == 2)
-    assert l1.amount_kopecks == 135000 * 25 // 100  # 33750
+    assert l1.amount_kopecks == 135000 * 20 // 100  # 27000
     assert l2.amount_kopecks == 135000 * 2 // 100  # 2700
 
 
