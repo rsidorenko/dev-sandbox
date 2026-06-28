@@ -47,6 +47,14 @@ Modes (--mode):
                 oneme.ru) -> ru-relay routing rule — same rationale as apply-vk but
                 for the MAX super-app. Backs up to .pre-max-routing.bak; idempotent;
                 restarts + verifies.
+  apply-tiktok  Run ON a foreign panel: add an explicit TIKTOK_DOMAINS (tiktok.com/
+                tiktok.ru/tiktokcdn.com/tiktokv.com/byteoversea.com/bytefcdn-oversea.com/
+                musical.ly/ibytedtos.com/ibyteimg.com) -> direct routing rule so TikTok
+                ALWAYS egresses from the foreign server, NEVER the RU relay — even if a
+                TikTok host resolves to a RU IP (geoip:ru) or is a .ru domain
+                (domain-suffix:ru, e.g. tiktok.ru). Inserted BEFORE the ru-relay rules
+                (the inverse placement of apply-vk/apply-max). Backs up to
+                .pre-tiktok-direct.bak; idempotent; restarts + verifies.
   repoint       Run ON a foreign panel: update the EXISTING ru-relay outbound's
                 target to the canonical RU relay (89.169.139.153, pbk/sid/sni=max.ru,
                 UUID 00607f0b) — keeping its tag + all routing rules intact. Used to
@@ -178,6 +186,32 @@ VK_BACKUP_SUFFIX = ".pre-vk-routing.bak"
 # sdk-api.apptracer.ru is excluded (not functional). `domain:X` covers X + all subdomains.
 MAX_DOMAINS = ["domain:max.ru", "domain:oneme.ru"]
 MAX_BACKUP_SUFFIX = ".pre-max-routing.bak"
+
+# TikTok domain family routed to `direct` (foreign egress) EXPLICITLY — the INVERSE of
+# VK/MAX: TikTok must NEVER use the RU relay. Users reach the international TikTok via the
+# foreign server they are connected to, so TikTok has to egress from that foreign IP. The
+# existing `domain-suffix:ru` rule catches tiktok.ru, and `geoip:ru` catches any TikTok CDN
+# host that resolves to a RU IP — both would otherwise divert TikTok to the relay (RU IP),
+# defeating the purpose (and TikTok geo-restricts/degrades RU egress). So the TikTok -> direct
+# rule is inserted BEFORE the ru-relay rules (first-match wins); tiktok.ru is included on
+# purpose so it overrides domain-suffix:ru. `domain:X` matches X + all subdomains. Domains
+# sourced from TikTok traffic analysis: tiktok.com (app/web + subdomains), tiktokcdn.com +
+# tiktokv.com (video CDN + API/logging), byteoversea.com + bytefcdn-oversea.com (ByteDance
+# overseas infra), musical.ly (legacy API host still hit by the app), ibytedtos.com +
+# ibyteimg.com (object storage + images). Chinese-only siblings (douyin/toutiao/snssdk) and
+# unrelated ByteDance products (capcut) are deliberately excluded.
+TIKTOK_DOMAINS = [
+    "domain:tiktok.com",
+    "domain:tiktok.ru",
+    "domain:tiktokcdn.com",
+    "domain:tiktokv.com",
+    "domain:byteoversea.com",
+    "domain:bytefcdn-oversea.com",
+    "domain:musical.ly",
+    "domain:ibytedtos.com",
+    "domain:ibyteimg.com",
+]
+TIKTOK_BACKUP_SUFFIX = ".pre-tiktok-direct.bak"
 
 GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
@@ -342,6 +376,16 @@ def _detect_relay_tag(template: dict) -> str | None:
     return None
 
 
+def _detect_direct_tag(template: dict) -> str:
+    """Find the freedom/direct outbound tag — the foreign server's own egress (the
+    outbound TikTok must use instead of the RU relay). Returns the tag of the first
+    `freedom` outbound, falling back to 'direct'. Pure + unit-tested."""
+    for o in template.get("outbounds", []):
+        if o.get("protocol") == "freedom":
+            return o.get("tag") or "direct"
+    return "direct"
+
+
 def _has_domain_rule(rules: list, tag: str, domains: list[str]) -> bool:
     """True if *rules* already has a `domains -> tag` rule (exact domain-set match).
     Used by merge_domain_family_routing for idempotency and by the apply-* commands
@@ -359,6 +403,11 @@ def _has_vk_rule(rules: list, tag: str) -> bool:
 def _has_max_rule(rules: list, tag: str) -> bool:
     """MAX-domains -> *tag* rule present? Thin wrapper over _has_domain_rule."""
     return _has_domain_rule(rules, tag, MAX_DOMAINS)
+
+
+def _has_tiktok_rule(rules: list, tag: str) -> bool:
+    """TIKTOK_DOMAINS -> *tag* (direct) rule present? Thin wrapper over _has_domain_rule."""
+    return _has_domain_rule(rules, tag, TIKTOK_DOMAINS)
 
 
 def merge_domain_family_routing(template: dict, domains: list[str],
@@ -412,6 +461,56 @@ def merge_max_routing(template: dict, relay_tag: str | None = None) -> dict:
     """MAX-domains (max.ru + oneme.ru) -> RU-relay. Thin wrapper over
     merge_domain_family_routing. See that function for the merge contract."""
     return merge_domain_family_routing(template, MAX_DOMAINS, relay_tag)
+
+
+def merge_tiktok_direct(template: dict, direct_tag: str | None = None) -> dict:
+    """NON-DESTRUCTIVE, idempotent merge: add an explicit `TIKTOK_DOMAINS -> direct`
+    routing rule BEFORE the RU-relay rules so TikTok always egresses from the foreign
+    server (direct), NEVER via the RU relay.
+
+    Why (inverse of VK/MAX's merge_domain_family_routing): users access the
+    international TikTok through the foreign server they are connected to, so TikTok
+    must egress from that foreign IP. The existing `domain-suffix:ru` rule catches
+    tiktok.ru, and `geoip:ru` catches any TikTok CDN host that resolves to a RU IP —
+    both would otherwise send TikTok to the RU relay (RU IP), defeating the purpose
+    (and TikTok geo-restricts RU egress). Because xray routing is first-match, the
+    rule MUST precede the ru-relay rules; it is inserted right before the first
+    relay-tagged rule (fallback: after the api / geoip:private rule, else at the top).
+
+    - auto-detects the direct (freedom) outbound tag if *direct_tag* is None
+      (_detect_direct_tag); raises ValueError if no such outbound exists (so we never
+      point at a dead outbound);
+    - drops any existing TIKTOK_DOMAINS -> direct rule (idempotent), then inserts it
+      before the relay rules.
+
+    Existing outbounds/rules preserved. Pure + unit-tested. Unlike the VK/MAX merge,
+    this does NOT require a relay outbound (TikTok targets `direct`)."""
+    t = copy.deepcopy(template)
+    tag = direct_tag or _detect_direct_tag(t)
+    if not any(o.get("tag") == tag for o in t.get("outbounds", [])):
+        raise ValueError(f"no {tag!r} outbound found — cannot route TikTok direct")
+    relay_tag = _detect_relay_tag(t)
+    rules = t.setdefault("routing", {}).setdefault("rules", [])
+    # Idempotency: drop any existing TIKTOK_DOMAINS -> direct rule first.
+    rules[:] = [r for r in rules
+                if not (r.get("outboundTag") == tag and set(r.get("domain") or []) == set(TIKTOK_DOMAINS))]
+    # Insert BEFORE the first relay rule so TikTok beats domain-suffix:ru / geoip:ru
+    # (first-match wins). Fallback when no relay rule is present: after api / geoip:private.
+    first_relay = None
+    if relay_tag is not None:
+        first_relay = next((i for i, r in enumerate(rules) if r.get("outboundTag") == relay_tag), None)
+    if first_relay is not None:
+        insert_at = first_relay
+    else:
+        insert_at = 0
+        for i, r in enumerate(rules):
+            if r.get("outboundTag") == "api" or \
+                    any("geoip:private" in str(x) for x in (r.get("ip") or [])):
+                insert_at = i + 1
+    rules[insert_at:insert_at] = [
+        {"type": "field", "domain": copy.deepcopy(TIKTOK_DOMAINS), "outboundTag": tag}
+    ]
+    return t
 
 
 def apply_exported_routing(template: dict, outbound: dict, rules: list) -> dict:
@@ -914,6 +1013,50 @@ def cmd_apply_max() -> None:
     restart_and_verify()
 
 
+def cmd_apply_tiktok() -> None:
+    """Add the explicit TIKTOK_DOMAINS -> direct routing rule (idempotent) so TikTok
+    always egresses from the foreign server, never the RU relay. Run ON a foreign panel.
+    Auto-detects the direct (freedom) outbound tag. Backs up to a dedicated slot
+    (TIKTOK_BACKUP_SUFFIX), restarts x-ui + verifies. No-op (no restart) if the rule is
+    already present."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+    tag = _detect_direct_tag(template)
+    if not any(o.get("tag") == tag for o in template.get("outbounds", [])):
+        print(f"ERROR: no {tag!r} (freedom) outbound on this panel", file=sys.stderr)
+        sys.exit(1)
+    if _has_tiktok_rule(template.get("routing", {}).get("rules", []), tag):
+        print(f"TikTok -> {tag} rule already present — nothing to do")
+        conn.close()
+        return
+    backup_path = db + TIKTOK_BACKUP_SUFFIX
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+    merged = merge_tiktok_direct(template, tag)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"added TIKTOK_DOMAINS ({len(TIKTOK_DOMAINS)} domains) -> {tag} rule "
+          f"(before the ru-relay rules)")
+    print("apply-tiktok complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_export() -> None:
     """READ-ONLY. Emit the working ru-relay outbound + its routing rules as JSON.
     Run on the SOURCE panel (Frankfurt). Output is consumed by `import`."""
@@ -1111,7 +1254,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|apply-vk|apply-max|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
+              "{dump|register-uuid|export|import|apply|apply-vk|apply-max|apply-tiktok|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -1139,6 +1282,8 @@ def main() -> None:
         cmd_apply_vk()
     elif mode == "apply-max":
         cmd_apply_max()
+    elif mode == "apply-tiktok":
+        cmd_apply_tiktok()
     elif mode == "revert":
         cmd_revert()
     elif mode == "deactivate":
