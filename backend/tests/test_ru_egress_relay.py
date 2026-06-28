@@ -659,6 +659,127 @@ def test_merge_max_routing_via_generic_helper_matches_wrapper() -> None:
     assert _outbound_tags(via_wrapper) == _outbound_tags(via_generic)
 
 
+# ── apply-tiktok: explicit TIKTOK_DOMAINS -> direct routing (INVERSE of VK/MAX) ────
+# TikTok must egress from the FOREIGN server (direct), NEVER the RU relay — even if a
+# TikTok host resolves to a RU IP (geoip:ru) or is a .ru domain (domain-suffix:ru, e.g.
+# tiktok.ru). So the rule is inserted BEFORE the ru-relay rules (first-match wins) — the
+# OPPOSITE placement of VK/MAX. TikTok targets the `direct` freedom outbound, so it does
+# NOT require a relay outbound to exist.
+
+
+def test_merge_tiktok_direct_adds_tiktok_rule_pointing_to_direct() -> None:
+    after = mre.merge_tiktok_direct(_panel_with_ru_relay())
+    assert ("direct", tuple(mre.TIKTOK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_tiktok_direct_inserted_before_relay_rules() -> None:
+    """THE key inversion vs VK/MAX: the TikTok rule must come BEFORE the ru-relay rules
+    (domain-suffix:ru + geoip:ru), so a tiktok.ru / RU-resolving TikTok host matches
+    TikTok -> direct first instead of falling to the relay."""
+    after = mre.merge_tiktok_direct(_panel_with_ru_relay())
+    rules = after["routing"]["rules"]
+    tt_idx = next(i for i, r in enumerate(rules)
+                  if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS))
+    first_relay_idx = next(i for i, r in enumerate(rules) if r.get("outboundTag") == "ru-relay")
+    assert tt_idx < first_relay_idx
+    # Specifically before the domain-suffix:ru rule and the geoip:ru rule.
+    dsru_idx = next(i for i, r in enumerate(rules)
+                    if "domain-suffix:ru" in (r.get("domain") or []))
+    geoipru_idx = next(i for i, r in enumerate(rules)
+                       if "geoip:ru" in (r.get("ip") or []))
+    assert tt_idx < dsru_idx and tt_idx < geoipru_idx
+
+
+def test_merge_tiktok_direct_auto_detects_freedom_tag() -> None:
+    # The direct tag is taken from the freedom outbound, even when it isn't literally
+    # "direct".
+    panel = _panel_with_ru_relay()
+    for o in panel["outbounds"]:
+        if o.get("protocol") == "freedom":
+            o["tag"] = "my-direct"
+    after = mre.merge_tiktok_direct(panel)
+    assert ("my-direct", tuple(mre.TIKTOK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_tiktok_direct_uses_explicit_tag_when_given() -> None:
+    after = mre.merge_tiktok_direct(_default_template(), direct_tag="direct")
+    assert ("direct", tuple(mre.TIKTOK_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_tiktok_direct_fallback_when_no_relay_rule() -> None:
+    """With no relay rules to beat, the rule still inserts (after api / geoip:private)
+    pointing at direct — TikTok-direct does not require a relay outbound."""
+    after = mre.merge_tiktok_direct(_default_template())
+    rules = after["routing"]["rules"]
+    assert ("direct", tuple(mre.TIKTOK_DOMAINS), ()) in _rule_tags(after)
+    tt = [r for r in rules if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)]
+    assert len(tt) == 1
+
+
+def test_merge_tiktok_direct_preserves_existing_rules_and_outbounds() -> None:
+    before = _panel_with_ru_relay()
+    after = mre.merge_tiktok_direct(before)
+    assert set(_outbound_tags(before)).issubset(set(_outbound_tags(after)))
+    assert ("ru-relay", (), ("geoip:ru",)) in _rule_tags(after)
+    tt = [r for r in after["routing"]["rules"] if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)]
+    assert len(tt) == 1
+
+
+def test_merge_tiktok_direct_is_idempotent() -> None:
+    once = mre.merge_tiktok_direct(_panel_with_ru_relay())
+    twice = mre.merge_tiktok_direct(once)
+    assert _outbound_tags(once) == _outbound_tags(twice)
+    assert _rule_tags(once) == _rule_tags(twice)
+    tt = [r for r in twice["routing"]["rules"] if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)]
+    assert len(tt) == 1
+
+
+def test_merge_tiktok_direct_raises_when_no_direct_outbound() -> None:
+    # A panel with no freedom/direct outbound -> refuse (would point at a dead outbound).
+    no_direct = {"outbounds": [{"tag": "blocked", "protocol": "blackhole"},
+                               {"tag": "ru-relay", "protocol": "vless",
+                                "settings": {"vnext": [{"address": mre.RU_RELAY_HOST}]}}],
+                 "routing": {"rules": []}}
+    with pytest.raises(ValueError):
+        mre.merge_tiktok_direct(no_direct)
+
+
+def test_merge_tiktok_direct_does_not_mutate_input() -> None:
+    before = _panel_with_ru_relay()
+    before_rules = _rule_tags(before)
+    mre.merge_tiktok_direct(before)
+    assert _rule_tags(before) == before_rules
+    assert not any(set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)
+                   for r in before["routing"]["rules"])
+
+
+def test_has_tiktok_rule_detects_exact_domain_set() -> None:
+    tag = "direct"
+    assert mre._has_tiktok_rule([{"outboundTag": tag, "domain": list(mre.TIKTOK_DOMAINS)}], tag) is True
+    assert mre._has_tiktok_rule([{"outboundTag": tag, "domain": ["domain:tiktok.com"]}], tag) is False
+    assert mre._has_tiktok_rule([], tag) is False
+
+
+def test_merge_tiktok_coexists_with_vk_and_max() -> None:
+    """All three explicit families on one panel: TikTok -> direct (BEFORE the relay
+    rules), VK + MAX -> relay (AFTER). Disjoint domains, so order among the relay
+    families is irrelevant; what matters is TikTok precedes the relay rules and VK/MAX
+    follow them."""
+    panel = _panel_with_ru_relay()
+    after = mre.merge_tiktok_direct(mre.merge_max_routing(mre.merge_vk_routing(panel)))
+    rules = after["routing"]["rules"]
+    tt_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS))
+    first_relay_idx = next(i for i, r in enumerate(rules) if r.get("outboundTag") == "ru-relay")
+    vk_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.VK_DOMAINS))
+    max_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.MAX_DOMAINS))
+    # TikTok is the first explicit-family rule (before the relay rules); VK/MAX follow.
+    assert tt_idx < first_relay_idx
+    assert first_relay_idx < vk_idx and first_relay_idx < max_idx
+    assert len([r for r in rules if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)]) == 1
+    assert len([r for r in rules if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]) == 1
+    assert len([r for r in rules if set(r.get("domain") or []) == set(mre.MAX_DOMAINS)]) == 1
+
+
 
 
 
