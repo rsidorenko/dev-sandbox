@@ -1609,6 +1609,97 @@ async def _process_add_device_balance(
     return text_add_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
 
 
+async def _process_add_device_yookassa(
+    composition: Slice1Composition,
+    uid: int | None,
+    new_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    """Create a real YooKassa payment for adding devices (the card path).
+
+    Mirrors ``_process_yookassa_payment`` but for a device top-up: the amount is
+    the extra-device cost (NOT a plan price), and the payment metadata carries
+    ``kind=add_device`` so the webhook increases ``device_count`` without
+    extending the subscription. Previously this button was a dead-end stub
+    ("payment unavailable"); now it opens a real checkout like buying a plan.
+    """
+    import logging
+    import os
+
+    from app.domain.devices import extra_device_cost
+    from app.domain.plans import get_plan
+    from app.yookassa.client import YooKassaClient
+
+    _logger = logging.getLogger(__name__)
+
+    if uid is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    snap = await composition.snapshots.get_for_user(internal_user_id)
+    if snap is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    current = snap.device_count or DEVICES_DEFAULT
+    if new_count <= current:
+        return text_add_device_intro(current), add_device_select_keyboard(current)
+
+    duration_days = 30
+    if snap.plan_id:
+        plan = get_plan(snap.plan_id)
+        if plan is not None:
+            duration_days = plan.duration_days
+
+    cost_rubles = extra_device_cost(new_count, current, duration_days)
+    if cost_rubles <= 0:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+    cost_kopecks = cost_rubles * 100
+
+    client = YooKassaClient.from_env()
+    if client is None:
+        _logger.warning("yookassa not configured, cannot create add-device payment")
+        return text_payment_unavailable(), back_only_keyboard(CB_ADD_DEVICE)
+
+    return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
+    try:
+        result = await client.create_payment(
+            amount_rubles=cost_rubles,
+            plan_id=snap.plan_id or "1m",
+            device_count=new_count,
+            telegram_user_id=uid,
+            return_url=f"{return_url}/dashboard",
+            description=f"Bravada VPN — добавление устройств ({current}→{new_count})",
+            metadata={
+                "kind": "add_device",
+                "new_device_count": str(new_count),
+                "expected_amount_kopecks": str(cost_kopecks),
+            },
+        )
+    except Exception:
+        _logger.exception("yookassa create_payment failed in add-device flow")
+        return text_payment_unavailable(), back_only_keyboard(CB_ADD_DEVICE)
+
+    from app.bot_transport.payment_message_registry import set_pending_payment_for_user
+
+    set_pending_payment_for_user(uid, result.payment_id)
+
+    text = (
+        "📋 Добавление устройств\n\n"
+        f"📱 Устройств: {current} → {new_count}\n"
+        f"💰 К оплате: {cost_rubles} ₽\n\n"
+        "Нажмите кнопку ниже для перехода на страницу оплаты 👇"
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "💳 Перейти к оплате", "url": result.confirmation_url}],
+            [{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}],
+        ],
+    }
+    return text, keyboard
+
+
 # ─── Remove device helpers ────────────────────────────────────────────
 
 
@@ -2105,8 +2196,12 @@ async def _render_storefront_response(
             new_count = int(remainder.split(":")[1])
             text, keyboard = await _render_add_device_confirm(composition, uid, new_count)
         elif remainder.startswith("pay:"):
-            text = text_payment_unavailable()
-            keyboard = back_only_keyboard(CB_SETTINGS)
+            try:
+                new_count = int(remainder.split(":")[1])
+                text, keyboard = await _process_add_device_yookassa(composition, uid, new_count)
+            except (ValueError, TypeError):
+                text = text_error_generic()
+                keyboard = back_only_keyboard(CB_SETTINGS)
         else:
             try:
                 new_count = int(remainder)
@@ -2117,8 +2212,13 @@ async def _render_storefront_response(
                 keyboard = back_only_keyboard(CB_SETTINGS)
 
     elif code.startswith("add_dev_pay:"):
-        text = text_payment_unavailable()
-        keyboard = back_only_keyboard(CB_SETTINGS)
+        new_count_str = code[len("add_dev_pay:") :]
+        try:
+            new_count = int(new_count_str)
+            text, keyboard = await _process_add_device_yookassa(composition, uid, new_count)
+        except (ValueError, TypeError):
+            text = text_error_generic()
+            keyboard = back_only_keyboard(CB_SETTINGS)
 
     elif code in (CB_REMOVE_DEVICE, "remove_device"):
         text, keyboard = await _render_remove_device(composition, uid)

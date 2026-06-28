@@ -103,3 +103,56 @@ def test_source_relies_on_api_when_no_forwarded_header() -> None:
     # authoritative API re-fetch rather than rejecting (which would break payments).
     req = _FakeRequest({}, client_host="172.18.0.6")
     assert _verify_yookassa_source(req) is None
+
+
+# ── add_device metadata parsing / amount validation ─────────────────────────
+
+
+def test_parse_add_device_metadata_valid() -> None:
+    from app.yookassa.webhook import _parse_add_device_metadata
+
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "123", "new_device_count": "7", "expected_amount_kopecks": "16000"}
+    ) == (123, 7, 16000)
+
+
+def test_parse_add_device_metadata_rejects_out_of_range_count() -> None:
+    from app.yookassa.webhook import _parse_add_device_metadata
+
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "1", "new_device_count": "0", "expected_amount_kopecks": "100"}
+    ) is None
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "1", "new_device_count": "21", "expected_amount_kopecks": "100"}
+    ) is None
+
+
+def test_parse_add_device_metadata_rejects_missing_or_invalid() -> None:
+    from app.yookassa.webhook import _parse_add_device_metadata
+
+    assert _parse_add_device_metadata({}) is None
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "1", "new_device_count": "5"}
+    ) is None  # no expected amount
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "x", "new_device_count": "5", "expected_amount_kopecks": "100"}
+    ) is None  # non-int telegram id
+    assert _parse_add_device_metadata(
+        {"telegram_user_id": "0", "new_device_count": "5", "expected_amount_kopecks": "100"}
+    ) is None  # non-positive telegram id
+
+
+def test_validate_add_device_amount_matches() -> None:
+    from app.yookassa.webhook import _validate_add_device_amount
+
+    assert _validate_add_device_amount(16000, 16000) is True
+    assert _validate_add_device_amount(16000, 16001) is True  # +1 kop tolerance
+    assert _validate_add_device_amount(16000, 15999) is True  # -1 kop tolerance
+
+
+def test_validate_add_device_amount_rejects_mismatch() -> None:
+    from app.yookassa.webhook import _validate_add_device_amount
+
+    assert _validate_add_device_amount(16000, 15000) is False
+    assert _validate_add_device_amount(16000, None) is False
+    assert _validate_add_device_amount(0, 100) is False

@@ -180,6 +180,101 @@ def test_add_device_no_subscription():
     assert "нет активной подписки" in pkg.message_text
 
 
+# ─── Add device: real YooKassa (card) payment ─────────────────────────
+
+
+def test_add_device_confirm_keyboard_always_has_card_button():
+    """Card payment button is ALWAYS present (was a dead-end stub before)."""
+    from app.bot_transport.storefront_ui import add_device_confirm_keyboard
+
+    # Insufficient balance: card button still present, no balance button.
+    kb = add_device_confirm_keyboard(7, balance_kopecks=10_00, cost_kopecks=160_00)
+    buttons = [b for row in kb["inline_keyboard"] for b in row]
+    assert any(b.get("callback_data") == "add_dev_pay:7" for b in buttons)
+    assert not any(b.get("callback_data", "").startswith("add_dev_bal:") for b in buttons)
+
+
+def test_add_device_confirm_keyboard_shows_balance_when_sufficient():
+    """When balance covers the cost, BOTH card and balance buttons are offered."""
+    from app.bot_transport.storefront_ui import add_device_confirm_keyboard
+
+    kb = add_device_confirm_keyboard(7, balance_kopecks=200_00, cost_kopecks=160_00)
+    buttons = [b for row in kb["inline_keyboard"] for b in row]
+    assert any(b.get("callback_data") == "add_dev_pay:7" for b in buttons)
+    assert any(b.get("callback_data", "").startswith("add_dev_bal:") for b in buttons)
+
+
+def _activate_subscription(c, uid, device_count=5):
+    from app.application.interfaces import SubscriptionSnapshot
+
+    _run(
+        c.snapshots.upsert_state(
+            SubscriptionSnapshot(
+                internal_user_id=uid,
+                state_label="active",
+                active_until_utc=_FUTURE_DATE,
+                plan_id="1m",
+                device_count=device_count,
+            )
+        )
+    )
+
+
+class _FakeYooKassaResult:
+    payment_id = "pay-abc-123"
+    confirmation_url = "https://yoomoney.ru/checkout/abc"
+
+
+class _FakeYooKassaClient:
+    def __init__(self):
+        self.created = {}
+
+    @classmethod
+    def from_env(cls):
+        return cls()
+
+    async def create_payment(self, **kwargs):
+        self.created = kwargs
+        return _FakeYooKassaResult()
+
+
+def test_add_device_yookassa_creates_real_checkout(monkeypatch):
+    """add_dev_pay:N must create a real YooKassa payment with a checkout URL button."""
+    c, uid = _make_composition_with_balance(user_id=204, balance_kopecks=0)
+    _activate_subscription(c, uid, device_count=5)
+
+    fake = _FakeYooKassaClient()
+    monkeypatch.setattr("app.yookassa.client.YooKassaClient.from_env", lambda *a, **k: fake)
+
+    update = _callback_update(user_id=204, callback_data="add_dev_pay:7")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+
+    # Payment created for the top-up cost: 2 extra devices × 80 ₽ = 160 ₽ (1m/30d plan).
+    assert fake.created["amount_rubles"] == 160
+    assert fake.created["telegram_user_id"] == 204
+    assert fake.created["metadata"]["kind"] == "add_device"
+    assert fake.created["metadata"]["new_device_count"] == "7"
+    assert fake.created["metadata"]["expected_amount_kopecks"] == "16000"
+
+    # The message offers a checkout URL (NOT "payment unavailable") and shows the cost.
+    assert "недоступна" not in pkg.message_text.lower()
+    assert "160" in pkg.message_text
+    buttons = [b for row in pkg.reply_markup["inline_keyboard"] for b in row]
+    assert any(b.get("url") == "https://yoomoney.ru/checkout/abc" for b in buttons)
+
+
+def test_add_device_yookassa_graceful_when_not_configured(monkeypatch):
+    """When YooKassa isn't configured, the user gets a graceful 'unavailable' (no crash)."""
+    c, uid = _make_composition_with_balance(user_id=205, balance_kopecks=0)
+    _activate_subscription(c, uid, device_count=5)
+
+    monkeypatch.setattr("app.yookassa.client.YooKassaClient.from_env", classmethod(lambda cls: None))
+
+    update = _callback_update(user_id=205, callback_data="add_dev_pay:7")
+    pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c))
+    assert "недоступна" in pkg.message_text.lower()
+
+
 # ─── Remove device tests ──────────────────────────────────────────────
 
 
