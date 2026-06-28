@@ -70,7 +70,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
            LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id
            LEFT JOIN LATERAL (
                SELECT COUNT(*) AS cnt FROM referral_relationships
-               WHERE referred_user_id = i.internal_user_id AND level = 1
+               WHERE referrer_user_id = i.internal_user_id AND level = 1
            ) l1 ON TRUE
            WHERE i.telegram_user_id = $1""",
         telegram_user_id,

@@ -100,8 +100,10 @@ async def get_referral_info(
     web_link = f"{site_base_url}/?ref={code_record.referral_code}"
     balance_record = await balance_repo.get_balance(internal_user_id)
     balance_kopecks = balance_record.balance_kopecks if balance_record else 0
-    relationships = await relationship_repo.find_referrers(internal_user_id)
-    direct_count = sum(1 for r in relationships if r.level == 1)
+    # direct_referrals_count = users THIS user invited (level=1 where they are the
+    # referrer). NOT find_referrers (which returns who referred this user) — that
+    # inverted direction showed referrers (0/1) instead of referrals invited.
+    direct_count = await relationship_repo.count_direct_referrals(internal_user_id)
     return ReferralInfo(
         referral_code=code_record.referral_code,
         referral_link=tg_link,

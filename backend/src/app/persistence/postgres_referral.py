@@ -111,6 +111,17 @@ class PostgresReferralRelationshipRepository:
         async with self._pool.acquire() as conn:
             return await self.find_referrers_in_connection(conn, user_id)
 
+    async def count_direct_referrals(self, user_id: str) -> int:
+        """Number of users this user directly invited (L1 relationships where they
+        are the referrer). Distinct from find_referrers (which returns who referred
+        *this* user) — this powers the 'invited' count shown in the bot/web."""
+        async with self._pool.acquire() as conn:
+            return int(await conn.fetchval(
+                "SELECT COUNT(*) FROM referral_relationships "
+                "WHERE referrer_user_id = $1 AND level = 1",
+                user_id,
+            ))
+
     @staticmethod
     async def find_referrers_in_connection(
         conn: asyncpg.Connection, user_id: str,

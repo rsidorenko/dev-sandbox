@@ -251,6 +251,10 @@ class InMemoryReferralRelationshipRepository:
         async with self._lock:
             return tuple(r for r in self._records if r.referred_user_id == user_id)
 
+    async def count_direct_referrals(self, user_id: str) -> int:
+        async with self._lock:
+            return sum(1 for r in self._records if r.referrer_user_id == user_id and r.level == 1)
+
 
 class InMemoryReferralBalanceRepository:
     def __init__(self) -> None:
