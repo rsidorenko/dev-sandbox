@@ -15,6 +15,7 @@ import {
 type Subscription = {
   state: string;
   active_until: string | null;
+  remaining_days: number | null;
   plan_id: string | null;
   device_count: number | null;
 };
@@ -42,7 +43,9 @@ export function SubscriptionCard({
   onRenew,
 }: Props) {
   const isActive = sub?.state === "active";
-  const days = sub?.active_until ? daysLeft(sub.active_until) : 0;
+  // Prefer the server-computed remaining_days (shared with the bot -> identical
+  // 'days left' on web and Telegram). Fall back to local daysLeft for safety.
+  const days = sub?.remaining_days ?? (sub?.active_until ? daysLeft(sub.active_until) : 0);
 
   const [showChangePlan, setShowChangePlan] = useState(false);
   const [showChangeDevices, setShowChangeDevices] = useState(false);
