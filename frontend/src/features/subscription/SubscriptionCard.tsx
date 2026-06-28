@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { subscriptionApi } from "@/entities/subscription/api";
+import { paymentApi } from "@/entities/payment/api";
 import { siteConfig } from "@/shared/config/site";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
@@ -53,18 +54,33 @@ export function SubscriptionCard({
   const [selectedPlan, setSelectedPlan] = useState(
     sub?.plan_id || "plan_1m",
   );
-  const [selectedDevices, setSelectedDevices] = useState(
-    Math.max(5, sub?.device_count || 5),
-  );
+  // Device top-up can only ADD devices (never remove paid-for ones), so the
+  // selectable floor is the current device count (min 5).
+  const deviceMin = Math.max(5, sub?.device_count || 5);
+  const [selectedDevices, setSelectedDevices] = useState(deviceMin);
   const [actionLoading, setActionLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState("");
   const { copy, isCopied } = useCopyToClipboard();
 
   const handleChangePlan = () => {
     window.location.href = `/payment/${normalizePlanId(selectedPlan)}`;
   };
 
-  const handleChangeDevices = () => {
-    window.location.href = `/payment/${normalizePlanId(sub?.plan_id)}?devices=${selectedDevices}`;
+  const handleChangeDevices = async () => {
+    setDeviceError("");
+    setActionLoading(true);
+    try {
+      const res = await paymentApi.addDevices(selectedDevices);
+      if (!res.ok) {
+        setDeviceError("Не удалось создать платёж. Попробуйте позже.");
+        return;
+      }
+      if (res.data.payment_url) {
+        window.location.href = res.data.payment_url;
+      }
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleCancel = async () => {
@@ -301,22 +317,29 @@ export function SubscriptionCard({
                 </p>
                 <input
                   type="range"
-                  min={5}
+                  min={deviceMin}
                   max={20}
                   value={selectedDevices}
-                  onChange={(e) => setSelectedDevices(Number(e.target.value))}
+                  onChange={(e) => {
+                    setSelectedDevices(Number(e.target.value));
+                    setDeviceError("");
+                  }}
                   className="w-full accent-brand-600"
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>5</span>
+                  <span>{deviceMin}</span>
                   <span>10</span>
                   <span>15</span>
                   <span>20</span>
                 </div>
+                {deviceError && (
+                  <p className="mt-2 text-sm text-red-500">{deviceError}</p>
+                )}
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={handleChangeDevices}
-                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                    disabled={actionLoading}
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                   >
                     Перейти к оплате
                   </button>
