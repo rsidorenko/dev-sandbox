@@ -39,6 +39,14 @@ Modes (--mode):
                 + RU rules (.ru/.su/.рф + geoip:ru) into xrayTemplateConfig. An
                 alternative to export/import (different tag/rules style). Backs up,
                 idempotent, restarts x-ui + verifies.
+  apply-vk      Run ON a foreign panel: add an explicit VK-domains (vk.com/vk.ru/
+                userapi.com/vk.me) -> ru-relay routing rule so VK auth/media always
+                egresses via the RU relay (deterministic; not via fragile geoip:ru).
+                Backs up to .pre-vk-routing.bak; idempotent; restarts + verifies.
+  apply-max     Run ON a foreign panel: add an explicit MAX-domains (max.ru +
+                oneme.ru) -> ru-relay routing rule — same rationale as apply-vk but
+                for the MAX super-app. Backs up to .pre-max-routing.bak; idempotent;
+                restarts + verifies.
   repoint       Run ON a foreign panel: update the EXISTING ru-relay outbound's
                 target to the canonical RU relay (89.169.139.153, pbk/sid/sni=max.ru,
                 UUID 00607f0b) — keeping its tag + all routing rules intact. Used to
@@ -160,6 +168,16 @@ RU_DOMAINS = ["domain:ru", "domain:su", "domain:xn--p1ai"]
 VK_DOMAINS = ["domain:vk.com", "domain:vk.ru", "domain:userapi.com", "domain:vk.me"]
 # Separate backup slot so apply-vk never clobbers the original pre-ru-egress backup.
 VK_BACKUP_SUFFIX = ".pre-vk-routing.bak"
+
+# MAX (max.ru) domain family routed to the RU relay EXPLICITLY — same rationale as VK.
+# MAX is a VK-group super-app with its own anti-fraud + a VPN-detection module, so auth/API
+# egress must come from a RU IP (the relay) or the user risks logout/blocks. The two functional
+# roots: max.ru (app/web/Bot API: web./download./business./platform-api[2]./dev.max.ru) and
+# oneme.ru (the messenger API — api./ws-api./i.oneme.ru; oneme.ru was MAX's former name, binary
+# protocol). MAX's media CDN is VK's userapi.com — already in VK_DOMAINS. The third-party tracker
+# sdk-api.apptracer.ru is excluded (not functional). `domain:X` covers X + all subdomains.
+MAX_DOMAINS = ["domain:max.ru", "domain:oneme.ru"]
+MAX_BACKUP_SUFFIX = ".pre-max-routing.bak"
 
 GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
@@ -324,51 +342,76 @@ def _detect_relay_tag(template: dict) -> str | None:
     return None
 
 
-def _has_vk_rule(rules: list, tag: str) -> bool:
-    """True if *rules* already has the VK-domains -> *tag* rule (exact domain-set
-    match). Used by merge_vk_routing for idempotency and by cmd_apply_vk to skip a
-    needless restart. Pure + unit-tested."""
-    target = set(VK_DOMAINS)
+def _has_domain_rule(rules: list, tag: str, domains: list[str]) -> bool:
+    """True if *rules* already has a `domains -> tag` rule (exact domain-set match).
+    Used by merge_domain_family_routing for idempotency and by the apply-* commands
+    to skip a needless restart. Pure + unit-tested."""
+    target = set(domains)
     return any(r.get("outboundTag") == tag and set(r.get("domain") or []) == target
                for r in rules)
 
 
-def merge_vk_routing(template: dict, relay_tag: str | None = None) -> dict:
-    """NON-DESTRUCTIVE, idempotent merge: add an explicit VK-domains -> RU-relay
-    routing rule to a copy of an xrayTemplateConfig so VK (auth + media) always
-    egresses via the RU relay, independent of geoip:ru / DNS resolution.
+def _has_vk_rule(rules: list, tag: str) -> bool:
+    """VK-domains -> *tag* rule present? Thin wrapper over _has_domain_rule."""
+    return _has_domain_rule(rules, tag, VK_DOMAINS)
 
-    Why: VK's anti-fraud logs users out when auth endpoints egress from a
-    foreign/datacenter IP. Today VK only reaches the RU relay incidentally via
-    geoip:ru (when DNS returns a RU IP) or geosite:CATEGORY-RU — fragile. LA's
-    inbound has domainStrategy=AsIs and NO geoip:ru rule, so a vk.com that isn't
-    in geosite falls through to `direct` (foreign) -> VK logout. An explicit
-    domain rule makes it deterministic on every panel.
+
+def _has_max_rule(rules: list, tag: str) -> bool:
+    """MAX-domains -> *tag* rule present? Thin wrapper over _has_domain_rule."""
+    return _has_domain_rule(rules, tag, MAX_DOMAINS)
+
+
+def merge_domain_family_routing(template: dict, domains: list[str],
+                                relay_tag: str | None = None) -> dict:
+    """NON-DESTRUCTIVE, idempotent merge: add an explicit `domains -> RU-relay`
+    routing rule to a copy of an xrayTemplateConfig so the given domain family
+    always egresses via the RU relay, independent of geoip:ru / DNS resolution.
+
+    Why: Russian apps with anti-fraud (VK, MAX) log users out / block them when
+    their auth/API endpoints egress from a foreign/datacenter IP. They reach the
+    RU relay only incidentally today — via geoip:ru (when DNS returns a RU IP) or
+    geosite:CATEGORY-RU — which is fragile (a CDN/non-RU resolve, or an inbound
+    with no geoip:ru rule like LA's AsIs config, falls through to `direct` /
+    foreign -> logout). An explicit `domain:X` rule (matches X + all subdomains)
+    makes it deterministic on every panel.
 
     - auto-detects the relay outbound tag if *relay_tag* is None (see
       _detect_relay_tag); raises ValueError if no relay outbound exists (so we
       never add a rule pointing at a non-existent outbound);
-    - drops any existing VK rule for the tag (idempotent), then inserts the rule
+    - drops any existing `domains -> tag` rule (idempotent), then inserts the rule
       right after the last relay/api/geoip:private rule — i.e. with the RU rules
       and before any catch-all.
 
-    Existing outbounds/rules are preserved. Pure + unit-tested."""
+    Existing outbounds/rules are preserved. Pure + unit-tested. The VK and MAX
+    wrappers below are thin specializations of this."""
     t = copy.deepcopy(template)
     tag = relay_tag or _detect_relay_tag(t)
     if tag is None:
         raise ValueError("no RU-relay outbound found — run apply/import first")
     rules = t.setdefault("routing", {}).setdefault("rules", [])
     rules[:] = [r for r in rules
-                if not (r.get("outboundTag") == tag and set(r.get("domain") or []) == set(VK_DOMAINS))]
+                if not (r.get("outboundTag") == tag and set(r.get("domain") or []) == set(domains))]
     insert_at = 0
     for i, r in enumerate(rules):
         if r.get("outboundTag") in (tag, "api") or \
                 any("geoip:private" in str(x) for x in (r.get("ip") or [])):
             insert_at = i + 1
     rules[insert_at:insert_at] = [
-        {"type": "field", "domain": copy.deepcopy(VK_DOMAINS), "outboundTag": tag}
+        {"type": "field", "domain": copy.deepcopy(domains), "outboundTag": tag}
     ]
     return t
+
+
+def merge_vk_routing(template: dict, relay_tag: str | None = None) -> dict:
+    """VK-domains (vk.com/vk.ru/userapi.com/vk.me) -> RU-relay. Thin wrapper over
+    merge_domain_family_routing. See that function for the merge contract."""
+    return merge_domain_family_routing(template, VK_DOMAINS, relay_tag)
+
+
+def merge_max_routing(template: dict, relay_tag: str | None = None) -> dict:
+    """MAX-domains (max.ru + oneme.ru) -> RU-relay. Thin wrapper over
+    merge_domain_family_routing. See that function for the merge contract."""
+    return merge_domain_family_routing(template, MAX_DOMAINS, relay_tag)
 
 
 def apply_exported_routing(template: dict, outbound: dict, rules: list) -> dict:
@@ -829,6 +872,48 @@ def cmd_apply_vk() -> None:
     restart_and_verify()
 
 
+def cmd_apply_max() -> None:
+    """Add the explicit MAX-domains (max.ru + oneme.ru) -> ru-relay routing rule
+    (idempotent). Run ON a foreign panel. Auto-detects the relay outbound tag.
+    Backs up to a dedicated slot (MAX_BACKUP_SUFFIX), restarts x-ui + verifies.
+    No-op (no restart) if the rule is already present."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+    tag = _detect_relay_tag(template)
+    if tag is None:
+        print("ERROR: no RU-relay outbound on this panel — run apply/import first", file=sys.stderr)
+        sys.exit(1)
+    if _has_max_rule(template.get("routing", {}).get("rules", []), tag):
+        print(f"MAX -> {tag} rule already present — nothing to do")
+        conn.close()
+        return
+    backup_path = db + MAX_BACKUP_SUFFIX
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+    merged = merge_max_routing(template, tag)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"added MAX-domains ({', '.join(MAX_DOMAINS)}) -> {tag} rule")
+    print("apply-max complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_export() -> None:
     """READ-ONLY. Emit the working ru-relay outbound + its routing rules as JSON.
     Run on the SOURCE panel (Frankfurt). Output is consumed by `import`."""
@@ -1026,7 +1111,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|apply-vk|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
+              "{dump|register-uuid|export|import|apply|apply-vk|apply-max|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -1052,6 +1137,8 @@ def main() -> None:
         cmd_apply()
     elif mode == "apply-vk":
         cmd_apply_vk()
+    elif mode == "apply-max":
+        cmd_apply_max()
     elif mode == "revert":
         cmd_revert()
     elif mode == "deactivate":

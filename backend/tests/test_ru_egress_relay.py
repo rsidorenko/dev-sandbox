@@ -547,6 +547,118 @@ def test_has_vk_rule_detects_exact_domain_set() -> None:
     assert mre._has_vk_rule([], tag) is False
 
 
+# ── apply-max: explicit MAX-domains (max.ru + oneme.ru) -> ru-relay routing ───
+# MAX (max.ru) is a VK-group super-app with anti-fraud + a VPN-detection module,
+# so its auth/API must egress from the RU relay — same rationale as VK. merge_max_routing
+# is a thin wrapper over the same generic merge_domain_family_routing as merge_vk_routing.
+
+
+def test_merge_max_routing_adds_max_rule_pointing_to_relay() -> None:
+    after = mre.merge_max_routing(_panel_with_ru_relay())
+    assert ("ru-relay", tuple(mre.MAX_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_max_routing_auto_detects_tag_both_styles() -> None:
+    # Both the canonical ru-relay tag and the built-in relay-to-russia tag are
+    # detected via the outbound's vnext address.
+    for tag in ("ru-relay", "relay-to-russia"):
+        after = mre.merge_max_routing(_panel_with_ru_relay(tag))
+        assert (tag, tuple(mre.MAX_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_max_routing_uses_explicit_tag_when_given() -> None:
+    after = mre.merge_max_routing(_default_template(), relay_tag="ru-relay")
+    assert ("ru-relay", tuple(mre.MAX_DOMAINS), ()) in _rule_tags(after)
+
+
+def test_merge_max_routing_inserts_after_ru_rules_before_catchall() -> None:
+    after = mre.merge_max_routing(_panel_with_ru_relay())
+    rules = after["routing"]["rules"]
+    max_idx = next(i for i, r in enumerate(rules)
+                   if set(r.get("domain") or []) == set(mre.MAX_DOMAINS))
+    catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
+    # MAX rule comes AFTER the ru-relay rules and BEFORE the catch-all.
+    assert rules.index(next(r for r in rules if r.get("outboundTag") == "ru-relay")) < max_idx
+    assert max_idx < catchall_idx
+
+
+def test_merge_max_routing_preserves_existing_rules_and_outbounds() -> None:
+    before = _panel_with_ru_relay()
+    after = mre.merge_max_routing(before)
+    assert set(_outbound_tags(before)).issubset(set(_outbound_tags(after)))
+    assert ("ru-relay", (), ("geoip:ru",)) in _rule_tags(after)
+    # Exactly one MAX rule added.
+    mx = [r for r in after["routing"]["rules"] if set(r.get("domain") or []) == set(mre.MAX_DOMAINS)]
+    assert len(mx) == 1
+
+
+def test_merge_max_routing_is_idempotent() -> None:
+    once = mre.merge_max_routing(_panel_with_ru_relay())
+    twice = mre.merge_max_routing(once)
+    assert _outbound_tags(once) == _outbound_tags(twice)
+    assert _rule_tags(once) == _rule_tags(twice)
+    mx = [r for r in twice["routing"]["rules"] if set(r.get("domain") or []) == set(mre.MAX_DOMAINS)]
+    assert len(mx) == 1
+
+
+def test_merge_max_routing_raises_when_no_relay_outbound() -> None:
+    with pytest.raises(ValueError):
+        mre.merge_max_routing(_default_template())
+
+
+def test_merge_max_routing_does_not_mutate_input() -> None:
+    before = _panel_with_ru_relay()
+    before_rules = _rule_tags(before)
+    mre.merge_max_routing(before)
+    assert _rule_tags(before) == before_rules
+    assert not any(set(r.get("domain") or []) == set(mre.MAX_DOMAINS)
+                   for r in before["routing"]["rules"])
+
+
+def test_has_max_rule_detects_exact_domain_set() -> None:
+    tag = "ru-relay"
+    assert mre._has_max_rule([{"outboundTag": tag, "domain": list(mre.MAX_DOMAINS)}], tag) is True
+    assert mre._has_max_rule([{"outboundTag": tag, "domain": ["domain:max.ru"]}], tag) is False
+    assert mre._has_max_rule([], tag) is False
+
+
+def test_has_domain_rule_is_the_generic_backend_for_vk_and_max() -> None:
+    """_has_vk_rule / _has_max_rule both delegate to _has_domain_rule, so the exact
+    domain-set match is consistent across families."""
+    tag = "ru-relay"
+    assert mre._has_domain_rule([{"outboundTag": tag, "domain": list(mre.VK_DOMAINS)}], tag, mre.VK_DOMAINS)
+    assert mre._has_domain_rule([{"outboundTag": tag, "domain": list(mre.MAX_DOMAINS)}], tag, mre.MAX_DOMAINS)
+    # MAX rule is NOT a VK rule and vice versa.
+    assert not mre._has_domain_rule([{"outboundTag": tag, "domain": list(mre.VK_DOMAINS)}], tag, mre.MAX_DOMAINS)
+
+
+def test_merge_vk_and_max_rules_coexist() -> None:
+    """A panel can carry BOTH the VK and MAX explicit rules: both present, both after
+    the ru-relay rules, both before the catch-all. (VK + MAX domains are disjoint, so
+    rule order between them is irrelevant.)"""
+    panel = _panel_with_ru_relay()
+    after = mre.merge_max_routing(mre.merge_vk_routing(panel))
+    rules = after["routing"]["rules"]
+    vk_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.VK_DOMAINS))
+    max_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.MAX_DOMAINS))
+    catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
+    assert vk_idx != max_idx
+    assert vk_idx < catchall_idx and max_idx < catchall_idx
+    # Exactly one of each.
+    assert len([r for r in rules if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]) == 1
+    assert len([r for r in rules if set(r.get("domain") or []) == set(mre.MAX_DOMAINS)]) == 1
+
+
+def test_merge_max_routing_via_generic_helper_matches_wrapper() -> None:
+    """merge_max_routing is a thin wrapper over merge_domain_family_routing — they
+    produce identical output (guards the refactor that extracted the generic helper)."""
+    panel = _panel_with_ru_relay()
+    via_wrapper = mre.merge_max_routing(panel)
+    via_generic = mre.merge_domain_family_routing(panel, mre.MAX_DOMAINS)
+    assert _rule_tags(via_wrapper) == _rule_tags(via_generic)
+    assert _outbound_tags(via_wrapper) == _outbound_tags(via_generic)
+
+
 
 
 
