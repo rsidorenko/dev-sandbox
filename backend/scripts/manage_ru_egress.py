@@ -149,6 +149,18 @@ RELAY_OUTBOUND_TAG = "relay-to-russia"
 # xn--p1ai is the punycode for .рф. TLD rules need no geo file.
 RU_DOMAINS = ["domain:ru", "domain:su", "domain:xn--p1ai"]
 
+# VK domain family routed to the RU relay EXPLICITLY (not relying on geoip:ru /
+# geosite). VK's anti-fraud logs users out when auth endpoints egress from a
+# foreign/datacenter IP; the existing geoip:ru / geosite:CATEGORY-RU match only
+# catches vk.com when DNS happens to return a RU IP — fragile (a CDN/non-RU
+# resolve, or an inbound with no geoip:ru rule like LA's AsIs config, falls
+# through to `direct`/foreign -> VK logout). `domain:X` in xray matches X and all
+# subdomains, so domain:vk.com covers login/id/oauth/api/static/m.vk.com — the
+# whole auth path. userapi.com = media CDN, vk.me = short links (geo consistency).
+VK_DOMAINS = ["domain:vk.com", "domain:vk.ru", "domain:userapi.com", "domain:vk.me"]
+# Separate backup slot so apply-vk never clobbers the original pre-ru-egress backup.
+VK_BACKUP_SUFFIX = ".pre-vk-routing.bak"
+
 GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 
@@ -288,6 +300,74 @@ def merge_ru_routing(template: dict) -> dict:
         if isinstance(ips, list) and any("geoip:private" in str(x) for x in ips):
             insert_at = i + 1
     rules[insert_at:insert_at] = _ru_rules()
+    return t
+
+
+def _detect_relay_tag(template: dict) -> str | None:
+    """Find the RU-relay outbound tag in *template*: the vless outbound whose
+    vnext address is the canonical RU relay host (89.169.139.153), with a fallback
+    to the outboundTag of an existing domain:ru / domain-suffix:ru /
+    geosite:category-ru rule. Returns None if no relay outbound is found. Pure +
+    unit-tested; makes VK routing robust to the outbound tag (ru-relay vs
+    relay-to-russia) since panels were configured via different paths."""
+    for o in template.get("outbounds", []):
+        if o.get("protocol") != "vless":
+            continue
+        vnext = (o.get("settings") or {}).get("vnext") or []
+        if vnext and vnext[0].get("address") == RU_RELAY_HOST:
+            return o.get("tag")
+    for r in (template.get("routing") or {}).get("rules", []):
+        for d in (r.get("domain") or []):
+            low = str(d).lower()
+            if "domain:ru" in low or "domain-suffix:ru" in low or "geosite:category-ru" in low:
+                return r.get("outboundTag")
+    return None
+
+
+def _has_vk_rule(rules: list, tag: str) -> bool:
+    """True if *rules* already has the VK-domains -> *tag* rule (exact domain-set
+    match). Used by merge_vk_routing for idempotency and by cmd_apply_vk to skip a
+    needless restart. Pure + unit-tested."""
+    target = set(VK_DOMAINS)
+    return any(r.get("outboundTag") == tag and set(r.get("domain") or []) == target
+               for r in rules)
+
+
+def merge_vk_routing(template: dict, relay_tag: str | None = None) -> dict:
+    """NON-DESTRUCTIVE, idempotent merge: add an explicit VK-domains -> RU-relay
+    routing rule to a copy of an xrayTemplateConfig so VK (auth + media) always
+    egresses via the RU relay, independent of geoip:ru / DNS resolution.
+
+    Why: VK's anti-fraud logs users out when auth endpoints egress from a
+    foreign/datacenter IP. Today VK only reaches the RU relay incidentally via
+    geoip:ru (when DNS returns a RU IP) or geosite:CATEGORY-RU — fragile. LA's
+    inbound has domainStrategy=AsIs and NO geoip:ru rule, so a vk.com that isn't
+    in geosite falls through to `direct` (foreign) -> VK logout. An explicit
+    domain rule makes it deterministic on every panel.
+
+    - auto-detects the relay outbound tag if *relay_tag* is None (see
+      _detect_relay_tag); raises ValueError if no relay outbound exists (so we
+      never add a rule pointing at a non-existent outbound);
+    - drops any existing VK rule for the tag (idempotent), then inserts the rule
+      right after the last relay/api/geoip:private rule — i.e. with the RU rules
+      and before any catch-all.
+
+    Existing outbounds/rules are preserved. Pure + unit-tested."""
+    t = copy.deepcopy(template)
+    tag = relay_tag or _detect_relay_tag(t)
+    if tag is None:
+        raise ValueError("no RU-relay outbound found — run apply/import first")
+    rules = t.setdefault("routing", {}).setdefault("rules", [])
+    rules[:] = [r for r in rules
+                if not (r.get("outboundTag") == tag and set(r.get("domain") or []) == set(VK_DOMAINS))]
+    insert_at = 0
+    for i, r in enumerate(rules):
+        if r.get("outboundTag") in (tag, "api") or \
+                any("geoip:private" in str(x) for x in (r.get("ip") or [])):
+            insert_at = i + 1
+    rules[insert_at:insert_at] = [
+        {"type": "field", "domain": copy.deepcopy(VK_DOMAINS), "outboundTag": tag}
+    ]
     return t
 
 
@@ -707,6 +787,48 @@ def cmd_apply() -> None:
     restart_and_verify()
 
 
+def cmd_apply_vk() -> None:
+    """Add the explicit VK-domains -> ru-relay routing rule (idempotent). Run ON a
+    foreign panel. Auto-detects the relay outbound tag. Backs up to a dedicated
+    slot (VK_BACKUP_SUFFIX), restarts x-ui + verifies. No-op (no restart) if the
+    rule is already present."""
+    db = find_db()
+    if not db:
+        print("ERROR: no x-ui.db found", file=sys.stderr)
+        sys.exit(1)
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    row = cur.execute("SELECT value FROM settings WHERE key='xrayTemplateConfig'").fetchone()
+    if not row or not row[0]:
+        print("ERROR: no xrayTemplateConfig in settings", file=sys.stderr)
+        sys.exit(1)
+    original_str = row[0]
+    template = json.loads(original_str)
+    tag = _detect_relay_tag(template)
+    if tag is None:
+        print("ERROR: no RU-relay outbound on this panel — run apply/import first", file=sys.stderr)
+        sys.exit(1)
+    if _has_vk_rule(template.get("routing", {}).get("rules", []), tag):
+        print(f"VK -> {tag} rule already present — nothing to do")
+        conn.close()
+        return
+    backup_path = db + VK_BACKUP_SUFFIX
+    if not os.path.exists(backup_path):
+        with open(backup_path, "w") as f:
+            f.write(original_str)
+        print(f"backup written: {backup_path}")
+    else:
+        print(f"backup already exists (preserved): {backup_path}")
+    merged = merge_vk_routing(template, tag)
+    cur.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                (json.dumps(merged),))
+    conn.commit()
+    conn.close()
+    print(f"added VK-domains ({', '.join(VK_DOMAINS)}) -> {tag} rule")
+    print("apply-vk complete -> restarting x-ui")
+    restart_and_verify()
+
+
 def cmd_export() -> None:
     """READ-ONLY. Emit the working ru-relay outbound + its routing rules as JSON.
     Run on the SOURCE panel (Frankfurt). Output is consumed by `import`."""
@@ -904,7 +1026,7 @@ def main() -> None:
                 mode = args[i + 1]
     if not mode:
         print("usage: manage_ru_egress.py --mode "
-              "{dump|register-uuid|export|import|apply|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
+              "{dump|register-uuid|export|import|apply|apply-vk|repoint|revert|purge-orphans|fix-sniffing|reset-logs|clean-relay|deactivate}",
               file=sys.stderr)
         sys.exit(2)
 
@@ -928,6 +1050,8 @@ def main() -> None:
         cmd_repoint()
     elif mode == "apply":
         cmd_apply()
+    elif mode == "apply-vk":
+        cmd_apply_vk()
     elif mode == "revert":
         cmd_revert()
     elif mode == "deactivate":
