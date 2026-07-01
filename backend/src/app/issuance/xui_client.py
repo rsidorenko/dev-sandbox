@@ -92,6 +92,10 @@ class XuiServerConfig:
     reality_fp: str = "chrome"
     transport_type: str = "tcp"
     api_token: str = ""
+    # Full vless:// template (with a literal {UUID} placeholder) for non-standard transports
+    # _build_vless_link cannot assemble (e.g. CDN-fronted xhttp with custom obfuscation). When
+    # non-empty, the bot emits it verbatim with {UUID} -> per-user VLESS UUID. Empty = standard.
+    link_template: str = ""
 
 
 class XuiApiClient:

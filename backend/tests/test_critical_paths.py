@@ -518,3 +518,36 @@ def test_vless_link_uses_reality_tls():
     assert "sid=test-sid" in link
     assert "sni=example.com" in link
     assert link.startswith("vless://user-uuid-123@nl1.vpn.example.com:443")
+
+
+def test_vless_link_template_overrides_transport_builder():
+    """A non-empty link_template is emitted verbatim with {UUID} substituted.
+
+    For non-standard transports the per-transport branches can't assemble (e.g. the h1cloud
+    "обход белых списков" CDN key: xhttp+TLS via node67.safetunn.shop with xmux/xPadding
+    obfuscation in `extra`), the row stores a full vless:// with a {UUID} placeholder.
+    """
+    from app.issuance.xui_vless_provider import _build_vless_link
+    from app.issuance.xui_vless_provider import XuiServerConfig
+
+    template = (
+        "vless://{UUID}@node67.safetunn.shop:443?type=xhttp&security=tls"
+        "&sni=node67.safetunn.shop&path=%2Fapi%2Fv1%2Fbs1961%2Fsync%2F"
+        "&extra=%7B%22mode%22%3A%22packet-up%22%7D#h1cloud-CDN"
+    )
+    server = XuiServerConfig(
+        server_id=22, label="Обход", country_code="NL", country_flag="🇳🇱",
+        server_host="193.233.126.96", server_port=25103,
+        ws_path="", tls_sni="", panel_url="", panel_username="", panel_password="",
+        inbound_id=1, transport_type="xhttp", link_template=template,
+    )
+
+    link = _build_vless_link(server, "user-uuid-9")
+
+    assert link.startswith("vless://user-uuid-9@node67.safetunn.shop:443")
+    assert "{UUID}" not in link
+    assert "security=tls" in link
+    assert "extra=%7B%22mode%22%3A%22packet-up%22%7D" in link
+    # the per-transport reality fields are NOT injected when a template is set
+    assert "security=reality" not in link
+    assert "pbk=" not in link

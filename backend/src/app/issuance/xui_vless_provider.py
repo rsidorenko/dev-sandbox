@@ -129,6 +129,11 @@ def _build_vless_link(
     user_uuid: str,
 ) -> str:
     """Build a vless:// URI for a specific server."""
+    # Custom template (e.g. CDN-fronted xhttp with obfuscation the per-transport branches can't
+    # assemble). The row stores a full vless:// with a literal {UUID} placeholder.
+    if server.link_template:
+        return server.link_template.replace("{UUID}", user_uuid)
+
     host = server.server_host
     port = server.server_port
     label = f"{server.country_flag} {server.label}"
@@ -205,7 +210,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   inbound_id, reality_pbk, reality_sid, reality_sni,
                   COALESCE(transport_type, 'tcp') AS transport_type,
                   COALESCE(api_token, '') AS api_token,
-                  COALESCE(reality_fp, 'chrome') AS reality_fp
+                  COALESCE(reality_fp, 'chrome') AS reality_fp,
+                  COALESCE(link_template, '') AS link_template
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -228,6 +234,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             reality_fp=r["reality_fp"],
             transport_type=r["transport_type"],
             api_token=r["api_token"],
+            link_template=r["link_template"],
         )
         for r in rows
     )
