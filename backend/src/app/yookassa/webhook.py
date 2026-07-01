@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 import asyncpg
@@ -26,6 +27,21 @@ _LOGGER = logging.getLogger(__name__)
 ENV_YOOKASSA_PROVIDER_KEY = "YOOKASSA_PROVIDER_KEY"
 
 _DEFAULT_PROVIDER_KEY = "yookassa_v1"
+
+
+def _amount_value_to_kopecks(amount_value: object) -> int | None:
+    """Convert a provider money amount (string/Decimal/number) to integer kopecks.
+
+    Uses ``Decimal`` to avoid float precision loss (e.g. ``"1099.99"`` must map
+    to ``109999``, not a value off by one). Returns ``None`` when the value
+    cannot be parsed, so callers fall through to their existing amount-mismatch
+    / validation paths unchanged.
+    """
+    try:
+        return int((Decimal(str(amount_value)) * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
 
 # YooKassa notification source IP ranges (Notification authentication — IP auth).
 # YooKassa does NOT send an HMAC signature header; per its docs, authenticity is
@@ -152,6 +168,7 @@ def create_yookassa_webhook_handler(
         nonlocal _yookassa_client
         if _yookassa_client is None:
             from app.yookassa.client import YooKassaClient
+
             _yookassa_client = YooKassaClient.from_env()
         return _yookassa_client
 
@@ -161,6 +178,7 @@ def create_yookassa_webhook_handler(
             bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
             if bot_token:
                 from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
+
                 _telegram_edit_client = HttpxTelegramRawPollingClient(bot_token)
         return _telegram_edit_client
 
@@ -180,13 +198,19 @@ def create_yookassa_webhook_handler(
         try:
             if activation_telegram_notifier is not None and hasattr(activation_telegram_notifier, "_client"):
                 await activation_telegram_notifier._client.edit_message_text(
-                    chat_id, message_id, success_text, reply_markup=success_kb,
+                    chat_id,
+                    message_id,
+                    success_text,
+                    reply_markup=success_kb,
                 )
             else:
                 edit_client = _get_telegram_edit_client()
                 if edit_client is not None:
                     await edit_client.edit_message_text(
-                        chat_id, message_id, success_text, reply_markup=success_kb,
+                        chat_id,
+                        message_id,
+                        success_text,
+                        reply_markup=success_kb,
                     )
         except Exception:
             _LOGGER.debug("yookassa webhook: could not edit payment message id=%s", payment_id, exc_info=True)
@@ -212,15 +236,13 @@ def create_yookassa_webhook_handler(
             return _safe_json_error(400, "invalid_payload")
         telegram_user_id, new_device_count, expected_amount_kopecks = parsed
 
-        paid_kopecks: int | None
-        try:
-            paid_kopecks = round(float(verified.amount_value) * 100)
-        except (ValueError, TypeError):
-            paid_kopecks = None
+        paid_kopecks = _amount_value_to_kopecks(verified.amount_value)
         if not _validate_add_device_amount(expected_amount_kopecks, paid_kopecks):
             _LOGGER.warning(
                 "yookassa webhook: add_device amount mismatch expected=%s got=%s id=%s",
-                expected_amount_kopecks, paid_kopecks, payment_id,
+                expected_amount_kopecks,
+                paid_kopecks,
+                payment_id,
             )
             return _safe_json_error(409, "amount_mismatch")
 
@@ -236,7 +258,10 @@ def create_yookassa_webhook_handler(
 
         _LOGGER.info(
             "yookassa webhook: add_device verified id=%s user=%s new_devices=%d amount=%s",
-            payment_id, internal_user_id, new_device_count, verified.amount_value,
+            payment_id,
+            internal_user_id,
+            new_device_count,
+            verified.amount_value,
         )
 
         # Apply the device-count increase. `max()` makes this monotonic and
@@ -251,11 +276,15 @@ def create_yookassa_webhook_handler(
         if target > current:
             await pool.execute(
                 "UPDATE subscription_snapshots SET device_count = $1, updated_at = NOW() WHERE internal_user_id = $2",
-                target, internal_user_id,
+                target,
+                internal_user_id,
             )
         _LOGGER.info(
             "yookassa webhook: add_device applied id=%s user=%s %d→%d",
-            payment_id, internal_user_id, current, target,
+            payment_id,
+            internal_user_id,
+            current,
+            target,
         )
 
         # Best-effort audit in the billing ledger. event_type="device_topup" is NOT
@@ -284,16 +313,12 @@ def create_yookassa_webhook_handler(
                     ingestion_correlation_id=f"add-device-{payment_id}",
                     internal_user_id=internal_user_id,
                     checkout_attempt_id=payment_id,
-                    amount_currency=BillingEventAmountCurrency(
-                        amount_minor_units=paid_kopecks, currency_code="RUB"
-                    ),
+                    amount_currency=BillingEventAmountCurrency(amount_minor_units=paid_kopecks, currency_code="RUB"),
                     internal_fact_ref=None,
                 )
             )
         except Exception:
-            _LOGGER.warning(
-                "yookassa webhook: add_device ledger audit failed id=%s", payment_id, exc_info=True
-            )
+            _LOGGER.warning("yookassa webhook: add_device ledger audit failed id=%s", payment_id, exc_info=True)
 
         # Best-effort VLESS re-provision with the new limitIp. Preserve the existing
         # expiry: compute days_left from active_until_utc (like reconcile_all_users)
@@ -315,15 +340,14 @@ def create_yookassa_webhook_handler(
             except Exception:
                 _LOGGER.warning(
                     "yookassa webhook: add_device vless reprovision failed id=%s",
-                    payment_id, exc_info=True,
+                    payment_id,
+                    exc_info=True,
                 )
 
         await _edit_payment_message_success(
             payment_id,
             success_text=(
-                "✅ Оплата прошла успешно!\n\n"
-                f"Количество устройств увеличено до {target}.\n"
-                "Приятного пользования!"
+                f"✅ Оплата прошла успешно!\n\nКоличество устройств увеличено до {target}.\nПриятного пользования!"
             ),
             success_kb={
                 "inline_keyboard": [
@@ -363,7 +387,9 @@ def create_yookassa_webhook_handler(
         if event != "payment.succeeded" or status != "succeeded":
             _LOGGER.info(
                 "yookassa webhook: acknowledged event=%s status=%s id=%s",
-                event, status, payment_id,
+                event,
+                status,
+                payment_id,
             )
             return JSONResponse({"ok": True, "acknowledged": True}, status_code=200)
 
@@ -382,7 +408,9 @@ def create_yookassa_webhook_handler(
         if verified.status != "succeeded":
             _LOGGER.warning(
                 "yookassa webhook: status mismatch webhook=%s api=%s id=%s",
-                status, verified.status, payment_id,
+                status,
+                verified.status,
+                payment_id,
             )
             return JSONResponse({"ok": True, "acknowledged": True}, status_code=200)
 
@@ -416,16 +444,13 @@ def create_yookassa_webhook_handler(
             return _safe_json_error(400, "invalid_payload")
 
         from app.domain.plans import get_plan
+
         plan = get_plan(plan_id)
         if plan is None:
             _LOGGER.warning("yookassa webhook: unknown plan_id=%s id=%s", plan_id, payment_id)
             return _safe_json_error(400, "invalid_plan")
 
-        amount_kopecks = None
-        try:
-            amount_kopecks = round(float(verified.amount_value) * 100)
-        except (ValueError, TypeError):
-            pass
+        amount_kopecks = _amount_value_to_kopecks(verified.amount_value)
 
         # Expected amount must cover the plan PLUS any extra devices the user paid
         # for (the bot/web charge calculate_total_price at creation). Checking only
@@ -435,7 +460,9 @@ def create_yookassa_webhook_handler(
         if amount_kopecks is not None and abs(amount_kopecks - expected_kopecks) > 1:
             _LOGGER.warning(
                 "yookassa webhook: amount mismatch expected=%d got=%d id=%s",
-                expected_kopecks, amount_kopecks, payment_id,
+                expected_kopecks,
+                amount_kopecks,
+                payment_id,
             )
             return _safe_json_error(409, "amount_mismatch")
         amount_kopecks = expected_kopecks
@@ -453,7 +480,10 @@ def create_yookassa_webhook_handler(
 
         _LOGGER.info(
             "yookassa webhook: verified and processing id=%s user=%s plan=%s amount=%s",
-            payment_id, internal_user_id, plan_id, verified.amount_value,
+            payment_id,
+            internal_user_id,
+            plan_id,
+            verified.amount_value,
         )
 
         fulfillment_input = FulfillmentInput(
@@ -486,7 +516,8 @@ def create_yookassa_webhook_handler(
         ):
             _LOGGER.warning(
                 "yookassa webhook: fulfillment rejected outcome=%s id=%s",
-                result.operation_outcome.value, payment_id,
+                result.operation_outcome.value,
+                payment_id,
             )
             return _safe_json_error(409, "rejected")
 
@@ -506,13 +537,11 @@ def create_yookassa_webhook_handler(
             if snap and snap.active_until_utc:
                 active_until_str = snap.active_until_utc.strftime("%d.%m.%Y")
         except Exception:
-            pass
+            _LOGGER.debug("yookassa webhook: active_until lookup failed id=%s", payment_id, exc_info=True)
         await _edit_payment_message_success(
             payment_id,
             success_text=(
-                "✅ Оплата прошла успешно!\n\n"
-                f"Ваша подписка активна до {active_until_str}.\n"
-                "Приятного пользования!"
+                f"✅ Оплата прошла успешно!\n\nВаша подписка активна до {active_until_str}.\nПриятного пользования!"
             ),
             success_kb={
                 "inline_keyboard": [
