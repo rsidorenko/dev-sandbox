@@ -9,7 +9,6 @@ from app.issuance.vless_provider import VlessProviderOutcome
 from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 from app.shared.test_helpers import run_async as _run
 
-
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -20,7 +19,7 @@ class _Record(dict):
         try:
             return self[key]
         except KeyError:
-            raise AttributeError(key)
+            raise AttributeError(key) from None
 
 
 class _FakePool:
@@ -39,7 +38,9 @@ class _FakePool:
 
 
 def test_keys_deleted_calls_create_user():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5))
+    pool = _FakePool(
+        row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5)
+    )
     provider = AsyncMock()
     provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
@@ -71,7 +72,9 @@ def test_no_lifecycle_flags_calls_create_user():
 
 
 def test_resets_lifecycle_flags():
-    pool = _FakePool(row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5))
+    pool = _FakePool(
+        row=_Record(keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=5)
+    )
     provider = AsyncMock()
     provider.create_user = AsyncMock(return_value=MagicMock(outcome=VlessProviderOutcome.SUCCESS))
 
@@ -144,6 +147,7 @@ def test_ensure_subscription_token_returns_existing_without_expiry_check():
     class _Pool:
         async def fetchrow(self, sql, uid):
             return expired_row
+
         async def execute(self, *a):
             pass
 
@@ -162,6 +166,7 @@ def test_ensure_subscription_token_generates_when_none():
     class _Pool:
         async def fetchrow(self, sql, uid):
             return empty_row
+
         async def execute(self, sql, *args):
             executed.append(args)
 
@@ -180,6 +185,7 @@ def test_ensure_subscription_token_generates_when_no_row():
     class _Pool:
         async def fetchrow(self, sql, uid):
             return None
+
         async def execute(self, sql, *args):
             executed.append(args)
 

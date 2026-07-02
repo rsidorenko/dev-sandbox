@@ -15,7 +15,6 @@ from app.runtime.live_startup import (
 from app.runtime.polling import PollingRuntimeConfig
 from app.shared.correlation import new_correlation_id
 from app.shared.test_helpers import run_async as _run
-from tests.slice1_expected_user_copy import INACTIVE_OR_NOT_ELIGIBLE_TEXT
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

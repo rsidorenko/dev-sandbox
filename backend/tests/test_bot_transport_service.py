@@ -8,11 +8,8 @@ from app.application.bootstrap import build_slice1_composition
 from app.bot_transport.presentation import (
     TransportBootstrapCode,
     TransportErrorCode,
-    TransportHelpCode,
-    TransportNextActionHint,
     TransportResponseCategory,
     TransportSafeResponse,
-    TransportStatusCode,
 )
 from app.bot_transport.service import Slice1TelegramService, handle_slice1_telegram_update
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id

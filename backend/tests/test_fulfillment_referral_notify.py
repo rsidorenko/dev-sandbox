@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence import postgres_referral as pgref
+from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.referral_contracts import ReferralBalanceRecord
 from app.runtime import fulfillment_processor as fp_mod
 from app.runtime.fulfillment_processor import FulfillmentInput, process_fulfillment
@@ -113,16 +113,23 @@ def _mock_fulfillment_deps(
     m.setattr(
         pgref.PostgresReferralBalanceRepository,
         "get_balance",
-        AsyncMock(return_value=ReferralBalanceRecord(
-            internal_user_id="x", balance_kopecks=balance_kopecks, updated_at=datetime(2026, 6, 28, tzinfo=UTC),
-        )),
+        AsyncMock(
+            return_value=ReferralBalanceRecord(
+                internal_user_id="x",
+                balance_kopecks=balance_kopecks,
+                updated_at=datetime(2026, 6, 28, tzinfo=UTC),
+            )
+        ),
     )
     return credit
 
 
 def _notifier_calls_to(notifier: AsyncMock, tg_id: int) -> list:
-    return [c for c in notifier.send_subscription_activated_notice.await_args_list
-            if c.kwargs.get("telegram_user_id") == tg_id]
+    return [
+        c
+        for c in notifier.send_subscription_activated_notice.await_args_list
+        if c.kwargs.get("telegram_user_id") == tg_id
+    ]
 
 
 # ── unit: telegram_user_id_from_internal ───────────────────────────────────────
@@ -130,6 +137,7 @@ def _notifier_calls_to(notifier: AsyncMock, tg_id: int) -> list:
 
 def test_telegram_user_id_from_internal_parses_sign() -> None:
     from app.persistence.postgres_user_identity import telegram_user_id_from_internal
+
     assert telegram_user_id_from_internal("u999") == 999
     assert telegram_user_id_from_internal("u-12345") == -12345  # web user → negative → skip
     assert telegram_user_id_from_internal("garbage") is None
@@ -145,10 +153,14 @@ async def test_referrer_notified_with_commission_on_new_activation() -> None:
     notifier = AsyncMock()
     with pytest.MonkeyPatch.context() as m:
         _mock_fulfillment_deps(
-            m, referrers=[SimpleNamespace(level=1, referrer_user_id="u999")], balance_kopecks=10500,
+            m,
+            referrers=[SimpleNamespace(level=1, referrer_user_id="u999")],
+            balance_kopecks=10500,
         )
         result = await process_fulfillment(
-            pool=_FakePool(), inp=_payer_input(), activation_telegram_notifier=notifier,
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
         )
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS
     # Activation notice (payer 12345) + commission notice (referrer 999).
@@ -175,14 +187,16 @@ async def test_l1_and_l2_referrers_both_notified() -> None:
             ],
         )
         await process_fulfillment(
-            pool=_FakePool(), inp=_payer_input(), activation_telegram_notifier=notifier,
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
         )
     # payer (12345) + L1 (999) + L2 (888).
     assert notifier.send_subscription_activated_notice.await_count == 3
     l1 = _notifier_calls_to(notifier, 999)[0].kwargs
     l2 = _notifier_calls_to(notifier, 888)[0].kwargs
-    assert "Ваш реферал оплатил подписку" in l1["text"] and "105" in l1["text"]   # 0.35
-    assert "2-го уровня" in l2["text"] and "15" in l2["text"]                      # 0.05
+    assert "Ваш реферал оплатил подписку" in l1["text"] and "105" in l1["text"]  # 0.35
+    assert "2-го уровня" in l2["text"] and "15" in l2["text"]  # 0.05
     assert l1["reply_markup"] is None and l2["reply_markup"] is None
 
 
@@ -196,7 +210,9 @@ async def test_no_referral_notice_on_idempotent_replay() -> None:
             referrers=[SimpleNamespace(level=1, referrer_user_id="u999")],
         )
         await process_fulfillment(
-            pool=_FakePool(), inp=_payer_input(), activation_telegram_notifier=notifier,
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
         )
     # is_new_active False -> no activation notice, no referral processing, no commission notice.
     notifier.send_subscription_activated_notice.assert_not_called()
@@ -208,10 +224,13 @@ async def test_web_user_referrer_skipped_but_credit_applied() -> None:
     notifier = AsyncMock()
     with pytest.MonkeyPatch.context() as m:
         credit = _mock_fulfillment_deps(
-            m, referrers=[SimpleNamespace(level=1, referrer_user_id="u-12345")],
+            m,
+            referrers=[SimpleNamespace(level=1, referrer_user_id="u-12345")],
         )
         await process_fulfillment(
-            pool=_FakePool(), inp=_payer_input(), activation_telegram_notifier=notifier,
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
         )
     # Credit IS applied (web referrer still earns on their balance) ...
     assert credit.call_count == 1
@@ -224,7 +243,8 @@ async def test_web_user_referrer_skipped_but_credit_applied() -> None:
 async def test_credit_applied_even_when_notifier_is_none() -> None:
     with pytest.MonkeyPatch.context() as m:
         credit = _mock_fulfillment_deps(
-            m, referrers=[SimpleNamespace(level=1, referrer_user_id="u999")],
+            m,
+            referrers=[SimpleNamespace(level=1, referrer_user_id="u999")],
         )
         result = await process_fulfillment(pool=_FakePool(), inp=_payer_input())  # no notifier
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS
@@ -237,7 +257,9 @@ async def test_referral_exception_does_not_break_fulfillment() -> None:
     with pytest.MonkeyPatch.context() as m:
         _mock_fulfillment_deps(m, find_raises=True)
         result = await process_fulfillment(
-            pool=_FakePool(), inp=_payer_input(), activation_telegram_notifier=notifier,
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
         )
     # Payer fulfillment still succeeds; the swallowed referral error yields no commission notice.
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS

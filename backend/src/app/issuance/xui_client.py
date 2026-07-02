@@ -156,7 +156,9 @@ class XuiApiClient:
                     return True
                 _LOGGER.warning(
                     "xui api_token auth failed server=%s url=%s status=%s",
-                    self._config.server_id, self._base, resp.status_code,
+                    self._config.server_id,
+                    self._base,
+                    resp.status_code,
                 )
                 return False
             # Establish session cookie
@@ -169,7 +171,7 @@ class XuiApiClient:
                     csrf_data = csrf_resp.json()
                     csrf_token = csrf_data.get("obj", "") or csrf_data.get("token", "")
             except Exception:
-                pass
+                _LOGGER.debug("xui_client: /csrf-token fetch failed; trying HTML fallback", exc_info=True)
             # Fallback: extract from HTML meta tag (older 3x-ui versions)
             if not csrf_token:
                 page = await client.get(f"{self._base}/", timeout=_DEFAULT_TIMEOUT)
@@ -195,18 +197,24 @@ class XuiApiClient:
                     return True
                 _LOGGER.warning(
                     "xui login rejected server=%s url=%s msg=%s",
-                    self._config.server_id, self._base, body.get("msg", "unknown"),
+                    self._config.server_id,
+                    self._base,
+                    body.get("msg", "unknown"),
                 )
             else:
                 _LOGGER.warning(
                     "xui login http error server=%s url=%s status=%s",
-                    self._config.server_id, self._base, resp.status_code,
+                    self._config.server_id,
+                    self._base,
+                    resp.status_code,
                 )
             return False
         except Exception:
             _LOGGER.warning(
                 "xui login exception server=%s url=%s",
-                self._config.server_id, self._base, exc_info=True,
+                self._config.server_id,
+                self._base,
+                exc_info=True,
             )
             return False
 
@@ -241,7 +249,10 @@ class XuiApiClient:
         result = await self._do_client_op(
             "POST",
             f"{self._base}/panel/api/inbounds/addClient",
-            {"id": self._config.inbound_id, "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}'},
+            {
+                "id": self._config.inbound_id,
+                "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}',
+            },
             user_uuid=user_uuid,
         )
         if result.outcome != XuiOutcome.NOT_FOUND:
@@ -367,7 +378,8 @@ class XuiApiClient:
                 return None
             resp = await client.get(
                 f"{self._base}/panel/api/inbounds/get/{self._config.inbound_id}",
-                headers=headers, timeout=_DEFAULT_TIMEOUT,
+                headers=headers,
+                timeout=_DEFAULT_TIMEOUT,
             )
             if resp.status_code == 200:
                 body = resp.json()
@@ -394,8 +406,12 @@ class XuiApiClient:
             payload = {
                 "id": inbound["id"],
                 "settings": json.dumps(settings),
-                "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
-                "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
+                "streamSettings": json.dumps(inbound["streamSettings"])
+                if isinstance(inbound.get("streamSettings"), dict)
+                else inbound.get("streamSettings", ""),
+                "sniffing": json.dumps(inbound["sniffing"])
+                if isinstance(inbound.get("sniffing"), dict)
+                else inbound.get("sniffing", ""),
                 "protocol": inbound["protocol"],
                 "port": inbound["port"],
                 "listen": inbound.get("listen", ""),
@@ -439,8 +455,12 @@ class XuiApiClient:
             payload = {
                 "id": inbound["id"],
                 "settings": json.dumps(settings),
-                "streamSettings": json.dumps(inbound["streamSettings"]) if isinstance(inbound.get("streamSettings"), dict) else inbound.get("streamSettings", ""),
-                "sniffing": json.dumps(inbound["sniffing"]) if isinstance(inbound.get("sniffing"), dict) else inbound.get("sniffing", ""),
+                "streamSettings": json.dumps(inbound["streamSettings"])
+                if isinstance(inbound.get("streamSettings"), dict)
+                else inbound.get("streamSettings", ""),
+                "sniffing": json.dumps(inbound["sniffing"])
+                if isinstance(inbound.get("sniffing"), dict)
+                else inbound.get("sniffing", ""),
                 "protocol": inbound["protocol"],
                 "port": inbound["port"],
                 "listen": inbound.get("listen", ""),

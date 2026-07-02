@@ -22,16 +22,10 @@ from app.bot_transport.outbound import (
     map_transport_safe_to_outbound_plan,
 )
 from app.bot_transport.presentation import (
-    TransportAccessResendCode,
     TransportBootstrapCode,
     TransportErrorCode,
-    TransportHelpCode,
-    TransportNextActionHint,
     TransportResponseCategory,
     TransportSafeResponse,
-    TransportStatusCode,
-    TransportStorefrontCode,
-    TransportSupportCode,
 )
 from app.persistence.in_memory import (
     InMemoryAuditAppender,

@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote as _url_quote
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
@@ -518,9 +517,7 @@ def connect_config_keyboard() -> dict[str, Any]:
 
 
 def text_connect_done() -> str:
-    return (
-        "<b>🎉 Вы подключены!</b>\n\nНастройки защищённого соединения активны.\nЕсли возникнут вопросы — напишите в поддержку."
-    )
+    return "<b>🎉 Вы подключены!</b>\n\nНастройки защищённого соединения активны.\nЕсли возникнут вопросы — напишите в поддержку."
 
 
 def connect_done_keyboard() -> dict[str, Any]:
@@ -546,10 +543,7 @@ def text_ios_step(step: int) -> str:
 
 
 def ios_step_1_text() -> str:
-    return text_ios_step(1) + (
-        "1. ⬇️ Нажмите «Скачать Karing» ниже или откройте App Store\n"
-        "2. 📲 Установите приложение"
-    )
+    return text_ios_step(1) + ("1. ⬇️ Нажмите «Скачать Karing» ниже или откройте App Store\n2. 📲 Установите приложение")
 
 
 def ios_step_1_keyboard() -> dict[str, Any]:
@@ -567,7 +561,7 @@ def ios_step_1_keyboard() -> dict[str, Any]:
 def ios_step_2_text() -> str:
     return text_ios_step(2) + (
         "1. 📂 Откройте Karing\n"
-        '2. 👆 Нажмите «Accept and continue»\n'
+        "2. 👆 Нажмите «Accept and continue»\n"
         "3. 🇷🇺 Выберите русский язык\n"
         "4. ✅ «Дальше» → «Дальше» → «Готово»"
     )
@@ -613,8 +607,7 @@ def ios_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
 
 def ios_step_4_text() -> str:
     return text_ios_step(4) + (
-        "🛡️ Включите VPN — нажмите кнопку со щитом в Karing\n\n"
-        "⚠️ Следующий шаг — обход глушителей связи"
+        "🛡️ Включите VPN — нажмите кнопку со щитом в Karing\n\n⚠️ Следующий шаг — обход глушителей связи"
     )
 
 
@@ -693,10 +686,7 @@ def ios_success_text() -> str:
 
 
 def ios_problem_text() -> str:
-    return (
-        "😕 Что-то пошло не так.\n"
-        "Попробуйте начать заново или напишите в поддержку — поможем!"
-    )
+    return "😕 Что-то пошло не так.\nПопробуйте начать заново или напишите в поддержку — поможем!"
 
 
 def ios_problem_keyboard() -> dict[str, Any]:
@@ -1003,7 +993,7 @@ _ANDROID_V2RAYTUNE_URL = "https://play.google.com/store/apps/details?id=com.v2ra
 
 
 def _android_step_header(step: int) -> str:
-    return f"🤖 <b>Шаг {step} из {_ANDROID_TOTAL_STEPS}</b>\n\nПосле каждого шага возвращайтесь в бота и нажимайте \"Готово\".\n\n"
+    return f'🤖 <b>Шаг {step} из {_ANDROID_TOTAL_STEPS}</b>\n\nПосле каждого шага возвращайтесь в бота и нажимайте "Готово".\n\n'
 
 
 def android_step_1_text() -> str:
@@ -1031,7 +1021,7 @@ def android_step_1_keyboard() -> dict[str, Any]:
 def android_step_2_text() -> str:
     return _android_step_header(2) + (
         "1. 📂 Откройте Karing\n"
-        '2. 👆 Нажмите «Accept and continue»\n'
+        "2. 👆 Нажмите «Accept and continue»\n"
         "3. 🇷🇺 Выберите русский язык\n"
         "4. ✅ «Дальше» → «Дальше» → «Готово»"
     )
@@ -1050,7 +1040,7 @@ def android_step_2_keyboard() -> dict[str, Any]:
 
 def android_step_3_text(subscription_url: str) -> str:
     return _android_step_header(3) + (
-        "1. 🔑 Нажмите \"Загрузить ключи\" ниже — откроется Karing\n"
+        '1. 🔑 Нажмите "Загрузить ключи" ниже — откроется Karing\n'
         "2. ✅ Нажмите галочку справа вверху\n\n"
         "Ручное добавление — скопируйте ссылку:\n"
         f"<code>{subscription_url}</code>"
@@ -1087,8 +1077,7 @@ def android_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
 
 def android_step_4_text() -> str:
     return _android_step_header(4) + (
-        "🛡️ Включите VPN — нажмите кнопку со щитом в Karing\n\n"
-        "⚠️ Следующий шаг — обход глушителей связи"
+        "🛡️ Включите VPN — нажмите кнопку со щитом в Karing\n\n⚠️ Следующий шаг — обход глушителей связи"
     )
 
 
@@ -1167,10 +1156,7 @@ def android_success_text() -> str:
 
 
 def android_problem_text() -> str:
-    return (
-        "😕 Что-то пошло не так.\n"
-        "Попробуйте начать заново или напишите в поддержку — поможем!"
-    )
+    return "😕 Что-то пошло не так.\nПопробуйте начать заново или напишите в поддержку — поможем!"
 
 
 def android_problem_keyboard() -> dict[str, Any]:
@@ -1341,25 +1327,19 @@ def text_subscription_url(config: VlessUserConfig) -> str:
 
 
 def text_keys_not_available() -> str:
-    return "<b>⚠️ Ключи недоступны.</b>\n\nВозможно, у вас нет активной подписки.\nНажмите «🔑 Купить VPN» для оформления."
+    return (
+        "<b>⚠️ Ключи недоступны.</b>\n\nВозможно, у вас нет активной подписки.\nНажмите «🔑 Купить VPN» для оформления."
+    )
 
 
 def text_referral_program(info: ReferralInfo) -> str:
-    links_section = (
-        "🔗 <b>Для Telegram</b> — друг без сайта:\n"
-        f"<code>{info.referral_link}</code>\n\n"
-    )
+    links_section = f"🔗 <b>Для Telegram</b> — друг без сайта:\n<code>{info.referral_link}</code>\n\n"
     if info.web_referral_link:
-        links_section += (
-            "🌐 <b>Для сайта</b> — друг без Telegram:\n"
-            f"<code>{info.web_referral_link}</code>\n\n"
-        )
+        links_section += f"🌐 <b>Для сайта</b> — друг без Telegram:\n<code>{info.web_referral_link}</code>\n\n"
     return (
         "<b>👥 Реферальная программа</b>\n\n"
         "Отправьте ссылку другу — получите процент с его оплаты.\n"
-        "Выбирайте удобную ссылку:\n\n"
-        + links_section
-        + f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
+        "Выбирайте удобную ссылку:\n\n" + links_section + f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
         f"👤 Приглашено: {info.direct_referrals_count}\n\n"
         "📊 <b>Ваш заработок:</b>\n\n"
         "<b>Прямые рефералы:</b>\n"

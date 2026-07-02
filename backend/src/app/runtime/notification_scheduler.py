@@ -15,8 +15,7 @@ import asyncio
 import contextlib
 import logging
 import os
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import asyncpg
 import httpx
@@ -28,7 +27,7 @@ from app.bot_transport.notification_texts import (
     text_trial_expired,
     text_trial_expiring,
 )
-from app.issuance.vless_provider import VlessProviderPort, VlessProviderOutcome
+from app.issuance.vless_provider import VlessProviderOutcome, VlessProviderPort
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,15 +180,17 @@ class NotificationScheduler:
         if not rows:
             return
         text, keyboard = text_trial_expiring()
-        await asyncio.gather(*[
-            self._send_notification(
-                internal_user_id=row["internal_user_id"],
-                notification_type="trial_expiring",
-                text=text,
-                keyboard=keyboard,
-            )
-            for row in rows
-        ])
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="trial_expiring",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
 
     async def _check_trial_expired(self, now: datetime) -> None:
         """Expired trials: deactivate keys, send notification."""

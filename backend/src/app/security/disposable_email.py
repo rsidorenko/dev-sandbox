@@ -43,11 +43,7 @@ def _blocked_domains() -> frozenset[str]:
     except OSError:
         _LOGGER.warning("disposable_email: blocklist not loaded (%s); failing open", _DATA_FILE)
         return frozenset()
-    return frozenset(
-        line.strip().lower()
-        for line in text.splitlines()
-        if line.strip() and not line.startswith("#")
-    )
+    return frozenset(line.strip().lower() for line in text.splitlines() if line.strip() and not line.startswith("#"))
 
 
 @lru_cache(maxsize=1)
@@ -98,6 +94,6 @@ def is_disposable_email(email: str) -> bool:
             if candidate in blocked:
                 return True
         return False
-    except Exception:  # noqa: BLE001 — fail-open: never block a real user
+    except Exception:
         _LOGGER.warning("disposable_email: check raised; failing open", exc_info=True)
         return False

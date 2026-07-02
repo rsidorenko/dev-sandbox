@@ -8,8 +8,8 @@ import os
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.domain.plans import calculate_total_price, get_plan
 from app.domain.devices import extra_device_cost
+from app.domain.plans import calculate_total_price, get_plan
 from app.web_api.helpers import safe_json_error, truthy
 from app.web_api.middleware import require_auth
 
@@ -50,36 +50,38 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     yookassa_enabled = truthy(os.environ.get(ENV_YOOKASSA_ENABLED))
 
     if not yookassa_enabled:
-        return JSONResponse({
-            "ok": True,
-            "status": "payment_unavailable",
-            "plan_id": plan_id,
-            "plan_name": plan_display_name_safe(plan_id),
-            "device_count": device_count,
-            "amount_rubles": total_rubles,
-            "amount_kopecks": total_kopecks,
-            "message": (
-                "Для оформления подписки нажмите кнопку ниже. "
-                "После подтверждения оплаты доступ к сервису будет активирован автоматически."
-            ),
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "payment_unavailable",
+                "plan_id": plan_id,
+                "plan_name": plan_display_name_safe(plan_id),
+                "device_count": device_count,
+                "amount_rubles": total_rubles,
+                "amount_kopecks": total_kopecks,
+                "message": (
+                    "Для оформления подписки нажмите кнопку ниже. "
+                    "После подтверждения оплаты доступ к сервису будет активирован автоматически."
+                ),
+            }
+        )
 
     return_url = os.environ.get(ENV_RETURN_URL, "").strip()
     if not return_url:
         return_url = "https://bravada-connect.ru"
     return_url = f"{return_url.rstrip('/')}/dashboard"
 
-    from app.yookassa.client import YooKassaClient
     from app.security.checkout_reference import create_signed_checkout_reference
+    from app.yookassa.client import YooKassaClient
 
     client = YooKassaClient.from_env()
     if client is None:
         _LOGGER.error("yookassa client not configured")
         return safe_json_error(503, "payment_provider_not_configured")
 
-    checkout_secret = os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get(
-        "TELEGRAM_CHECKOUT_REFERENCE_SECRET", ""
-    ).strip()
+    checkout_secret = (
+        os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
+    )
     checkout_metadata: dict[str, str] = {}
     if checkout_secret:
         signed = create_signed_checkout_reference(
@@ -104,17 +106,19 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         _LOGGER.exception("yookassa create_payment failed")
         return safe_json_error(502, "payment_creation_failed")
 
-    return JSONResponse({
-        "ok": True,
-        "status": "pending",
-        "plan_id": plan_id,
-        "plan_name": plan_display_name_safe(plan_id),
-        "device_count": device_count,
-        "amount_rubles": total_rubles,
-        "amount_kopecks": total_kopecks,
-        "payment_url": result.confirmation_url,
-        "payment_id": result.payment_id,
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "pending",
+            "plan_id": plan_id,
+            "plan_name": plan_display_name_safe(plan_id),
+            "device_count": device_count,
+            "amount_rubles": total_rubles,
+            "amount_kopecks": total_kopecks,
+            "payment_url": result.confirmation_url,
+            "payment_id": result.payment_id,
+        }
+    )
 
 
 async def handle_get_payment_status(request: Request) -> JSONResponse:
@@ -141,17 +145,20 @@ async def handle_get_payment_status(request: Request) -> JSONResponse:
     if info is None:
         return JSONResponse({"ok": True, "payment_id": payment_id, "status": "not_found"})
 
-    return JSONResponse({
-        "ok": True,
-        "payment_id": payment_id,
-        "status": info.status,
-        "amount": info.amount_value,
-        "metadata": info.metadata,
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "payment_id": payment_id,
+            "status": info.status,
+            "amount": info.amount_value,
+            "metadata": info.metadata,
+        }
+    )
 
 
 def plan_display_name_safe(plan_id: str) -> str:
     from app.domain.plans import plan_display_name
+
     return plan_display_name(plan_id)
 
 
@@ -185,8 +192,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     pool = request.app.state.pool
     internal_user_id = f"u{telegram_user_id}"
     snap = await pool.fetchrow(
-        "SELECT device_count, plan_id, state_label FROM subscription_snapshots "
-        "WHERE internal_user_id = $1",
+        "SELECT device_count, plan_id, state_label FROM subscription_snapshots WHERE internal_user_id = $1",
         internal_user_id,
     )
     if snap is None or snap["state_label"] != "active":
@@ -232,12 +238,14 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         _LOGGER.exception("yookassa create_payment failed (add-device)")
         return safe_json_error(502, "payment_creation_failed")
 
-    return JSONResponse({
-        "ok": True,
-        "status": "pending",
-        "device_count": new_device_count,
-        "amount_rubles": cost_rubles,
-        "amount_kopecks": cost_kopecks,
-        "payment_url": result.confirmation_url,
-        "payment_id": result.payment_id,
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "pending",
+            "device_count": new_device_count,
+            "amount_rubles": cost_rubles,
+            "amount_kopecks": cost_kopecks,
+            "payment_url": result.confirmation_url,
+            "payment_id": result.payment_id,
+        }
+    )

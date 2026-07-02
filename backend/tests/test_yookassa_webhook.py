@@ -8,8 +8,6 @@ the IP-based verification that replaced it.
 
 from __future__ import annotations
 
-import os
-import sys
 from datetime import UTC, datetime
 
 from app.yookassa.webhook import (
@@ -36,18 +34,18 @@ class _FakeRequest:
 
 
 def test_is_yookassa_ip_recognizes_documented_ranges() -> None:
-    assert _is_yookassa_ip("185.71.76.10") is True      # 185.71.76.0/27
-    assert _is_yookassa_ip("185.71.77.5") is True       # 185.71.77.0/27
-    assert _is_yookassa_ip("77.75.153.10") is True      # 77.75.153.0/25
-    assert _is_yookassa_ip("77.75.156.11") is True      # /32
-    assert _is_yookassa_ip("77.75.156.35") is True      # /32
-    assert _is_yookassa_ip("77.75.154.200") is True     # 77.75.154.128/25
-    assert _is_yookassa_ip("2a02:5180::1") is True      # 2a02:5180::/32
+    assert _is_yookassa_ip("185.71.76.10") is True  # 185.71.76.0/27
+    assert _is_yookassa_ip("185.71.77.5") is True  # 185.71.77.0/27
+    assert _is_yookassa_ip("77.75.153.10") is True  # 77.75.153.0/25
+    assert _is_yookassa_ip("77.75.156.11") is True  # /32
+    assert _is_yookassa_ip("77.75.156.35") is True  # /32
+    assert _is_yookassa_ip("77.75.154.200") is True  # 77.75.154.128/25
+    assert _is_yookassa_ip("2a02:5180::1") is True  # 2a02:5180::/32
 
 
 def test_is_yookassa_ip_rejects_non_yookassa() -> None:
     assert _is_yookassa_ip("8.8.8.8") is False
-    assert _is_yookassa_ip("172.18.0.6") is False       # nginx docker IP (not YooKassa)
+    assert _is_yookassa_ip("172.18.0.6") is False  # nginx docker IP (not YooKassa)
     assert _is_yookassa_ip("127.0.0.1") is False
     assert _is_yookassa_ip("not-an-ip") is False
     assert _is_yookassa_ip("") is False
@@ -120,27 +118,31 @@ def test_parse_add_device_metadata_valid() -> None:
 def test_parse_add_device_metadata_rejects_out_of_range_count() -> None:
     from app.yookassa.webhook import _parse_add_device_metadata
 
-    assert _parse_add_device_metadata(
-        {"telegram_user_id": "1", "new_device_count": "0", "expected_amount_kopecks": "100"}
-    ) is None
-    assert _parse_add_device_metadata(
-        {"telegram_user_id": "1", "new_device_count": "21", "expected_amount_kopecks": "100"}
-    ) is None
+    assert (
+        _parse_add_device_metadata({"telegram_user_id": "1", "new_device_count": "0", "expected_amount_kopecks": "100"})
+        is None
+    )
+    assert (
+        _parse_add_device_metadata(
+            {"telegram_user_id": "1", "new_device_count": "21", "expected_amount_kopecks": "100"}
+        )
+        is None
+    )
 
 
 def test_parse_add_device_metadata_rejects_missing_or_invalid() -> None:
     from app.yookassa.webhook import _parse_add_device_metadata
 
     assert _parse_add_device_metadata({}) is None
-    assert _parse_add_device_metadata(
-        {"telegram_user_id": "1", "new_device_count": "5"}
-    ) is None  # no expected amount
-    assert _parse_add_device_metadata(
-        {"telegram_user_id": "x", "new_device_count": "5", "expected_amount_kopecks": "100"}
-    ) is None  # non-int telegram id
-    assert _parse_add_device_metadata(
-        {"telegram_user_id": "0", "new_device_count": "5", "expected_amount_kopecks": "100"}
-    ) is None  # non-positive telegram id
+    assert _parse_add_device_metadata({"telegram_user_id": "1", "new_device_count": "5"}) is None  # no expected amount
+    assert (
+        _parse_add_device_metadata({"telegram_user_id": "x", "new_device_count": "5", "expected_amount_kopecks": "100"})
+        is None
+    )  # non-int telegram id
+    assert (
+        _parse_add_device_metadata({"telegram_user_id": "0", "new_device_count": "5", "expected_amount_kopecks": "100"})
+        is None
+    )  # non-positive telegram id
 
 
 def test_validate_add_device_amount_matches() -> None:
