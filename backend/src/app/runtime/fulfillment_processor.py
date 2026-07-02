@@ -84,6 +84,7 @@ class FulfillmentResult:
 class CreditedCommission:
     """A referral commission that was actually credited to a referrer's balance on a payment
     (the idempotent transaction insert succeeded). Drives the best-effort referrer notification."""
+
     referrer_internal_user_id: str
     amount_kopecks: int
     level: int  # 1 (direct) or 2 (indirect)
@@ -136,6 +137,15 @@ async def _send_activation_notice_best_effort(
             correlation_id=correlation_id,
         )
     except Exception:
+        # Best-effort: a notification failure must not roll back fulfillment.
+        # But a user never receiving their activation notice is a real incident,
+        # so trace it at debug (enable DEBUG to investigate "user paid, no message").
+        _LOGGER.debug(
+            "subscription activation notice failed (best-effort); user=%s cid=%s",
+            telegram_user_id,
+            correlation_id,
+            exc_info=True,
+        )
         return
 
 
@@ -153,8 +163,6 @@ async def _ensure_vless_keys_after_payment(
 ) -> None:
     import asyncio as _asyncio
 
-    from app.issuance.vless_provider import VlessProviderOutcome
-
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -165,11 +173,17 @@ async def _ensure_vless_keys_after_payment(
             )
             dc = (snap_check.get("device_count") or 0) if snap_check else 0
             if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
+                await vless_provider.create_user(
+                    internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days
+                )
             elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
+                await vless_provider.activate_user(
+                    internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days
+                )
             else:
-                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days)
+                await vless_provider.create_user(
+                    internal_user_id=internal_user_id, device_count=dc, expiry_days=period_days
+                )
 
             await pool.execute(
                 """UPDATE subscription_snapshots
@@ -183,14 +197,19 @@ async def _ensure_vless_keys_after_payment(
             last_exc = exc
             _LOGGER.warning(
                 "fulfillment vless key ensure failed user=%s attempt=%d/%d: %s",
-                internal_user_id, attempt, max_retries, exc,
+                internal_user_id,
+                attempt,
+                max_retries,
+                exc,
             )
             if attempt < max_retries:
                 await _asyncio.sleep(retry_delay)
 
     _LOGGER.error(
         "fulfillment vless key ensure FAILED after %d retries user=%s — keys pending manual resolution",
-        max_retries, internal_user_id, exc_info=last_exc,
+        max_retries,
+        internal_user_id,
+        exc_info=last_exc,
     )
 
     # Notify the user that key creation is pending manual resolution
@@ -263,14 +282,22 @@ async def _process_referral_commissions_best_effort(
                     description=dedup_desc,
                     created_at=datetime.now(UTC),
                 )
-                inserted = await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(conn, tx_record)
+                inserted = (
+                    await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                        conn, tx_record
+                    )
+                )
                 if inserted:
-                    await PostgresReferralBalanceRepository.credit_in_connection(conn, comm.referrer_user_id, comm.amount_kopecks)
-                    credited.append(CreditedCommission(
-                        referrer_internal_user_id=comm.referrer_user_id,
-                        amount_kopecks=comm.amount_kopecks,
-                        level=comm.level,
-                    ))
+                    await PostgresReferralBalanceRepository.credit_in_connection(
+                        conn, comm.referrer_user_id, comm.amount_kopecks
+                    )
+                    credited.append(
+                        CreditedCommission(
+                            referrer_internal_user_id=comm.referrer_user_id,
+                            amount_kopecks=comm.amount_kopecks,
+                            level=comm.level,
+                        )
+                    )
         return credited
     except Exception:
         return []
@@ -304,9 +331,7 @@ async def _notify_referrers_of_commission_best_effort(
             total = rubles_from_kopecks(balance_kopecks)
             who = "Ваш реферал оплатил подписку" if comm.level == 1 else "Реферал 2-го уровня оплатил подписку"
             text = (
-                "💰 Реферальная программа\n\n"
-                f"{who}. Вам начислено {earned:g} ₽ на баланс.\n"
-                f"Текущий баланс: {total:g} ₽"
+                f"💰 Реферальная программа\n\n{who}. Вам начислено {earned:g} ₽ на баланс.\nТекущий баланс: {total:g} ₽"
             )
             await notifier.send_subscription_activated_notice(
                 telegram_user_id=tg_id,
@@ -315,6 +340,15 @@ async def _notify_referrers_of_commission_best_effort(
                 correlation_id=correlation_id,
             )
         except Exception:
+            # Best-effort per referrer: one failure must not block the others.
+            # Trace at debug so a silent "referrer never learned about a commission"
+            # is investigable rather than invisible.
+            _LOGGER.debug(
+                "referrer commission notice failed (best-effort); referrer=%s cid=%s",
+                comm.referrer_internal_user_id,
+                correlation_id,
+                exc_info=True,
+            )
             continue
 
 
@@ -362,7 +396,8 @@ async def process_fulfillment(
         async with pool.acquire() as conn, conn.transaction():
             # Read existing snapshot BEFORE apply (apply overwrites it)
             existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
-                conn, inp.internal_user_id,
+                conn,
+                inp.internal_user_id,
             )
 
             atomic_ingest = PostgresAtomicBillingIngestion(pool)
