@@ -12,8 +12,9 @@ _REQUIRED_SCRIPTS = (
     "scripts/run_mvp_release_preflight.py",
     "scripts/run_mvp_config_doctor.py",
     "scripts/run_mvp_repo_release_health_check.py",
-    "scripts/print_mvp_release_handoff_summary.py",
 )
+# NOTE: scripts/print_mvp_release_handoff_summary.py was retired alongside the
+# MVP release-status/decision-note artifacts; it is no longer a required script.
 _REQUIRED_LIGHTWEIGHT_WORKFLOW_PATH_MARKERS = (
     "backend/tests/test_vless_key_lifecycle.py",
     "backend/tests/test_vless_provider.py",
@@ -26,10 +27,10 @@ _REQUIRED_LIGHTWEIGHT_WORKFLOW_COMMAND_MARKERS = (
 _REQUIRED_DOCS = (
     "docs/mvp_release_artifact_manifest.md",
     "docs/mvp_release_readiness_runbook.md",
-    "docs/mvp_release_ci_trigger_decision.md",
     "docs/mvp_release_staging_manifest.md",
-    "RELEASE_STATUS.md",
 )
+# NOTE: docs/mvp_release_ci_trigger_decision.md and RELEASE_STATUS.md were retired
+# (legacy release handoff docs) and are no longer required.
 _REQUIRED_WORKFLOWS = (
     ".github/workflows/backend-mvp-release-readiness.yml",
     ".github/workflows/backend-postgres-mvp-smoke-validation.yml",
@@ -45,27 +46,10 @@ _SCRIPT_REFERENCE_MARKERS = (
     "python scripts/run_mvp_release_preflight.py",
     "python scripts/run_mvp_config_doctor.py",
     "python scripts/run_mvp_repo_release_health_check.py",
-    "python scripts/print_mvp_release_handoff_summary.py",
 )
 _WORKFLOW_REFERENCE_MARKERS = (
     "backend-mvp-release-readiness",
     "backend-postgres-mvp-smoke-validation",
-)
-_RELEASE_STATUS_MARKERS = (
-    "docs/mvp_release_artifact_manifest.md",
-    "docs/mvp_release_readiness_runbook.md",
-    "python scripts/run_mvp_release_readiness.py",
-    "backend-mvp-release-readiness",
-    "backend-postgres-mvp-smoke-validation",
-)
-_DECISION_NOTE_REQUIRED_MARKERS = (
-    "PROJECT_HANDOFF.md",
-    "backend release/handoff docs/scripts/tests",
-    "backend-mvp-release-readiness",
-    "no Docker",
-    "no DB",
-    "no `${{ secrets.* }}`",
-    "run_mvp_config_doctor.py --profile all",
 )
 _FORBIDDEN_RELEASE_FRAGMENTS = (
     "DATABASE_URL=",
@@ -159,12 +143,7 @@ def run_repo_release_health_check(
 
     for rel_path in _REQUIRED_DOCS:
         if not (root / rel_path).exists():
-            if rel_path == "RELEASE_STATUS.md":
-                _append_issue("missing_release_status_doc")
-            elif rel_path == "docs/mvp_release_ci_trigger_decision.md":
-                _append_issue("missing_ci_trigger_decision_doc")
-            else:
-                _append_issue("missing_required_release_doc")
+            _append_issue("missing_required_release_doc")
 
     for rel_path in _REQUIRED_WORKFLOWS:
         if not (repo_root / rel_path).exists():
@@ -176,34 +155,15 @@ def run_repo_release_health_check(
 
     manifest_path = root / "docs/mvp_release_artifact_manifest.md"
     runbook_path = root / "docs/mvp_release_readiness_runbook.md"
-    decision_note_path = root / "docs/mvp_release_ci_trigger_decision.md"
-    release_status_path = root / "RELEASE_STATUS.md"
     lightweight_workflow_path = repo_root / ".github/workflows/backend-mvp-release-readiness.yml"
     manifest_text = _read_text(manifest_path) if manifest_path.exists() else ""
     runbook_text = _read_text(runbook_path) if runbook_path.exists() else ""
-    decision_note_text = _read_text(decision_note_path) if decision_note_path.exists() else ""
-    release_status_text = _read_text(release_status_path) if release_status_path.exists() else ""
     lightweight_workflow_text = _read_text(lightweight_workflow_path) if lightweight_workflow_path.exists() else ""
-
-    if "backend/RELEASE_STATUS.md" not in manifest_text:
-        _append_issue("missing_manifest_release_status_reference")
-    if "docs/mvp_release_ci_trigger_decision.md" not in manifest_text:
-        _append_issue("missing_manifest_ci_trigger_decision_reference")
-    if "docs/mvp_release_ci_trigger_decision.md" not in runbook_text:
-        _append_issue("missing_runbook_ci_trigger_decision_reference")
-
-    for marker in _DECISION_NOTE_REQUIRED_MARKERS:
-        if marker not in decision_note_text:
-            _append_issue("missing_ci_trigger_decision_marker")
-            break
 
     for marker in _SCRIPT_REFERENCE_MARKERS:
         if marker not in manifest_text and marker not in runbook_text:
             _append_issue("missing_release_script_reference")
             break
-
-    if "python scripts/print_mvp_release_handoff_summary.py" not in manifest_text:
-        _append_issue("missing_handoff_summary_manifest_reference")
 
     if (
         "backend/docs/mvp_release_readiness_runbook.md" not in manifest_text
@@ -214,11 +174,6 @@ def run_repo_release_health_check(
     for marker in _WORKFLOW_REFERENCE_MARKERS:
         if marker not in manifest_text:
             _append_issue("missing_release_workflow_reference")
-            break
-
-    for marker in _RELEASE_STATUS_MARKERS:
-        if marker not in release_status_text:
-            _append_issue("missing_release_status_marker")
             break
 
     for marker in _REQUIRED_LIGHTWEIGHT_WORKFLOW_PATH_MARKERS:
