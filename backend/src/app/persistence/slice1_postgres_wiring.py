@@ -9,7 +9,6 @@ import asyncpg
 
 from app.application.bootstrap import Slice1Composition, build_slice1_composition
 from app.application.telegram_access_resend import IssuanceCurrentStateRef
-from app.issuance.fake_provider import FakeIssuanceProvider, FakeProviderMode
 from app.issuance.service import IssuanceService
 from app.issuance.vless_issuance_adapter import VlessIssuanceAdapter
 from app.issuance.vless_provider import StubVlessProvider

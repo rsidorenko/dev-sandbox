@@ -13,7 +13,15 @@ _EVICT_EVERY = 100
 
 
 class WebhookRateLimiter:
-    """Sliding window rate limiter по client IP (in-memory, single-process)."""
+    """Sliding-window rate limiter per client IP.
+
+    In-memory and single-process: the counter lives only in this object. Under
+    more than one uvicorn/gunicorn worker the effective per-IP limit becomes
+    ``N_workers × max_requests_per_minute``, and state is lost on restart (a
+    short burst window opens after every redeploy). Pair this limiter with a
+    SINGLE application worker, or move the window to a shared store (e.g. Redis)
+    before scaling horizontally.
+    """
 
     def __init__(self, max_requests_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE) -> None:
         self._max = max_requests_per_minute

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
@@ -27,6 +28,11 @@ from app.bot_transport.storefront_ui import (
     CB_ADD_DEV_BALANCE,
     CB_ADD_DEVICE,
     CB_ALL_KEYS,
+    CB_ANDROID_DID_WORK,
+    CB_ANDROID_NO,
+    CB_ANDROID_RETRY,
+    CB_ANDROID_STEP,
+    CB_ANDROID_YES,
     CB_BALANCE,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
@@ -77,23 +83,28 @@ from app.bot_transport.storefront_ui import (
     CB_WIN_RETRY,
     CB_WIN_STEP,
     CB_WIN_YES,
-    CB_ANDROID_DID_WORK,
-    CB_ANDROID_NO,
-    CB_ANDROID_RETRY,
-    CB_ANDROID_STEP,
-    CB_ANDROID_YES,
-    _platform_from_cb,
     add_device_confirm_keyboard,
     add_device_select_keyboard,
     all_keys_list_keyboard,
+    android_did_work_keyboard,
+    android_problem_keyboard,
+    android_step_1_keyboard,
+    android_step_1_text,
+    android_step_2_keyboard,
+    android_step_2_text,
+    android_step_3_keyboard,
+    android_step_3_text,
+    android_step_4_keyboard,
+    android_step_4_text,
+    android_step_5_keyboard,
+    android_step_5_text,
+    android_step_6_keyboard,
+    android_step_6_text,
     back_only_keyboard,
     balance_keyboard,
     buy_vpn_keyboard,
     confirm_pay_keyboard,
-    connect_config_keyboard,
     connect_device_keyboard,
-    connect_done_keyboard,
-    connect_platform_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
     ios_did_work_keyboard,
@@ -146,10 +157,7 @@ from app.bot_transport.storefront_ui import (
     text_balance_insufficient,
     text_balance_payment_success,
     text_buy_vpn_intro,
-    text_connect_config,
     text_connect_device,
-    text_connect_done,
-    text_connect_platform,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -206,26 +214,13 @@ from app.bot_transport.storefront_ui import (
     win_step_5_text,
     win_step_6_keyboard,
     win_step_6_text,
-    android_did_work_keyboard,
-    android_problem_keyboard,
-    android_step_1_keyboard,
-    android_step_1_text,
-    android_step_2_keyboard,
-    android_step_2_text,
-    android_step_3_keyboard,
-    android_step_3_text,
-    android_step_4_keyboard,
-    android_step_4_text,
-    android_step_5_keyboard,
-    android_step_5_text,
-    android_step_6_keyboard,
-    android_step_6_text,
-    android_success_text,
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
+
+_LOGGER = logging.getLogger(__name__)
 
 # ─── Custom days input state ────────────────────────────────────────
 
@@ -766,7 +761,6 @@ async def _render_subscription_status(
 ) -> tuple[str, dict[str, Any] | None]:
     if uid is None:
         return text_no_subscription(), no_subscription_keyboard()
-    from datetime import UTC, datetime
 
     from app.application.handlers import GetSubscriptionStatusInput
 
@@ -780,6 +774,7 @@ async def _render_subscription_status(
     ):
         active_until = result.active_until_utc.date().isoformat() if result.active_until_utc else None
         from app.domain.status_view import remaining_days as _remaining_days
+
         remaining_days = _remaining_days(result.active_until_utc) if result.active_until_utc is not None else None
         plan_name = None
         device_count = None
@@ -1058,9 +1053,7 @@ async def _reprovision_keys_after_merge(
             return
         device_count = snap["device_count"]
         if device_count:
-            await provider.create_user(
-                internal_user_id=id_rec.internal_user_id, device_count=device_count
-            )
+            await provider.create_user(internal_user_id=id_rec.internal_user_id, device_count=device_count)
         else:
             await provider.create_user(internal_user_id=id_rec.internal_user_id)
     except Exception:
@@ -1252,20 +1245,24 @@ async def _process_balance_payment(
         try:
             async with pool.acquire() as conn, conn.transaction():
                 balance_record = await PostgresReferralBalanceRepository.get_balance_in_connection(
-                    conn, internal_user_id,
+                    conn,
+                    internal_user_id,
                 )
                 balance_kopecks = balance_record.balance_kopecks if balance_record else 0
                 if balance_kopecks < total_kopecks:
                     return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
 
                 debit_result = await PostgresReferralBalanceRepository.debit_in_connection(
-                    conn, internal_user_id, total_kopecks,
+                    conn,
+                    internal_user_id,
+                    total_kopecks,
                 )
                 if debit_result is None:
                     return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
 
                 existing_snap = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
-                    conn, internal_user_id,
+                    conn,
+                    internal_user_id,
                 )
                 base_date = now
                 if (
@@ -1303,7 +1300,9 @@ async def _process_balance_payment(
                     if snap_check is not None and snap_check["keys_deleted_at"] is not None:
                         await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
                     elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                        await composition.vless_provider.activate_user(internal_user_id=internal_user_id, device_count=dc)
+                        await composition.vless_provider.activate_user(
+                            internal_user_id=internal_user_id, device_count=dc
+                        )
                     else:
                         await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
                     vless_ok = True
@@ -1451,9 +1450,15 @@ async def _credit_referral_commissions(
                     description=dedup_desc,
                     created_at=datetime.now(UTC),
                 )
-                inserted = await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(conn, tx_record)
+                inserted = (
+                    await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                        conn, tx_record
+                    )
+                )
                 if inserted:
-                    await PostgresReferralBalanceRepository.credit_in_connection(conn, comm.referrer_user_id, comm.amount_kopecks)
+                    await PostgresReferralBalanceRepository.credit_in_connection(
+                        conn, comm.referrer_user_id, comm.amount_kopecks
+                    )
     else:
         for comm in commissions:
             dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
@@ -2009,7 +2014,13 @@ async def _render_storefront_response(
             else:
                 text, keyboard = (
                     text_referral_program(
-                        ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                        ReferralInfo(
+                            referral_code="",
+                            referral_link="",
+                            web_referral_link="",
+                            balance_rubles=0.0,
+                            direct_referrals_count=0,
+                        )
                     ),
                     back_only_keyboard(CB_MAIN_MENU),
                 )
@@ -2018,7 +2029,13 @@ async def _render_storefront_response(
 
             text, keyboard = (
                 text_referral_program(
-                    ReferralInfo(referral_code="", referral_link="", web_referral_link="", balance_rubles=0.0, direct_referrals_count=0)
+                    ReferralInfo(
+                        referral_code="",
+                        referral_link="",
+                        web_referral_link="",
+                        balance_rubles=0.0,
+                        direct_referrals_count=0,
+                    )
                 ),
                 back_only_keyboard(CB_MAIN_MENU),
             )

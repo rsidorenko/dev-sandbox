@@ -110,8 +110,14 @@ def test_skip_when_no_clients_table(tmp_path: Path) -> None:
 
     script = _load_script_module()
     s = script.run_sync(db_path=str(db_path))
-    assert s == {"added_clients": 0, "updated_clients": 0, "added_mappings": 0,
-                 "added_traffics": 0, "updated_traffics": 0, "skipped": 0}
+    assert s == {
+        "added_clients": 0,
+        "updated_clients": 0,
+        "added_mappings": 0,
+        "added_traffics": 0,
+        "updated_traffics": 0,
+        "skipped": 0,
+    }
 
 
 def test_email_collision_reuses_row(tmp_path: Path) -> None:
@@ -140,12 +146,16 @@ def test_mirrors_client_traffics_enable_and_expiry(tmp_path: Path) -> None:
     db = _make_v3_db(tmp_path)
     con = sqlite3.connect(db)
     con.execute("INSERT INTO client_traffics (inbound_id, enable, email, expiry_time) VALUES (1, 0, 'user-aaa', 111)")
-    con.commit(); con.close()
+    con.commit()
+    con.close()
     _add_inbound(db, 1, [{"id": "uuid-a", "email": "user-aaa", "enable": True, "expiryTime": 222}])
 
     s = script.run_sync(db_path=str(db))
-    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
-    row = con.execute("SELECT enable, expiry_time FROM client_traffics WHERE email='user-aaa' AND inbound_id=1").fetchone()
+    con = sqlite3.connect(db)
+    con.row_factory = sqlite3.Row
+    row = con.execute(
+        "SELECT enable, expiry_time FROM client_traffics WHERE email='user-aaa' AND inbound_id=1"
+    ).fetchone()
     assert row is not None and row["enable"] == 1 and row["expiry_time"] == 222
     con.close()
     assert s["updated_traffics"] == 1
@@ -158,7 +168,8 @@ def test_inserts_client_traffics_when_missing(tmp_path: Path) -> None:
     _add_inbound(db, 1, [{"id": "uuid-a", "email": "user-aaa", "enable": True, "expiryTime": 555}])
 
     s = script.run_sync(db_path=str(db))
-    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+    con = sqlite3.connect(db)
+    con.row_factory = sqlite3.Row
     row = con.execute("SELECT enable, expiry_time FROM client_traffics WHERE email='user-aaa'").fetchone()
     assert row is not None and row["enable"] == 1 and row["expiry_time"] == 555
     con.close()
@@ -173,7 +184,8 @@ def test_main_exit_code_and_restart_gate(monkeypatch: pytest.MonkeyPatch) -> Non
     # changed=True, no flag → plain run stays exit 0 (manual workflow must stay
     # green), and does NOT restart
     monkeypatch.setattr(
-        script, "run_sync",
+        script,
+        "run_sync",
         lambda **kw: {"added_clients": 1, "updated_clients": 0, "added_mappings": 0, "skipped": 0},
     )
     called["restart"] = False
@@ -187,7 +199,8 @@ def test_main_exit_code_and_restart_gate(monkeypatch: pytest.MonkeyPatch) -> Non
 
     # no change → exit 0, no restart even with flag
     monkeypatch.setattr(
-        script, "run_sync",
+        script,
+        "run_sync",
         lambda **kw: {"added_clients": 0, "updated_clients": 0, "added_mappings": 0, "skipped": 5},
     )
     called["restart"] = False

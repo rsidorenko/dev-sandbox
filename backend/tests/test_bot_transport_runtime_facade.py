@@ -37,10 +37,6 @@ from app.bot_transport.storefront_ui import (
 from app.security.idempotency import build_bootstrap_idempotency_key
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 from app.shared.test_helpers import run_async as _run
-from tests.slice1_expected_user_copy import (
-    INACTIVE_OR_NOT_ELIGIBLE_TEXT,
-    NEEDS_ONBOARDING_TEXT,
-)
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

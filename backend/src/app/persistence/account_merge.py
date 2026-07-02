@@ -94,7 +94,8 @@ async def merge_web_account_if_needed(
                     )
                 await conn.execute(
                     "UPDATE subscription_snapshots SET internal_user_id = $1 WHERE internal_user_id = $2",
-                    new_id, old_id,
+                    new_id,
+                    old_id,
                 )
                 adopt_web = True
             elif web_state is not None and tg_state is not None:
@@ -102,7 +103,8 @@ async def merge_web_account_if_needed(
                 # Telegram wins; discard the web subscription.
                 _LOGGER.warning(
                     "account_merge_conflict: both web=%s and tg=%s have subscriptions; keeping telegram",
-                    old_id, new_id,
+                    old_id,
+                    new_id,
                 )
                 await conn.execute(
                     "DELETE FROM subscription_snapshots WHERE internal_user_id = $1",
@@ -112,7 +114,8 @@ async def merge_web_account_if_needed(
                 # Only the web account has a subscription -> adopt it.
                 await conn.execute(
                     "UPDATE subscription_snapshots SET internal_user_id = $1 WHERE internal_user_id = $2",
-                    new_id, old_id,
+                    new_id,
+                    old_id,
                 )
                 adopt_web = True
 
@@ -127,27 +130,31 @@ async def merge_web_account_if_needed(
                     "DELETE FROM issuance_state WHERE internal_user_id = $1"
                     " AND issue_idempotency_key IN"
                     " (SELECT issue_idempotency_key FROM issuance_state WHERE internal_user_id = $2)",
-                    old_id, new_id,
+                    old_id,
+                    new_id,
                 )
                 await conn.execute(
                     "UPDATE issuance_state SET internal_user_id = $1 WHERE internal_user_id = $2",
-                    new_id, old_id,
+                    new_id,
+                    old_id,
                 )
                 # Billing tables key on event/fact id (not internal_user_id) -> safe move.
                 await conn.execute(
                     "UPDATE billing_events_ledger SET internal_user_id = $1"
                     " WHERE internal_user_id = $2 AND internal_user_id IS NOT NULL",
-                    new_id, old_id,
+                    new_id,
+                    old_id,
                 )
                 await conn.execute(
                     "UPDATE billing_subscription_apply_audit_events SET internal_user_id = $1"
                     " WHERE internal_user_id = $2 AND internal_user_id IS NOT NULL",
-                    new_id, old_id,
+                    new_id,
+                    old_id,
                 )
                 await conn.execute(
-                    "UPDATE billing_subscription_apply_records SET internal_user_id = $1"
-                    " WHERE internal_user_id = $2",
-                    new_id, old_id,
+                    "UPDATE billing_subscription_apply_records SET internal_user_id = $1 WHERE internal_user_id = $2",
+                    new_id,
+                    old_id,
                 )
 
             # --- Referral: always migrate (idempotent, Telegram wins conflicts) ---
@@ -155,17 +162,20 @@ async def merge_web_account_if_needed(
             await conn.execute(
                 "DELETE FROM referral_codes WHERE internal_user_id = $1"
                 " AND EXISTS (SELECT 1 FROM referral_codes WHERE internal_user_id = $2)",
-                old_id, new_id,
+                old_id,
+                new_id,
             )
             await conn.execute(
                 "UPDATE referral_codes SET internal_user_id = $1 WHERE internal_user_id = $2",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
             # referral_balances PK = internal_user_id -> adopt web's only if Telegram has none.
             await conn.execute(
                 "UPDATE referral_balances SET internal_user_id = $1 WHERE internal_user_id = $2"
                 " AND NOT EXISTS (SELECT 1 FROM referral_balances WHERE internal_user_id = $1)",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
             # referral_transactions UNIQUE(internal_user_id, description) -> drop
             # web rows whose description already exists for Telegram, then move the rest.
@@ -173,11 +183,13 @@ async def merge_web_account_if_needed(
                 "DELETE FROM referral_transactions WHERE internal_user_id = $1"
                 " AND description IN"
                 " (SELECT description FROM referral_transactions WHERE internal_user_id = $2)",
-                old_id, new_id,
+                old_id,
+                new_id,
             )
             await conn.execute(
                 "UPDATE referral_transactions SET internal_user_id = $1 WHERE internal_user_id = $2",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
             # referral_relationships UNIQUE(referred_user_id, level) -> for the
             # "referred" side, drop web rows at levels Telegram already has.
@@ -185,21 +197,25 @@ async def merge_web_account_if_needed(
                 "DELETE FROM referral_relationships WHERE referred_user_id = $1"
                 " AND level IN"
                 " (SELECT level FROM referral_relationships WHERE referred_user_id = $2)",
-                old_id, new_id,
+                old_id,
+                new_id,
             )
             await conn.execute(
                 "UPDATE referral_relationships SET referred_user_id = $1 WHERE referred_user_id = $2",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
             # "referrer" / "referrer_of_referrer" sides have no unique constraint -> safe move.
             await conn.execute(
                 "UPDATE referral_relationships SET referrer_user_id = $1 WHERE referrer_user_id = $2",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
             await conn.execute(
                 "UPDATE referral_relationships SET referrer_of_referrer_user_id = $1"
                 " WHERE referrer_of_referrer_user_id = $2",
-                new_id, old_id,
+                new_id,
+                old_id,
             )
 
             # Reassign the email row from the web-only account (non-positive id) to the
@@ -207,14 +223,14 @@ async def merge_web_account_if_needed(
             # (telegram_user_id, email) row, otherwise the partial unique index
             # idx_user_emails_email_verified (one verified row per email) is violated.
             await conn.execute(
-                "UPDATE user_emails SET telegram_user_id = $1"
-                " WHERE email = $2 AND telegram_user_id <= 0",
+                "UPDATE user_emails SET telegram_user_id = $1 WHERE email = $2 AND telegram_user_id <= 0",
                 telegram_user_id,
                 email,
             )
 
             _LOGGER.info(
                 "account_merge: merged web=%s into tg=%s for email=***",
-                old_id, new_id,
+                old_id,
+                new_id,
             )
             return True

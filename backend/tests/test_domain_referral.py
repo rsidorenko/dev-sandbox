@@ -1,5 +1,6 @@
 """Tests for domain.referral: commission rates and calculations."""
 
+from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.domain.referral import (
     ReferralCommission,
     build_commissions_for_payment,
@@ -9,7 +10,6 @@ from app.domain.referral import (
     resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
-from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
@@ -164,7 +164,7 @@ def test_apply_referral_creates_l2_when_referrer_has_own_referrer() -> None:
         rel_repo = InMemoryReferralRelationshipRepository()
 
         # Create grand-referrer → referrer → new user chain
-        grand = await code_repo.get_or_create("user_grand")
+        await code_repo.get_or_create("user_grand")
         # Manually create L1 for referrer (simulating they were referred by grand)
         await rel_repo.create_relationship(
             referred_user_id="user_referrer",

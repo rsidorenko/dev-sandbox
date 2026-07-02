@@ -39,8 +39,8 @@ _CACHE_TTL_SECONDS = 600  # 10 minutes — panel-client (server list) cache
 # active server (~14), so a cold miss costs ~2s. Serve recent entries instantly and
 # refresh in the background so repeat /sub/ imports stop paying that cost every time.
 # Probe logic and result semantics are unchanged — only the cache timing around it.
-_USER_CONFIG_FRESH_SECONDS = 120    # served without triggering a refresh
-_USER_CONFIG_STALE_SECONDS = 3600   # served (background-refreshed) up to this age; block beyond
+_USER_CONFIG_FRESH_SECONDS = 120  # served without triggering a refresh
+_USER_CONFIG_STALE_SECONDS = 3600  # served (background-refreshed) up to this age; block beyond
 _CONFIG_CACHE_MAX_ENTRIES = 10000
 _SUBSCRIPTION_TOKEN_TTL_DAYS = int(os.environ.get("SUBSCRIPTION_TOKEN_TTL_DAYS", "90"))
 
@@ -95,10 +95,12 @@ def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str
     uuid -> unique clients row -> correct per-inbound mapping. Stable (uuid5), no
     DB storage needed.
     """
-    return str(uuid.uuid5(
-        uuid.NAMESPACE_DNS,
-        f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
-    ))
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
+        )
+    )
 
 
 async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -> str:
@@ -340,12 +342,18 @@ class XuiVlessProvider(VlessProviderPort):
             task.cancel()
         await self._close_clients()
 
-    async def create_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
+    async def create_user(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
-            return await self._create_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
+            return await self._create_user_unlocked(
+                internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+            )
 
-    async def _create_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
+    async def _create_user_unlocked(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
         expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -495,11 +503,7 @@ class XuiVlessProvider(VlessProviderPort):
                 return cached[1]
             epoch = self._cache_epoch.get(internal_user_id, 0)
             probed = await self._probe_user_config(internal_user_id)
-            result = (
-                probed
-                if probed is not None
-                else VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
-            )
+            result = probed if probed is not None else VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
             self._store_config_cache(internal_user_id, epoch, result)
             return result
 
@@ -533,9 +537,7 @@ class XuiVlessProvider(VlessProviderPort):
             return  # no active servers — leave whatever is cached (or empty)
         self._store_config_cache(internal_user_id, epoch_at_schedule, probed)
 
-    def _store_config_cache(
-        self, internal_user_id: str, epoch_at_compute: int, result: VlessProviderResult
-    ) -> None:
+    def _store_config_cache(self, internal_user_id: str, epoch_at_compute: int, result: VlessProviderResult) -> None:
         # Don't clobber a fresher state: a mutation bumps the epoch; if it changed since
         # we read it (before the probe), drop our result so the next read recomputes.
         if self._cache_epoch.get(internal_user_id, 0) != epoch_at_compute:
@@ -564,22 +566,25 @@ class XuiVlessProvider(VlessProviderPort):
 
         raw = await _run_sequential_per_panel(clients, _disable)
 
-        any_disabled = any(
-            not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
-            for _, r in raw
-        )
+        any_disabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
         if any_disabled:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
-    async def activate_user(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
+    async def activate_user(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
-            return await self._activate_user_unlocked(internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days)
+            return await self._activate_user_unlocked(
+                internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+            )
 
-    async def _activate_user_unlocked(self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365) -> VlessProviderResult:
+    async def _activate_user_unlocked(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
         expiry = _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -602,10 +607,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         raw = await _run_sequential_per_panel(clients, _reactivate)
 
-        any_enabled = any(
-            not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS
-            for _, r in raw
-        )
+        any_enabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
         if any_enabled:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
@@ -630,8 +632,7 @@ class XuiVlessProvider(VlessProviderPort):
         raw = await _run_sequential_per_panel(clients, _delete)
 
         any_deleted = any(
-            not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND)
-            for _, r in raw
+            not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
         )
 
         if any_deleted:
@@ -723,18 +724,24 @@ class XuiVlessProvider(VlessProviderPort):
                         user_added = True
                         _LOGGER.info(
                             "reconcile_added user=%s server=%s enable=%s",
-                            uid[:8], client.server_id, enable,
+                            uid[:8],
+                            client.server_id,
+                            enable,
                         )
                     else:
                         _LOGGER.warning(
                             "reconcile_add_failed user=%s server=%s outcome=%s",
-                            uid[:8], client.server_id, result.outcome,
+                            uid[:8],
+                            client.server_id,
+                            result.outcome,
                         )
                         user_failed = True
                 except Exception:
                     _LOGGER.warning(
                         "reconcile_add_exception user=%s server=%s",
-                        uid[:8], client.server_id, exc_info=True,
+                        uid[:8],
+                        client.server_id,
+                        exc_info=True,
                     )
                     user_failed = True
 
@@ -745,4 +752,3 @@ class XuiVlessProvider(VlessProviderPort):
 
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)
-

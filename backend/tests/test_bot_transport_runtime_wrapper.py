@@ -13,13 +13,9 @@ from app.bot_transport.runtime_wrapper import (
     extract_eligible_private_chat_id_from_telegram_like_update,
     handle_slice1_telegram_update_to_runtime_action,
 )
-from app.bot_transport.storefront_ui import text_help, text_welcome
+from app.bot_transport.storefront_ui import text_welcome
 from app.shared.correlation import is_valid_correlation_id, new_correlation_id
 from app.shared.test_helpers import run_async as _run
-from tests.slice1_expected_user_copy import (
-    INACTIVE_OR_NOT_ELIGIBLE_TEXT,
-    NEEDS_ONBOARDING_TEXT,
-)
 
 
 def _base_message(*, text: str, user_id: int = 42, chat_type: str = "private") -> dict[str, object]:

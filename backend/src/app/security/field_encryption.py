@@ -8,13 +8,16 @@ Usage::
     from app.security.field_encryption import encrypt_field, decrypt_field
 
     encrypted = encrypt_field("plain_password")
-    original  = decrypt_field(encrypted)
+    original = decrypt_field(encrypted)
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 import os
+
+_LOGGER = logging.getLogger(__name__)
 
 _CRYPTO_AVAILABLE = True
 try:
@@ -77,11 +80,20 @@ def decrypt_field(encrypted: str) -> str:
     (backward compatibility with plaintext values already in the database).
     """
     if not encrypted.startswith(_PREFIX):
+        # Plaintext/unencrypted value in storage. Returning it as-is preserves
+        # backward compatibility, but it also masks the case where a sensitive
+        # field (e.g. a panel password) was never encrypted — so surface it loudly
+        # in the logs rather than silently. The caller should audit and re-encrypt.
+        _LOGGER.warning(
+            "decrypt_field: value lacks the '%s' prefix — it is plaintext/unencrypted. "
+            "Returning as-is; audit the source field and re-encrypt it.",
+            _PREFIX,
+        )
         return encrypted
     if not _CRYPTO_AVAILABLE:
         raise EncryptionError("cryptography package not installed")
     key = _load_key()
-    payload = encrypted[len(_PREFIX):]
+    payload = encrypted[len(_PREFIX) :]
     try:
         raw = base64.b64decode(payload)
     except Exception as exc:

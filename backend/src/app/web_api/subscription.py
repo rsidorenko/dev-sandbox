@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from urllib.parse import quote
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, PlainTextResponse, Response
 
 from app.issuance.vless_provider import VlessProviderOutcome
 
@@ -27,7 +27,9 @@ def _check_sub_rate_limit(client_ip: str) -> bool:
         for k in expired:
             del _sub_rate_limit_store[k]
         if len(_sub_rate_limit_store) > _SUB_RATE_LIMIT_MAX_ENTRIES:
-            oldest = sorted(_sub_rate_limit_store, key=lambda k: _sub_rate_limit_store[k][-1] if _sub_rate_limit_store[k] else 0)
+            oldest = sorted(
+                _sub_rate_limit_store, key=lambda k: _sub_rate_limit_store[k][-1] if _sub_rate_limit_store[k] else 0
+            )
             for k in oldest[: len(_sub_rate_limit_store) - _SUB_RATE_LIMIT_MAX_ENTRIES]:
                 del _sub_rate_limit_store[k]
         _sub_last_cleanup = now
@@ -61,7 +63,7 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
             app_url = f"v2raytun://import/{sub_url}"
         return HTMLResponse(
             f'<html><head><meta http-equiv="refresh" content="0;url={app_url}">'
-            f'</head><body><p>Opening {open_action}...</p>'
+            f"</head><body><p>Opening {open_action}...</p>"
             f'<p><a href="{app_url}">Tap here if nothing happens</a></p></body></html>'
         )
 

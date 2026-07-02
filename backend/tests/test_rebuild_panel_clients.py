@@ -38,20 +38,23 @@ def script() -> ModuleType:
 # Regression: the user-summary line must not touch vless_uuid (NULL since PR #320)
 # ---------------------------------------------------------------------------
 
+
 def test_user_summary_line_formats_post_pr320_user_dict(script: ModuleType) -> None:
     """A user record carrying no vless_uuid key (the post-PR#320 shape produced by
     _load_active_users) must format without raising."""
-    user = {"internal_user_id": "u662796891", "device_count": 5,
-            "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC)}
+    user = {"internal_user_id": "u662796891", "device_count": 5, "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC)}
     line = script._user_summary_line(user)
     assert "user=u662796891" in line
     assert "devices=5" in line
     assert "2026-08-04" in line
     # internal_user_id is truncated to 16 chars (matches _email_from_internal width).
-    long_user = {"internal_user_id": "u" + "x" * 30, "device_count": 1,
-                 "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC)}
+    long_user = {
+        "internal_user_id": "u" + "x" * 30,
+        "device_count": 1,
+        "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC),
+    }
     long_line = script._user_summary_line(long_user)
-    assert "user=u" + "x" * 15 + "  " in long_line   # exactly 16 chars after "user="
+    assert "user=u" + "x" * 15 + "  " in long_line  # exactly 16 chars after "user="
 
 
 def test_user_summary_line_survives_vless_uuid_none(script: ModuleType) -> None:
@@ -59,8 +62,7 @@ def test_user_summary_line_survives_vless_uuid_none(script: ModuleType) -> None:
     summarised. (Previously the line did ``u['vless_uuid'][:8]`` -> TypeError.)
     The helper must also be independent of the key — output identical with or
     without it, so the dead column can never be reintroduced as a dependency."""
-    base = {"internal_user_id": "uabc", "device_count": 3,
-            "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC)}
+    base = {"internal_user_id": "uabc", "device_count": 3, "active_until_utc": datetime(2026, 8, 4, tzinfo=UTC)}
     with_none = {**base, "vless_uuid": None}
     with_val = {**base, "vless_uuid": "12345678-1234-1234-1234-123456789012"}
 
@@ -78,6 +80,7 @@ def test_user_summary_line_survives_vless_uuid_none(script: ModuleType) -> None:
 # Mirror contract: helpers must match app.issuance.xui_vless_provider
 # ---------------------------------------------------------------------------
 
+
 def test_vless_uuid_for_transport_is_deterministic_and_unique(script: ModuleType) -> None:
     """Per-(user,transport) derived uuid: stable, distinct per transport, distinct
     per user (uuid5 mirror of xui_vless_provider._vless_uuid_for_transport)."""
@@ -86,9 +89,9 @@ def test_vless_uuid_for_transport_is_deterministic_and_unique(script: ModuleType
     xhttp_a = script._vless_uuid_for_transport("u111", "xhttp")
     tcp_b = script._vless_uuid_for_transport("u222", "tcp")
 
-    assert tcp_a == tcp_a_again          # deterministic
-    assert tcp_a != xhttp_a              # differs by transport (v3 client_inbounds fix)
-    assert tcp_a != tcp_b                # differs by user
+    assert tcp_a == tcp_a_again  # deterministic
+    assert tcp_a != xhttp_a  # differs by transport (v3 client_inbounds fix)
+    assert tcp_a != tcp_b  # differs by user
 
 
 def test_email_from_internal_prefix_and_truncation(script: ModuleType) -> None:
@@ -106,7 +109,7 @@ def test_is_bot_email_recognises_prefixes(script: ModuleType) -> None:
     """All bot-managed email prefixes are recognised; service/relay clients are not."""
     assert script._is_bot_email("user-u123") is True
     assert script._is_bot_email("x-user-u123") is True
-    assert script._is_bot_email("cdn-user-u123") is True      # legacy CDN, kept for cleanup
+    assert script._is_bot_email("cdn-user-u123") is True  # legacy CDN, kept for cleanup
     assert script._is_bot_email("relay-from-ru-relay") is False
     assert script._is_bot_email("") is False
 
@@ -115,7 +118,7 @@ def test_expiry_from_datetime_future_and_fallback(script: ModuleType) -> None:
     """Explicit future datetime is used verbatim (ms); past/None falls back to ~365d."""
     future = datetime.now(UTC) + timedelta(days=30)
     ts = script._expiry_from_datetime(future)
-    assert abs(ts - int(future.timestamp() * 1000)) < 1000     # within 1s
+    assert abs(ts - int(future.timestamp() * 1000)) < 1000  # within 1s
 
     fallback_none = script._expiry_from_datetime(None)
     fallback_past = script._expiry_from_datetime(datetime(2020, 1, 1, tzinfo=UTC))

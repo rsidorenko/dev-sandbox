@@ -1,0 +1,45 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff (lint + format)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Ruff
+        # Pinned to the same version the local pre-commit hooks use (.pre-commit-config.yaml).
+        run: pip install ruff==0.11.8
+
+      - name: Ruff check
+        run: ruff check src tests
+
+      - name: Ruff format check
+        run: ruff format --check src tests

@@ -18,6 +18,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion  # noqa: F401
+from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply  # noqa: F401
+from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader  # noqa: F401
+
+# Re-exported for test compatibility (tests patch on ingress_mod).
+from app.persistence.postgres_user_identity import PostgresUserIdentityRepository  # noqa: F401
 from app.security.checkout_reference import (
     DEFAULT_CHECKOUT_REFERENCE_MAX_AGE_SECONDS,
     DEFAULT_CHECKOUT_REFERENCE_MAX_FUTURE_SECONDS,
@@ -26,12 +32,6 @@ from app.security.checkout_reference import (
 from app.security.config import ConfigurationError
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import OperationOutcomeCategory
-
-# Re-exported for test compatibility (tests patch on ingress_mod).
-from app.persistence.postgres_user_identity import PostgresUserIdentityRepository  # noqa: F401
-from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion  # noqa: F401
-from app.persistence.postgres_billing_subscription_apply import PostgresAtomicUC05SubscriptionApply  # noqa: F401
-from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader  # noqa: F401
 
 ENV_PAYMENT_FULFILLMENT_HTTP_ENABLE = "PAYMENT_FULFILLMENT_HTTP_ENABLE"
 ENV_PAYMENT_FULFILLMENT_SECRET = "PAYMENT_FULFILLMENT_WEBHOOK_SECRET"

@@ -30,11 +30,11 @@ from app.runtime.notification_scheduler import (  # noqa: E402
     NotificationScheduler,
     start_notification_scheduler,
 )
-from app.runtime.server_sync_scheduler import ServerSyncScheduler  # noqa: E402
 from app.runtime.payment_fulfillment_ingress import (  # noqa: E402
     create_payment_fulfillment_ingress_app,
     load_fulfillment_ingress_settings_from_env,
 )
+from app.runtime.server_sync_scheduler import ServerSyncScheduler  # noqa: E402
 from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient  # noqa: E402
 from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle  # noqa: E402
 from app.runtime.telegram_webhook_ingress import (  # noqa: E402
@@ -309,7 +309,14 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, runtime_pg_pool, scheduler, scheduler_task, sync_scheduler, sync_task
+        nonlocal \
+            fulfillment_pool, \
+            fulfillment_app, \
+            runtime_pg_pool, \
+            scheduler, \
+            scheduler_task, \
+            sync_scheduler, \
+            sync_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -332,7 +339,11 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         # Start notification scheduler for subscription lifecycle checks.
         try:
             pool = runtime_pg_pool
-            if pool is not None and runtime._composition is not None and runtime._composition.vless_provider is not None:
+            if (
+                pool is not None
+                and runtime._composition is not None
+                and runtime._composition.vless_provider is not None
+            ):
                 scheduler = start_notification_scheduler(
                     pool=pool,
                     bot_token=config.bot_token,
@@ -388,7 +399,16 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
     @asynccontextmanager
     async def _lifespan_with_web_api(app: Starlette) -> AsyncIterator[None]:
-        nonlocal fulfillment_pool, fulfillment_app, web_api_pool, web_api_app, runtime_pg_pool, scheduler, scheduler_task, sync_scheduler, sync_task
+        nonlocal \
+            fulfillment_pool, \
+            fulfillment_app, \
+            web_api_pool, \
+            web_api_app, \
+            runtime_pg_pool, \
+            scheduler, \
+            scheduler_task, \
+            sync_scheduler, \
+            sync_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -417,7 +437,11 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         # Start notification scheduler for subscription lifecycle checks.
         try:
             pool = runtime_pg_pool or web_api_pool
-            if pool is not None and runtime._composition is not None and runtime._composition.vless_provider is not None:
+            if (
+                pool is not None
+                and runtime._composition is not None
+                and runtime._composition.vless_provider is not None
+            ):
                 scheduler = start_notification_scheduler(
                     pool=pool,
                     bot_token=config.bot_token,
@@ -508,10 +532,16 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                     response.set_cookie(
                         key=cookie_name,
                         value=cookie_value.split("=", 1)[1].split(";")[0] if "=" in cookie_value else "",
-                        max_age=int(cookie_value.split("Max-Age=")[1].split(";")[0]) if "Max-Age=" in cookie_value else None,
+                        max_age=int(cookie_value.split("Max-Age=")[1].split(";")[0])
+                        if "Max-Age=" in cookie_value
+                        else None,
                         httponly="httponly" in cookie_value.lower(),
                         secure="secure" in cookie_value.lower(),
-                        samesite="lax" if "samesite=lax" in cookie_value.lower() else "strict" if "samesite=strict" in cookie_value.lower() else None,
+                        samesite="lax"
+                        if "samesite=lax" in cookie_value.lower()
+                        else "strict"
+                        if "samesite=strict" in cookie_value.lower()
+                        else None,
                         path="/",
                     )
         return response

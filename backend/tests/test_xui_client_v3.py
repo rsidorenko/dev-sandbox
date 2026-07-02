@@ -11,7 +11,7 @@ import json
 
 import httpx
 
-from app.issuance.xui_client import XuiApiClient, XuiServerConfig, XuiOutcome
+from app.issuance.xui_client import XuiApiClient, XuiOutcome, XuiServerConfig
 from app.shared.test_helpers import run_async as _run
 
 
@@ -51,14 +51,28 @@ class _Panel:
             return httpx.Response(200, json={"obj": "csrftoken"})
         if path == "/panel/api/inbounds/get/7":
             settings = json.dumps({"clients": list(self.clients)})
-            return httpx.Response(200, json={"success": True, "obj": {
-                "id": 7, "port": 443, "protocol": "vless", "tag": "in-443-tcp",
-                "remark": "r", "enable": True, "listen": "", "expiryTime": 0,
-                "total": 0, "up": 0, "down": 0,
-                "settings": settings,
-                "streamSettings": {"network": "tcp"},
-                "sniffing": {"enabled": True},
-            }})
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "obj": {
+                        "id": 7,
+                        "port": 443,
+                        "protocol": "vless",
+                        "tag": "in-443-tcp",
+                        "remark": "r",
+                        "enable": True,
+                        "listen": "",
+                        "expiryTime": 0,
+                        "total": 0,
+                        "up": 0,
+                        "down": 0,
+                        "settings": settings,
+                        "streamSettings": {"network": "tcp"},
+                        "sniffing": {"enabled": True},
+                    },
+                },
+            )
         if "/panel/api/inbounds/7/delClient/" in path:
             uuid = path.rsplit("/", 1)[-1]
             self.del_client_calls.append(uuid)
@@ -100,9 +114,6 @@ def test_add_upsert_replaces_same_email():
     panel = _Panel(7, [{"id": "uuid-old", "email": "user-abc"}])
     c = _client(panel)
     c._v3_mode = True  # type: ignore[attr-defined]
-    new_settings = {"id": "uuid-new", "email": "user-abc", "enable": True,
-                    "expiryTime": 0, "flow": "", "limitIp": 0, "totalGB": 0,
-                    "tgId": "", "subId": ""}
     result = _run(c.add_client(user_uuid="uuid-new", email="user-abc", expiry_ts=0))
     assert result.outcome == XuiOutcome.SUCCESS
     assert len(panel.clients) == 1  # replaced, not appended

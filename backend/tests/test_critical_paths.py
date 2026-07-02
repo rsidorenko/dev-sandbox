@@ -13,12 +13,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.issuance.vless_provider import VlessProviderOutcome
 from app.runtime.notification_scheduler import NotificationScheduler
 from app.shared.test_helpers import run_async as _run
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -28,7 +25,7 @@ class _Record(dict):
         try:
             return self[key]
         except KeyError:
-            raise AttributeError(key)
+            raise AttributeError(key) from None
 
 
 class _FakePool:
@@ -209,11 +206,13 @@ def test_run_checks_calls_all_five_stages():
     provider = _make_provider()
     sched = NotificationScheduler(pool=pool, bot_token="tok", vless_provider=provider)
 
-    with patch.object(sched, "_check_trial_expiring", new_callable=AsyncMock) as m1, \
-         patch.object(sched, "_check_trial_expired", new_callable=AsyncMock) as m2, \
-         patch.object(sched, "_check_subscription_expiring", new_callable=AsyncMock) as m3, \
-         patch.object(sched, "_check_subscription_expired", new_callable=AsyncMock) as m4, \
-         patch.object(sched, "_check_keys_grace_period_expired", new_callable=AsyncMock) as m5:
+    with (
+        patch.object(sched, "_check_trial_expiring", new_callable=AsyncMock) as m1,
+        patch.object(sched, "_check_trial_expired", new_callable=AsyncMock) as m2,
+        patch.object(sched, "_check_subscription_expiring", new_callable=AsyncMock) as m3,
+        patch.object(sched, "_check_subscription_expired", new_callable=AsyncMock) as m4,
+        patch.object(sched, "_check_keys_grace_period_expired", new_callable=AsyncMock) as m5,
+    ):
         _run(sched._run_checks())
 
     m1.assert_called_once()
@@ -285,9 +284,16 @@ def test_fulfillment_reactivates_deactivated_keys():
     from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 
     pool = _FakePool()
-    pool.set_fetch_result("keys_deactivated_at", [_Record(
-        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=None, device_count=0,
-    )])
+    pool.set_fetch_result(
+        "keys_deactivated_at",
+        [
+            _Record(
+                keys_deactivated_at=datetime.now(UTC),
+                keys_deleted_at=None,
+                device_count=0,
+            )
+        ],
+    )
     provider = _make_provider()
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
@@ -302,9 +308,16 @@ def test_fulfillment_creates_new_keys_after_deletion():
     from app.runtime.fulfillment_processor import _ensure_vless_keys_after_payment
 
     pool = _FakePool()
-    pool.set_fetch_result("keys_deactivated_at", [_Record(
-        keys_deactivated_at=datetime.now(UTC), keys_deleted_at=datetime.now(UTC), device_count=0,
-    )])
+    pool.set_fetch_result(
+        "keys_deactivated_at",
+        [
+            _Record(
+                keys_deactivated_at=datetime.now(UTC),
+                keys_deleted_at=datetime.now(UTC),
+                device_count=0,
+            )
+        ],
+    )
     provider = _make_provider()
 
     _run(_ensure_vless_keys_after_payment(pool=pool, vless_provider=provider, internal_user_id="u1"))
@@ -384,9 +397,11 @@ def test_ensure_subscription_token_returns_same_token_on_repeated_calls():
 
     class _Pool:
         call_count = 0
+
         async def fetchrow(self, sql, uid):
             _Pool.call_count += 1
             return existing_row
+
         async def execute(self, *a):
             pass
 
@@ -410,6 +425,7 @@ def test_vless_uuid_is_random_not_deterministic():
     class _Pool:
         def __init__(self):
             self.uuids = {}
+
         async def fetchrow(self, sql, uid, new_uuid=""):
             existing = self.uuids.get(uid)
             if existing:
@@ -428,16 +444,17 @@ def test_vless_uuid_is_random_not_deterministic():
 
 def test_subscription_endpoint_no_expiry_check():
     """Subscription endpoint must serve content regardless of token expiry date."""
-    from app.web_api.subscription import handle_subscription
-    from starlette.testclient import TestClient
     from starlette.applications import Starlette
     from starlette.routing import Route
+    from starlette.testclient import TestClient
 
-    from app.issuance.vless_provider import VlessServerConfig, StubVlessProvider
+    from app.issuance.vless_provider import StubVlessProvider, VlessServerConfig
+    from app.web_api.subscription import handle_subscription
 
     class _ProviderWithToken(StubVlessProvider):
         async def get_user_config(self, *, internal_user_id: str):
             from app.issuance.vless_provider import VlessProviderResult, VlessUserConfig
+
             return VlessProviderResult(
                 outcome=VlessProviderOutcome.SUCCESS,
                 config=VlessUserConfig(
@@ -500,14 +517,23 @@ def test_vless_link_uses_reality_tls():
     The earlier 2026-06-14 no-flow decision was the inverse mismatch (the server was
     no-flow then) — reversed now that the server is vision.
     """
-    from app.issuance.xui_vless_provider import _build_vless_link
-    from app.issuance.xui_vless_provider import XuiServerConfig
+    from app.issuance.xui_vless_provider import XuiServerConfig, _build_vless_link
 
     server = XuiServerConfig(
-        server_id=1, label="NL-1", country_code="NL", country_flag="🇳🇱",
-        server_host="nl1.vpn.example.com", server_port=443,
-        ws_path="", tls_sni="", panel_url="", panel_username="", panel_password="",
-        inbound_id=1, reality_pbk="test-pbk", reality_sid="test-sid",
+        server_id=1,
+        label="NL-1",
+        country_code="NL",
+        country_flag="🇳🇱",
+        server_host="nl1.vpn.example.com",
+        server_port=443,
+        ws_path="",
+        tls_sni="",
+        panel_url="",
+        panel_username="",
+        panel_password="",
+        inbound_id=1,
+        reality_pbk="test-pbk",
+        reality_sid="test-sid",
         reality_sni="example.com",
     )
     link = _build_vless_link(server, "user-uuid-123")
@@ -527,8 +553,7 @@ def test_vless_link_template_overrides_transport_builder():
     "обход белых списков" CDN key: xhttp+TLS via node67.safetunn.shop with xmux/xPadding
     obfuscation in `extra`), the row stores a full vless:// with a {UUID} placeholder.
     """
-    from app.issuance.xui_vless_provider import _build_vless_link
-    from app.issuance.xui_vless_provider import XuiServerConfig
+    from app.issuance.xui_vless_provider import XuiServerConfig, _build_vless_link
 
     template = (
         "vless://{UUID}@node67.safetunn.shop:443?type=xhttp&security=tls"
@@ -536,10 +561,20 @@ def test_vless_link_template_overrides_transport_builder():
         "&extra=%7B%22mode%22%3A%22packet-up%22%7D#h1cloud-CDN"
     )
     server = XuiServerConfig(
-        server_id=22, label="Обход", country_code="NL", country_flag="🇳🇱",
-        server_host="193.233.126.96", server_port=25103,
-        ws_path="", tls_sni="", panel_url="", panel_username="", panel_password="",
-        inbound_id=1, transport_type="xhttp", link_template=template,
+        server_id=22,
+        label="Обход",
+        country_code="NL",
+        country_flag="🇳🇱",
+        server_host="193.233.126.96",
+        server_port=25103,
+        ws_path="",
+        tls_sni="",
+        panel_url="",
+        panel_username="",
+        panel_password="",
+        inbound_id=1,
+        transport_type="xhttp",
+        link_template=template,
     )
 
     link = _build_vless_link(server, "user-uuid-9")

@@ -29,8 +29,13 @@ def _default_template() -> dict:
             "rules": [{"inboundTag": ["api"], "outboundTag": "api"}],
         },
         "inbounds": [
-            {"tag": "api", "listen": "127.0.0.1", "port": 62789, "protocol": "dokodemo-door",
-             "settings": {"address": "127.0.0.1"}}
+            {
+                "tag": "api",
+                "listen": "127.0.0.1",
+                "port": 62789,
+                "protocol": "dokodemo-door",
+                "settings": {"address": "127.0.0.1"},
+            }
         ],
         "outbounds": [
             {"tag": "direct", "protocol": "freedom"},
@@ -44,8 +49,10 @@ def _outbound_tags(t: dict) -> list[str]:
 
 
 def _rule_tags(t: dict) -> list:
-    return [(r.get("outboundTag"), tuple(r.get("domain") or ()), tuple(r.get("ip") or ()))
-            for r in t.get("routing", {}).get("rules", [])]
+    return [
+        (r.get("outboundTag"), tuple(r.get("domain") or ()), tuple(r.get("ip") or ()))
+        for r in t.get("routing", {}).get("rules", [])
+    ]
 
 
 def test_merge_is_non_destructive_preserves_existing_outbounds_and_rules() -> None:
@@ -88,8 +95,7 @@ def test_merge_inserts_ru_rules_after_api_and_private() -> None:
     tags = [r.get("outboundTag") for r in rules]
     # RU rules come AFTER api and AFTER geoip:private, but BEFORE the catch-all.
     assert tags.index("api") < tags.index(mre.RELAY_OUTBOUND_TAG)
-    priv_idx = next(i for i, r in enumerate(rules)
-                    if any("geoip:private" in str(x) for x in (r.get("ip") or [])))
+    priv_idx = next(i for i, r in enumerate(rules) if any("geoip:private" in str(x) for x in (r.get("ip") or [])))
     relay_idx = tags.index(mre.RELAY_OUTBOUND_TAG)
     catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
     assert priv_idx < relay_idx < catchall_idx
@@ -104,8 +110,7 @@ def test_merge_is_idempotent() -> None:
     assert once["routing"]["domainStrategy"] == twice["routing"]["domainStrategy"]
     # Exactly one relay outbound and exactly two RU rules.
     assert _outbound_tags(twice).count(mre.RELAY_OUTBOUND_TAG) == 1
-    relay_rules = [r for r in twice["routing"]["rules"]
-                   if r.get("outboundTag") == mre.RELAY_OUTBOUND_TAG]
+    relay_rules = [r for r in twice["routing"]["rules"] if r.get("outboundTag") == mre.RELAY_OUTBOUND_TAG]
     assert len(relay_rules) == 2
 
 
@@ -127,9 +132,7 @@ def test_relay_outbound_targets_ru_server_with_reality_params() -> None:
 def test_merge_preserves_custom_outbounds_and_rules() -> None:
     template = _default_template()
     template["outbounds"].append({"tag": "my-custom", "protocol": "freedom"})
-    template["routing"]["rules"].append(
-        {"type": "field", "domain": ["ext:example.com"], "outboundTag": "my-custom"}
-    )
+    template["routing"]["rules"].append({"type": "field", "domain": ["ext:example.com"], "outboundTag": "my-custom"})
     after = mre.merge_ru_routing(template)
     assert "my-custom" in _outbound_tags(after)
     assert ("my-custom", ("ext:example.com",), ()) in _rule_tags(after)
@@ -152,19 +155,38 @@ def _sample_export() -> dict:
         "outbound": {
             "tag": "ru-relay",
             "protocol": "vless",
-            "settings": {"vnext": [{"address": "89.169.139.153", "port": 443,
-                                    "users": [{"id": "RELAY-UUID-FROM-FRANKFURT",
-                                               "encryption": "none", "flow": ""}]}]},
-            "streamSettings": {"network": "tcp", "security": "reality",
-                               "realitySettings": {"serverName": "max.ru", "publicKey": "PBK",
-                                                   "shortId": "a1b2c3d4e5f6",
-                                                   "fingerprint": "chrome"}},
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "89.169.139.153",
+                        "port": 443,
+                        "users": [{"id": "RELAY-UUID-FROM-FRANKFURT", "encryption": "none", "flow": ""}],
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                    "serverName": "max.ru",
+                    "publicKey": "PBK",
+                    "shortId": "a1b2c3d4e5f6",
+                    "fingerprint": "chrome",
+                },
+            },
         },
         "rules": [
-            {"type": "field",
-             "domain": ["geosite:category-ru", "geosite:tld-ru", "domain-suffix:ru",
-                        "domain-suffix:su", "domain-suffix:xn--p1ai"],
-             "outboundTag": "ru-relay"},
+            {
+                "type": "field",
+                "domain": [
+                    "geosite:category-ru",
+                    "geosite:tld-ru",
+                    "domain-suffix:ru",
+                    "domain-suffix:su",
+                    "domain-suffix:xn--p1ai",
+                ],
+                "outboundTag": "ru-relay",
+            },
             {"type": "field", "ip": ["geoip:ru"], "outboundTag": "ru-relay"},
         ],
     }
@@ -193,8 +215,11 @@ def test_apply_exported_routing_uses_exported_uuid_and_target_verbatim() -> None
     assert relay["streamSettings"]["realitySettings"]["serverName"] == "max.ru"
     # The exported rules are present with their geosite/domain-suffix domains.
     tags = _rule_tags(after)
-    assert ("ru-relay", ("geosite:category-ru", "geosite:tld-ru", "domain-suffix:ru",
-                         "domain-suffix:su", "domain-suffix:xn--p1ai"), ()) in tags
+    assert (
+        "ru-relay",
+        ("geosite:category-ru", "geosite:tld-ru", "domain-suffix:ru", "domain-suffix:su", "domain-suffix:xn--p1ai"),
+        (),
+    ) in tags
     assert ("ru-relay", (), ("geoip:ru",)) in tags
 
 
@@ -208,11 +233,13 @@ def test_apply_exported_routing_inserts_after_api_and_private() -> None:
     ]
     after = mre.apply_exported_routing(template, export["outbound"], export["rules"])
     tags = [r.get("outboundTag") for r in after["routing"]["rules"]]
-    priv_idx = next(i for i, r in enumerate(after["routing"]["rules"])
-                    if any("geoip:private" in str(x) for x in (r.get("ip") or [])))
+    priv_idx = next(
+        i
+        for i, r in enumerate(after["routing"]["rules"])
+        if any("geoip:private" in str(x) for x in (r.get("ip") or []))
+    )
     relay_idx = tags.index("ru-relay")
-    catchall_idx = next(i for i, r in enumerate(after["routing"]["rules"])
-                        if r.get("network") == "tcp,udp")
+    catchall_idx = next(i for i, r in enumerate(after["routing"]["rules"]) if r.get("network") == "tcp,udp")
     assert after["routing"]["rules"][0].get("outboundTag") == "api"
     assert priv_idx < relay_idx < catchall_idx
 
@@ -234,23 +261,41 @@ def _panel_with_wrong_target_relay() -> dict:
     """A panel whose ru-relay outbound targets the WRONG relay (51.250.102.219),
     as found on Frankfurt/LA live. repoint should fix only the target."""
     return {
-        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
-            {"inboundTag": ["api"], "outboundTag": "api"},
-            {"ip": ["geoip:private"], "outboundTag": "blocked"},
-            {"domain": ["geosite:category-ru"], "outboundTag": "ru-relay"},
-            {"ip": ["geoip:ru"], "outboundTag": "ru-relay"},
-        ]},
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                {"inboundTag": ["api"], "outboundTag": "api"},
+                {"ip": ["geoip:private"], "outboundTag": "blocked"},
+                {"domain": ["geosite:category-ru"], "outboundTag": "ru-relay"},
+                {"ip": ["geoip:ru"], "outboundTag": "ru-relay"},
+            ],
+        },
         "outbounds": [
             {"tag": "direct", "protocol": "freedom"},
             {"tag": "blocked", "protocol": "blackhole"},
-            {"tag": "ru-relay", "protocol": "vless",
-             "settings": {"vnext": [{"address": "51.250.102.219", "port": 443,
-                                     "users": [{"id": "0b99b2fb-wrong", "encryption": "none",
-                                                "flow": ""}]}]},
-             "streamSettings": {"network": "tcp", "security": "reality",
-                                "realitySettings": {"serverName": "ya.ru",
-                                                    "publicKey": "WRONG-PBK",
-                                                    "shortId": "a1b2c3", "fingerprint": "chrome"}}},
+            {
+                "tag": "ru-relay",
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": "51.250.102.219",
+                            "port": 443,
+                            "users": [{"id": "0b99b2fb-wrong", "encryption": "none", "flow": ""}],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverName": "ya.ru",
+                        "publicKey": "WRONG-PBK",
+                        "shortId": "a1b2c3",
+                        "fingerprint": "chrome",
+                    },
+                },
+            },
         ],
     }
 
@@ -262,13 +307,13 @@ def test_repoint_changes_only_target_keeps_tag_and_rules() -> None:
     # Target + UUID + Reality params now the canonical 89.169.139.153 ones.
     relay = next(o for o in after["outbounds"] if o.get("tag") == "ru-relay")
     vnext = relay["settings"]["vnext"][0]
-    assert vnext["address"] == mre.RU_RELAY_HOST        # 89.169.139.153
+    assert vnext["address"] == mre.RU_RELAY_HOST  # 89.169.139.153
     assert vnext["port"] == 443
-    assert vnext["users"][0]["id"] == mre.RELAY_UUID     # 00607f0b-…
+    assert vnext["users"][0]["id"] == mre.RELAY_UUID  # 00607f0b-…
     rs = relay["streamSettings"]["realitySettings"]
     assert rs["publicKey"] == mre.RU_RELAY_PBK
     assert rs["shortId"] == mre.RU_RELAY_SID
-    assert rs["serverName"] == mre.RU_RELAY_SNI          # max.ru
+    assert rs["serverName"] == mre.RU_RELAY_SNI  # max.ru
 
     # Tag preserved, all routing rules preserved (incl. the ru-relay rules).
     assert _outbound_tags(after) == ["direct", "blocked", "ru-relay"]
@@ -297,16 +342,19 @@ def test_repoint_raises_when_no_such_outbound() -> None:
 # ── purge-orphans: user-client detection ────────────────────────────────────
 
 
-@pytest.mark.parametrize("email,expected", [
-    ("user-u8158783115", True),
-    ("cdn-user-abc123def456", True),
-    ("x-user-something", True),
-    ("relay-from-foreign", False),   # the shared relay UUID — MUST be kept
-    ("relay-from-lte", False),
-    ("", False),
-    ("admin", False),
-    ("some-other-email", False),
-])
+@pytest.mark.parametrize(
+    "email,expected",
+    [
+        ("user-u8158783115", True),
+        ("cdn-user-abc123def456", True),
+        ("x-user-something", True),
+        ("relay-from-foreign", False),  # the shared relay UUID — MUST be kept
+        ("relay-from-lte", False),
+        ("", False),
+        ("admin", False),
+        ("some-other-email", False),
+    ],
+)
 def test_is_user_client(email: str, expected: bool) -> None:
     assert mre._is_user_client(email) is expected
 
@@ -373,17 +421,23 @@ def _relay_with_helsinki_catchall() -> dict:
     """The RU relay's live config: RU rules -> direct, but a vestigial catch-all
     forwards the rest to Helsinki (which rejects it -> sites break)."""
     return {
-        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
-            {"inboundTag": ["api"], "outboundTag": "api"},
-            {"ip": ["geoip:private"], "outboundTag": "direct"},
-            {"inboundTag": ["in-443-tcp"], "domain": ["domain:ru", "domain:su"], "outboundTag": "direct"},
-            {"inboundTag": ["in-443-tcp"], "ip": ["geoip:ru"], "outboundTag": "direct"},
-            {"inboundTag": ["in-443-tcp"], "network": "tcp,udp", "outboundTag": "relay-to-helsinki"},
-        ]},
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                {"inboundTag": ["api"], "outboundTag": "api"},
+                {"ip": ["geoip:private"], "outboundTag": "direct"},
+                {"inboundTag": ["in-443-tcp"], "domain": ["domain:ru", "domain:su"], "outboundTag": "direct"},
+                {"inboundTag": ["in-443-tcp"], "ip": ["geoip:ru"], "outboundTag": "direct"},
+                {"inboundTag": ["in-443-tcp"], "network": "tcp,udp", "outboundTag": "relay-to-helsinki"},
+            ],
+        },
         "outbounds": [
             {"tag": "direct", "protocol": "freedom"},
-            {"tag": "relay-to-helsinki", "protocol": "vless",
-             "settings": {"vnext": [{"address": "77.221.159.106", "port": 443}]}},
+            {
+                "tag": "relay-to-helsinki",
+                "protocol": "vless",
+                "settings": {"vnext": [{"address": "77.221.159.106", "port": 443}]},
+            },
             {"tag": "blocked", "protocol": "blackhole"},
         ],
     }
@@ -393,7 +447,7 @@ def test_clean_relay_redirects_catchall_to_direct_and_drops_outbound() -> None:
     after = mre.clean_relay_routing(_relay_with_helsinki_catchall())
     tags = [o.get("tag") for o in after["outbounds"]]
     assert "relay-to-helsinki" not in tags
-    assert "direct" in tags and "blocked" in tags   # other outbounds preserved
+    assert "direct" in tags and "blocked" in tags  # other outbounds preserved
     # The catch-all now egresses directly from RU instead of forwarding to Helsinki.
     catchall = next(r for r in after["routing"]["rules"] if r.get("network") == "tcp,udp")
     assert catchall["outboundTag"] == "direct"
@@ -402,9 +456,9 @@ def test_clean_relay_redirects_catchall_to_direct_and_drops_outbound() -> None:
 def test_clean_relay_preserves_ru_direct_and_api_rules() -> None:
     after = mre.clean_relay_routing(_relay_with_helsinki_catchall())
     ob_tags = [r.get("outboundTag") for r in after["routing"]["rules"]]
-    assert "api" in ob_tags                      # api rule preserved
+    assert "api" in ob_tags  # api rule preserved
     ru_rule = next(r for r in after["routing"]["rules"] if "domain:ru" in (r.get("domain") or []))
-    assert ru_rule["outboundTag"] == "direct"    # RU-domain rule untouched
+    assert ru_rule["outboundTag"] == "direct"  # RU-domain rule untouched
 
 
 def test_clean_relay_is_idempotent() -> None:
@@ -425,7 +479,7 @@ def test_clean_relay_noop_when_already_pure_egress() -> None:
 def test_clean_relay_does_not_mutate_input() -> None:
     before = _relay_with_helsinki_catchall()
     mre.clean_relay_routing(before)
-    assert "relay-to-helsinki" in [o.get("tag") for o in before["outbounds"]]   # input unchanged
+    assert "relay-to-helsinki" in [o.get("tag") for o in before["outbounds"]]  # input unchanged
 
 
 # ── apply-vk: explicit VK-domains -> ru-relay routing ────────────────────────
@@ -438,22 +492,42 @@ def _panel_with_ru_relay(tag: str = "ru-relay") -> dict:
     the explicit VK rule on top of this."""
     return {
         "log": {"loglevel": "warning"},
-        "routing": {"domainStrategy": "IPIfNonMatch", "rules": [
-            {"inboundTag": ["api"], "outboundTag": "api"},
-            {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
-            {"type": "field", "domain": ["geosite:CATEGORY-RU", "geosite:TLD-RU",
-                                         "domain-suffix:ru", "domain-suffix:su",
-                                         "domain-suffix:xn--p1ai"], "outboundTag": tag},
-            {"type": "field", "ip": ["geoip:ru"], "outboundTag": tag},
-            {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
-        ]},
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+                {"inboundTag": ["api"], "outboundTag": "api"},
+                {"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"},
+                {
+                    "type": "field",
+                    "domain": [
+                        "geosite:CATEGORY-RU",
+                        "geosite:TLD-RU",
+                        "domain-suffix:ru",
+                        "domain-suffix:su",
+                        "domain-suffix:xn--p1ai",
+                    ],
+                    "outboundTag": tag,
+                },
+                {"type": "field", "ip": ["geoip:ru"], "outboundTag": tag},
+                {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
+            ],
+        },
         "outbounds": [
             {"tag": "direct", "protocol": "freedom"},
             {"tag": "blocked", "protocol": "blackhole"},
-            {"tag": tag, "protocol": "vless",
-             "settings": {"vnext": [{"address": mre.RU_RELAY_HOST, "port": 443,
-                                     "users": [{"id": mre.RELAY_UUID, "encryption": "none",
-                                                "flow": ""}]}]}},
+            {
+                "tag": tag,
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": mre.RU_RELAY_HOST,
+                            "port": 443,
+                            "users": [{"id": mre.RELAY_UUID, "encryption": "none", "flow": ""}],
+                        }
+                    ]
+                },
+            },
         ],
     }
 
@@ -482,8 +556,7 @@ def test_merge_vk_routing_uses_explicit_tag_when_given() -> None:
 def test_merge_vk_routing_inserts_after_ru_rules_before_catchall() -> None:
     after = mre.merge_vk_routing(_panel_with_ru_relay())
     rules = after["routing"]["rules"]
-    vk_idx = next(i for i, r in enumerate(rules)
-                  if set(r.get("domain") or []) == set(mre.VK_DOMAINS))
+    vk_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.VK_DOMAINS))
     catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
     # VK rule comes AFTER the ru-relay rules and BEFORE the catch-all.
     assert rules.index(next(r for r in rules if r.get("outboundTag") == "ru-relay")) < vk_idx
@@ -497,8 +570,11 @@ def test_merge_vk_routing_preserves_existing_rules_and_outbounds() -> None:
     assert set(_outbound_tags(before)).issubset(set(_outbound_tags(after)))
     # The existing RU rules are kept.
     assert ("ru-relay", (), ("geoip:ru",)) in _rule_tags(after)
-    assert ("ru-relay", ("geosite:CATEGORY-RU", "geosite:TLD-RU", "domain-suffix:ru",
-                         "domain-suffix:su", "domain-suffix:xn--p1ai"), ()) in _rule_tags(after)
+    assert (
+        "ru-relay",
+        ("geosite:CATEGORY-RU", "geosite:TLD-RU", "domain-suffix:ru", "domain-suffix:su", "domain-suffix:xn--p1ai"),
+        (),
+    ) in _rule_tags(after)
     # Exactly one VK rule added.
     vk = [r for r in after["routing"]["rules"] if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]
     assert len(vk) == 1
@@ -524,16 +600,17 @@ def test_merge_vk_routing_does_not_mutate_input() -> None:
     before_rules = _rule_tags(before)
     mre.merge_vk_routing(before)
     assert _rule_tags(before) == before_rules
-    assert not any(set(r.get("domain") or []) == set(mre.VK_DOMAINS)
-                   for r in before["routing"]["rules"])
+    assert not any(set(r.get("domain") or []) == set(mre.VK_DOMAINS) for r in before["routing"]["rules"])
 
 
 def test_detect_relay_tag_finds_by_address_then_rule_fallback() -> None:
     # By outbound vnext address.
     assert mre._detect_relay_tag(_panel_with_ru_relay("ru-relay")) == "ru-relay"
     # Fallback: tag inferred from a domain:ru rule when no matching vnext address.
-    fallback = {"outbounds": [{"tag": "direct", "protocol": "freedom"}],
-                "routing": {"rules": [{"domain": ["domain:ru"], "outboundTag": "my-relay"}]}}
+    fallback = {
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": [{"domain": ["domain:ru"], "outboundTag": "my-relay"}]},
+    }
     assert mre._detect_relay_tag(fallback) == "my-relay"
     # None when neither signal is present.
     assert mre._detect_relay_tag(_default_template()) is None
@@ -574,8 +651,7 @@ def test_merge_max_routing_uses_explicit_tag_when_given() -> None:
 def test_merge_max_routing_inserts_after_ru_rules_before_catchall() -> None:
     after = mre.merge_max_routing(_panel_with_ru_relay())
     rules = after["routing"]["rules"]
-    max_idx = next(i for i, r in enumerate(rules)
-                   if set(r.get("domain") or []) == set(mre.MAX_DOMAINS))
+    max_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.MAX_DOMAINS))
     catchall_idx = next(i for i, r in enumerate(rules) if r.get("network") == "tcp,udp")
     # MAX rule comes AFTER the ru-relay rules and BEFORE the catch-all.
     assert rules.index(next(r for r in rules if r.get("outboundTag") == "ru-relay")) < max_idx
@@ -611,8 +687,7 @@ def test_merge_max_routing_does_not_mutate_input() -> None:
     before_rules = _rule_tags(before)
     mre.merge_max_routing(before)
     assert _rule_tags(before) == before_rules
-    assert not any(set(r.get("domain") or []) == set(mre.MAX_DOMAINS)
-                   for r in before["routing"]["rules"])
+    assert not any(set(r.get("domain") or []) == set(mre.MAX_DOMAINS) for r in before["routing"]["rules"])
 
 
 def test_has_max_rule_detects_exact_domain_set() -> None:
@@ -678,15 +753,12 @@ def test_merge_tiktok_direct_inserted_before_relay_rules() -> None:
     TikTok -> direct first instead of falling to the relay."""
     after = mre.merge_tiktok_direct(_panel_with_ru_relay())
     rules = after["routing"]["rules"]
-    tt_idx = next(i for i, r in enumerate(rules)
-                  if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS))
+    tt_idx = next(i for i, r in enumerate(rules) if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS))
     first_relay_idx = next(i for i, r in enumerate(rules) if r.get("outboundTag") == "ru-relay")
     assert tt_idx < first_relay_idx
     # Specifically before the domain-suffix:ru rule and the geoip:ru rule.
-    dsru_idx = next(i for i, r in enumerate(rules)
-                    if "domain-suffix:ru" in (r.get("domain") or []))
-    geoipru_idx = next(i for i, r in enumerate(rules)
-                       if "geoip:ru" in (r.get("ip") or []))
+    dsru_idx = next(i for i, r in enumerate(rules) if "domain-suffix:ru" in (r.get("domain") or []))
+    geoipru_idx = next(i for i, r in enumerate(rules) if "geoip:ru" in (r.get("ip") or []))
     assert tt_idx < dsru_idx and tt_idx < geoipru_idx
 
 
@@ -736,10 +808,13 @@ def test_merge_tiktok_direct_is_idempotent() -> None:
 
 def test_merge_tiktok_direct_raises_when_no_direct_outbound() -> None:
     # A panel with no freedom/direct outbound -> refuse (would point at a dead outbound).
-    no_direct = {"outbounds": [{"tag": "blocked", "protocol": "blackhole"},
-                               {"tag": "ru-relay", "protocol": "vless",
-                                "settings": {"vnext": [{"address": mre.RU_RELAY_HOST}]}}],
-                 "routing": {"rules": []}}
+    no_direct = {
+        "outbounds": [
+            {"tag": "blocked", "protocol": "blackhole"},
+            {"tag": "ru-relay", "protocol": "vless", "settings": {"vnext": [{"address": mre.RU_RELAY_HOST}]}},
+        ],
+        "routing": {"rules": []},
+    }
     with pytest.raises(ValueError):
         mre.merge_tiktok_direct(no_direct)
 
@@ -749,8 +824,7 @@ def test_merge_tiktok_direct_does_not_mutate_input() -> None:
     before_rules = _rule_tags(before)
     mre.merge_tiktok_direct(before)
     assert _rule_tags(before) == before_rules
-    assert not any(set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)
-                   for r in before["routing"]["rules"])
+    assert not any(set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS) for r in before["routing"]["rules"])
 
 
 def test_has_tiktok_rule_detects_exact_domain_set() -> None:
@@ -778,10 +852,3 @@ def test_merge_tiktok_coexists_with_vk_and_max() -> None:
     assert len([r for r in rules if set(r.get("domain") or []) == set(mre.TIKTOK_DOMAINS)]) == 1
     assert len([r for r in rules if set(r.get("domain") or []) == set(mre.VK_DOMAINS)]) == 1
     assert len([r for r in rules if set(r.get("domain") or []) == set(mre.MAX_DOMAINS)]) == 1
-
-
-
-
-
-
-

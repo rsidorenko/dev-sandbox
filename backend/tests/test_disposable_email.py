@@ -6,16 +6,15 @@ import pytest
 
 from app.security import disposable_email as de
 
-
 # --- blocklist loads & contains known disposables ---
+
 
 def test_blocklist_loaded_and_nonempty() -> None:
     de._blocked_domains.cache_clear()
     try:
         blocked = de._blocked_domains()
         assert len(blocked) > 1000
-        for d in ("mailinator.com", "temp-mail.org", "10minutemail.com",
-                  "guerrillamail.com", "yopmail.com"):
+        for d in ("mailinator.com", "temp-mail.org", "10minutemail.com", "guerrillamail.com", "yopmail.com"):
             assert d in blocked
     finally:
         de._blocked_domains.cache_clear()
@@ -23,36 +22,43 @@ def test_blocklist_loaded_and_nonempty() -> None:
 
 # --- detection ---
 
-@pytest.mark.parametrize("email", [
-    "user@mailinator.com",
-    "x@temp-mail.org",
-    "y@10minutemail.com",
-    "z@guerrillamail.com",
-    "w@yopmail.com",
-])
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "user@mailinator.com",
+        "x@temp-mail.org",
+        "y@10minutemail.com",
+        "z@guerrillamail.com",
+        "w@yopmail.com",
+    ],
+)
 def test_disposable_detected(email: str) -> None:
     assert de.is_disposable_email(email) is True
 
 
-@pytest.mark.parametrize("email", [
-    "user@gmail.com",
-    "user@yandex.ru",
-    "user@mail.ru",
-    "user@inbox.ru",
-    "user@bk.ru",
-    "user@list.ru",
-    "user@rambler.ru",
-    "user@outlook.com",
-    "user@hotmail.com",
-    "user@live.com",
-    "user@yahoo.com",
-    "user@icloud.com",
-    "user@proton.me",
-    "user@protonmail.com",
-    "user@gmx.com",
-    "ivan@company-name.ru",      # corporate domain — never disposable
-    "name@university.edu",
-])
+@pytest.mark.parametrize(
+    "email",
+    [
+        "user@gmail.com",
+        "user@yandex.ru",
+        "user@mail.ru",
+        "user@inbox.ru",
+        "user@bk.ru",
+        "user@list.ru",
+        "user@rambler.ru",
+        "user@outlook.com",
+        "user@hotmail.com",
+        "user@live.com",
+        "user@yahoo.com",
+        "user@icloud.com",
+        "user@proton.me",
+        "user@protonmail.com",
+        "user@gmx.com",
+        "ivan@company-name.ru",  # corporate domain — never disposable
+        "name@university.edu",
+    ],
+)
 def test_normal_providers_allowed(email: str) -> None:
     assert de.is_disposable_email(email) is False
 
@@ -70,13 +76,14 @@ def test_subdomain_of_disposable_blocked() -> None:
 
 def test_malformed_fail_open() -> None:
     assert de.is_disposable_email("not-an-email") is False
-    assert de.is_disposable_email("a@b") is False           # no dot in domain
-    assert de.is_disposable_email("a@@b.com") is False      # double @
+    assert de.is_disposable_email("a@b") is False  # no dot in domain
+    assert de.is_disposable_email("a@@b.com") is False  # double @
     assert de.is_disposable_email("") is False
     assert de.is_disposable_email(None) is False  # type: ignore[arg-type]
 
 
 # --- fail-open on missing blocklist ---
+
 
 def test_fail_open_when_blocklist_missing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(de, "_DATA_FILE", tmp_path / "does-not-exist.txt")
@@ -89,6 +96,7 @@ def test_fail_open_when_blocklist_missing(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 # --- env allowlist override ---
+
 
 def test_env_allowlist_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DISPOSABLE_EMAIL_ALLOW", "temp-mail.org,mailinator.com")
@@ -107,19 +115,20 @@ def test_env_allowlist_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # --- handler wiring: POST /api/v1/auth/email/send-code ---
 
+
 class _FakePool:
     """Minimal asyncpg-like pool — never reached on the disposable path."""
 
-    async def fetchval(self, *a, **k):  # noqa: ANN001, D401
+    async def fetchval(self, *a, **k):
         return 0
 
-    async def execute(self, *a, **k):  # noqa: ANN001, D401
+    async def execute(self, *a, **k):
         return "OK"
 
-    async def fetchrow(self, *a, **k):  # noqa: ANN001, D401
+    async def fetchrow(self, *a, **k):
         return None
 
-    async def fetch(self, *a, **k):  # noqa: ANN001, D401
+    async def fetch(self, *a, **k):
         return []
 
 
@@ -130,6 +139,7 @@ def test_send_code_rejects_disposable_email(monkeypatch: pytest.MonkeyPatch) -> 
     # make SMTP look unconfigured so a normal email deterministically stops at 503
     # (proves it was NOT blocked as disposable) without sending any mail
     import app.email.sender as sender
+
     monkeypatch.setattr(sender, "load_smtp_config", lambda: None)
 
     from starlette.testclient import TestClient

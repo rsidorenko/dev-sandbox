@@ -8,7 +8,6 @@ from enum import StrEnum
 from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStatusInput
 from app.application.telegram_access_resend import (
     TelegramAccessResendInput,
-    TelegramAccessResendSourceCommand,
 )
 from app.security.validation import (
     ValidationError,

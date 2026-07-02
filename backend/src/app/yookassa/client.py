@@ -55,9 +55,7 @@ class YooKassaClient:
         return cls(shop_id=shop_id, api_key=api_key)
 
     def _auth_header(self) -> str:
-        return base64.b64encode(
-            f"{self._shop_id}:{self._api_key}".encode()
-        ).decode("ascii")
+        return base64.b64encode(f"{self._shop_id}:{self._api_key}".encode()).decode("ascii")
 
     async def create_payment(
         self,

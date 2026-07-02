@@ -116,15 +116,17 @@ class PostgresReferralRelationshipRepository:
         are the referrer). Distinct from find_referrers (which returns who referred
         *this* user) — this powers the 'invited' count shown in the bot/web."""
         async with self._pool.acquire() as conn:
-            return int(await conn.fetchval(
-                "SELECT COUNT(*) FROM referral_relationships "
-                "WHERE referrer_user_id = $1 AND level = 1",
-                user_id,
-            ))
+            return int(
+                await conn.fetchval(
+                    "SELECT COUNT(*) FROM referral_relationships WHERE referrer_user_id = $1 AND level = 1",
+                    user_id,
+                )
+            )
 
     @staticmethod
     async def find_referrers_in_connection(
-        conn: asyncpg.Connection, user_id: str,
+        conn: asyncpg.Connection,
+        user_id: str,
     ) -> tuple[ReferralRelationshipRecord, ...]:
         rows = await conn.fetch(
             "SELECT relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, created_at "
@@ -154,7 +156,8 @@ class PostgresReferralBalanceRepository:
 
     @staticmethod
     async def get_balance_in_connection(
-        conn: asyncpg.Connection, internal_user_id: str,
+        conn: asyncpg.Connection,
+        internal_user_id: str,
     ) -> ReferralBalanceRecord | None:
         row = await conn.fetchrow(
             "SELECT internal_user_id, balance_kopecks, updated_at FROM referral_balances WHERE internal_user_id = $1",
@@ -174,7 +177,9 @@ class PostgresReferralBalanceRepository:
 
     @staticmethod
     async def credit_in_connection(
-        conn: asyncpg.Connection, internal_user_id: str, amount_kopecks: int,
+        conn: asyncpg.Connection,
+        internal_user_id: str,
+        amount_kopecks: int,
     ) -> ReferralBalanceRecord:
         row = await conn.fetchrow(
             "INSERT INTO referral_balances (internal_user_id, balance_kopecks, updated_at) "
@@ -196,7 +201,9 @@ class PostgresReferralBalanceRepository:
 
     @staticmethod
     async def debit_in_connection(
-        conn: asyncpg.Connection, internal_user_id: str, amount_kopecks: int,
+        conn: asyncpg.Connection,
+        internal_user_id: str,
+        amount_kopecks: int,
     ) -> ReferralBalanceRecord | None:
         row = await conn.fetchrow(
             "UPDATE referral_balances SET balance_kopecks = balance_kopecks - $2, updated_at = now() "
@@ -241,7 +248,8 @@ class PostgresReferralTransactionRepository:
 
     @staticmethod
     async def append_transaction_if_description_absent_in_connection(
-        conn: asyncpg.Connection, record: ReferralTransactionRecord,
+        conn: asyncpg.Connection,
+        record: ReferralTransactionRecord,
     ) -> bool:
         result = await conn.execute(
             "INSERT INTO referral_transactions "
