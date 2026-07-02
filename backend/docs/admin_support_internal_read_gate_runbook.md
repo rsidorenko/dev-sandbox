@@ -11,6 +11,32 @@ This gate is **not** a substitute for **network boundary controls** on internal 
 
 For ADM-01 internal HTTP production boundary and deployment constraints, see the architecture decision record: [`docs/architecture/34-adm01-internal-http-production-boundary-adr.md`](../../docs/architecture/34-adm01-internal-http-production-boundary-adr.md).
 
+## Shared-secret authentication (fail-closed in production)
+
+Both ADM-01 and ADM-02 internal HTTP bridges gate every request with
+`app.admin_support.internal_auth.verify_internal_admin_secret`, which compares the
+`X-Admin-Secret` header to the `ADM_INTERNAL_SECRET` environment variable
+(constant-time via `hmac.compare_digest`).
+
+**Fail-closed by `APP_ENV`:**
+- **Production** `APP_ENV` (any value outside `development`/`dev`/`local`/`test`):
+  a missing/empty `ADM_INTERNAL_SECRET` **rejects every request with 401**.
+  Authorization no longer falls back to "network isolation".
+- **Local/test** `APP_ENV` (the default when `APP_ENV` is unset, matching
+  `app.security.config`): the secret is optional — local-dev and the test suite
+  keep working unchanged.
+
+**Deploy requirement (breaking change):** deployments that previously reached
+`/internal/admin/adm01/*` or `/internal/admin/adm02/*` without a secret must, on
+this deploy:
+
+1. set `ADM_INTERNAL_SECRET` to a strong random value in the production environment; and
+2. send `X-Admin-Secret: <same value>` from every admin client.
+
+Without both, admin endpoints return 401. Network-boundary controls (private
+network, mTLS, trusted reverse proxy) remain required defense-in-depth and are
+**not** a substitute for the shared secret.
+
 ## ADM-01 standalone internal HTTP entrypoint
 
 Standalone ADM-01 process entrypoint:
