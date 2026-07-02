@@ -48,7 +48,7 @@ Lightweight CI baseline (`backend-mvp-release-readiness`) runs only:
 - `python -m pytest -q tests/test_run_mvp_config_doctor.py`
 
 This CI lane is intentionally static/contracts-only and does not require real operator environment values.
-It is triggered by release/handoff docs/scripts/tests updates in `backend` and root-level `PROJECT_HANDOFF.md`.
+It is triggered by release/handoff docs/scripts/tests updates in `backend`.
 
 Recommended local/operator wrapper command for safe default release readiness path:
 
@@ -322,7 +322,6 @@ Targeted verification commands (from `backend`):
 
 ## Cross-references
 - Release package manifest: `backend/docs/mvp_release_artifact_manifest.md`
-- CI trigger decision note: `backend/docs/mvp_release_ci_trigger_decision.md`
 - Smoke and preflight details: `backend/docs/postgres_mvp_smoke_runbook.md`
 - Telegram access + webhook behavior: `backend/docs/telegram_access_resend_runbook.md`
 - ADM-01/ADM-02 internal gate details: `backend/docs/admin_support_internal_read_gate_runbook.md`

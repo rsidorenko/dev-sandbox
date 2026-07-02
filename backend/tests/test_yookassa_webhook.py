@@ -199,3 +199,26 @@ def test_fulfillment_input_carries_device_count_default_and_override() -> None:
         device_count=7,
     )
     assert inp.device_count == 7
+
+
+def test_amount_value_to_kopecks_is_exact() -> None:
+    """Provider money strings must convert to exact integer kopecks.
+
+    Locks in Decimal-based parsing (replaces the prior ``round(float(amount)*100)``
+    path, a fragile smell against the ``*_kopecks`` money-arithmetic rule). For
+    realistic 2-decimal provider amounts the result is exact; fractional-kopeck
+    inputs round HALF_UP; unparseable/missing values return ``None`` so callers
+    fall through to their existing amount-mismatch / validation paths.
+    """
+    from app.yookassa.webhook import _amount_value_to_kopecks
+
+    assert _amount_value_to_kopecks("1099.99") == 109999
+    assert _amount_value_to_kopecks("750.00") == 75000
+    assert _amount_value_to_kopecks("300") == 30000
+    assert _amount_value_to_kopecks("0.99") == 99
+    # HALF_UP for fractional kopecks (defensive — providers send 2dp).
+    assert _amount_value_to_kopecks("1.005") == 101
+    # Unparseable / missing → None.
+    assert _amount_value_to_kopecks("abc") is None
+    assert _amount_value_to_kopecks(None) is None
+    assert _amount_value_to_kopecks("") is None

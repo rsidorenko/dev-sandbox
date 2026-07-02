@@ -5,7 +5,9 @@ Operator script — runs from production backend container.
 Requires: DATABASE_URL, FIELD_ENCRYPTION_KEY env vars.
 
 The bot's PostgreSQL database is the source of truth. This script:
-1. Reads all active users (state_label='active', vless_uuid IS NOT NULL)
+1. Reads all active users (state_label='active'). VLESS UUIDs are derived
+   per-transport (uuid5) — user_identities.vless_uuid has been NULL for the
+   Telegram flow since PR #320, so it is NOT used to select/filter users.
 2. Reads all active vpn_servers
 3. Wipes bot-managed clients from each panel (preserves relay/service UUIDs)
 4. Re-adds every active user on every active server
@@ -80,6 +82,19 @@ def _expiry_from_datetime(dt: datetime | None) -> int:
         return int(dt.timestamp() * 1000)
     future = datetime.now(UTC) + timedelta(days=_DEFAULT_EXPIRY_DAYS)
     return int(future.timestamp() * 1000)
+
+
+def _user_summary_line(u: dict) -> str:
+    """One-line human summary of an active-user record (for progress output).
+
+    Deliberately does NOT reference ``u['vless_uuid']``: that column is NULL for
+    every Telegram user since PR #320 (UUIDs are derived per-transport), and
+    subscripting it crashed ``main()`` / ``--verify`` with TypeError. Kept as a
+    standalone function so the regression is unit-testable without a DB.
+    """
+    uid = u["internal_user_id"]
+    return (f"user={uid[:16]}  devices={u['device_count']}  "
+            f"until={u['active_until_utc']}")
 
 
 # ---------------------------------------------------------------------------
@@ -283,10 +298,11 @@ class PanelClient:
 
 async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
     """Load all active users. VLESS UUIDs are derived per-transport (uuid5), so we
-    do NOT filter on user_identities.vless_uuid (it is NULL for everyone since
-    PR #320); the per-transport uuid is computed via _vless_uuid_for_transport."""
+    do NOT select or filter on user_identities.vless_uuid (NULL for everyone on the
+    Telegram flow since PR #320); the per-transport uuid is computed via
+    _vless_uuid_for_transport at provisioning/verify time."""
     rows = await pool.fetch(
-        """SELECT i.internal_user_id, i.vless_uuid,
+        """SELECT i.internal_user_id,
                   s.device_count, s.active_until_utc
            FROM user_identities i
            JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
@@ -296,7 +312,6 @@ async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
     return [
         {
             "internal_user_id": r["internal_user_id"],
-            "vless_uuid": r["vless_uuid"],
             "device_count": r["device_count"] or 0,
             "active_until_utc": r["active_until_utc"],
         }
@@ -519,18 +534,14 @@ async def phase_stats(pool: asyncpg.Pool) -> None:
     total = await pool.fetchval("SELECT COUNT(*) FROM user_identities")
     print(f"  Всего пользователей: {total}")
 
-    with_uuid = await pool.fetchval("SELECT COUNT(*) FROM user_identities WHERE vless_uuid IS NOT NULL")
-    print(f"  С VLESS UUID: {with_uuid}")
-
     states = await pool.fetch("""
-        SELECT s.state_label, COUNT(*) as cnt, COUNT(i.vless_uuid) as with_uuid
-        FROM subscription_snapshots s
-        LEFT JOIN user_identities i ON i.internal_user_id = s.internal_user_id
-        GROUP BY s.state_label ORDER BY cnt DESC
+        SELECT state_label, COUNT(*) as cnt
+        FROM subscription_snapshots
+        GROUP BY state_label ORDER BY cnt DESC
     """)
     print("\n  Состояния подписок:")
     for r in states:
-        print(f"    {r['state_label']}: {r['cnt']} пользователей (с UUID: {r['with_uuid']})")
+        print(f"    {r['state_label']}: {r['cnt']} пользователей")
 
     expired_active = await pool.fetchval(
         "SELECT COUNT(*) FROM subscription_snapshots WHERE active_until_utc < NOW() AND state_label = 'active'"
@@ -543,12 +554,15 @@ async def phase_stats(pool: asyncpg.Pool) -> None:
     """)
     print(f"  Без подписки вообще: {no_snap}")
 
-    inactive_with_uuid = await pool.fetchval("""
-        SELECT COUNT(*) FROM user_identities i
-        JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-        WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+    # Keys are provisioned for every user via derived per-transport UUIDs, so
+    # vless_uuid can no longer flag "has keys on panels". keys_deleted_at IS NULL
+    # is the correct proxy: inactive users whose panel clients have not yet been
+    # purged by the 20-day grace cleanup.
+    inactive_with_keys = await pool.fetchval("""
+        SELECT COUNT(*) FROM subscription_snapshots
+        WHERE state_label != 'active' AND keys_deleted_at IS NULL
     """)
-    print(f"  Неактивных с UUID (ключи висят на панелях): {inactive_with_uuid}")
+    print(f"  Неактивных с ключами на панелях (keys_deleted_at IS NULL): {inactive_with_keys}")
 
     # Expiry dates of active users
     rows = await pool.fetch("""
@@ -573,7 +587,7 @@ async def phase_extend_expired(pool: asyncpg.Pool, days: int = 30, dry_run: bool
         """SELECT i.internal_user_id, s.active_until_utc, s.state_label
            FROM user_identities i
            JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-           WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+           WHERE s.state_label != 'active'
            ORDER BY i.internal_user_id"""
     )
 
@@ -602,7 +616,7 @@ async def phase_extend_expired(pool: asyncpg.Pool, days: int = 30, dry_run: bool
            WHERE internal_user_id IN (
                SELECT i.internal_user_id FROM user_identities i
                JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-               WHERE s.state_label != 'active' AND i.vless_uuid IS NOT NULL
+               WHERE s.state_label != 'active'
            )""",
         new_until,
     )
@@ -679,8 +693,7 @@ async def main() -> None:
 
         # Print user summary
         for u in users[:5]:
-            print(f"  user={u['internal_user_id'][:16]}... uuid={u['vless_uuid'][:8]}... "
-                  f"devices={u['device_count']} until={u['active_until_utc']}")
+            print(f"  {_user_summary_line(u)}")
         if len(users) > 5:
             print(f"  ... and {len(users) - 5} more")
 

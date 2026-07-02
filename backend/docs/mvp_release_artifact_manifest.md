@@ -2,13 +2,10 @@
 
 Short operator/reviewer checklist for MVP release package completeness.
 
-Final handoff status snapshot: `backend/RELEASE_STATUS.md`.
-
 ## Release readiness commands
 - `python scripts/run_mvp_release_readiness.py`
 - Default local/CI baseline static check: `python scripts/run_mvp_repo_release_health_check.py`
-- Final static handoff-only check before transfer: `python scripts/run_mvp_final_static_handoff_check.py` (includes `tests/test_mvp_release_readiness_workflow_structure_contract.py`; remains static/handoff-only and does not run Docker/DB/runtime)
-- Optional bounded handoff summary (read-only): `python scripts/print_mvp_release_handoff_summary.py`
+- Final static handoff-only check before transfer: `python scripts/run_mvp_final_static_handoff_check.py` (static/handoff-only; does not run Docker/DB/runtime)
 - `python scripts/run_mvp_release_checklist.py`
 - `python scripts/run_mvp_release_preflight.py`
 - `python scripts/run_mvp_config_doctor.py --profile polling|webhook|internal-admin|retention|all`
@@ -28,7 +25,7 @@ Workflow structure contract target: `tests/test_mvp_release_readiness_workflow_s
 
 ## CI gates
 - `backend-mvp-release-readiness`: static repo health check + static checklist + targeted preflight contracts + config doctor unit tests.
-  - Trigger scope includes root `PROJECT_HANDOFF.md` and backend release/handoff docs/scripts/tests.
+  - Trigger scope includes backend release/handoff docs/scripts/tests.
 - `backend-postgres-mvp-smoke-validation`: canonical PostgreSQL smoke gate and PostgreSQL integration evidence lane.
 
 ## Runtime surfaces
@@ -75,7 +72,6 @@ Workflow structure contract target: `tests/test_mvp_release_readiness_workflow_s
 
 ## Cross-reference
 - Readiness runbook: `backend/docs/mvp_release_readiness_runbook.md`
-- CI trigger decision note: `backend/docs/mvp_release_ci_trigger_decision.md`
 - Operator env bootstrap: `backend/docs/operator_environment_validation_bootstrap.md`
 
 ## Explicit out-of-scope

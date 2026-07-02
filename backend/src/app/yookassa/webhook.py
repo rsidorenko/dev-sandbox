@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 import asyncpg
@@ -26,6 +27,21 @@ _LOGGER = logging.getLogger(__name__)
 ENV_YOOKASSA_PROVIDER_KEY = "YOOKASSA_PROVIDER_KEY"
 
 _DEFAULT_PROVIDER_KEY = "yookassa_v1"
+
+
+def _amount_value_to_kopecks(amount_value: object) -> int | None:
+    """Convert a provider money amount (string/Decimal/number) to integer kopecks.
+
+    Uses ``Decimal`` to avoid float precision loss (e.g. ``"1099.99"`` must map
+    to ``109999``, not a value off by one). Returns ``None`` when the value
+    cannot be parsed, so callers fall through to their existing amount-mismatch
+    / validation paths unchanged.
+    """
+    try:
+        return int((Decimal(str(amount_value)) * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
 
 # YooKassa notification source IP ranges (Notification authentication — IP auth).
 # YooKassa does NOT send an HMAC signature header; per its docs, authenticity is
@@ -220,11 +236,7 @@ def create_yookassa_webhook_handler(
             return _safe_json_error(400, "invalid_payload")
         telegram_user_id, new_device_count, expected_amount_kopecks = parsed
 
-        paid_kopecks: int | None
-        try:
-            paid_kopecks = round(float(verified.amount_value) * 100)
-        except (ValueError, TypeError):
-            paid_kopecks = None
+        paid_kopecks = _amount_value_to_kopecks(verified.amount_value)
         if not _validate_add_device_amount(expected_amount_kopecks, paid_kopecks):
             _LOGGER.warning(
                 "yookassa webhook: add_device amount mismatch expected=%s got=%s id=%s",
@@ -438,11 +450,7 @@ def create_yookassa_webhook_handler(
             _LOGGER.warning("yookassa webhook: unknown plan_id=%s id=%s", plan_id, payment_id)
             return _safe_json_error(400, "invalid_plan")
 
-        amount_kopecks = None
-        try:
-            amount_kopecks = round(float(verified.amount_value) * 100)
-        except (ValueError, TypeError):
-            pass
+        amount_kopecks = _amount_value_to_kopecks(verified.amount_value)
 
         # Expected amount must cover the plan PLUS any extra devices the user paid
         # for (the bot/web charge calculate_total_price at creation). Checking only
