@@ -59,9 +59,7 @@ class PostgresAtomicBillingIngestion:
             constructed,
         )
         is_replay = not inserted_new
-        audit_outcome = (
-            BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
-        )
+        audit_outcome = BILLING_INGESTION_OUTCOME_IDEMPOTENT_REPLAY if is_replay else BILLING_INGESTION_OUTCOME_ACCEPTED
         await PostgresBillingIngestionAuditAppender.append_in_connection(
             conn,
             BillingIngestionAuditRecord(

@@ -20,10 +20,12 @@ def text_trial_expiring() -> tuple[str, dict[str, Any]]:
         "Через 24 часа доступ к VPN будет приостановлен.\n"
         "Оформите подписку, чтобы продолжить пользоваться VPN."
     )
-    keyboard = _inline_kb([
-        [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    keyboard = _inline_kb(
+        [
+            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
     return text, keyboard
 
 
@@ -34,10 +36,12 @@ def text_trial_expired() -> tuple[str, dict[str, Any]]:
         "Ваши ключи сохранены — при оформлении подписки они активируются автоматически.\n\n"
         "У вас есть 20 дней, после чего ключи будут удалены."
     )
-    keyboard = _inline_kb([
-        [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    keyboard = _inline_kb(
+        [
+            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
     return text, keyboard
 
 
@@ -47,10 +51,12 @@ def text_subscription_expiring(active_until: str) -> tuple[str, dict[str, Any]]:
         f"Действует до: {active_until}\n\n"
         f"Продлите подписку, чтобы не потерять доступ к VPN."
     )
-    keyboard = _inline_kb([
-        [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    keyboard = _inline_kb(
+        [
+            [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
     return text, keyboard
 
 
@@ -61,10 +67,12 @@ def text_subscription_expired() -> tuple[str, dict[str, Any]]:
         "Ваши ключи сохранены — при продлении они активируются автоматически.\n\n"
         "У вас есть 20 дней, после чего ключи будут удалены."
     )
-    keyboard = _inline_kb([
-        [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    keyboard = _inline_kb(
+        [
+            [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
     return text, keyboard
 
 
@@ -75,8 +83,10 @@ def text_keys_deleted() -> tuple[str, dict[str, Any]]:
         "ваши VPN-ключи были удалены.\n\n"
         "При оформлении новой подписки вам будут выданы новые ключи."
     )
-    keyboard = _inline_kb([
-        [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
-        [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-    ])
+    keyboard = _inline_kb(
+        [
+            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
     return text, keyboard

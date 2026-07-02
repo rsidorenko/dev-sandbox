@@ -118,19 +118,20 @@ def test_merge_detects_negative_id_web_account_and_reassigns_email(pg_url: str) 
             web_internal = _web_internal_id(_TEST_EMAIL)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id)"
-                    " VALUES ($1, $2)",
-                    _WEB_TG, web_internal,
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                    _WEB_TG,
+                    web_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
                     " VALUES ($1, $2, TRUE, now())",
-                    _WEB_TG, _TEST_EMAIL,
+                    _WEB_TG,
+                    _TEST_EMAIL,
                 )
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id)"
-                    " VALUES ($1, $2)",
-                    _REAL_TG, _telegram_internal_id(_REAL_TG),
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                    _REAL_TG,
+                    _telegram_internal_id(_REAL_TG),
                 )
 
             merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
@@ -166,36 +167,41 @@ def test_merge_migrates_subscription_and_referral_from_web_to_telegram(pg_url: s
             async with pool.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                    _WEB_TG, web_internal,
+                    _WEB_TG,
+                    web_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                    _REAL_TG, tg_internal,
+                    _REAL_TG,
+                    tg_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                    _INVITER_TG, inviter_internal,
+                    _INVITER_TG,
+                    inviter_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
                     " VALUES ($1, $2, TRUE, now())",
-                    _WEB_TG, _TEST_EMAIL,
+                    _WEB_TG,
+                    _TEST_EMAIL,
                 )
                 await conn.execute(
-                    "INSERT INTO subscription_snapshots (internal_user_id, state_label)"
-                    " VALUES ($1, 'active')",
+                    "INSERT INTO subscription_snapshots (internal_user_id, state_label) VALUES ($1, 'active')",
                     web_internal,
                 )
                 await conn.execute(
-                    "INSERT INTO referral_codes (internal_user_id, referral_code)"
-                    " VALUES ($1, $2)",
-                    inviter_internal, "INVTEST1",
+                    "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
+                    inviter_internal,
+                    "INVTEST1",
                 )
                 await conn.execute(
                     "INSERT INTO referral_relationships"
                     " (relationship_id, referred_user_id, referrer_user_id, level)"
                     " VALUES ($1, $2, $3, 1)",
-                    "rel-merge-test-1", web_internal, inviter_internal,
+                    "rel-merge-test-1",
+                    web_internal,
+                    inviter_internal,
                 )
 
             merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
@@ -257,47 +263,56 @@ def test_merge_telegram_paid_account_wins_all_conflicts(pg_url: str) -> None:
                 ):
                     await conn.execute(
                         "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                        tg, iid,
+                        tg,
+                        iid,
                     )
                 await conn.execute(
                     "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
                     " VALUES ($1, $2, TRUE, now())",
-                    _WEB_TG, _TEST_EMAIL,
+                    _WEB_TG,
+                    _TEST_EMAIL,
                 )
                 # web account: own referral code + referred by inviter1
                 await conn.execute(
                     "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
-                    web_internal, "WEBCODE1",
+                    web_internal,
+                    "WEBCODE1",
                 )
                 await conn.execute(
                     "INSERT INTO referral_relationships"
                     " (relationship_id, referred_user_id, referrer_user_id, level)"
                     " VALUES ($1, $2, $3, 1)",
-                    "rel-web-1", web_internal, inviter_internal,
+                    "rel-web-1",
+                    web_internal,
+                    inviter_internal,
                 )
                 await conn.execute(
                     "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
-                    inviter_internal, "INVTEST1",
+                    inviter_internal,
+                    "INVTEST1",
                 )
                 # telegram account: ACTIVE (paid) subscription + own code + referred by inviter2
                 await conn.execute(
-                    "INSERT INTO subscription_snapshots (internal_user_id, state_label)"
-                    " VALUES ($1, 'active')",
+                    "INSERT INTO subscription_snapshots (internal_user_id, state_label) VALUES ($1, 'active')",
                     tg_internal,
                 )
                 await conn.execute(
                     "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
-                    tg_internal, "TGCODE1",
+                    tg_internal,
+                    "TGCODE1",
                 )
                 await conn.execute(
                     "INSERT INTO referral_relationships"
                     " (relationship_id, referred_user_id, referrer_user_id, level)"
                     " VALUES ($1, $2, $3, 1)",
-                    "rel-tg-1", tg_internal, inviter2_internal,
+                    "rel-tg-1",
+                    tg_internal,
+                    inviter2_internal,
                 )
                 await conn.execute(
                     "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
-                    inviter2_internal, "INVTEST2",
+                    inviter2_internal,
+                    "INVTEST2",
                 )
 
             merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
@@ -323,8 +338,7 @@ def test_merge_telegram_paid_account_wins_all_conflicts(pg_url: str) -> None:
                 assert web_code is None
                 # Telegram keeps its OWN referrer (no unique violation); web's discarded
                 rel = await conn.fetchrow(
-                    "SELECT referrer_user_id FROM referral_relationships"
-                    " WHERE referred_user_id = $1 AND level = 1",
+                    "SELECT referrer_user_id FROM referral_relationships WHERE referred_user_id = $1 AND level = 1",
                     tg_internal,
                 )
                 assert rel is not None and rel["referrer_user_id"] == inviter2_internal
@@ -360,25 +374,26 @@ def test_merge_active_web_subscription_beats_expired_telegram(pg_url: str) -> No
             async with pool.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                    _WEB_TG, web_internal,
+                    _WEB_TG,
+                    web_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
-                    _REAL_TG, tg_internal,
+                    _REAL_TG,
+                    tg_internal,
                 )
                 await conn.execute(
                     "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
                     " VALUES ($1, $2, TRUE, now())",
-                    _WEB_TG, _TEST_EMAIL,
+                    _WEB_TG,
+                    _TEST_EMAIL,
                 )
                 await conn.execute(
-                    "INSERT INTO subscription_snapshots (internal_user_id, state_label)"
-                    " VALUES ($1, 'active')",
+                    "INSERT INTO subscription_snapshots (internal_user_id, state_label) VALUES ($1, 'active')",
                     web_internal,
                 )
                 await conn.execute(
-                    "INSERT INTO subscription_snapshots (internal_user_id, state_label)"
-                    " VALUES ($1, 'expired')",
+                    "INSERT INTO subscription_snapshots (internal_user_id, state_label) VALUES ($1, 'expired')",
                     tg_internal,
                 )
 

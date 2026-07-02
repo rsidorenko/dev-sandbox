@@ -86,6 +86,7 @@ async def handle_send_code(request: Request) -> JSONResponse:
 
     # Check SMTP is configured before doing anything
     from app.email.sender import load_smtp_config
+
     if load_smtp_config() is None:
         return _safe_json_error(503, "email_not_configured", "Email service is not available")
 
@@ -197,11 +198,13 @@ async def handle_verify_code(request: Request) -> JSONResponse:
     else:
         # New email — auto-create a web-only identity
         # Use negative ID to avoid collision with real Telegram user IDs
-        web_user_seq = await pool.fetchval(
-            "SELECT nextval('web_user_id_seq')"
-        ) if await pool.fetchval(
-            "SELECT COUNT(*) FROM information_schema.sequences WHERE sequence_name = 'web_user_id_seq'"
-        ) else None
+        web_user_seq = (
+            await pool.fetchval("SELECT nextval('web_user_id_seq')")
+            if await pool.fetchval(
+                "SELECT COUNT(*) FROM information_schema.sequences WHERE sequence_name = 'web_user_id_seq'"
+            )
+            else None
+        )
 
         if web_user_seq is None:
             # Create sequence if not exists, then use it
@@ -254,21 +257,25 @@ async def handle_verify_code(request: Request) -> JSONResponse:
         )
         internal_user_id = identity["internal_user_id"] if identity else f"u{telegram_user_id}"
 
-    token = _issue_jwt({
-        "telegram_user_id": telegram_user_id,
-        "internal_user_id": internal_user_id,
-        "email": email,
-    })
+    token = _issue_jwt(
+        {
+            "telegram_user_id": telegram_user_id,
+            "internal_user_id": internal_user_id,
+            "email": email,
+        }
+    )
     csrf_token = generate_csrf_token()
 
-    response = JSONResponse({
-        "ok": True,
-        "csrf_token": csrf_token,
-        "user": {
-            "telegram_user_id": telegram_user_id,
-            "email": email,
-        },
-    })
+    response = JSONResponse(
+        {
+            "ok": True,
+            "csrf_token": csrf_token,
+            "user": {
+                "telegram_user_id": telegram_user_id,
+                "email": email,
+            },
+        }
+    )
     ttl = _get_jwt_ttl_hours()
     response.set_cookie(
         key="session",

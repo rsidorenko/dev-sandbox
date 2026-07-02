@@ -20,11 +20,7 @@ def telegram_user_id_from_internal(internal_user_id: str) -> int | None:
     callers MUST skip non-positive ids — those accounts have no Telegram chat to deliver to. This
     is a documented invariant: keep in sync with internal_user_id_for_telegram. Pure + unit-tested.
     """
-    if (
-        not isinstance(internal_user_id, str)
-        or len(internal_user_id) < 2
-        or internal_user_id[0] != "u"
-    ):
+    if not isinstance(internal_user_id, str) or len(internal_user_id) < 2 or internal_user_id[0] != "u":
         return None
     try:
         return int(internal_user_id[1:])

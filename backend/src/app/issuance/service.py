@@ -108,7 +108,7 @@ class IssuanceService:
             for k in keys:
                 del self._resend_cached[k]
         if len(self._audit) > self._MAX_IN_MEMORY_ENTRIES:
-            self._audit = self._audit[-self._MAX_IN_MEMORY_ENTRIES // 2:]
+            self._audit = self._audit[-self._MAX_IN_MEMORY_ENTRIES // 2 :]
 
     def _append_audit(self, request: IssuanceRequest, category: IssuanceOutcomeCategory) -> None:
         self._maybe_evict_caches()

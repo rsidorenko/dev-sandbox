@@ -59,32 +59,38 @@ def _truthy(raw: str | None) -> bool:
 
 def _wrap_internal(handler):
     """Wrap an internal endpoint handler with mandatory secret-based auth."""
+
     async def _wrapped(request: Request) -> JSONResponse:
         auth_err = _require_internal_auth(request)
         if auth_err is not None:
             return auth_err
         return await handler(request)
+
     return _wrapped
 
 
 def _with_csrf(handler):
     """Wrap a handler to enforce CSRF validation before execution."""
+
     async def _wrapped(request: Request) -> JSONResponse:
         csrf_err = require_csrf(request)
         if csrf_err is not None:
             return csrf_err
         return await handler(request)
+
     return _wrapped
 
 
 def _with_auth(handler):
     """Wrap a handler to enforce JWT auth at routing level."""
+
     async def _wrapped(request: Request) -> JSONResponse:
         auth_result = await require_auth(request)
         if isinstance(auth_result, JSONResponse):
             return auth_result
         request.state.user = auth_result
         return await handler(request)
+
     return _wrapped
 
 
@@ -123,7 +129,9 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/trial/activate", _with_auth(_with_csrf(handle_activate_trial)), methods=["POST"]),
         # Payment
         Route("/api/v1/payment/create", _with_auth(_with_csrf(handle_create_payment)), methods=["POST"]),
-        Route("/api/v1/payment/add-devices", _with_auth(_with_csrf(handle_create_add_device_payment)), methods=["POST"]),
+        Route(
+            "/api/v1/payment/add-devices", _with_auth(_with_csrf(handle_create_add_device_payment)), methods=["POST"]
+        ),
         Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
         # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
         Route("/api/v1/internal/email/send-code", _wrap_internal(handle_bot_send_code), methods=["POST"]),
@@ -145,10 +153,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     else:
         app.state.vless_provider = StubVlessProvider()
 
-    bot_token = (
-        os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-        or os.environ.get("BOT_TOKEN", "").strip()
-    )
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
     if bot_token:
         from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
 

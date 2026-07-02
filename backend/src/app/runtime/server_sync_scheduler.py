@@ -41,7 +41,9 @@ class ServerSyncScheduler:
                 if added > 0 or failed > 0:
                     _LOGGER.info(
                         "server_sync_completed added=%d failed=%d total=%d",
-                        added, failed, total,
+                        added,
+                        failed,
+                        total,
                     )
             except Exception:
                 _LOGGER.exception("server_sync_error")
