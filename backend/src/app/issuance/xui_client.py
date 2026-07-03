@@ -96,6 +96,11 @@ class XuiServerConfig:
     # _build_vless_link cannot assemble (e.g. CDN-fronted xhttp with custom obfuscation). When
     # non-empty, the bot emits it verbatim with {UUID} -> per-user VLESS UUID. Empty = standard.
     link_template: str = ""
+    # 'xui' = a real 3x-ui panel (provider does panel CRUD here). 'bare_xray' = a relay-entry
+    # server with NO panel (e.g. Cloud.ru RU entry for Happ): the provider SKIPS panel CRUD for
+    # it, builds its /sub/ link straight from the row, and user UUIDs are mirrored by a periodic
+    # desired-state job. See migration 055.
+    provider_kind: str = "xui"
 
 
 class XuiApiClient:
