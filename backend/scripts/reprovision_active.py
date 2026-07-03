@@ -98,6 +98,15 @@ async def run() -> None:
                 print(f"  {uid} (tg={u['telegram_user_id']}): {u_ok} ok, {u_fail} FAIL")
         print(f"\nDONE: {grand_ok} ok, {grand_fail} fail across {len(users)} users × {len(servers)} servers"
               f"  ({fail_users} users had >=1 failure)")
+
+        # Mirror active users onto the bare_xray Cloud.ru relay entry (no panel — desired-state
+        # sync of its inbound clients; this is the enforcement for the Happ leg). Non-fatal:
+        # a failure here must not fail the fleet reprovision.
+        try:
+            import mirror_cloudru_clients as _mirror
+            await _mirror.run(pool)
+        except Exception as exc:  # noqa: BLE001
+            print(f"mirror_cloudru: FAILED (non-fatal): {exc}")
     finally:
         await pool.close()
 

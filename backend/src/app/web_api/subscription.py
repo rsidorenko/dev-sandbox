@@ -10,7 +10,7 @@ from urllib.parse import quote
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, Response
 
-from app.issuance.vless_provider import VlessProviderOutcome
+from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
 
 _SUB_RATE_LIMIT_MAX = 30
 _SUB_RATE_LIMIT_WINDOW = 60
@@ -82,6 +82,33 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)
 
-    links = "\n".join(s.vless_link for s in result.config.servers)
+    servers = _select_servers_for_client(
+        result.config.servers,
+        ua=request.headers.get("user-agent", ""),
+        client_param=request.query_params.get("client"),
+    )
+
+    links = "\n".join(s.vless_link for s in servers)
     encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
     return PlainTextResponse(encoded, media_type="text/plain")
+
+
+def _select_servers_for_client(
+    servers: tuple[VlessServerConfig, ...] | list[VlessServerConfig],
+    *,
+    ua: str,
+    client_param: str | None,
+) -> list[VlessServerConfig]:
+    """Pick which server links to serve based on the importing client.
+
+    A Happ import (User-Agent contains 'happ', or ?client=happ override) gets only
+    surface='happ' entries — the bare_xray RU-relay entry (Cloud.ru) that works in
+    Happ; the foreign 3x-ui fleet does not. Every other client (Karing, v2rayN, …)
+    gets surface='default' (the fleet), exactly as before. Falls back to the full set
+    when the requested surface is empty (e.g. Cloud.ru row inactive).
+    """
+    want_happ = "happ" in (ua or "").lower() or client_param == "happ"
+    if want_happ:
+        happ = [s for s in servers if s.surface == "happ"]
+        return happ if happ else list(servers)
+    return [s for s in servers if s.surface == "default"]

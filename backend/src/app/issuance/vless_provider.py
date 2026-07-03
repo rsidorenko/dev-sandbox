@@ -25,6 +25,11 @@ class VlessServerConfig:
     country_code: str
     country_flag: str
     vless_link: str
+    # Which client surface this link is meant for. 'default' = the foreign 3x-ui fleet
+    # (Karing and anything else). 'happ' = a bare-xray RU-relay entry (e.g. Cloud.ru) that
+    # the /sub/ endpoint serves only when the importing client is Happ. Defaults to
+    # 'default' so existing constructions (fleet links) are unchanged.
+    surface: str = "default"
 
 
 @dataclass(frozen=True, slots=True)

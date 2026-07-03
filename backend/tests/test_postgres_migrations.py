@@ -92,6 +92,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "052_remove_cdn_transport.sql",
         "053_vpn_servers_link_template.sql",
         "054_referral_tx_dedup_guard.sql",
+        "055_vpn_servers_provider_kind.sql",
     ]
 
 

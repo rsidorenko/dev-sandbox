@@ -213,7 +213,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(transport_type, 'tcp') AS transport_type,
                   COALESCE(api_token, '') AS api_token,
                   COALESCE(reality_fp, 'chrome') AS reality_fp,
-                  COALESCE(link_template, '') AS link_template
+                  COALESCE(link_template, '') AS link_template,
+                  COALESCE(provider_kind, 'xui') AS provider_kind
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -237,6 +238,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             transport_type=r["transport_type"],
             api_token=r["api_token"],
             link_template=r["link_template"],
+            provider_kind=r["provider_kind"],
         )
         for r in rows
     )
@@ -283,6 +285,9 @@ class XuiVlessProvider(VlessProviderPort):
         self._pool = pool
         self._clients: list[XuiApiClient] | None = None
         self._clients_ts: float = 0.0
+        # bare_xray server configs (RU-relay entries like Cloud.ru) populated alongside
+        # _clients by _get_clients. No XuiApiClient — these have no panel.
+        self._bare_xray_configs: tuple[XuiServerConfig, ...] = ()
         self._plaintext_warning_logged = False
         self._user_locks: dict[str, asyncio.Lock] = {}
         self._config_cache: dict[str, tuple[float, VlessProviderResult, int]] = {}
@@ -314,9 +319,32 @@ class XuiVlessProvider(VlessProviderPort):
         if self._clients is not None:
             await self._close_clients()
         configs = await _load_server_configs(self._pool)
-        self._clients = [XuiApiClient(c) for c in configs]
+        # Only 'xui' servers get a panel client. 'bare_xray' servers (no panel) are kept
+        # aside for link-building only — panel CRUD never touches them.
+        self._clients = [XuiApiClient(c) for c in configs if c.provider_kind == "xui"]
+        self._bare_xray_configs = tuple(c for c in configs if c.provider_kind == "bare_xray")
         self._clients_ts = time.monotonic()
         return self._clients
+
+    async def _bare_xray_servers(self, internal_user_id: str) -> list[VlessServerConfig]:
+        """Build surface='happ' link entries for each bare_xray (RU-relay) server using the
+        user's deterministic tcp UUID. These servers have no panel; the periodic mirror job
+        (scripts/mirror_cloudru_clients.py) keeps their inbound clients in sync, so the link
+        is functional for active subscribers. Must be called after _get_clients has populated
+        _bare_xray_configs. Returns [] when there are no bare_xray servers configured."""
+        if not self._bare_xray_configs:
+            return []
+        user_uuid = _vless_uuid_for_transport(internal_user_id, "tcp")
+        return [
+            VlessServerConfig(
+                server_label=c.label,
+                country_code=c.country_code,
+                country_flag=c.country_flag,
+                vless_link=_build_vless_link(c, user_uuid),
+                surface="happ",
+            )
+            for c in self._bare_xray_configs
+        ]
 
     async def _close_clients(self) -> None:
         if self._clients is None:
@@ -401,7 +429,7 @@ class XuiVlessProvider(VlessProviderPort):
         if not successes:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        servers = tuple(
+        servers = [
             VlessServerConfig(
                 server_label=c.server_config.label,
                 country_code=c.server_config.country_code,
@@ -409,12 +437,15 @@ class XuiVlessProvider(VlessProviderPort):
                 vless_link=_build_vless_link(c.server_config, uuid),
             )
             for c, uuid in successes
-        )
+        ]
+        # Append bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — same set /sub/ serves.
+        servers.extend(await self._bare_xray_servers(internal_user_id))
+        servers_tuple = tuple(servers)
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
             user_uuid=_user_uuid_from_internal(internal_user_id),
             subscription_url=_web_sub_url(token),
-            servers=servers,
+            servers=servers_tuple,
         )
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS, config=config)
 
@@ -483,6 +514,10 @@ class XuiVlessProvider(VlessProviderPort):
 
         if not servers:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+        # Append the bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — they have no
+        # panel to probe, so the link is built deterministically for any provisioned user.
+        servers.extend(await self._bare_xray_servers(internal_user_id))
 
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(

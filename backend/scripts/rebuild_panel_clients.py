@@ -320,7 +320,13 @@ async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
 
 
 async def _load_server_configs(pool: asyncpg.Pool) -> list[dict]:
-    """Load all active server configs."""
+    """Load active 3x-ui panel server configs.
+
+    Excludes provider_kind='bare_xray' rows (e.g. the Cloud.ru RU-relay entry): those
+    have no panel, so panel CRUD (here, in reprovision_active, and in main()) must skip
+    them — otherwise login fails and main() aborts. They are reconciled by
+    mirror_cloudru_clients.py instead.
+    """
     from app.security.field_encryption import decrypt_field
 
     rows = await pool.fetch(
@@ -328,7 +334,9 @@ async def _load_server_configs(pool: asyncpg.Pool) -> list[dict]:
                   panel_url, panel_username, panel_password,
                   COALESCE(encrypted_password, '') AS encrypted_password,
                   inbound_id, COALESCE(transport_type, 'tcp') AS transport_type
-           FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
+           FROM vpn_servers
+           WHERE is_active = TRUE AND provider_kind = 'xui'
+           ORDER BY id"""
     )
     configs = []
     for r in rows:
