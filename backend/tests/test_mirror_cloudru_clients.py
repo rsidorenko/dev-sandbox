@@ -41,9 +41,9 @@ def test_desired_client_uuids_deterministic_dedup_sorted(script: ModuleType) -> 
     out1 = script.desired_client_uuids(ids)
     out2 = script.desired_client_uuids(ids)
 
-    assert out1 == out2                      # deterministic
-    assert out1 == sorted(out1)              # sorted
-    assert len(out1) == 3                    # deduped (u111 once)
+    assert out1 == out2  # deterministic
+    assert out1 == sorted(out1)  # sorted
+    assert len(out1) == 3  # deduped (u111 once)
     # matches the per-transport tcp uuid mirror
     assert out1[0] == script._vless_uuid_for_transport("u111", "tcp")
 
@@ -82,7 +82,11 @@ def _sample_config(clients: list[dict] | None = None) -> dict:
                     "decryption": "none",
                     "clients": list(clients or []),
                 },
-                "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"shortIds": ["a4084380"]}},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {"shortIds": ["a4084380"]},
+                },
             }
         ],
         "outbounds": [{"tag": "frankfurt-relay", "protocol": "vless"}],
@@ -121,11 +125,7 @@ def test_rewrite_clients_no_inbounds_is_noop(script: ModuleType) -> None:
 
 def test_rewrite_clients_settings_as_json_string(script: ModuleType) -> None:
     desired = [{"id": "x", "flow": "xtls-rprx-vision"}]
-    config = {
-        "inbounds": [
-            {"port": 443, "settings": json.dumps({"decryption": "none", "clients": []})}
-        ]
-    }
+    config = {"inbounds": [{"port": 443, "settings": json.dumps({"decryption": "none", "clients": []})}]}
     new, changed = script.rewrite_clients(config, desired)
     assert changed is True
     assert new["inbounds"][0]["settings"]["clients"] == desired
