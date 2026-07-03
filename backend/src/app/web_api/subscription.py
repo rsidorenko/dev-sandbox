@@ -82,6 +82,21 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)
 
-    links = "\n".join(s.vless_link for s in result.config.servers)
+    # UA-aware serving: a Happ import gets only the bare_xray RU-relay entry
+    # (surface='happ', e.g. Cloud.ru) — the foreign 3x-ui fleet doesn't work in Happ.
+    # Every other client (Karing, v2rayN, …) gets the fleet (surface='default') as
+    # before. ?client=happ forces the Happ set regardless of UA (safety fallback if a
+    # client's UA doesn't contain "happ"). Falls back to the full set if the requested
+    # surface is empty (e.g. Cloud.ru row inactive).
+    ua = request.headers.get("user-agent", "").lower()
+    want_happ = "happ" in ua or request.query_params.get("client") == "happ"
+    servers = result.config.servers
+    if want_happ:
+        happ_servers = [s for s in servers if s.surface == "happ"]
+        servers = happ_servers if happ_servers else servers
+    else:
+        servers = [s for s in servers if s.surface == "default"]
+
+    links = "\n".join(s.vless_link for s in servers)
     encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
     return PlainTextResponse(encoded, media_type="text/plain")
