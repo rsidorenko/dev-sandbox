@@ -429,7 +429,7 @@ class XuiVlessProvider(VlessProviderPort):
         if not successes:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
-        servers = list(
+        servers = [
             VlessServerConfig(
                 server_label=c.server_config.label,
                 country_code=c.server_config.country_code,
@@ -437,7 +437,7 @@ class XuiVlessProvider(VlessProviderPort):
                 vless_link=_build_vless_link(c.server_config, uuid),
             )
             for c, uuid in successes
-        )
+        ]
         # Append bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — same set /sub/ serves.
         servers.extend(await self._bare_xray_servers(internal_user_id))
         servers_tuple = tuple(servers)

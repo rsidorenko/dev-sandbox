@@ -3,8 +3,6 @@ and the provider's bare_xray (Cloud.ru) link builder."""
 
 from __future__ import annotations
 
-import pytest
-
 from app.issuance.vless_provider import VlessServerConfig
 from app.issuance.xui_client import XuiServerConfig
 from app.issuance.xui_vless_provider import (
