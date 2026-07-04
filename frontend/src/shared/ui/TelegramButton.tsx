@@ -10,6 +10,8 @@ export function TelegramIcon({ className }: { className?: string }) {
   );
 }
 
+import { siteConfig } from "@/shared/config/site";
+
 type Props = {
   className?: string;
   label?: string;
@@ -26,7 +28,7 @@ export function TelegramButton({
 }: Props) {
   return (
     <a
-      href="https://t.me/BravadaVPN_bot"
+      href={`https://t.me/${siteConfig.botUsername}`}
       target="_blank"
       rel="noopener noreferrer"
       className={className}
