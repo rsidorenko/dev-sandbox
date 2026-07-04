@@ -1,20 +1,20 @@
 export const siteConfig = {
-  // === Реквизиты (заполните реальными данными перед запуском) ===
+  // === Реквизиты оператора (реальные данные) ===
   ipName: "ИП Сидоренко Роман Романович",
-  inn: "614025157300", // TODO: заменить на реальный ИНН
-  ogrnip: "326930100014172", // TODO: указать ОГРНИП при наличии
+  inn: "614025157300",
+  ogrnip: "326930100014172",
   supportEmail: "bravadavpn_sup@mail.ru",
-  supportPhone: "", // TODO: указать телефон при наличии
+  supportPhone: "",
   supportTelegram: "https://t.me/bravada_support",
   supportTelegramHandle: "@bravada_support",
-  postalAddress: "", // TODO: указать почтовый адрес для корреспонденции
-  botUsername: "bravadavpn_bot", // TODO: заменить на username Telegram-бота (без @)
-  // ==============================================================
+  postalAddress: "",
+  botUsername: "bravadavpn_bot", // сверить с BOT_USERNAME в backend (.env) — все Telegram-ссылки идут отсюда
+  // =============================================
 
   siteName: "Bravada",
   siteDescription:
     "Услуга защищённого сетевого доступа. Персональный защищённый сетевой туннель с шифрованием соединения для защиты трафика в публичных сетях.",
-  siteUrl: "https://your-domain.com", // TODO: заменить на реальный домен
+  siteUrl: "https://bravada-connect.ru",
 
   tariffs: [
     {
