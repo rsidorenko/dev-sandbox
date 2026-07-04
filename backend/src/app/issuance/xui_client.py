@@ -112,6 +112,10 @@ class XuiServerConfig:
     # the h1cloud Pterodactyl h1-fork (needs its own client schema + an xray restart after client
     # changes). The provider's h1 path does batch desired-state + restartXrayService. mig 058.
     panel_flavor: str = "standard"
+    # Per-row SSH creds for bare_xray servers (XrayApiClient SSHes to run grpcurl). Overrides
+    # CLOUDRU_SSH_USER / CLOUDRU_SSH_KEY env; empty = use env (Cloud.ru stays on env). mig 059.
+    ssh_user: str = ""
+    ssh_key_path: str = ""
 
 
 class XuiApiClient:

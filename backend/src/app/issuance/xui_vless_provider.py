@@ -246,7 +246,9 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(provider_kind, 'xui') AS provider_kind,
                   COALESCE(xray_inbound_tag, '') AS xray_inbound_tag,
                   COALESCE(client_surface, 'default') AS client_surface,
-                  COALESCE(panel_flavor, 'standard') AS panel_flavor
+                  COALESCE(panel_flavor, 'standard') AS panel_flavor,
+                  COALESCE(ssh_user, '') AS ssh_user,
+                  COALESCE(ssh_key_path, '') AS ssh_key_path
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -274,6 +276,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             xray_inbound_tag=r["xray_inbound_tag"],
             client_surface=r["client_surface"],
             panel_flavor=r["panel_flavor"],
+            ssh_user=r["ssh_user"],
+            ssh_key_path=r["ssh_key_path"],
         )
         for r in rows
     )
@@ -389,26 +393,30 @@ class XuiVlessProvider(VlessProviderPort):
         ]
 
     async def _get_bare_xray_clients(self) -> tuple[XrayApiClient, ...]:
-        """XrayApiClient per gRPC-managed bare_xray inbound, built from CLOUDRU_SSH_* env.
-        Cached. Returns () (live lifecycle disabled) when there are no bare_xray rows, no
-        tagged inbounds, or the SSH creds are unset — reconcile keeps retrying on each run."""
+        """XrayApiClient per gRPC-managed bare_xray inbound. Per-row SSH creds (ssh_user /
+        ssh_key_path from vpn_servers) override the global CLOUDRU_SSH_* env — so multiple
+        bare_xray servers with different SSH keys (Cloud.ru + bravada2) coexist. Cached.
+        Returns () when there are no bare_xray rows, no tagged inbounds, or creds unset."""
         if self._bare_xray_clients is not None:
             return self._bare_xray_clients
         await self._get_clients()  # ensures _bare_xray_configs is populated
-        ssh_user = os.environ.get("CLOUDRU_SSH_USER", "")
-        ssh_key = os.environ.get("CLOUDRU_SSH_KEY", "")
+        env_ssh_user = os.environ.get("CLOUDRU_SSH_USER", "")
+        env_ssh_key = os.environ.get("CLOUDRU_SSH_KEY", "")
         api_port = int(os.environ.get("CLOUDRU_XRAY_API_PORT", str(DEFAULT_API_PORT)))
         tagged = [c for c in self._bare_xray_configs if c.xray_inbound_tag]
-        if tagged and not (ssh_user and ssh_key):
-            _LOGGER.warning(
-                "bare_xray servers present but CLOUDRU_SSH_USER/CLOUDRU_SSH_KEY unset — "
-                "live lifecycle disabled; reconcile will retry"
-            )
-        self._bare_xray_clients = tuple(
-            XrayApiClient(c, ssh_user=ssh_user, ssh_key=ssh_key, api_port=api_port)
-            for c in tagged
-            if ssh_user and ssh_key
-        )
+        result: list[XrayApiClient] = []
+        for c in tagged:
+            ssh_user = c.ssh_user or env_ssh_user
+            ssh_key = c.ssh_key_path or env_ssh_key
+            if not (ssh_user and ssh_key):
+                _LOGGER.warning(
+                    "bare_xray server=%s has no SSH creds (neither row nor CLOUDRU_SSH_* env) — "
+                    "live lifecycle disabled; reconcile will retry",
+                    c.server_id,
+                )
+                continue
+            result.append(XrayApiClient(c, ssh_user=ssh_user, ssh_key=ssh_key, api_port=api_port))
+        self._bare_xray_clients = tuple(result)
         return self._bare_xray_clients
 
     async def _bare_xray_lifecycle(self, internal_user_id: str, action: str) -> None:

@@ -91,6 +91,8 @@ services:
       # Bind-mount the Cloud.ru SSH key from /root/.ssh (survives deploy's rm -rf
       # /opt/bravada, which preserves only .env + ssl/). Read-only in the container.
       - /root/.ssh/cloudru_key.pem:/opt/bravada/cloudru_key.pem:ro
+      # Bind-mount the bravada2 (Helsinki-entry) SSH key — same pattern, per-row creds.
+      - /root/.ssh/helsinki_entry_key.pem:/opt/bravada/helsinki_entry_key.pem:ro
     expose:
       - "8000"
 
