@@ -31,6 +31,7 @@ from app.issuance.xui_client import (
     XuiOutcome,
     XuiServerConfig,
 )
+from app.issuance.xray_api_client import DEFAULT_API_PORT, XrayApiClient
 from app.security.field_encryption import decrypt_field
 from app.shared.site_url import get_site_base_url
 
@@ -214,7 +215,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(api_token, '') AS api_token,
                   COALESCE(reality_fp, 'chrome') AS reality_fp,
                   COALESCE(link_template, '') AS link_template,
-                  COALESCE(provider_kind, 'xui') AS provider_kind
+                  COALESCE(provider_kind, 'xui') AS provider_kind,
+                  COALESCE(xray_inbound_tag, '') AS xray_inbound_tag
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -239,6 +241,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             api_token=r["api_token"],
             link_template=r["link_template"],
             provider_kind=r["provider_kind"],
+            xray_inbound_tag=r["xray_inbound_tag"],
         )
         for r in rows
     )
@@ -288,6 +291,8 @@ class XuiVlessProvider(VlessProviderPort):
         # bare_xray server configs (RU-relay entries like Cloud.ru) populated alongside
         # _clients by _get_clients. No XuiApiClient — these have no panel.
         self._bare_xray_configs: tuple[XuiServerConfig, ...] = ()
+        # Cached XrayApiClient instances (one per bare_xray inbound), built from env creds.
+        self._bare_xray_clients: tuple[XrayApiClient, ...] | None = None
         self._plaintext_warning_logged = False
         self._user_locks: dict[str, asyncio.Lock] = {}
         self._config_cache: dict[str, tuple[float, VlessProviderResult, int]] = {}
@@ -323,28 +328,75 @@ class XuiVlessProvider(VlessProviderPort):
         # aside for link-building only — panel CRUD never touches them.
         self._clients = [XuiApiClient(c) for c in configs if c.provider_kind == "xui"]
         self._bare_xray_configs = tuple(c for c in configs if c.provider_kind == "bare_xray")
+        # Invalidate the bare_xray gRPC client cache so new/changed rows take effect.
+        if self._bare_xray_clients:
+            for bx in self._bare_xray_clients:
+                with contextlib.suppress(Exception):
+                    await bx.aclose()
+            self._bare_xray_clients = None
         self._clients_ts = time.monotonic()
         return self._clients
 
     async def _bare_xray_servers(self, internal_user_id: str) -> list[VlessServerConfig]:
-        """Build surface='happ' link entries for each bare_xray (RU-relay) server using the
-        user's deterministic tcp UUID. These servers have no panel; the periodic mirror job
-        (scripts/mirror_cloudru_clients.py) keeps their inbound clients in sync, so the link
-        is functional for active subscribers. Must be called after _get_clients has populated
-        _bare_xray_configs. Returns [] when there are no bare_xray servers configured."""
+        """surface='happ' links for each bare_xray (RU-relay) inbound — one per transport
+        (tcp :443 + xhttp :8443 on Cloud.ru). Uses the per-transport deterministic UUID;
+        the inbounds are kept in sync LIVE by _bare_xray_lifecycle (add on subscribe /
+        remove on expire) + reconcile, so the link is functional for active subscribers.
+        [] when no bare_xray servers are configured."""
         if not self._bare_xray_configs:
             return []
-        user_uuid = _vless_uuid_for_transport(internal_user_id, "tcp")
         return [
             VlessServerConfig(
                 server_label=c.label,
                 country_code=c.country_code,
                 country_flag=c.country_flag,
-                vless_link=_build_vless_link(c, user_uuid),
+                vless_link=_build_vless_link(c, _vless_uuid_for_transport(internal_user_id, c.transport_type)),
                 surface="happ",
             )
             for c in self._bare_xray_configs
         ]
+
+    async def _get_bare_xray_clients(self) -> tuple[XrayApiClient, ...]:
+        """XrayApiClient per gRPC-managed bare_xray inbound, built from CLOUDRU_SSH_* env.
+        Cached. Returns () (live lifecycle disabled) when there are no bare_xray rows, no
+        tagged inbounds, or the SSH creds are unset — reconcile keeps retrying on each run."""
+        if self._bare_xray_clients is not None:
+            return self._bare_xray_clients
+        await self._get_clients()  # ensures _bare_xray_configs is populated
+        ssh_user = os.environ.get("CLOUDRU_SSH_USER", "")
+        ssh_key = os.environ.get("CLOUDRU_SSH_KEY", "")
+        api_port = int(os.environ.get("CLOUDRU_XRAY_API_PORT", str(DEFAULT_API_PORT)))
+        tagged = [c for c in self._bare_xray_configs if c.xray_inbound_tag]
+        if tagged and not (ssh_user and ssh_key):
+            _LOGGER.warning(
+                "bare_xray servers present but CLOUDRU_SSH_USER/CLOUDRU_SSH_KEY unset — "
+                "live lifecycle disabled; reconcile will retry"
+            )
+        self._bare_xray_clients = tuple(
+            XrayApiClient(c, ssh_user=ssh_user, ssh_key=ssh_key, api_port=api_port)
+            for c in tagged
+            if ssh_user and ssh_key
+        )
+        return self._bare_xray_clients
+
+    async def _bare_xray_lifecycle(self, internal_user_id: str, action: str) -> None:
+        """Add ('add') or remove ('remove') the user on every bare_xray inbound via xray gRPC
+        (live, no restart). Non-fatal: a failure is logged and the periodic reconcile re-applies."""
+        clients = await self._get_bare_xray_clients()
+        for client in clients:
+            transport = client.server_config.transport_type
+            email = _email_from_internal(internal_user_id, transport_type=transport)
+            try:
+                if action == "add":
+                    user_uuid = _vless_uuid_for_transport(internal_user_id, transport)
+                    await client.add_client(user_uuid=user_uuid, email=email)
+                else:
+                    await client.remove_client(email=email)
+            except Exception as exc:  # noqa: BLE001 — never let a bare_xray op crash the bot
+                _LOGGER.warning(
+                    "xray_api %s failed server=%s user=%s: %r",
+                    action, client.server_id, internal_user_id[:8], exc,
+                )
 
     async def _close_clients(self) -> None:
         if self._clients is None:
@@ -369,6 +421,11 @@ class XuiVlessProvider(VlessProviderPort):
         for task in list(self._refresh_tasks):
             task.cancel()
         await self._close_clients()
+        if self._bare_xray_clients:
+            for bx in self._bare_xray_clients:
+                with contextlib.suppress(Exception):
+                    await bx.aclose()
+            self._bare_xray_clients = None
 
     async def create_user(
         self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
@@ -440,6 +497,8 @@ class XuiVlessProvider(VlessProviderPort):
         ]
         # Append bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — same set /sub/ serves.
         servers.extend(await self._bare_xray_servers(internal_user_id))
+        # Live-provision the user on each bare_xray inbound (xray gRPC, no restart).
+        await self._bare_xray_lifecycle(internal_user_id, "add")
         servers_tuple = tuple(servers)
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
@@ -601,6 +660,8 @@ class XuiVlessProvider(VlessProviderPort):
 
         raw = await _run_sequential_per_panel(clients, _disable)
 
+        await self._bare_xray_lifecycle(internal_user_id, "remove")
+
         any_disabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
         if any_disabled:
@@ -642,6 +703,8 @@ class XuiVlessProvider(VlessProviderPort):
 
         raw = await _run_sequential_per_panel(clients, _reactivate)
 
+        await self._bare_xray_lifecycle(internal_user_id, "add")
+
         any_enabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
         if any_enabled:
@@ -665,6 +728,8 @@ class XuiVlessProvider(VlessProviderPort):
             return await client.delete_client(user_uuid=user_uuid)
 
         raw = await _run_sequential_per_panel(clients, _delete)
+
+        await self._bare_xray_lifecycle(internal_user_id, "remove")
 
         any_deleted = any(
             not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
@@ -784,6 +849,40 @@ class XuiVlessProvider(VlessProviderPort):
                 added += 1
             if user_failed:
                 failed += 1
+
+        # --- bare_xray reconcile (live xray gRPC): full desired-state per inbound.
+        # Repopulates Cloud.ru after an xray restart (API users are in-memory only) and
+        # removes orphans (users present on an inbound but no longer active/in-grace). ---
+        bx_clients = await self._get_bare_xray_clients()
+        bx_added = bx_removed = 0
+        for client in bx_clients:
+            transport = client.server_config.transport_type
+            desired = {
+                _email_from_internal(u["internal_user_id"], transport_type=transport) for u in users
+            }
+            try:
+                present = set(await client.list_user_emails())
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("reconcile bx_list_failed server=%s", client.server_id)
+                continue
+            for u in users:
+                email = _email_from_internal(u["internal_user_id"], transport_type=transport)
+                if email in present:
+                    continue
+                uid = u["internal_user_id"]
+                try:
+                    if await client.add_client(
+                        user_uuid=_vless_uuid_for_transport(uid, transport), email=email
+                    ):
+                        bx_added += 1
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("reconcile bx_add_failed user=%s server=%s", uid[:8], client.server_id)
+            for orphan in present - desired:
+                with contextlib.suppress(Exception):
+                    if await client.remove_client(email=orphan):
+                        bx_removed += 1
+        if bx_clients:
+            _LOGGER.info("reconcile_bare_xray added=%d removed=%d", bx_added, bx_removed)
 
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)

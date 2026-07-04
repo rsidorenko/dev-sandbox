@@ -101,6 +101,9 @@ class XuiServerConfig:
     # it, builds its /sub/ link straight from the row, and user UUIDs are mirrored by a periodic
     # desired-state job. See migration 055.
     provider_kind: str = "xui"
+    # For 'bare_xray' rows: the xray inbound tag XrayApiClient addresses when managing users
+    # live via xray's gRPC HandlerService.AlterInbound. Empty for 'xui' rows.
+    xray_inbound_tag: str = ""
 
 
 class XuiApiClient:
