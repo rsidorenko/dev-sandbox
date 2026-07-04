@@ -70,13 +70,13 @@ async def run() -> None:
             )
             """,
             ROW_ID,
-            "Россия 🔄 (Happ)",     # label
-            "RU",                   # country_code
-            "🇷🇺",                   # country_flag
-            CLOUDRU_HOST,           # server_host
-            CLOUDRU_PBK,            # reality_pbk
-            CLOUDRU_SID,            # reality_sid
-            CLOUDRU_SNI,            # reality_sni
+            "Франкфурт 1.0(Happ)",  # label — users exit via Frankfurt (DE), not the RU entry
+            "DE",  # country_code
+            "🇩🇪",  # country_flag
+            CLOUDRU_HOST,  # server_host
+            CLOUDRU_PBK,  # reality_pbk
+            CLOUDRU_SID,  # reality_sid
+            CLOUDRU_SNI,  # reality_sni
         )
         print(f"Inserted vpn_servers row id={ROW_ID} ({CLOUDRU_HOST}) provider_kind=bare_xray")
 
@@ -89,7 +89,9 @@ async def run() -> None:
         print(f"Verified: {dict(row)}")
 
         count = await pool.fetchval("SELECT count(*) FROM vpn_servers WHERE is_active = TRUE")
-        bare = await pool.fetchval("SELECT count(*) FROM vpn_servers WHERE is_active = TRUE AND provider_kind = 'bare_xray'")
+        bare = await pool.fetchval(
+            "SELECT count(*) FROM vpn_servers WHERE is_active = TRUE AND provider_kind = 'bare_xray'"
+        )
         print(f"Total active servers: {count} (bare_xray: {bare})")
         print(
             "\nThe provider builds the Happ /sub/ link from this row (no panel ops). "
