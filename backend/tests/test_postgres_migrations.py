@@ -96,6 +96,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "056_vpn_servers_xray_inbound_tag.sql",
         "057_vpn_servers_client_surface.sql",
         "058_vpn_servers_panel_flavor.sql",
+        "059_vpn_servers_bare_xray_ssh.sql",
     ]
 
 
