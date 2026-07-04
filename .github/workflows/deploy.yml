@@ -298,7 +298,7 @@ jobs:
                     rows = await conn.fetch(
                         "SELECT id, panel_url, panel_username, panel_password, "
                         "COALESCE(encrypted_password, '') AS encrypted_password, inbound_id "
-                        "FROM vpn_servers WHERE is_active = TRUE"
+                        "FROM vpn_servers WHERE is_active = TRUE AND COALESCE(panel_url, '') != ''"
                     )
                     if not rows:
                         print('No active VPN servers found.')
@@ -443,7 +443,7 @@ jobs:
                     rows = await pool.fetch(
                         "SELECT id, label, panel_url, panel_username, panel_password, "
                         "COALESCE(encrypted_password, '') AS encrypted_password "
-                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                        "FROM vpn_servers WHERE is_active = TRUE AND COALESCE(panel_url, '') != '' ORDER BY id"
                     )
                     import httpx
                     for row in rows:
@@ -695,7 +695,7 @@ jobs:
                     rows = await pool.fetch(
                         "SELECT id, label, panel_url, panel_username, "
                         "COALESCE(encrypted_password, '') AS enc_pwd, panel_password "
-                        "FROM vpn_servers WHERE is_active = TRUE ORDER BY id"
+                        "FROM vpn_servers WHERE is_active = TRUE AND COALESCE(panel_url, '') != '' ORDER BY id"
                     )
                     import httpx
                     for row in rows:
