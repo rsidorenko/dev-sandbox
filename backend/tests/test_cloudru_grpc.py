@@ -30,6 +30,7 @@ def _bx_config(transport: str, port: int, tag: str, ws_path: str = "/bravada-xht
         transport_type=transport,
         provider_kind="bare_xray",
         xray_inbound_tag=tag,
+        client_surface="happ",
     )
 
 
