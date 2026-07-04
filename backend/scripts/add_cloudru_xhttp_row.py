@@ -37,8 +37,10 @@ async def run() -> None:
     try:
         existing = await pool.fetchrow("SELECT id, label, server_host FROM vpn_servers WHERE id = $1", ROW_ID)
         if existing and existing["server_host"] != CLOUDRU_HOST:
-            print(f"ERROR: id={ROW_ID} already used by {existing['label']!r} ({existing['server_host']}).",
-                  file=sys.stderr)
+            print(
+                f"ERROR: id={ROW_ID} already used by {existing['label']!r} ({existing['server_host']}).",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         await pool.execute("DELETE FROM vpn_servers WHERE id = $1", ROW_ID)
@@ -59,19 +61,17 @@ async def run() -> None:
             )
             """,
             ROW_ID,
-            "Россия 🔄 (Happ xhttp)",   # label
-            "RU",                        # country_code
-            "🇷🇺",                        # country_flag
-            CLOUDRU_HOST,                # server_host
-            XHTTP_PATH,                  # ws_path (xhttp path)
-            CLOUDRU_PBK,                 # reality_pbk
-            CLOUDRU_SID,                 # reality_sid
-            CLOUDRU_SNI,                 # reality_sni
+            "Россия 🔄 (Happ xhttp)",  # label
+            "RU",  # country_code
+            "🇷🇺",  # country_flag
+            CLOUDRU_HOST,  # server_host
+            XHTTP_PATH,  # ws_path (xhttp path)
+            CLOUDRU_PBK,  # reality_pbk
+            CLOUDRU_SID,  # reality_sid
+            CLOUDRU_SNI,  # reality_sni
         )
         # Tag the existing tcp inbound row (id=26).
-        await pool.execute(
-            "UPDATE vpn_servers SET xray_inbound_tag = 'cloudru-tcp' WHERE id = 26"
-        )
+        await pool.execute("UPDATE vpn_servers SET xray_inbound_tag = 'cloudru-tcp' WHERE id = 26")
         print(f"Inserted id={ROW_ID} (cloudru-xhttp) + tagged id=26 (cloudru-tcp)")
 
         rows = await pool.fetch(

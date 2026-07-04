@@ -97,17 +97,13 @@ def encode_remove_user_operation(*, email: str) -> bytes:
 def alter_add_payload(*, tag: str, email: str, uuid: str, flow: str = "") -> str:
     """JSON request body for HandlerService/AlterInbound carrying an AddUserOperation."""
     op = encode_add_user_operation(email=email, uuid=uuid, flow=flow)
-    return json.dumps(
-        {"tag": tag, "operation": {"type": _ADD_USER_OP_TYPE, "value": base64.b64encode(op).decode()}}
-    )
+    return json.dumps({"tag": tag, "operation": {"type": _ADD_USER_OP_TYPE, "value": base64.b64encode(op).decode()}})
 
 
 def alter_remove_payload(*, tag: str, email: str) -> str:
     """JSON request body for HandlerService/AlterInbound carrying a RemoveUserOperation."""
     op = encode_remove_user_operation(email=email)
-    return json.dumps(
-        {"tag": tag, "operation": {"type": _REMOVE_USER_OP_TYPE, "value": base64.b64encode(op).decode()}}
-    )
+    return json.dumps({"tag": tag, "operation": {"type": _REMOVE_USER_OP_TYPE, "value": base64.b64encode(op).decode()}})
 
 
 def get_inbound_users_payload(*, tag: str) -> str:
@@ -159,7 +155,9 @@ class XrayApiClient:
         if self._ssh is not None:
             return self._ssh
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        # Cloud.ru is a single, fixed, operator-managed host; first-connect trust is
+        # acceptable (equivalent to the operator ssh_run pattern). noqa picks that intent.
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507
         client.connect(
             hostname=self._config.server_host,
             username=self._ssh_user,
@@ -192,16 +190,24 @@ class XrayApiClient:
                     continue
                 _LOGGER.warning(
                     "xray_api grpcurl %s server=%s tag=%s rc=%s out=%s err=%s",
-                    method, self._config.server_id, self._config.xray_inbound_tag, rc, out, err,
+                    method,
+                    self._config.server_id,
+                    self._config.xray_inbound_tag,
+                    rc,
+                    out,
+                    err,
                 )
                 return False, out
-            except Exception as exc:  # noqa: BLE001 — never let a bare-xray op crash the bot
+            except Exception as exc:
                 if attempt == 1:
                     self._reset_ssh()
                     continue
                 _LOGGER.warning(
                     "xray_api %s exception server=%s tag=%s: %r",
-                    method, self._config.server_id, self._config.xray_inbound_tag, exc,
+                    method,
+                    self._config.server_id,
+                    self._config.xray_inbound_tag,
+                    exc,
                 )
                 return False, ""
 

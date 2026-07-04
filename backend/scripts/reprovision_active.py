@@ -20,6 +20,7 @@ Intended to run BOTH on demand (relay-setup `reprovision`) and on a schedule
 
 Runs in the production container with DATABASE_URL + FIELD_ENCRYPTION_KEY.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,12 +31,12 @@ import asyncpg
 
 # reuse the proven panel client + helpers (same as grant_subscription.py)
 sys.path.insert(0, os.path.dirname(__file__))
-from rebuild_panel_clients import (  # noqa: E402
+from rebuild_panel_clients import (
+    _TRIAL_DEVICE_LIMIT,
     PanelClient,
     _email_from_internal,
     _expiry_from_datetime,
     _load_server_configs,
-    _TRIAL_DEVICE_LIMIT,
     _vless_uuid_for_transport,
 )
 
@@ -72,18 +73,26 @@ async def run() -> None:
             u_ok = u_fail = 0
             for s in servers:
                 pc = PanelClient(
-                    panel_url=s["panel_url"], username=s["panel_username"], password=s["panel_password"],
-                    inbound_id=s["inbound_id"], server_id=s["server_id"], label=s["label"],
-                    transport_type=s["transport_type"], server_host=s["server_host"], server_port=s["server_port"],
+                    panel_url=s["panel_url"],
+                    username=s["panel_username"],
+                    password=s["panel_password"],
+                    inbound_id=s["inbound_id"],
+                    server_id=s["server_id"],
+                    label=s["label"],
+                    transport_type=s["transport_type"],
+                    server_host=s["server_host"],
+                    server_port=s["server_port"],
                 )
                 email = _email_from_internal(uid, transport_type=s["transport_type"])
                 try:
                     ok = await pc.add_client(
                         user_uuid=_vless_uuid_for_transport(uid, s["transport_type"]),
-                        email=email, expiry_ts=exp_ts,
-                        enable=True, limit_ip=limit_ip,
+                        email=email,
+                        expiry_ts=exp_ts,
+                        enable=True,
+                        limit_ip=limit_ip,
                     )
-                except Exception as exc:  # noqa: BLE001 — keep going across users/servers
+                except Exception as exc:
                     print(f"    !! {uid} server {s['server_id']} {s['label']}: {exc}")
                     ok = False
                 await pc.aclose()
@@ -96,8 +105,10 @@ async def run() -> None:
             if u_fail:
                 fail_users += 1
                 print(f"  {uid} (tg={u['telegram_user_id']}): {u_ok} ok, {u_fail} FAIL")
-        print(f"\nDONE: {grand_ok} ok, {grand_fail} fail across {len(users)} users × {len(servers)} servers"
-              f"  ({fail_users} users had >=1 failure)")
+        print(
+            f"\nDONE: {grand_ok} ok, {grand_fail} fail across {len(users)} users × {len(servers)} servers"
+            f"  ({fail_users} users had >=1 failure)"
+        )
     finally:
         await pool.close()
 

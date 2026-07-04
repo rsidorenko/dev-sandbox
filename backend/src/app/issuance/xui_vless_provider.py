@@ -24,6 +24,7 @@ from app.issuance.vless_provider import (
     VlessServerConfig,
     VlessUserConfig,
 )
+from app.issuance.xray_api_client import DEFAULT_API_PORT, XrayApiClient
 from app.issuance.xui_client import (
     REALITY_TCP_FLOW,
     XuiApiClient,
@@ -31,7 +32,6 @@ from app.issuance.xui_client import (
     XuiOutcome,
     XuiServerConfig,
 )
-from app.issuance.xray_api_client import DEFAULT_API_PORT, XrayApiClient
 from app.security.field_encryption import decrypt_field
 from app.shared.site_url import get_site_base_url
 
@@ -392,10 +392,13 @@ class XuiVlessProvider(VlessProviderPort):
                     await client.add_client(user_uuid=user_uuid, email=email)
                 else:
                     await client.remove_client(email=email)
-            except Exception as exc:  # noqa: BLE001 — never let a bare_xray op crash the bot
+            except Exception as exc:
                 _LOGGER.warning(
                     "xray_api %s failed server=%s user=%s: %r",
-                    action, client.server_id, internal_user_id[:8], exc,
+                    action,
+                    client.server_id,
+                    internal_user_id[:8],
+                    exc,
                 )
 
     async def _close_clients(self) -> None:
@@ -857,12 +860,10 @@ class XuiVlessProvider(VlessProviderPort):
         bx_added = bx_removed = 0
         for client in bx_clients:
             transport = client.server_config.transport_type
-            desired = {
-                _email_from_internal(u["internal_user_id"], transport_type=transport) for u in users
-            }
+            desired = {_email_from_internal(u["internal_user_id"], transport_type=transport) for u in users}
             try:
                 present = set(await client.list_user_emails())
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.warning("reconcile bx_list_failed server=%s", client.server_id)
                 continue
             for u in users:
@@ -871,11 +872,9 @@ class XuiVlessProvider(VlessProviderPort):
                     continue
                 uid = u["internal_user_id"]
                 try:
-                    if await client.add_client(
-                        user_uuid=_vless_uuid_for_transport(uid, transport), email=email
-                    ):
+                    if await client.add_client(user_uuid=_vless_uuid_for_transport(uid, transport), email=email):
                         bx_added += 1
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _LOGGER.warning("reconcile bx_add_failed user=%s server=%s", uid[:8], client.server_id)
             for orphan in present - desired:
                 with contextlib.suppress(Exception):
