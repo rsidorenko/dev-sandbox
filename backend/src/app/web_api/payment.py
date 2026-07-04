@@ -79,18 +79,39 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         _LOGGER.error("yookassa client not configured")
         return safe_json_error(503, "payment_provider_not_configured")
 
+    # Resolve the real internal_user_id from the identity row. Web-only (email)
+    # accounts carry a NON-POSITIVE telegram_user_id and an internal_user_id of
+    # "web_<hash>" (NOT f"u{telegram_user_id}"); the YooKassa webhook must apply
+    # the subscription to that exact identity, so we carry it in the payment
+    # metadata. Mirrors handle_get_keys / handle_activate_trial.
+    pool = request.app.state.pool
+    identity = await pool.fetchrow(
+        "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+        telegram_user_id,
+    )
+    if identity is None:
+        return safe_json_error(404, "identity_not_found")
+    internal_user_id = identity["internal_user_id"]
+
     checkout_secret = (
         os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
     )
-    checkout_metadata: dict[str, str] = {}
-    if checkout_secret:
+    # Always carry the real identity so the webhook credits the correct account.
+    payment_metadata: dict[str, str] = {"internal_user_id": internal_user_id}
+    # Checkout-reference correlation assumes a real Telegram identity —
+    # validate_telegram_user_id rejects the non-positive ids used by web-only
+    # accounts (which previously raised here, outside any try/except, and crashed
+    # the request with a 500). The reference is also not consumed by the YooKassa
+    # webhook path, so skip it for web-only users; they are correlated by
+    # metadata.internal_user_id instead.
+    if checkout_secret and isinstance(telegram_user_id, int) and telegram_user_id > 0:
         signed = create_signed_checkout_reference(
             telegram_user_id=telegram_user_id,
-            internal_user_id=f"u{telegram_user_id}",
+            internal_user_id=internal_user_id,
             secret=checkout_secret,
         )
-        checkout_metadata["client_reference_id"] = signed.reference_id
-        checkout_metadata["client_reference_proof"] = signed.reference_proof
+        payment_metadata["client_reference_id"] = signed.reference_id
+        payment_metadata["client_reference_proof"] = signed.reference_proof
 
     try:
         result = await client.create_payment(
@@ -100,7 +121,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             telegram_user_id=telegram_user_id,
             return_url=return_url,
             description=f"Bravada VPN — {plan_display_name_safe(plan_id)}",
-            metadata=checkout_metadata if checkout_metadata else None,
+            metadata=payment_metadata,
         )
     except Exception:
         _LOGGER.exception("yookassa create_payment failed")

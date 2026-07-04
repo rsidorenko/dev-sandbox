@@ -152,6 +152,17 @@ def _expected_subscription_kopecks(plan: Any, device_count: int) -> int:
     return calculate_total_price(plan, device_count) * 100
 
 
+def _resolve_subscription_internal_user_id(metadata: dict[str, Any], telegram_user_id: int) -> str:
+    """The internal_user_id to credit a paid subscription to.
+
+    Prefers the id set at payment creation (``metadata.internal_user_id``) — correct
+    for web-only (email) accounts, whose identity is ``web_<hash>`` rather than
+    ``f"u{telegram_user_id}"``. Falls back to the Telegram convention for legacy /
+    Telegram payments that don't carry the field. Pure (no I/O) → unit-tested directly.
+    """
+    return metadata.get("internal_user_id") or f"u{telegram_user_id}"
+
+
 def create_yookassa_webhook_handler(
     *,
     pool: asyncpg.Pool,
@@ -475,7 +486,7 @@ def create_yookassa_webhook_handler(
         except (ValueError, TypeError):
             paid_at = datetime.now(UTC)
 
-        internal_user_id = f"u{telegram_user_id}"
+        internal_user_id = _resolve_subscription_internal_user_id(metadata, telegram_user_id)
         period_days = plan.duration_days
 
         _LOGGER.info(

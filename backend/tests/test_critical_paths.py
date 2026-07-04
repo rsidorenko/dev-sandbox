@@ -10,6 +10,8 @@ These tests cover the 5 most critical user-facing flows that had zero coverage:
 
 from __future__ import annotations
 
+import json
+import types
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -586,3 +588,95 @@ def test_vless_link_template_overrides_transport_builder():
     # the per-transport reality fields are NOT injected when a template is set
     assert "security=reality" not in link
     assert "pbk=" not in link
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 6. WEB PAYMENT — web-only (email) accounts must be able to purchase
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class _PaymentRequest:
+    """Minimal Starlette Request stand-in for handle_create_payment."""
+
+    def __init__(self, payload: dict, pool: _FakePool) -> None:
+        self._payload = payload
+        self.app = types.SimpleNamespace(state=types.SimpleNamespace(pool=pool))
+        self.cookies: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
+
+    async def json(self) -> dict:
+        return self._payload
+
+
+def test_create_payment_web_only_user_does_not_crash_and_carries_internal_id(monkeypatch):
+    """Regression: web-only (email) accounts carry a NON-POSITIVE telegram_user_id.
+
+    Previously this crashed with 500 because create_signed_checkout_reference →
+    validate_telegram_user_id rejected the negative id (outside any try/except),
+    AND the webhook would have credited the wrong account. Now: the checkout ref
+    is skipped for tg<=0, and the real 'web_<hash>' identity is carried in the
+    payment metadata so the YooKassa webhook credits the correct account.
+    """
+    from app.web_api import payment as payment_module
+    from app.web_api.payment import handle_create_payment
+
+    pool = _FakePool()
+    pool.set_fetch_result("FROM user_identities", [_Record(internal_user_id="web_abc123")])
+
+    async def fake_require_auth(_request):
+        return {"telegram_user_id": -1}
+
+    monkeypatch.setattr(payment_module, "require_auth", fake_require_auth)
+
+    fake_result = MagicMock(confirmation_url="https://pay.example/abc", payment_id="pay_1")
+    fake_client = MagicMock()
+    fake_client.create_payment = AsyncMock(return_value=fake_result)
+    monkeypatch.setattr("app.yookassa.client.YooKassaClient.from_env", MagicMock(return_value=fake_client))
+
+    monkeypatch.setenv("YOOKASSA_ENABLED", "1")
+    # Secret IS set — must NOT trigger a crash for the web-only (tg=-1) user.
+    monkeypatch.setenv("CHECKOUT_REFERENCE_SECRET", "super-secret")
+
+    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1d", "device_count": 5}, pool)))
+
+    assert resp.status_code == 200
+    body = json.loads(resp.body)
+    assert body["ok"] is True
+    assert body["payment_url"] == "https://pay.example/abc"
+    # Metadata carries the real web-only identity and NO checkout reference
+    # (which would have crashed before the fix, and isn't used by the webhook).
+    metadata = fake_client.create_payment.call_args.kwargs["metadata"]
+    assert metadata["internal_user_id"] == "web_abc123"
+    assert "client_reference_id" not in metadata
+    assert "client_reference_proof" not in metadata
+
+
+def test_create_payment_telegram_user_still_creates_checkout_reference(monkeypatch):
+    """Telegram users (tg>0) keep the signed checkout reference — backward compatible."""
+    from app.web_api import payment as payment_module
+    from app.web_api.payment import handle_create_payment
+
+    pool = _FakePool()
+    pool.set_fetch_result("FROM user_identities", [_Record(internal_user_id="u123")])
+
+    async def fake_require_auth(_request):
+        return {"telegram_user_id": 123}
+
+    monkeypatch.setattr(payment_module, "require_auth", fake_require_auth)
+
+    fake_result = MagicMock(confirmation_url="https://pay.example/def", payment_id="pay_2")
+    fake_client = MagicMock()
+    fake_client.create_payment = AsyncMock(return_value=fake_result)
+    monkeypatch.setattr("app.yookassa.client.YooKassaClient.from_env", MagicMock(return_value=fake_client))
+
+    monkeypatch.setenv("YOOKASSA_ENABLED", "1")
+    monkeypatch.setenv("CHECKOUT_REFERENCE_SECRET", "super-secret")
+
+    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1m", "device_count": 5}, pool)))
+
+    assert resp.status_code == 200
+    metadata = fake_client.create_payment.call_args.kwargs["metadata"]
+    assert metadata["internal_user_id"] == "u123"
+    # Checkout reference IS created for real Telegram identities (tg>0).
+    assert "client_reference_id" in metadata
+    assert "client_reference_proof" in metadata

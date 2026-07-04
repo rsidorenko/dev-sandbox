@@ -222,3 +222,30 @@ def test_amount_value_to_kopecks_is_exact() -> None:
     assert _amount_value_to_kopecks("abc") is None
     assert _amount_value_to_kopecks(None) is None
     assert _amount_value_to_kopecks("") is None
+
+
+# ── subscription identity resolution (web-only vs Telegram) ──────────────────
+
+
+def test_resolve_internal_user_id_prefers_metadata_for_web_only() -> None:
+    """Web-only (email) accounts: metadata carries the real 'web_<hash>' identity,
+    which MUST win over the ``f"u{telegram_user_id}"`` derivation (that would yield a
+    bogus 'u-1' and credit the subscription to the wrong/nonexistent account)."""
+    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+
+    assert _resolve_subscription_internal_user_id({"internal_user_id": "web_abc123"}, -1) == "web_abc123"
+
+
+def test_resolve_internal_user_id_falls_back_to_telegram_convention() -> None:
+    """Legacy / Telegram payments without metadata.internal_user_id derive ``f"u{tg}"``."""
+    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+
+    assert _resolve_subscription_internal_user_id({}, 123) == "u123"
+    assert _resolve_subscription_internal_user_id({"plan_id": "1m"}, 123) == "u123"
+
+
+def test_resolve_internal_user_id_ignores_empty_metadata_value() -> None:
+    """An empty-string internal_user_id must fall back (truthiness), not yield ''."""
+    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+
+    assert _resolve_subscription_internal_user_id({"internal_user_id": ""}, 456) == "u456"
