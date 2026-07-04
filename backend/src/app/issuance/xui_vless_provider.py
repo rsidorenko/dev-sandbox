@@ -216,7 +216,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(reality_fp, 'chrome') AS reality_fp,
                   COALESCE(link_template, '') AS link_template,
                   COALESCE(provider_kind, 'xui') AS provider_kind,
-                  COALESCE(xray_inbound_tag, '') AS xray_inbound_tag
+                  COALESCE(xray_inbound_tag, '') AS xray_inbound_tag,
+                  COALESCE(client_surface, 'default') AS client_surface
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -242,6 +243,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             link_template=r["link_template"],
             provider_kind=r["provider_kind"],
             xray_inbound_tag=r["xray_inbound_tag"],
+            client_surface=r["client_surface"],
         )
         for r in rows
     )
@@ -351,7 +353,7 @@ class XuiVlessProvider(VlessProviderPort):
                 country_code=c.country_code,
                 country_flag=c.country_flag,
                 vless_link=_build_vless_link(c, _vless_uuid_for_transport(internal_user_id, c.transport_type)),
-                surface="happ",
+                surface=c.client_surface,
             )
             for c in self._bare_xray_configs
         ]
@@ -495,6 +497,7 @@ class XuiVlessProvider(VlessProviderPort):
                 country_code=c.server_config.country_code,
                 country_flag=c.server_config.country_flag,
                 vless_link=_build_vless_link(c.server_config, uuid),
+                surface=c.server_config.client_surface,
             )
             for c, uuid in successes
         ]
@@ -571,6 +574,7 @@ class XuiVlessProvider(VlessProviderPort):
                         country_code=client.server_config.country_code,
                         country_flag=client.server_config.country_flag,
                         vless_link=_build_vless_link(client.server_config, uuid),
+                        surface=client.server_config.client_surface,
                     )
                 )
 

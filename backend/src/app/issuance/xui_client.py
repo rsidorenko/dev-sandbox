@@ -104,6 +104,10 @@ class XuiServerConfig:
     # For 'bare_xray' rows: the xray inbound tag XrayApiClient addresses when managing users
     # live via xray's gRPC HandlerService.AlterInbound. Empty for 'xui' rows.
     xray_inbound_tag: str = ""
+    # Which /sub/ client surface this server's link belongs to: 'default' (fleet, Karing et al.)
+    # or 'happ' (served only to Happ imports — e.g. Cloud.ru relay entries, h1cloud CDN bypass).
+    # Drives VlessServerConfig.surface; /sub/ filters by it. See migration 057.
+    client_surface: str = "default"
 
 
 class XuiApiClient:
