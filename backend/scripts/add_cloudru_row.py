@@ -11,8 +11,9 @@ This row is provider_kind='bare_xray':
   * the VLESS provider SKIPS panel CRUD for it (no panel_url/inbound_id) and
     builds its vless:// link straight from the row (tcp branch of _build_vless_link,
     reality_fp='firefox' — required for Happ on a clean AS);
-  * user UUIDs on it are mirrored by scripts/mirror_cloudru_clients.py (periodic,
-    desired-state), NOT by the provider's panel calls.
+  * user UUIDs on it are managed LIVE via xray's gRPC API (XrayApiClient:
+    AddUser/RemoveUser on subscribe/expire + reconcile), NOT by panel calls.
+    The xray inbound tag for this row is set by add_cloudru_xhttp_row.py.
 
 Runs in the production container with DATABASE_URL. Idempotent: re-running
 re-inserts the same row.
@@ -70,13 +71,13 @@ async def run() -> None:
             )
             """,
             ROW_ID,
-            "Россия 🔄 (Happ)",     # label
-            "RU",                   # country_code
-            "🇷🇺",                   # country_flag
-            CLOUDRU_HOST,           # server_host
-            CLOUDRU_PBK,            # reality_pbk
-            CLOUDRU_SID,            # reality_sid
-            CLOUDRU_SNI,            # reality_sni
+            "Франкфурт 1.0(Happ)",  # label — users exit via Frankfurt (DE), not the RU entry
+            "DE",  # country_code
+            "🇩🇪",  # country_flag
+            CLOUDRU_HOST,  # server_host
+            CLOUDRU_PBK,  # reality_pbk
+            CLOUDRU_SID,  # reality_sid
+            CLOUDRU_SNI,  # reality_sni
         )
         print(f"Inserted vpn_servers row id={ROW_ID} ({CLOUDRU_HOST}) provider_kind=bare_xray")
 
@@ -89,7 +90,9 @@ async def run() -> None:
         print(f"Verified: {dict(row)}")
 
         count = await pool.fetchval("SELECT count(*) FROM vpn_servers WHERE is_active = TRUE")
-        bare = await pool.fetchval("SELECT count(*) FROM vpn_servers WHERE is_active = TRUE AND provider_kind = 'bare_xray'")
+        bare = await pool.fetchval(
+            "SELECT count(*) FROM vpn_servers WHERE is_active = TRUE AND provider_kind = 'bare_xray'"
+        )
         print(f"Total active servers: {count} (bare_xray: {bare})")
         print(
             "\nThe provider builds the Happ /sub/ link from this row (no panel ops). "

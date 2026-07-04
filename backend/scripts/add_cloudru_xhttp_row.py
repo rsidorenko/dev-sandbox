@@ -61,9 +61,9 @@ async def run() -> None:
             )
             """,
             ROW_ID,
-            "Россия 🔄 (Happ xhttp)",  # label
-            "RU",  # country_code
-            "🇷🇺",  # country_flag
+            "Франкфурт 2.0(Happ)",  # label — users exit via Frankfurt (DE), not the RU entry
+            "DE",  # country_code
+            "🇩🇪",  # country_flag
             CLOUDRU_HOST,  # server_host
             XHTTP_PATH,  # ws_path (xhttp path)
             CLOUDRU_PBK,  # reality_pbk
