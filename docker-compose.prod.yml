@@ -78,6 +78,17 @@ services:
       SUBSCRIPTION_BASE_URL: ${SUBSCRIPTION_BASE_URL:-https://bravada-connect.ru}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://bravada-connect.ru}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
+      # Cloud.ru bare-xray Happ relay: mirror_cloudru_clients.py SSHes here to sync
+      # active users' VLESS UUIDs onto the relay entry (provider_kind='bare_xray', no
+      # panel). Non-secret values (host/user/path); the key FILE is the secret, bind
+      # mounted from a deploy-safe host path (outside /opt/bravada, which deploy wipes).
+      CLOUDRU_SSH_HOST: "85.208.87.187"
+      CLOUDRU_SSH_USER: "romtan"
+      CLOUDRU_SSH_KEY: "/opt/bravada/cloudru_key.pem"
+    volumes:
+      # Bind-mount the Cloud.ru SSH key from /root/.ssh (survives deploy's rm -rf
+      # /opt/bravada, which preserves only .env + ssl/). Read-only in the container.
+      - /root/.ssh/cloudru_key.pem:/opt/bravada/cloudru_key.pem:ro
     expose:
       - "8000"
 
