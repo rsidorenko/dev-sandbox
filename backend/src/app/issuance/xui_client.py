@@ -108,6 +108,10 @@ class XuiServerConfig:
     # or 'happ' (served only to Happ imports — e.g. Cloud.ru relay entries, h1cloud CDN bypass).
     # Drives VlessServerConfig.surface; /sub/ filters by it. See migration 057.
     client_surface: str = "default"
+    # 3x-ui panel fork flavor: 'standard' = vanilla (client CRUD via update, no restart); 'h1' =
+    # the h1cloud Pterodactyl h1-fork (needs its own client schema + an xray restart after client
+    # changes). The provider's h1 path does batch desired-state + restartXrayService. mig 058.
+    panel_flavor: str = "standard"
 
 
 class XuiApiClient:
@@ -503,6 +507,61 @@ class XuiApiClient:
             if c.get("email") == email:
                 return c.get("id")
         return None
+
+    async def get_inbound_clients(self) -> list[dict]:
+        """Current clients on this inbound (for desired-state diff / reconcile)."""
+        inbound = await self._get_inbound()
+        if not inbound:
+            return []
+        settings = inbound.get("settings", {})
+        if isinstance(settings, str):
+            settings = json.loads(settings) if settings else {}
+        return list(settings.get("clients") or [])
+
+    async def replace_inbound_clients(self, clients: list[dict]) -> bool:
+        """Replace the inbound's full client list (batch desired-state), preserving
+        streamSettings + sniffing. h1-fork panels need restart_xray() after this (it does
+        not hot-apply client changes). Serialized per-panel via the mutation lock."""
+        async with self._mutation_lock:
+            inbound = await self._get_inbound()
+            if not inbound:
+                return False
+            settings = inbound.get("settings", {})
+            if isinstance(settings, str):
+                settings = json.loads(settings) if settings else {}
+            settings["clients"] = clients
+            payload = {
+                "id": inbound["id"],
+                "settings": json.dumps(settings),
+                "streamSettings": json.dumps(inbound["streamSettings"])
+                if isinstance(inbound.get("streamSettings"), dict)
+                else inbound.get("streamSettings", ""),
+                "sniffing": json.dumps(inbound["sniffing"])
+                if isinstance(inbound.get("sniffing"), dict)
+                else inbound.get("sniffing", ""),
+                "protocol": inbound["protocol"],
+                "port": inbound["port"],
+                "listen": inbound.get("listen", ""),
+                "tag": inbound.get("tag", ""),
+                "remark": inbound.get("remark", ""),
+                "enable": inbound.get("enable", True),
+                "expiryTime": inbound.get("expiryTime", 0),
+                "total": inbound.get("total", 0),
+                "up": inbound.get("up", 0),
+                "down": inbound.get("down", 0),
+            }
+            result = await self._do_client_op(
+                "POST",
+                f"{self._base}/panel/api/inbounds/update/{self._config.inbound_id}",
+                payload,
+            )
+            return result.outcome == XuiOutcome.SUCCESS
+
+    async def restart_xray(self) -> bool:
+        """Restart the xray core on this panel. The h1-fork requires this after client
+        changes (it doesn't hot-apply them)."""
+        result = await self._do_client_op("POST", f"{self._base}/panel/api/server/restartXrayService", {})
+        return result.outcome == XuiOutcome.SUCCESS
 
     def _auth_headers(self) -> dict[str, str]:
         if self._config.api_token:

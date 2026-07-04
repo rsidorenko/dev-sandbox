@@ -11,6 +11,7 @@ import contextlib
 import logging
 import os
 import secrets
+import string
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -121,6 +122,33 @@ def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") 
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
+def _h1_client_token(n: int = 16) -> str:
+    """Random lowercase-alnum token (matches the h1-fork panel's auth/password/subId format)."""
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+def build_h1_client(*, user_uuid: str, email: str) -> dict:
+    """Client object for the h1cloud 3x-ui h1-fork. The fork requires its custom schema
+    (auth/password/subId/security, numeric tgId, NO flow) — without it the fork's xray config
+    regen doesn't activate the client, and the link gets 'server closed connection'."""
+    return {
+        "id": user_uuid,
+        "email": email,
+        "enable": True,
+        "expiryTime": 0,
+        "limitIp": 0,
+        "totalGB": 0,
+        "tgId": 0,
+        "subId": _h1_client_token(),
+        "auth": _h1_client_token(),
+        "password": _h1_client_token(),
+        "security": "auto",
+        "comment": "",
+        "reset": 0,
+    }
+
+
 def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
     """Unix timestamp in milliseconds for expiry."""
     future = datetime.now(UTC) + timedelta(days=days)
@@ -217,7 +245,8 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(link_template, '') AS link_template,
                   COALESCE(provider_kind, 'xui') AS provider_kind,
                   COALESCE(xray_inbound_tag, '') AS xray_inbound_tag,
-                  COALESCE(client_surface, 'default') AS client_surface
+                  COALESCE(client_surface, 'default') AS client_surface,
+                  COALESCE(panel_flavor, 'standard') AS panel_flavor
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -244,6 +273,7 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             provider_kind=r["provider_kind"],
             xray_inbound_tag=r["xray_inbound_tag"],
             client_surface=r["client_surface"],
+            panel_flavor=r["panel_flavor"],
         )
         for r in rows
     )
@@ -448,6 +478,7 @@ class XuiVlessProvider(VlessProviderPort):
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
+        clients = [c for c in clients if c.server_config.panel_flavor != "h1"]  # h1 deferred to reconcile
         if not clients:
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
@@ -657,6 +688,7 @@ class XuiVlessProvider(VlessProviderPort):
         expiry = _expiry_timestamp()
 
         clients = await self._get_clients()
+        clients = [c for c in clients if c.server_config.panel_flavor != "h1"]  # h1 deferred to reconcile
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -692,6 +724,7 @@ class XuiVlessProvider(VlessProviderPort):
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
+        clients = [c for c in clients if c.server_config.panel_flavor != "h1"]  # h1 deferred to reconcile
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -726,6 +759,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def _delete_user_unlocked(self, *, internal_user_id: str) -> VlessProviderResult:
         clients = await self._get_clients()
+        clients = [c for c in clients if c.server_config.panel_flavor != "h1"]  # h1 deferred to reconcile
         if not clients:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -745,6 +779,38 @@ class XuiVlessProvider(VlessProviderPort):
         if any_deleted:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+
+    async def _reconcile_h1_server(self, client: XuiApiClient, users: list[asyncpg.Record]) -> None:
+        """Batch desired-state for an h1-fork panel (h1cloud). Rebuild the full client list in
+        the h1-schema, ONE update if the active-email set changed, then ONE xray restart (the
+        fork doesn't hot-apply client changes — running xray needs the restart after update).
+        Idempotent: no update + no restart when the set is unchanged."""
+        transport = client.server_config.transport_type
+        desired_emails = {_email_from_internal(u["internal_user_id"], transport_type=transport) for u in users}
+        try:
+            current = await client.get_inbound_clients()
+        except Exception:
+            _LOGGER.warning("reconcile_h1 get_failed server=%s", client.server_id, exc_info=True)
+            return
+        current_emails = {c.get("email") for c in current if c.get("email")}
+        if current_emails == desired_emails:
+            return  # steady state — no update, no restart
+        desired = [
+            build_h1_client(
+                user_uuid=_vless_uuid_for_transport(u["internal_user_id"], transport),
+                email=_email_from_internal(u["internal_user_id"], transport_type=transport),
+            )
+            for u in users
+        ]
+        try:
+            if await client.replace_inbound_clients(desired) and await client.restart_xray():
+                _LOGGER.info(
+                    "reconcile_h1 server=%s clients=%d restarted=True",
+                    client.server_id,
+                    len(desired),
+                )
+        except Exception:
+            _LOGGER.warning("reconcile_h1 update_failed server=%s", client.server_id, exc_info=True)
 
     async def reconcile_all_users(self) -> tuple[int, int, int]:
         """Ensure every non-deleted user has a VLESS key on every active server.
@@ -805,6 +871,8 @@ class XuiVlessProvider(VlessProviderPort):
             user_failed = False
 
             for client in clients:
+                if client.server_config.panel_flavor == "h1":
+                    continue  # h1-fork panels are handled by the batch reconcile below
                 email = _email_from_internal(uid, transport_type=client.server_config.transport_type)
                 # Check if client already exists on this panel — non-destructive probe
                 try:
@@ -886,6 +954,11 @@ class XuiVlessProvider(VlessProviderPort):
                         bx_removed += 1
         if bx_clients:
             _LOGGER.info("reconcile_bare_xray added=%d removed=%d", bx_added, bx_removed)
+
+        # --- h1-fork panels (h1cloud): batch desired-state in h1-schema + xray restart ---
+        for client in clients:
+            if client.server_config.panel_flavor == "h1":
+                await self._reconcile_h1_server(client, users)
 
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)
