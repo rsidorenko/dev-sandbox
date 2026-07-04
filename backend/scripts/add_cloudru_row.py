@@ -61,13 +61,13 @@ async def run() -> None:
                 ws_path, tls_sni, panel_url, panel_username, panel_password,
                 encrypted_password, inbound_id, reality_pbk, reality_sid,
                 reality_sni, reality_fp, transport_type, api_token, link_template,
-                provider_kind, is_active
+                provider_kind, client_surface, is_active
             ) VALUES (
                 $1, $2, $3, $4, $5, 443,
                 '/ws', NULL, '', '', '',
                 '', 0, $6, $7,
                 $8, 'firefox', 'tcp', '', '',
-                'bare_xray', TRUE
+                'bare_xray', 'happ', TRUE
             )
             """,
             ROW_ID,
