@@ -394,8 +394,10 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def _get_bare_xray_clients(self) -> tuple[XrayApiClient, ...]:
         """XrayApiClient per gRPC-managed bare_xray inbound. Per-row SSH creds (ssh_user /
-        ssh_key_path from vpn_servers) override the global CLOUDRU_SSH_* env — so multiple
-        bare_xray servers with different SSH keys (Cloud.ru + bravada2) coexist. Cached.
+        ssh_key_path from vpn_servers) override the global CLOUDRU_SSH_* env — so a future
+        bare_xray host with a different key can coexist. Both current entries (Cloud.ru
+        Frankfurt id=26/27 + cloud.ru Helsinki id=28/29) share the same key, so their rows
+        leave ssh_user/ssh_key_path NULL and fall back to env. Cached.
         Returns () when there are no bare_xray rows, no tagged inbounds, or creds unset."""
         if self._bare_xray_clients is not None:
             return self._bare_xray_clients
