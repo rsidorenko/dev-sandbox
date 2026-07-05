@@ -1,35 +1,34 @@
-"""Insert vpn_servers rows for the bravada2 Cloud.ru relay entry (176.123.167.72 → Helsinki).
+"""Insert vpn_servers rows for the cloud.ru Helsinki-egress Happ relay entry.
 
-Second bare_xray RU entry (Sbercloud AS208677, same clean-AS as Cloud.ru), egressing via
-Helsinki (77.221.159.106). Gives Happ users a Helsinki-egress variant alongside Cloud.ru's
-Frankfurt egress. Same architecture: bare xray, bravada2 camo, 2-hop relay (RU entry →
-Helsinki), live gRPC management (XrayApiClient per-row SSH creds).
+Second bare_xray RU-relay entry (cloud.ru / Sbercloud AS208677, same clean-AS as the Frankfurt
+Cloud.ru entry 85.208.87.187), egressing via Helsinki (77.221.159.106). Gives Happ users a
+Helsinki-egress variant alongside Cloud.ru's Frankfurt egress (id=26/27). Same architecture:
+bare xray 26.3.27, bravada-camo (clr.mediagenering.online), fp=firefox, 2-hop relay (RU entry →
+Helsinki), live gRPC management (XrayApiClient over SSH + grpcurl).
 
-Run AFTER the bravada2 server setup (xray + camo + routing → Helsinki + gRPC) produces the
-Reality keypair. Takes the generated pbk/sid from env:
-  BRAVADA2_PBK  — xray x25519 public key (from the server setup)
-  BRAVADA2_SID  — reality shortId (from the server setup)
+Replaces the abandoned bravada2 attempt (176.123.167.72 / bravada2.bravada-connect.online — host
+dead, domain NXDOMAIN). Reuses the same row ids (28 tcp, 29 xhttp); idempotent (DELETE + INSERT).
 
-Runs in the production container with DATABASE_URL. Idempotent.
+The new machine uses the SAME SSH creds as Cloud.ru (romtan + cloudru_key.pem), so ssh_user /
+ssh_key_path are NULL → the bot's CLOUDRU_SSH_USER / CLOUDRU_SSH_KEY env fallback applies (exactly
+like id=26/27). No per-row SSH override, no extra key mount.
+
+Run AFTER the server setup produced the Reality keypair (pbk/sid hardcoded below from the deployed
+xray on 176.108.250.237). Runs in the production container with DATABASE_URL. Idempotent.
 """
 
 import asyncio
 import os
 import sys
 
-BRAVADA2_HOST = "176.123.167.72"
-BRAVADA2_SNI = "bravada2.bravada-connect.online"
-SSH_USER = "romtan"
-SSH_KEY_PATH = "/opt/bravada/helsinki_entry_key.pem"
-XHTTP_PATH = "/bravada2-xhttp"
+CLR_HOST = "176.108.250.237"
+CLR_SNI = "clr.mediagenering.online"
+CLR_PBK = "-pCiiUtqBhNYnwH3Kj4TeybTiXJAMSAsUB_lV_3o3SU"  # reality publicKey (from xray x25519)
+CLR_SID = "2ef05ac5"  # reality shortId
+XHTTP_PATH = "/bravada-xhttp"
 
 
 async def run() -> None:
-    pbk = os.environ.get("BRAVADA2_PBK", "").strip()
-    sid = os.environ.get("BRAVADA2_SID", "").strip()
-    if not pbk or not sid:
-        print("ERROR: set BRAVADA2_PBK and BRAVADA2_SID env (from the xray setup on bravada2)", file=sys.stderr)
-        sys.exit(1)
     if not os.environ.get("DATABASE_URL"):
         print("ERROR: DATABASE_URL not set", file=sys.stderr)
         sys.exit(1)
@@ -39,11 +38,12 @@ async def run() -> None:
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=3)
     try:
         for row_id, label, port, transport, tag, ws_path in (
-            (28, "Финляндия 1.0(Happ)", 443, "tcp", "bravada2-tcp", "/ws"),
-            (29, "Финляндия 2.0(Happ)", 8443, "xhttp", "bravada2-xhttp", XHTTP_PATH),
+            (28, "Финляндия 1.0(Happ)", 443, "tcp", "clr-tcp", "/ws"),
+            (29, "Финляндия 2.0(Happ)", 8443, "xhttp", "clr-xhttp", XHTTP_PATH),
         ):
             existing = await pool.fetchrow("SELECT server_host FROM vpn_servers WHERE id=$1", row_id)
-            if existing and existing["server_host"] != BRAVADA2_HOST:
+            if existing and existing["server_host"] not in (CLR_HOST, "176.123.167.72"):
+                # someone else legitimately owns this id — refuse rather than clobber
                 print(f"ERROR: id={row_id} used by {existing['server_host']!r}", file=sys.stderr)
                 sys.exit(1)
             await pool.execute("DELETE FROM vpn_servers WHERE id=$1", row_id)
@@ -62,21 +62,19 @@ async def run() -> None:
                     '', 0, $6, $7,
                     $8, 'firefox', $9, '', '',
                     'bare_xray', $10, 'happ', 'standard',
-                    $11, $12, TRUE
+                    NULL, NULL, TRUE
                 )
                 """,
                 row_id,
                 label,
-                BRAVADA2_HOST,
+                CLR_HOST,
                 port,
                 ws_path,
-                pbk,
-                sid,
-                BRAVADA2_SNI,
+                CLR_PBK,
+                CLR_SID,
+                CLR_SNI,
                 transport,
                 tag,
-                SSH_USER,
-                SSH_KEY_PATH,
             )
             print(f"  id={row_id} {label} {transport} :{port} tag={tag}")
 
