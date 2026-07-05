@@ -37,7 +37,7 @@ def test_unknown_plan_rate():
 
 
 def test_calculate_commission_kopecks():
-    assert calculate_commission_kopecks(30000, 0.35) == 10500  # 300 RUB * 35% = 105 RUB
+    assert calculate_commission_kopecks(24900, 0.35) == 8715  # 249 RUB (1m plan) * 35% = 87.15 RUB
 
 
 def test_build_commissions_direct_only():
