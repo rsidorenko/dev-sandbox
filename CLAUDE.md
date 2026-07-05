@@ -21,7 +21,7 @@ source of truth — this file provides workflow rules and context, not a substit
 ### What the system actually does
 
 1. **User registration** — Telegram `/start` creates identity, auto-activates 3-day free trial with real VLESS keys
-2. **Subscription plans** — 1 month (300 RUB), 3 months (750 RUB), 6 months (1350 RUB), with configurable device count
+2. **Subscription plans** — 7 tiers (`1d`/`7d`/`14d`/`1m`/`3m`/`6m`/`365d`); e.g. 1 month (249 RUB), 3 months (699 RUB), 6 months (1259 RUB), 1 year (2199 RUB), with configurable device count. Authoritative source: `backend/src/app/domain/plans.py`
 3. **Payment** — checkout via signed HMAC URLs, payment fulfillment ingress, balance payment from referral credits
 4. **VPN key management** — real VLESS user creation across all active 3x-ui panels, subscription URL for auto-import into Karing/Happ/v2rayTune
 5. **Key lifecycle** — automatic deactivation on expiry, deletion after 20-day grace period, reactivation on renewal, key reissue
