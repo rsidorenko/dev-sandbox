@@ -106,9 +106,15 @@ def _select_servers_for_client(
     Happ; the foreign 3x-ui fleet does not. Every other client (Karing, v2rayN, …)
     gets surface='default' (the fleet), exactly as before. Falls back to the full set
     when the requested surface is empty (e.g. Cloud.ru row inactive).
+
+    surface='both' is served to EVERY client (Happ and default) — used for entries
+    that should appear in both subscriptions, e.g. a Cloud.ru 1.0 relay promoted from
+    Happ-only to universal once the direct fleet 1.0 is DPI-dead for Karing.
     """
     want_happ = "happ" in (ua or "").lower() or client_param == "happ"
+    both = [s for s in servers if s.surface == "both"]
     if want_happ:
         happ = [s for s in servers if s.surface == "happ"]
-        return happ if happ else list(servers)
-    return [s for s in servers if s.surface == "default"]
+        selected = happ + both
+        return selected if selected else list(servers)
+    return [s for s in servers if s.surface == "default"] + both
