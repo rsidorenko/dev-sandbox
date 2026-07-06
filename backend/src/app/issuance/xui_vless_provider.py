@@ -796,19 +796,15 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def _reconcile_h1_server(self, client: XuiApiClient, users: list[asyncpg.Record]) -> None:
         """Batch desired-state for an h1-fork panel (h1cloud). Rebuild the full client list in
-        the h1-schema, ONE update if the active-email set changed, then ONE xray restart (the
-        fork doesn't hot-apply client changes — running xray needs the restart after update).
-        Idempotent: no update + no restart when the set is unchanged."""
+        the h1-schema (ONE update + ONE xray restart; the fork doesn't hot-apply client changes)
+        when the active-email set changed OR any client's enable state is wrong. Idempotent:
+        no update + no restart when emails AND enable states all match the desired state.
+
+        The enable check matters because the h1-fork uses expiryTime=0 (keys don't expire by
+        time), so an expired user's key must be flipped to enable=False explicitly — without this
+        check, a user who expires (state_label flips, email set unchanged) would keep enable=True
+        = an infinite key until some other user joins/exits and changes the email set."""
         transport = client.server_config.transport_type
-        desired_emails = {_email_from_internal(u["internal_user_id"], transport_type=transport) for u in users}
-        try:
-            current = await client.get_inbound_clients()
-        except Exception:
-            _LOGGER.warning("reconcile_h1 get_failed server=%s", client.server_id, exc_info=True)
-            return
-        current_emails = {c.get("email") for c in current if c.get("email")}
-        if current_emails == desired_emails:
-            return  # steady state — no update, no restart
         desired = [
             build_h1_client(
                 user_uuid=_vless_uuid_for_transport(u["internal_user_id"], transport),
@@ -817,6 +813,19 @@ class XuiVlessProvider(VlessProviderPort):
             )
             for u in users
         ]
+        desired_enable = {c["email"]: c["enable"] for c in desired}
+        try:
+            current = await client.get_inbound_clients()
+        except Exception:
+            _LOGGER.warning("reconcile_h1 get_failed server=%s", client.server_id, exc_info=True)
+            return
+        current_enable = {c.get("email"): c.get("enable", True) for c in current if c.get("email")}
+        # steady state = same email set AND every enable matches (catches expired users whose
+        # enable must flip to False, not just added/removed users).
+        if set(current_enable) == set(desired_enable) and all(
+            bool(current_enable[e]) == desired_enable[e] for e in desired_enable
+        ):
+            return  # no update, no restart
         try:
             if await client.replace_inbound_clients(desired) and await client.restart_xray():
                 _LOGGER.info(
