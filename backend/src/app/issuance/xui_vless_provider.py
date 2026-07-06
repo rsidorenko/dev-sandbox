@@ -128,14 +128,18 @@ def _h1_client_token(n: int = 16) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(n))
 
 
-def build_h1_client(*, user_uuid: str, email: str) -> dict:
+def build_h1_client(*, user_uuid: str, email: str, enable: bool = True) -> dict:
     """Client object for the h1cloud 3x-ui h1-fork. The fork requires its custom schema
     (auth/password/subId/security, numeric tgId, NO flow) — without it the fork's xray config
-    regen doesn't activate the client, and the link gets 'server closed connection'."""
+    regen doesn't activate the client, and the link gets 'server closed connection'.
+
+    ``enable`` mirrors the subscription state — expired/in-grace users must be disabled on
+    h1cloud too (the fork uses expiryTime=0, so without an explicit enable=False an expired
+    user's h1cloud key stays live = infinite subscription leak)."""
     return {
         "id": user_uuid,
         "email": email,
-        "enable": True,
+        "enable": enable,
         "expiryTime": 0,
         "limitIp": 0,
         "totalGB": 0,
@@ -809,6 +813,7 @@ class XuiVlessProvider(VlessProviderPort):
             build_h1_client(
                 user_uuid=_vless_uuid_for_transport(u["internal_user_id"], transport),
                 email=_email_from_internal(u["internal_user_id"], transport_type=transport),
+                enable=(u.get("state_label") == "active"),
             )
             for u in users
         ]
