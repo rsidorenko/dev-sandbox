@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import secrets
+import sqlite3
 import string
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -157,6 +160,110 @@ def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
     """Unix timestamp in milliseconds for expiry."""
     future = datetime.now(UTC) + timedelta(days=days)
     return int(future.timestamp() * 1000)
+
+
+def _sync_h1_tables(conn: sqlite3.Connection, desired: dict[str, dict], inbound_id: int = 1) -> bool:
+    """Mirror desired bot clients into the h1-fork clients/client_inbounds/client_traffics tables
+    + inbounds.settings.clients JSON. The h1-fork (3x-ui v3 on Pterodactyl) reads VLESS clients
+    from these tables (NOT from settings.clients JSON); the bot's /update writes only the JSON, so a
+    direct table-sync is the only way bot clients get served.
+
+    Scoped to clients whose email starts with ``x-user-`` (bot clients) — manual/test clients are
+    NEVER touched (a sync bug cannot break a manually-added working key). Idempotent. Returns True
+    if any row changed (caller uploads + restarts xray only then).
+
+    ``desired`` maps email -> {"uuid", "enable": bool, "expiry": ms-since-epoch}.
+    """
+    cur = conn.cursor()
+    now_ms = int(time.time() * 1000)
+
+    def tok(n: int = 16) -> str:
+        return "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(n))
+
+    cur.execute("SELECT id, email, uuid, enable, expiry_time FROM clients WHERE email LIKE 'x-user-%'")
+    current = {
+        r[1]: {"id": r[0], "uuid": r[2], "enable": int(r[3] or 0), "expiry": int(r[4] or 0)} for r in cur.fetchall()
+    }
+
+    changed = False
+    for email, spec in desired.items():
+        en = 1 if spec["enable"] else 0
+        if email not in current:
+            cur.execute(
+                """INSERT INTO clients (email, sub_id, uuid, password, auth, flow, security, reverse,
+                   limit_ip, total_gb, expiry_time, enable, tg_id, group_name, comment, reset,
+                   created_at, updated_at, wg_private_key, wg_public_key, wg_allowed_ips,
+                   wg_pre_shared_key, wg_keep_alive)
+                   VALUES (?,?,?,?,?, '', 'auto','', 0,0, ?,?, 0,'','',0, ?,?, '','','','', 0)""",
+                (email, tok(), spec["uuid"], tok(), tok(), spec["expiry"], en, now_ms, now_ms),
+            )
+            cid = cur.execute("SELECT last_insert_rowid()").fetchone()[0]
+            cur.execute(
+                "INSERT OR IGNORE INTO client_inbounds (client_id, inbound_id, flow_override, created_at) VALUES (?,?,?,?)",
+                (cid, inbound_id, "", now_ms),
+            )
+            cur.execute(
+                """INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, last_online)
+                   VALUES (?,?,?,0,0,?,0,0,0)""",
+                (inbound_id, en, email, spec["expiry"]),
+            )
+            changed = True
+        else:
+            c = current[email]
+            if c["enable"] != en or c["expiry"] != spec["expiry"]:
+                cur.execute(
+                    "UPDATE clients SET enable=?, expiry_time=?, updated_at=? WHERE id=?",
+                    (en, spec["expiry"], now_ms, c["id"]),
+                )
+                cur.execute(
+                    "UPDATE client_traffics SET enable=?, expiry_time=? WHERE email=? AND inbound_id=?",
+                    (en, spec["expiry"], email, inbound_id),
+                )
+                changed = True
+    for email, c in current.items():
+        if email not in desired:
+            cur.execute("DELETE FROM client_inbounds WHERE client_id=?", (c["id"],))
+            cur.execute("DELETE FROM client_traffics WHERE email=? AND inbound_id=?", (email, inbound_id))
+            cur.execute("DELETE FROM clients WHERE id=?", (c["id"],))
+            changed = True
+
+    if changed:
+        row = cur.execute("SELECT settings FROM inbounds WHERE id=?", (inbound_id,)).fetchone()
+        se = json.loads(row[0]) if row and row[0] else {}
+        clients = se.setdefault("clients", [])
+        by_email = {cl.get("email"): cl for cl in clients}
+        for email, spec in desired.items():
+            if email in by_email:
+                by_email[email].update({"enable": spec["enable"], "expiryTime": spec["expiry"], "updated_at": now_ms})
+            else:
+                clients.append(
+                    {
+                        "id": spec["uuid"],
+                        "email": email,
+                        "enable": spec["enable"],
+                        "expiryTime": spec["expiry"],
+                        "limitIp": 0,
+                        "totalGB": 0,
+                        "tgId": 0,
+                        "subId": tok(),
+                        "auth": tok(),
+                        "password": tok(),
+                        "security": "auto",
+                        "comment": "",
+                        "reset": 0,
+                        "created_at": now_ms,
+                        "updated_at": now_ms,
+                        "flow": "",
+                    }
+                )
+        se["clients"] = [
+            cl
+            for cl in clients
+            if not (str(cl.get("email", "")).startswith("x-user-") and cl.get("email") not in desired)
+        ]
+        cur.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(se), inbound_id))
+    conn.commit()
+    return changed
 
 
 def _build_vless_link(
@@ -795,46 +902,116 @@ class XuiVlessProvider(VlessProviderPort):
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
     async def _reconcile_h1_server(self, client: XuiApiClient, users: list[asyncpg.Record]) -> None:
-        """Batch desired-state for an h1-fork panel (h1cloud). Rebuild the full client list in
-        the h1-schema (ONE update + ONE xray restart; the fork doesn't hot-apply client changes)
-        when the active-email set changed OR any client's enable state is wrong. Idempotent:
-        no update + no restart when emails AND enable states all match the desired state.
+        """Desired-state sync for an h1-fork panel (h1cloud) via direct SFTP db-edit.
 
-        The enable check matters because the h1-fork uses expiryTime=0 (keys don't expire by
-        time), so an expired user's key must be flipped to enable=False explicitly — without this
-        check, a user who expires (state_label flips, email set unchanged) would keep enable=True
-        = an infinite key until some other user joins/exits and changes the email set."""
-        transport = client.server_config.transport_type
-        desired = [
-            build_h1_client(
-                user_uuid=_vless_uuid_for_transport(u["internal_user_id"], transport),
-                email=_email_from_internal(u["internal_user_id"], transport_type=transport),
-                enable=(u.get("state_label") == "active"),
-            )
-            for u in users
-        ]
-        desired_enable = {c["email"]: c["enable"] for c in desired}
-        try:
-            current = await client.get_inbound_clients()
-        except Exception:
-            _LOGGER.warning("reconcile_h1 get_failed server=%s", client.server_id, exc_info=True)
+        The h1-fork (3x-ui v3 on Pterodactyl) reads VLESS clients from the clients/client_inbounds/
+        client_traffics TABLES, not from inbounds.settings.clients JSON. The panel /update (used by
+        ``replace_inbound_clients``) writes only the JSON → bot clients never reach the tables → xray
+        doesn't serve them, AND /update triggers a reload-loop (``use of closed network connection``).
+        So this method NEVER /updates: it downloads x-ui.db over SFTP, mirrors desired bot clients
+        into the tables (``_sync_h1_tables``, scoped to x-user- so manual clients are untouched),
+        uploads atomically (rename), and restarts xray (config.json regenerates from the tables).
+        Graceful: missing creds / SFTP failure → log + return (h1cloud state preserved, nothing breaks).
+
+        Needs H1_SFTP_HOST/PORT/USER/PASS env (set in backend/.env on prod). Runs on the reconcile
+        timer → auto-provisions new users, auto-disables expired, auto-removes deleted."""
+        host = os.environ.get("H1_SFTP_HOST", "").strip()
+        if not host:
+            _LOGGER.info("reconcile_h1_sftp server=%s skipped (H1_SFTP_HOST not set)", client.server_id)
             return
-        current_enable = {c.get("email"): c.get("enable", True) for c in current if c.get("email")}
-        # steady state = same email set AND every enable matches (catches expired users whose
-        # enable must flip to False, not just added/removed users).
-        if set(current_enable) == set(desired_enable) and all(
-            bool(current_enable[e]) == desired_enable[e] for e in desired_enable
-        ):
-            return  # no update, no restart
+        port = int(os.environ.get("H1_SFTP_PORT", "2022"))
+        user = os.environ.get("H1_SFTP_USER", "")
+        pw = os.environ.get("H1_SFTP_PASS", "")
+        transport = client.server_config.transport_type
+        inbound_id = client.server_config.inbound_id
+
+        desired: dict[str, dict] = {}
+        now = datetime.now(UTC)
+        for u in users:
+            uid = u["internal_user_id"]
+            active_until = u.get("active_until_utc")
+            if active_until and active_until > now:
+                expiry = _expiry_timestamp(days=max(1, (active_until - now).days))
+            else:
+                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
+            desired[_email_from_internal(uid, transport_type=transport)] = {
+                "uuid": _vless_uuid_for_transport(uid, transport),
+                "enable": u.get("state_label") == "active",
+                "expiry": expiry,
+            }
+
+        import paramiko  # lazy — keeps module import light and test-isolated
+
+        sftp = None
+        ssh = None
+        local_db = None
+        local_bak = None
         try:
-            if await client.replace_inbound_clients(desired) and await client.restart_xray():
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507
+            ssh.connect(
+                hostname=host,
+                port=port,
+                username=user,
+                password=pw,
+                timeout=20,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            sftp = ssh.open_sftp()
+            local_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+            local_bak = local_db + ".bak"
+            sftp.get("db/x-ui.db", local_db)
+            import shutil
+
+            shutil.copy(local_db, local_bak)  # pristine backup (for restore on failure)
+
+            conn = sqlite3.connect(local_db)
+            try:
+                changed = _sync_h1_tables(conn, desired, inbound_id)
+            finally:
+                conn.close()
+
+            if not changed:
                 _LOGGER.info(
-                    "reconcile_h1 server=%s clients=%d restarted=True",
+                    "reconcile_h1_sftp server=%s steady-state (no change, no restart)",
+                    client.server_id,
+                )
+                return
+
+            # atomic upload: .new -> rename over x-ui.db (previous kept as .old for one cycle)
+            sftp.put(local_db, "db/x-ui.db.new")
+            with contextlib.suppress(Exception):
+                sftp.remove("db/x-ui.db.old")
+            with contextlib.suppress(Exception):
+                sftp.rename("db/x-ui.db", "db/x-ui.db.old")
+            sftp.rename("db/x-ui.db.new", "db/x-ui.db")
+            restarted = await client.restart_xray()
+            if restarted:
+                _LOGGER.info(
+                    "reconcile_h1_sftp server=%s synced=%d restart=True",
                     client.server_id,
                     len(desired),
                 )
+            else:
+                # restart failed — restore the pristine backup so h1cloud keeps serving its last state
+                _LOGGER.warning("reconcile_h1_sftp server=%s restart_failed — restoring backup", client.server_id)
+                with contextlib.suppress(Exception):
+                    sftp.put(local_bak, "db/x-ui.db")
+                    await client.restart_xray()
         except Exception:
-            _LOGGER.warning("reconcile_h1 update_failed server=%s", client.server_id, exc_info=True)
+            _LOGGER.warning("reconcile_h1_sftp server=%s failed (state preserved)", client.server_id, exc_info=True)
+        finally:
+            with contextlib.suppress(Exception):
+                if sftp is not None:
+                    sftp.close()
+            with contextlib.suppress(Exception):
+                if ssh is not None:
+                    ssh.close()
+            for path in (local_db, local_bak):
+                if path:
+                    with contextlib.suppress(Exception):
+                        os.unlink(path)
 
     async def reconcile_all_users(self) -> tuple[int, int, int]:
         """Ensure every non-deleted user has a VLESS key on every active server.
