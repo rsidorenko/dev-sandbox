@@ -198,3 +198,27 @@ def test_reconcile_h1_skips_without_sftp_creds(monkeypatch) -> None:
 def test_email_from_internal_xhttp_prefix() -> None:
     assert _email_from_internal("u1", transport_type="xhttp") == "x-user-u1"
     assert _email_from_internal("u1", transport_type="tcp") == "user-u1"
+
+
+def test_expiry_ms_for_user_expired_shows_past_not_365() -> None:
+    """Expired users (active_until in the past) must get a PAST expiry (panel shows 'expired'),
+    not the misleading +365d fallback."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.issuance.xui_vless_provider import _expiry_ms_for_user
+
+    past = datetime.now(UTC) - timedelta(days=5)
+    expiry = _expiry_ms_for_user(past)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    assert expiry < now_ms  # past — shows expired
+
+
+def test_expiry_ms_for_user_active_is_future() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.issuance.xui_vless_provider import _expiry_ms_for_user
+
+    future = datetime.now(UTC) + timedelta(days=30)
+    expiry = _expiry_ms_for_user(future)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    assert expiry > now_ms  # future — active
