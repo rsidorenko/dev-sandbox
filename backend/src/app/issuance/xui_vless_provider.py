@@ -162,6 +162,20 @@ def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
     return int(future.timestamp() * 1000)
 
 
+def _expiry_ms_for_user(active_until: datetime | None, now: datetime | None = None) -> int:
+    """Expiry timestamp (ms) reflecting a subscription's real state.
+
+    Active -> active_until (>=1 day floor). **Expired** (active_until in the past) -> the past
+    active_until itself, so the panel shows 'expired' rather than a misleading +365d. No date ->
+    minimal default. Used by reconcile so expired/disabled clients display their real expiry."""
+    now = now or datetime.now(UTC)
+    if active_until and active_until > now:
+        return _expiry_timestamp(days=max(1, (active_until - now).days))
+    if active_until:  # expired — past active_until (panel shows expired, NOT +365)
+        return int(active_until.timestamp() * 1000)
+    return _expiry_timestamp(days=1)
+
+
 def _sync_h1_tables(conn: sqlite3.Connection, desired: dict[str, dict], inbound_id: int = 1) -> bool:
     """Mirror desired bot clients into the h1-fork clients/client_inbounds/client_traffics tables
     + inbounds.settings.clients JSON. The h1-fork (3x-ui v3 on Pterodactyl) reads VLESS clients
@@ -929,11 +943,7 @@ class XuiVlessProvider(VlessProviderPort):
         now = datetime.now(UTC)
         for u in users:
             uid = u["internal_user_id"]
-            active_until = u.get("active_until_utc")
-            if active_until and active_until > now:
-                expiry = _expiry_timestamp(days=max(1, (active_until - now).days))
-            else:
-                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
+            expiry = _expiry_ms_for_user(u.get("active_until_utc"), now)
             desired[_email_from_internal(uid, transport_type=transport)] = {
                 "uuid": _vless_uuid_for_transport(uid, transport),
                 "enable": u.get("state_label") == "active",
@@ -1060,13 +1070,9 @@ class XuiVlessProvider(VlessProviderPort):
             # Use real device_count from subscription; fall back to trial limit
             device_count = u.get("device_count") or 0
             limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
-            # Use real expiry from subscription; fall back to 1 year from now
-            active_until = u.get("active_until_utc")
-            if active_until is not None and active_until > datetime.now(UTC):
-                days_left = max(1, (active_until - datetime.now(UTC)).days)
-                expiry = _expiry_timestamp(days=days_left)
-            else:
-                expiry = _expiry_timestamp(days=_DEFAULT_EXPIRY_DAYS)
+            # Use real expiry from subscription; expired users get their past active_until
+            # (panel shows 'expired', not a misleading +365d)
+            expiry = _expiry_ms_for_user(u.get("active_until_utc"))
 
             user_added = False
             user_failed = False
