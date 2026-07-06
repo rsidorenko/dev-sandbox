@@ -45,7 +45,7 @@ def test_build_h1_client_enable_param_drives_enable_field() -> None:
     assert build_h1_client(user_uuid="U", email="e", enable=True)["enable"] is True
 
 
-def _h1_mock(current_emails: list[str]) -> AsyncMock:
+def _h1_mock(current: list[dict]) -> AsyncMock:
     cfg = XuiServerConfig(
         server_id=22,
         label="h1cloud",
@@ -67,7 +67,7 @@ def _h1_mock(current_emails: list[str]) -> AsyncMock:
     m = AsyncMock()
     m.server_config = cfg
     m.server_id = 22
-    m.get_inbound_clients = AsyncMock(return_value=[{"email": e} for e in current_emails])
+    m.get_inbound_clients = AsyncMock(return_value=current)
     m.replace_inbound_clients = AsyncMock(return_value=True)
     m.restart_xray = AsyncMock(return_value=True)
     return m
@@ -76,7 +76,7 @@ def _h1_mock(current_emails: list[str]) -> AsyncMock:
 async def test_reconcile_h1_diff_triggers_batch_update_and_restart() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
     users = [{"internal_user_id": "u1", "state_label": "active"}, {"internal_user_id": "u2", "state_label": "active"}]
-    m = _h1_mock(current_emails=["someone-else"])  # differs from desired
+    m = _h1_mock(current=[{"email": "someone-else", "enable": True}])  # email set differs
     await p._reconcile_h1_server(m, users)
     m.replace_inbound_clients.assert_awaited_once()
     desired = m.replace_inbound_clients.call_args.args[0]
@@ -93,7 +93,7 @@ async def test_reconcile_h1_disables_expired_users() -> None:
     hardcoded it + expiryTime=0) → infinite key. Reconcile must set enable from state_label."""
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
     users = [{"internal_user_id": "u1", "state_label": "active"}, {"internal_user_id": "u2", "state_label": "expired"}]
-    m = _h1_mock(current_emails=[])  # forces a rebuild
+    m = _h1_mock(current=[])  # forces a rebuild
     await p._reconcile_h1_server(m, users)
     desired = {c["email"]: c for c in m.replace_inbound_clients.call_args.args[0]}
     assert desired["x-user-u1"]["enable"] is True  # active
@@ -102,18 +102,33 @@ async def test_reconcile_h1_disables_expired_users() -> None:
 
 async def test_reconcile_h1_no_change_skips_update_and_restart() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
-    users = [{"internal_user_id": "u1"}]
+    users = [{"internal_user_id": "u1", "state_label": "active"}]
     desired_email = _email_from_internal("u1", transport_type="xhttp")  # x-user-u1
-    m = _h1_mock(current_emails=[desired_email])  # current == desired
+    m = _h1_mock(current=[{"email": desired_email, "enable": True}])  # emails AND enable match
     await p._reconcile_h1_server(m, users)
     m.replace_inbound_clients.assert_not_awaited()  # steady state
     m.restart_xray.assert_not_awaited()
 
 
+async def test_reconcile_h1_enable_mismatch_triggers_rebuild() -> None:
+    """A user who expired (state_label flipped, email set unchanged) must still get rebuilt —
+    the h1-fork uses expiryTime=0, so without flipping enable=False the key stays live. The
+    reconcile rebuilds on enable-mismatch, not just email-set change."""
+    p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    users = [{"internal_user_id": "u1", "state_label": "expired"}]  # desired enable=False
+    desired_email = _email_from_internal("u1", transport_type="xhttp")
+    m = _h1_mock(current=[{"email": desired_email, "enable": True}])  # same email, wrong enable
+    await p._reconcile_h1_server(m, users)
+    m.replace_inbound_clients.assert_awaited_once()  # rebuild despite same email set
+    desired = m.replace_inbound_clients.call_args.args[0]
+    assert desired[0]["enable"] is False
+    m.restart_xray.assert_awaited_once()
+
+
 async def test_reconcile_h1_update_failure_does_not_restart() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
     users = [{"internal_user_id": "u1"}]
-    m = _h1_mock(current_emails=[])
+    m = _h1_mock(current=[])
     m.replace_inbound_clients = AsyncMock(return_value=False)  # update failed
     await p._reconcile_h1_server(m, users)
     m.restart_xray.assert_not_awaited()  # don't restart after a failed update
