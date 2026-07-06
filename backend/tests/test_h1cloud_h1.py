@@ -75,8 +75,7 @@ def _h1_mock(current_emails: list[str]) -> AsyncMock:
 
 async def test_reconcile_h1_diff_triggers_batch_update_and_restart() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
-    users = [{"internal_user_id": "u1", "state_label": "active"},
-             {"internal_user_id": "u2", "state_label": "active"}]
+    users = [{"internal_user_id": "u1", "state_label": "active"}, {"internal_user_id": "u2", "state_label": "active"}]
     m = _h1_mock(current_emails=["someone-else"])  # differs from desired
     await p._reconcile_h1_server(m, users)
     m.replace_inbound_clients.assert_awaited_once()
@@ -93,12 +92,11 @@ async def test_reconcile_h1_disables_expired_users() -> None:
     """Regression: expired/in-grace users had enable=True on h1cloud (build_h1_client
     hardcoded it + expiryTime=0) → infinite key. Reconcile must set enable from state_label."""
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
-    users = [{"internal_user_id": "u1", "state_label": "active"},
-             {"internal_user_id": "u2", "state_label": "expired"}]
+    users = [{"internal_user_id": "u1", "state_label": "active"}, {"internal_user_id": "u2", "state_label": "expired"}]
     m = _h1_mock(current_emails=[])  # forces a rebuild
     await p._reconcile_h1_server(m, users)
     desired = {c["email"]: c for c in m.replace_inbound_clients.call_args.args[0]}
-    assert desired["x-user-u1"]["enable"] is True   # active
+    assert desired["x-user-u1"]["enable"] is True  # active
     assert desired["x-user-u2"]["enable"] is False  # expired → disabled (was the leak)
 
 
