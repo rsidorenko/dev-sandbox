@@ -33,12 +33,14 @@ def _should_verify_ssl() -> bool:
 # vision is invalid for those transports.
 REALITY_TCP_FLOW = "xtls-rprx-vision"
 
-# Servers that use Vision flow for tcp+Reality (extra DPI resistance). Empty now —
-# the LTE fleet (the only Vision users, ids 10/12/13/14) was decommissioned. To
-# re-enable on a server: add its id here AND set client_inbounds.flow_override to
-# REALITY_TCP_FLOW on that server (xray reads flow_override, not clients.flow;
-# sync_clients_table.py mirrors flow -> flow_override).
-_VISION_SERVERS: set[int] = set()
+# Servers whose tcp+Reality clients must carry the xtls-rprx-vision flow. Vision is
+# the only valid flow for tcp+Reality and adds active-DPI resistance. Adding an id
+# here makes the bot provision flow=vision (see flow_for_transport); you MUST also
+# ensure client_inbounds.flow_override matches on the server (xray reads
+# flow_override, not clients.flow; sync_clients_table.py mirrors flow -> flow_override).
+# Frankfurt Karing 1.0 (id=4) added 2026-07-06 — its inbound 1 had mixed flow_override
+# ('' and vision), which mismatched the vision the link always emits.
+_VISION_SERVERS: set[int] = {4}
 
 
 def flow_for_transport(transport_type: str, server_id: int | None = None) -> str:
