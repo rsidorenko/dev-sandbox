@@ -58,6 +58,22 @@ def test_ua_match_is_case_insensitive() -> None:
     assert _select_servers_for_client(servers, ua="hAPP/2.0", client_param=None)[0].surface == "happ"
 
 
+def test_both_surface_served_to_happ_and_default() -> None:
+    """surface='both' entries appear in BOTH the Happ selection and the default/Karing
+    selection — a Cloud.ru 1.0 relay promoted to universal when the direct fleet 1.0
+    is DPI-dead for Karing."""
+    fleet = _server("Frankfurt 2.0")  # surface='default'
+    happ_only = _server("Cloud.ru 2.0", "happ")
+    universal = _server("Cloud.ru 1.0", "both")
+    servers = (fleet, happ_only, universal)
+
+    happ_selected = _select_servers_for_client(servers, ua="Happ/2.0", client_param=None)
+    assert {s.server_label for s in happ_selected} == {"Cloud.ru 2.0", "Cloud.ru 1.0"}
+
+    kar_selected = _select_servers_for_client(servers, ua="Karing/1.0", client_param=None)
+    assert {s.server_label for s in kar_selected} == {"Frankfurt 2.0", "Cloud.ru 1.0"}
+
+
 # ---------------------------------------------------------------------------
 # Provider: bare_xray (Cloud.ru) link building — surface + tcp/firefox link shape
 # ---------------------------------------------------------------------------
