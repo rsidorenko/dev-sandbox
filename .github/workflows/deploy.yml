@@ -738,3 +738,39 @@ jobs:
 
             echo "=== Install/refresh reprovision-active timer (enable/expiry desync auto-heal, every 30 min, no xray restart) ==="
             bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true
+
+      # ─── Client binaries (Karing APK) ────────────────────────────────────
+      # The APK is too large for git (pre-commit 3 MB limit), so it is shipped
+      # as an asset of the 'client-binaries' GitHub release and placed on the
+      # server here. nginx serves it from /downloads/ (see nginx/conf.d). Safe
+      # to run before the asset exists: the fetch is non-fatal and the scp step
+      # is skipped, so this never blocks a deploy.
+      - name: Fetch Karing APK from GitHub release
+        id: fetch_apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ./client-downloads
+          if gh release download client-binaries \
+               --repo ${{ github.repository }} \
+               --pattern 'karing_*_android_arm.apk' \
+               --dir ./client-downloads \
+               --clobber; then
+            echo "apk_found=true" >> "$GITHUB_OUTPUT"
+            ls -lh ./client-downloads/
+          else
+            echo "apk_found=false" >> "$GITHUB_OUTPUT"
+            echo "no 'client-binaries' release or APK asset — skipping (non-fatal)"
+          fi
+
+      - name: Place Karing APK into nginx downloads dir
+        if: steps.fetch_apk.outputs.apk_found == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "./client-downloads/karing_*_android_arm.apk"
+          target: "/opt/bravada-downloads"
+          strip_components: 1
+          overwrite: true
