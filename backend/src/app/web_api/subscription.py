@@ -112,9 +112,11 @@ def _select_servers_for_client(
     Happ-only to universal once the direct fleet 1.0 is DPI-dead for Karing.
     """
     want_happ = "happ" in (ua or "").lower() or client_param == "happ"
+    _FC = {0x59: 1, 0x0413: 2, 0x0424: 3, 0x041B: 4, 0x0421: 5, 0x041E: 6}
+    servers = sorted(servers, key=lambda s: _FC.get(ord(s.server_label[0]) if s.server_label else 0, 99))
     both = [s for s in servers if s.surface == "both"]
     if want_happ:
         happ = [s for s in servers if s.surface == "happ"]
-        selected = happ + both
+        selected = both + happ
         return selected if selected else list(servers)
-    return [s for s in servers if s.surface == "default"] + both
+    return both + [s for s in servers if s.surface == "default"]
