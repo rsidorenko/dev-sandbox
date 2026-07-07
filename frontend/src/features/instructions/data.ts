@@ -24,13 +24,14 @@ export type InstructionPlatform = {
 };
 
 const IOS_KARING_APPSTORE_URL = "https://apps.apple.com/app/karing/id6472431552";
-const ANDROID_KARING_PLAYSTORE_URL =
-  "https://play.google.com/store/apps/details?id=com.karing.app";
+const KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases";
+// Karing isn't on Google Play — self-hosted APK, served by nginx from /downloads/.
+// Stable name: deploy normalizes any versioned asset to this filename.
+const ANDROID_KARING_APK_URL = "/downloads/karing-android.apk";
 const ANDROID_HAPP_PLAYSTORE_URL =
   "https://play.google.com/store/apps/details?id=com.happproxy";
 const ANDROID_V2RAYTUNE_URL =
   "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru";
-const WIN_KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases";
 
 // Общие шаги для платформ на Karing (Windows / Android / iPhone / Mac).
 const karingOpenStep: InstructionStep = {
@@ -66,7 +67,7 @@ export const connectionPlatforms: readonly InstructionPlatform[] = [
       {
         title: "Установите Karing",
         description: "Скачайте и установите приложение Karing для Windows.",
-        links: [{ href: WIN_KARING_GITHUB_URL, label: "Скачать Karing (GitHub)" }],
+        links: [{ href: KARING_GITHUB_URL, label: "Скачать Karing (GitHub)" }],
       },
       karingOpenStep,
       importSubscriptionStep,
@@ -84,7 +85,8 @@ export const connectionPlatforms: readonly InstructionPlatform[] = [
         description:
           "Подойдёт Karing, Happ или v2rayTune — выберите любое. Рекомендуем Karing.",
         links: [
-          { href: ANDROID_KARING_PLAYSTORE_URL, label: "Karing" },
+          { href: KARING_GITHUB_URL, label: "Karing (GitHub)" },
+          { href: ANDROID_KARING_APK_URL, label: "Скачать Karing (APK)" },
           { href: ANDROID_HAPP_PLAYSTORE_URL, label: "Happ" },
           { href: ANDROID_V2RAYTUNE_URL, label: "v2rayTune" },
         ],
