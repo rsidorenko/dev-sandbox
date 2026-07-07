@@ -26,7 +26,8 @@ export type InstructionPlatform = {
 const IOS_KARING_APPSTORE_URL = "https://apps.apple.com/app/karing/id6472431552";
 const KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases";
 // Karing isn't on Google Play — self-hosted APK, served by nginx from /downloads/.
-const ANDROID_KARING_APK_URL = "/downloads/karing_1.2.21.2409_android_arm.apk";
+// Stable name: deploy normalizes any versioned asset to this filename.
+const ANDROID_KARING_APK_URL = "/downloads/karing-android.apk";
 const ANDROID_HAPP_PLAYSTORE_URL =
   "https://play.google.com/store/apps/details?id=com.happproxy";
 const ANDROID_V2RAYTUNE_URL =
