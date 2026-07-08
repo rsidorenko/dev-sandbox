@@ -87,14 +87,6 @@ services:
       CLOUDRU_SSH_KEY: "/opt/bravada/cloudru_key.pem"
       # xray gRPC API port (HandlerService) on the bare_xray box — localhost, reached over SSH.
       CLOUDRU_XRAY_API_PORT: "10085"
-      # h1cloud Pterodactyl SFTP creds — the h1-fork reads clients from the clients/client_inbounds/
-      # client_traffics tables (NOT settings.clients JSON), so _reconcile_h1_server syncs the tables
-      # directly via SFTP db-edit (never /update, which desyncs + reload-loops). Set in backend/.env.
-      # If unset, h1 reconcile skips gracefully (h1cloud untouched).
-      H1_SFTP_HOST: ${H1_SFTP_HOST:-}
-      H1_SFTP_PORT: ${H1_SFTP_PORT:-2022}
-      H1_SFTP_USER: ${H1_SFTP_USER:-}
-      H1_SFTP_PASS: ${H1_SFTP_PASS:-}
     volumes:
       # Bind-mount the Cloud.ru SSH key from /root/.ssh (survives deploy's rm -rf
       # /opt/bravada, which preserves only .env + ssl/). Read-only in the container.

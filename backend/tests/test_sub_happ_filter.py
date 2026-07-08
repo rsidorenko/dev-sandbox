@@ -138,42 +138,42 @@ def test_build_vless_link_tcp_uses_row_reality_fp() -> None:
 
 def _cdn_config() -> XuiServerConfig:
     return XuiServerConfig(
-        server_id=22,
-        label="Обход белых списков",
-        country_code="NL",
-        country_flag="🇳🇱",
-        server_host="node67.safetunn.shop",
+        server_id=34,
+        label="Обход CDN",
+        country_code="",
+        country_flag="\U0001f310",
+        server_host="cdn.strimingset.ru",
         server_port=443,
-        ws_path="api/v1/bs1961/sync",
-        tls_sni="node67.safetunn.shop",
-        panel_url="http://193.233.126.96:25100/x",
-        panel_username="u",
-        panel_password="p",
-        inbound_id=1,
+        ws_path="api-test",
+        tls_sni="cdn.strimingset.ru",
+        panel_url="",
+        panel_username="",
+        panel_password="",
+        inbound_id=0,
         transport_type="xhttp",
-        link_template="vless://{UUID}@node67.safetunn.shop:443?extra=OBF&type=xhttp#bypass",
-        provider_kind="xui",
+        link_template="vless://{UUID}@cdn.strimingset.ru:443?extra=OBF&type=xhttp#bypass",
+        provider_kind="bare_xray",
         client_surface="happ",
     )
 
 
 def test_cdn_bypass_link_template_emitted_verbatim_per_user() -> None:
-    """The h1cloud CDN bypass row (link_template, client_surface='happ') emits the full
+    """The CDN whitelist-bypass row (link_template, client_surface='happ') emits the full
     obfuscated CDN vless:// verbatim with {UUID} -> per-user uuid (the `extra` obfuscation
     is fixed). It's an Xray-core/Happ-only key, so its surface is 'happ'."""
     link = _build_vless_link(_cdn_config(), "user-uuid-123")
-    assert link == "vless://user-uuid-123@node67.safetunn.shop:443?extra=OBF&type=xhttp#bypass"
+    assert link == "vless://user-uuid-123@cdn.strimingset.ru:443?extra=OBF&type=xhttp#bypass"
     assert "extra=OBF" in link  # obfuscation preserved verbatim
 
 
 def test_cdn_bypass_surface_routes_to_happ_only() -> None:
-    """A xui row with client_surface='happ' (the CDN bypass) is served to Happ imports
+    """A row with client_surface='happ' (the CDN bypass) is served to Happ imports
     and excluded from Karing/fleet — surface is column-driven, not provider_kind-derived."""
     cdn = VlessServerConfig(
         server_label="CDN",
-        country_code="NL",
-        country_flag="🇳🇱",
-        vless_link="vless://u@node67.safetunn.shop:443#bypass",
+        country_code="",
+        country_flag="\U0001f310",
+        vless_link="vless://u@cdn.strimingset.ru:443#bypass",
         surface="happ",
     )
     fleet = _server("Helsinki")  # surface='default'

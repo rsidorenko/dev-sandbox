@@ -107,12 +107,11 @@ class XuiServerConfig:
     # live via xray's gRPC HandlerService.AlterInbound. Empty for 'xui' rows.
     xray_inbound_tag: str = ""
     # Which /sub/ client surface this server's link belongs to: 'default' (fleet, Karing et al.)
-    # or 'happ' (served only to Happ imports — e.g. Cloud.ru relay entries, h1cloud CDN bypass).
+    # or 'happ' (served only to Happ imports — e.g. Cloud.ru relay entries, CDN bypass).
     # Drives VlessServerConfig.surface; /sub/ filters by it. See migration 057.
     client_surface: str = "default"
-    # 3x-ui panel fork flavor: 'standard' = vanilla (client CRUD via update, no restart); 'h1' =
-    # the h1cloud Pterodactyl h1-fork (needs its own client schema + an xray restart after client
-    # changes). The provider's h1 path does batch desired-state + restartXrayService. mig 058.
+    # Reserved: 3x-ui panel fork flavor. Only 'standard' is used now (the h1cloud h1-fork path
+    # was removed). Kept for migration 058 column compatibility; unused at runtime. mig 058.
     panel_flavor: str = "standard"
     # Per-row SSH creds for bare_xray servers (XrayApiClient SSHes to run grpcurl). Overrides
     # CLOUDRU_SSH_USER / CLOUDRU_SSH_KEY env; empty = use env (Cloud.ru stays on env). mig 059.
@@ -526,8 +525,7 @@ class XuiApiClient:
 
     async def replace_inbound_clients(self, clients: list[dict]) -> bool:
         """Replace the inbound's full client list (batch desired-state), preserving
-        streamSettings + sniffing. h1-fork panels need restart_xray() after this (it does
-        not hot-apply client changes). Serialized per-panel via the mutation lock."""
+        streamSettings + sniffing. Serialized per-panel via the mutation lock."""
         async with self._mutation_lock:
             inbound = await self._get_inbound()
             if not inbound:
@@ -562,12 +560,6 @@ class XuiApiClient:
                 payload,
             )
             return result.outcome == XuiOutcome.SUCCESS
-
-    async def restart_xray(self) -> bool:
-        """Restart the xray core on this panel. The h1-fork requires this after client
-        changes (it doesn't hot-apply them)."""
-        result = await self._do_client_op("POST", f"{self._base}/panel/api/server/restartXrayService", {})
-        return result.outcome == XuiOutcome.SUCCESS
 
     def _auth_headers(self) -> dict[str, str]:
         if self._config.api_token:

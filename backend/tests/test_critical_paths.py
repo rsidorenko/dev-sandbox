@@ -551,37 +551,37 @@ def test_vless_link_uses_reality_tls():
 def test_vless_link_template_overrides_transport_builder():
     """A non-empty link_template is emitted verbatim with {UUID} substituted.
 
-    For non-standard transports the per-transport branches can't assemble (e.g. the h1cloud
-    "обход белых списков" CDN key: xhttp+TLS via node67.safetunn.shop with xmux/xPadding
-    obfuscation in `extra`), the row stores a full vless:// with a {UUID} placeholder.
+    For non-standard transports the per-transport branches can't assemble (e.g. the CDN
+    whitelist-bypass key: xhttp+TLS via cdn.strimingset.ru with xPadding obfuscation in
+    `extra`), the row stores a full vless:// with a {UUID} placeholder.
     """
     from app.issuance.xui_vless_provider import XuiServerConfig, _build_vless_link
 
     template = (
-        "vless://{UUID}@node67.safetunn.shop:443?type=xhttp&security=tls"
-        "&sni=node67.safetunn.shop&path=%2Fapi%2Fv1%2Fbs1961%2Fsync%2F"
-        "&extra=%7B%22mode%22%3A%22packet-up%22%7D#h1cloud-CDN"
+        "vless://{UUID}@cdn.strimingset.ru:443?type=xhttp&security=tls"
+        "&sni=cdn.strimingset.ru&path=%2Fapi-test"
+        "&extra=%7B%22mode%22%3A%22packet-up%22%7D#CDN"
     )
     server = XuiServerConfig(
-        server_id=22,
-        label="Обход",
-        country_code="NL",
-        country_flag="🇳🇱",
-        server_host="193.233.126.96",
-        server_port=25103,
-        ws_path="",
-        tls_sni="",
+        server_id=34,
+        label="Обход CDN",
+        country_code="",
+        country_flag="\U0001f310",
+        server_host="158.160.149.191",
+        server_port=443,
+        ws_path="api-test",
+        tls_sni=None,
         panel_url="",
         panel_username="",
         panel_password="",
-        inbound_id=1,
+        inbound_id=0,
         transport_type="xhttp",
         link_template=template,
     )
 
     link = _build_vless_link(server, "user-uuid-9")
 
-    assert link.startswith("vless://user-uuid-9@node67.safetunn.shop:443")
+    assert link.startswith("vless://user-uuid-9@cdn.strimingset.ru:443")
     assert "{UUID}" not in link
     assert "security=tls" in link
     assert "extra=%7B%22mode%22%3A%22packet-up%22%7D" in link
