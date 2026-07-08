@@ -987,7 +987,7 @@ def tv_problem_keyboard() -> dict[str, Any]:
 # ─── Android connection steps ──────────────────────────────────────
 
 _ANDROID_TOTAL_STEPS = 6
-_ANDROID_KARING_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.karing.app"
+_ANDROID_KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases"
 _ANDROID_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happproxy"
 _ANDROID_V2RAYTUNE_URL = "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru"
 
@@ -998,7 +998,7 @@ def _android_step_header(step: int) -> str:
 
 def android_step_1_text() -> str:
     return _android_step_header(1) + (
-        "1. ⬇️ Нажмите «Скачать Karing» ниже или откройте Google Play\n"
+        "1. ⬇️ Нажмите «Скачать Karing» ниже или откройте GitHub\n"
         "2. 📲 Установите приложение\n\n"
         "Также можно использовать Happ или v2rayTune"
     )
@@ -1007,7 +1007,7 @@ def android_step_1_text() -> str:
 def android_step_1_keyboard() -> dict[str, Any]:
     return _inline_kb(
         [
-            [{"text": "Скачать Karing", "url": _ANDROID_KARING_PLAYSTORE_URL}],
+            [{"text": "Скачать Karing", "url": _ANDROID_KARING_GITHUB_URL}],
             [{"text": "Скачать Happ", "url": _ANDROID_HAPP_PLAYSTORE_URL}],
             [{"text": "Скачать v2rayTune", "url": _ANDROID_V2RAYTUNE_URL}],
             [
