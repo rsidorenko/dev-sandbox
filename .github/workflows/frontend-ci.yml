@@ -105,3 +105,104 @@ jobs:
             exit 1
           fi
           echo "OK: standalone output"
+
+  unit:
+    name: Unit-тесты
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Unit- и component-тесты (Vitest)
+        run: npm run test
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [unit, build]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Кэш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Установка Playwright (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E-тесты (Playwright)
+        run: npm run test:e2e
+
+      - name: Загрузка отчёта (при падении)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
+      - name: Загрузка test-results (при падении)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: frontend/test-results
+          retention-days: 7
+
+  # Единая точка-гейт: запускается всегда (if: always) и падает, если любая
+  # из проверок не success. Именно этот check стоит делать обязательным
+  # (required) в branch protection — тогда мердж блокируется до зелёного
+  # всех job'ов (lint, typecheck, build, unit, e2e).
+  gate:
+    name: Все проверки фронтенда
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, build, unit, e2e]
+    if: always()
+    steps:
+      - name: Сводка результатов
+        run: |
+          echo "lint=${{ needs.lint.result }}"
+          echo "typecheck=${{ needs.typecheck.result }}"
+          echo "build=${{ needs.build.result }}"
+          echo "unit=${{ needs.unit.result }}"
+          echo "e2e=${{ needs.e2e.result }}"
+      - name: Провал, если любая проверка не success
+        run: |
+          for r in "${{ needs.lint.result }}" "${{ needs.typecheck.result }}" "${{ needs.build.result }}" "${{ needs.unit.result }}" "${{ needs.e2e.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "FAIL: проверка фронтенда завершилась статусом '$r'"
+              exit 1
+            fi
+          done
+          echo "OK: все проверки фронтенда зелёные"

@@ -6,30 +6,14 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi } from "@/entities/payment/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
-import { planName } from "@/entities/tariff/helpers";
+import {
+  calcExtraDeviceCost,
+  getTariffInfo,
+  DEFAULT_DEVICES,
+  EXTRA_DEVICE_PRICE,
+} from "@/entities/payment/calc";
 import { reachGoal } from "@/shared/lib/analytics";
 import { Alert } from "@/shared/ui/Alert";
-
-const EXTRA_DEVICE_PRICE = 80;
-const DEFAULT_DEVICES = 5;
-const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
-
-function calcExtraDeviceCost(durationDays: number, extraDevices: number): number {
-  return extraDevices * Math.round(EXTRA_DEVICE_PRICE / 30 * durationDays);
-}
-
-function getTariffInfo(planId: string) {
-  const tariff = siteConfig.tariffs.find((t) => t.id === planId);
-  if (tariff) {
-    return { label: tariff.label, durationDays: tariff.durationDays, basePrice: tariff.price };
-  }
-  const match = planId.match(/^custom:(\d+)$/);
-  if (match) {
-    const days = parseInt(match[1]);
-    return { label: planName(planId), durationDays: days, basePrice: days * CUSTOM_PRICE_PER_DAY };
-  }
-  return null;
-}
 
 export default function PaymentPage() {
   return (
@@ -46,7 +30,11 @@ export default function PaymentPage() {
 }
 
 function PaymentForm() {
-  const { planId } = useParams<{ planId: string }>();
+  const { planId: rawPlanId } = useParams<{ planId: string }>();
+  // Next.js отдаёт динамический сегмент URL-закодированным (напр. "custom%3A10"
+  // для /payment/custom:10), поэтому декодируем — иначе расчёт тарифа и запрос
+  // оплаты для «своего тарифа» (custom:N) не сработают.
+  const planId = rawPlanId ? decodeURIComponent(rawPlanId) : "";
   const router = useRouter();
   const searchParams = useSearchParams();
   const { loading: authLoading, authenticated } = useAuth();

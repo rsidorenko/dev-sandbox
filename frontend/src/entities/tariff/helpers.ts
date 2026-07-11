@@ -32,11 +32,11 @@ export function normalizePlanId(id: string | null | undefined): string {
   return id.replace("plan_", "");
 }
 
-export function daysLeft(activeUntil: string): number {
+export function daysLeft(activeUntil: string, now: number = Date.now()): number {
   return Math.max(
     0,
     Math.ceil(
-      (new Date(activeUntil).getTime() - Date.now()) / 86400000,
+      (new Date(activeUntil).getTime() - now) / 86400000,
     ),
   );
 }
