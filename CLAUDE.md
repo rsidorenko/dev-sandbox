@@ -210,6 +210,11 @@ Types: feat  fix  refactor  docs  test  chore
 type(scope): imperative description
 ```
 
+**Authorship & language:**
+- All git actions are performed under the configured author identity only — never add a `Co-Authored-By` trailer or any other co-authorship/attribution (no `Claude`, `Anthropic`, or anyone).
+- All git-facing prose — commit messages, PR titles and bodies, release notes, code comments — must be written in Russian.
+- Branch names use the English `type/scope` convention (`feat/…`, `fix/…`, `docs/…`); no Cyrillic in branch names.
+
 ### Delivery cycle (summary)
 
 1. **Sync** — `git checkout main && git pull --rebase origin main`
@@ -300,6 +305,8 @@ gh run view <run-id> --log-failed
 - Do not disable CI workflows or remove CI checks
 - Do not bypass tests with `--no-verify`
 - Do not hide CI failures
+- All git actions are performed under the configured author identity only — never add `Co-Authored-By` or any other co-authorship attribution
+- All git-facing prose (commit messages, PR titles and bodies, code comments) must be in Russian; branch names must be in English (`type/scope`)
 
 **File constraints:**
 - Do not edit any file under `.cursor/plans/`
