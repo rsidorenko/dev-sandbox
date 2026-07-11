@@ -8,6 +8,36 @@ import { AuthProvider } from "@/shared/lib/auth";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
+// Машиночитаемая идентификация оператора для поисковых систем — помогает Google
+// распознать сайт как реальный бизнес (ИП Сидоренко Р.Р., ИНН/ОГРНИП) и снижает
+// риск ложных флагов «мошеннический/deceptive site».
+const organizationLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: siteConfig.siteName,
+  legalName: siteConfig.ipName,
+  url: siteConfig.siteUrl,
+  email: siteConfig.supportEmail,
+  taxID: siteConfig.inn,
+  identifier: `ОГРНИП ${siteConfig.ogrnip}`,
+  contactPoint: {
+    "@type": "ContactPoint",
+    contactType: "customer support",
+    areaServed: "RU",
+    availableLanguage: ["Russian"],
+  },
+};
+
+const faqLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: siteConfig.faq.map((f) => ({
+    "@type": "Question",
+    name: f.question,
+    acceptedAnswer: { "@type": "Answer", text: f.answer },
+  })),
+};
+
 export const metadata: Metadata = {
   title: {
     default: `${siteConfig.siteName} — Защищённый сетевой доступ`,
@@ -39,6 +69,14 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}}catch(e){}})()`,
           }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
         />
       </head>
       <body className={inter.className}>
