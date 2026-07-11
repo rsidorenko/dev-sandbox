@@ -90,16 +90,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location /downloads/ {
-        # Self-hosted client binaries (Karing APK; later Windows .exe) — host dir
-        # bind-mounted read-only, NOT in the repo (files are too large for git).
-        alias /var/www/downloads/;
-        types {
-            application/vnd.android.package-archive apk;
-            application/octet-stream exe;
-        }
-    }
-
     location / {
         proxy_pass http://frontend:3000;
         proxy_set_header Host $host;
