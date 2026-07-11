@@ -2,8 +2,8 @@
  * Яндекс.Метрика — инициализация и отправка целей.
  *
  * id счётчика 110605037 (можно переопределить через NEXT_PUBLIC_YM_ID).
- * Цели: choose_plan, trial_click, start_checkout, referral_open,
- * auth_gate_email, auth_gate_bot, purchase (успешная оплата).
+ * Цели: choose_plan, trial_click, trial_activated, start_checkout,
+ * referral_open, auth_gate_email, auth_gate_bot, purchase (успешная оплата).
  */
 
 export const YM_ID = process.env.NEXT_PUBLIC_YM_ID || "110605037";

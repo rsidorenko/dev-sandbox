@@ -49,6 +49,25 @@ export async function fetchAndroidApk(): Promise<AndroidApk | null> {
   }
 }
 
+// Karing Windows .exe раздаётся nginx из /downloads/ аналогично APK: деплой
+// публикует /downloads/latest-windows.json (version + реальное версионируемое
+// имя файла). Шаг 1 для Windows рендерит ссылку из этого манифеста, чтобы она
+// всегда указывала на свежий билд. null, если манифест недоступен (шаг тогда
+// откатывается на ссылку GitHub).
+export type WindowsExe = { url: string; version: string; filename: string };
+
+export async function fetchWindowsExe(): Promise<WindowsExe | null> {
+  try {
+    const res = await fetch("/downloads/latest-windows.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<WindowsExe>;
+    if (!data.url || !data.version) return null;
+    return { url: data.url, version: data.version, filename: data.filename ?? "" };
+  } catch {
+    return null;
+  }
+}
+
 // Общие шаги для платформ на Karing (Windows / Android / iPhone / Mac).
 const karingOpenStep: InstructionStep = {
   title: "Откройте приложение",

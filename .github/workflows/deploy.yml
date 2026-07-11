@@ -852,3 +852,102 @@ jobs:
               [ -e "$f" ] || continue
               [ "$f" = "${{ steps.fetch_apk.outputs.apk_file }}" ] || rm -f "$f"
             done
+
+      # ─── Client binaries (Karing Windows .exe) ────────────────────────────
+      # Параллельно APK-пайплайну: та же схема для Windows-сборки Karing —
+      # берём свежий .exe из UPSTREAM-релиза Karing на GitHub, публикуем под
+      # реальным версионируемым именем + манифест latest-windows.json. nginx
+      # уже раздаёт /downloads/ для .exe. Шаг нефатальный: при сбое exe_found=false.
+      - name: Fetch latest Karing Windows build from upstream GitHub release
+        id: fetch_exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ./client-downloads
+          set +e
+          LATEST_TAG=$(gh api repos/KaringX/karing/releases/latest --jq '.tag_name')
+          echo "Latest Karing release: ${LATEST_TAG:-<unresolved>}"
+          gh release download "$LATEST_TAG" \
+               --repo KaringX/karing \
+               --pattern 'karing_*_windows_x64.exe' \
+               --dir ./client-downloads \
+               --clobber
+          DOWNLOAD_RC=$?
+          set -e
+          if [ "$DOWNLOAD_RC" -eq 0 ] && [ -n "$LATEST_TAG" ]; then
+            EXE_PATH=$(ls ./client-downloads/karing_*_windows_x64.exe 2>/dev/null | head -n1)
+            EXE_FILE=$(basename "$EXE_PATH")
+            EXE_SIZE=$(stat -c%s "$EXE_PATH" 2>/dev/null || echo 0)
+            VERSION="${LATEST_TAG#v}"
+            python3 -c "import json,sys; json.dump({'version':sys.argv[1],'filename':sys.argv[2],'url':'/downloads/'+sys.argv[2],'size_bytes':int(sys.argv[3] or 0)}, open('./client-downloads/latest-windows.json','w'))" "$VERSION" "$EXE_FILE" "$EXE_SIZE"
+            echo "exe_found=true" >> "$GITHUB_OUTPUT"
+            echo "exe_file=$EXE_FILE" >> "$GITHUB_OUTPUT"
+            ls -lh ./client-downloads/
+          else
+            echo "exe_found=false" >> "$GITHUB_OUTPUT"
+            echo "Failed to fetch latest Karing Windows build (rc=$DOWNLOAD_RC) — skipping (non-fatal)"
+          fi
+
+      - name: Ensure downloads dir exists on server (Windows)
+        if: steps.fetch_exe.outputs.exe_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: mkdir -p /opt/bravada-downloads
+
+      # См. примечание к APK: один literal source на шаг (drone-scp не режет
+      # multi-line/glob source).
+      - name: Place Karing Windows build into nginx downloads dir
+        if: steps.fetch_exe.outputs.exe_found == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "./client-downloads/${{ steps.fetch_exe.outputs.exe_file }}"
+          target: "/opt/bravada-downloads"
+          strip_components: 1
+          overwrite: true
+
+      - name: Place Karing Windows manifest into nginx downloads dir
+        if: steps.fetch_exe.outputs.exe_found == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "./client-downloads/latest-windows.json"
+          target: "/opt/bravada-downloads"
+          strip_components: 1
+          overwrite: true
+
+      # См. APK: drone-scp оставляет ./-префикс, strip_components:1 срезает "." и
+      # оставляет subdir client-downloads/ — выкладываем наверх в раздаваемый root.
+      - name: Flatten downloads dir on server (Windows)
+        if: steps.fetch_exe.outputs.exe_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            if [ -d /opt/bravada-downloads/client-downloads ]; then
+              mv -f /opt/bravada-downloads/client-downloads/* /opt/bravada-downloads/ 2>/dev/null || true
+              rmdir /opt/bravada-downloads/client-downloads 2>/dev/null || true
+            fi
+
+      - name: Prune stale Karing Windows builds on server
+        if: steps.fetch_exe.outputs.exe_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/bravada-downloads || exit 0
+            for f in karing_*_windows_*.exe; do
+              [ -e "$f" ] || continue
+              [ "$f" = "${{ steps.fetch_exe.outputs.exe_file }}" ] || rm -f "$f"
+            done

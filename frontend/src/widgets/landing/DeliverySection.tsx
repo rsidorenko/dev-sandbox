@@ -2,7 +2,7 @@ import { siteConfig } from "@/shared/config/site";
 
 export function DeliverySection() {
   return (
-    <section id="delivery" className="py-20">
+    <section id="delivery" className="bg-gray-50 py-20 dark:bg-zinc-800/50">
       <div className="mx-auto max-w-6xl px-4">
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
@@ -32,7 +32,7 @@ export function DeliverySection() {
           ))}
         </div>
 
-        <div className="mt-10 rounded-2xl bg-gray-50 p-6 text-center text-sm text-gray-500 dark:bg-zinc-800 dark:text-gray-400">
+        <div className="mt-10 rounded-2xl border border-gray-100 bg-white p-6 text-center text-sm text-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-gray-400">
           После оплаты доступ активируется автоматически. Настройки подключения
           доступны в личном кабинете и Telegram-боте. Если у вас возникли вопросы —
           напишите в{" "}
