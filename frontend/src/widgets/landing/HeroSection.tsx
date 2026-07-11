@@ -52,7 +52,7 @@ export function HeroSection() {
           </a>
         </div>
         <p className="mt-6 text-xs text-brand-200">
-          Оплата картой и СБП · активация сразу после оплаты
+          🛡 Гарантия возврата {siteConfig.refundDays} дней · оплата картой и СБП · активация сразу после оплаты
         </p>
       </div>
     </section>

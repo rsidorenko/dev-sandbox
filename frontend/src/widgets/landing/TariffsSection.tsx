@@ -173,7 +173,10 @@ function TariffCard({ tariff }: { tariff: Tariff }) {
           Оформить подписку
         </Link>
 
-        <div className="mt-3 text-center text-xs">
+        <div className="mt-3 text-center text-xs text-gray-400">
+          🛡 Гарантия возврата {siteConfig.refundDays} дней
+        </div>
+        <div className="mt-1 text-center text-xs">
           <a href={TRIAL_URL} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline dark:text-brand-400">
             или попробуйте {siteConfig.trialDays} дня бесплатно
           </a>
@@ -242,6 +245,10 @@ function CustomCard({
         >
           Оформить подписку
         </Link>
+
+        <div className="mt-3 text-center text-xs text-gray-400">
+          🛡 Гарантия возврата {siteConfig.refundDays} дней
+        </div>
       </div>
     </div>
   );
