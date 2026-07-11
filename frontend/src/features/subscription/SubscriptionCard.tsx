@@ -12,6 +12,11 @@ import {
   normalizePlanId,
   daysLeft,
 } from "@/entities/tariff/helpers";
+import {
+  savingsPctForPlan,
+  perDayRub,
+  priceForPlan,
+} from "@/entities/tariff/savings";
 
 type Subscription = {
   state: string;
@@ -271,25 +276,50 @@ export function SubscriptionCard({
             </div>
 
             {showChangePlan && (
-              <div className="rounded-xl border border-gray-200 p-4 dark:border-zinc-600">
+              <div className="rounded-xl border border-gray-200 p-4 pt-5 dark:border-zinc-600">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
                   Выберите тариф:
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {PLANS.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedPlan(p.id)}
-                      className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                        selectedPlan === p.id
-                          ? "bg-brand-600 text-white shadow-sm"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap gap-3">
+                  {PLANS.map((p) => {
+                    const sp = savingsPctForPlan(p.id);
+                    const isSelected = selectedPlan === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setSelectedPlan(p.id)}
+                        className={`relative rounded-lg px-4 py-2 text-sm font-medium transition ${
+                          isSelected
+                            ? "bg-brand-600 text-white shadow-sm"
+                            : "border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        }`}
+                      >
+                        {p.label}
+                        {sp > 0 && (
+                          <span
+                            className={`absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                              isSelected
+                                ? "bg-white text-brand-700"
+                                : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                            }`}
+                          >
+                            −{sp}%
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
+                {/* Сводка по выбранному тарифу: цена, ₽/день, выгода */}
+                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                  {planName(selectedPlan)} · {priceForPlan(selectedPlan)} ₽
+                  <span className="text-gray-400"> · ≈ {perDayRub(selectedPlan)} ₽/день</span>
+                  {savingsPctForPlan(selectedPlan) > 0 && (
+                    <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                      · выгода −{savingsPctForPlan(selectedPlan)}%
+                    </span>
+                  )}
+                </p>
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={handleChangePlan}
@@ -410,8 +440,8 @@ export function SubscriptionCard({
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Рефералов: <strong>{referral.referrals_count}</strong>
             </p>
-            <div className="mt-3 rounded-lg bg-gradient-to-br from-amber-50 to-orange-100/50 p-4 dark:from-amber-950/30 dark:to-orange-900/20">
-              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            <div className="mt-3 rounded-lg bg-gradient-to-br from-emerald-50 to-green-100/50 p-4 dark:from-emerald-950/30 dark:to-green-900/20">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                 Отправьте ссылку другу — получите процент с его оплаты
               </p>
               {/* Telegram link */}
@@ -436,7 +466,7 @@ export function SubscriptionCard({
               </div>
               {/* Web link */}
               {referral.web_referral_link && (
-                <div className="mt-3 border-t border-amber-200/50 pt-3 dark:border-amber-800/30">
+                <div className="mt-3 border-t border-emerald-200/50 pt-3 dark:border-emerald-800/30">
                   <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                     🌐 Для сайта <span className="font-normal text-gray-400">— друг без Telegram</span>
                   </p>
@@ -445,7 +475,7 @@ export function SubscriptionCard({
                   </p>
                   <button
                     onClick={() => copy(referral.web_referral_link!, "ref-web")}
-                    className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                    className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                   >
                     {isCopied("ref-web") ? "✓ Скопировано!" : "Копировать"}
                   </button>

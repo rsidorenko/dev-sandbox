@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
+import { savingsPctForPlan } from "@/entities/tariff/savings";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
 
@@ -11,15 +12,6 @@ const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
 const DEFAULT_DEVICES = 5;
 const MIN_CUSTOM_DAYS = 1;
 const MAX_CUSTOM_DAYS = 365;
-
-// Эталонный тариф для расчёта «выгоды» — самый дорогой в пересчёте на день (1 день).
-const DAY1_PRICE = siteConfig.tariffs[0]?.price ?? 12;
-
-function savingsPct(t: Tariff): number {
-  const perDay = t.price / t.durationDays;
-  const pct = Math.round((1 - perDay / DAY1_PRICE) * 100);
-  return pct >= 10 ? pct : 0;
-}
 
 export function TariffsSection() {
   const tariffs = siteConfig.tariffs;
@@ -43,9 +35,9 @@ export function TariffsSection() {
 
         {/* Tab pills */}
         <div className="mt-10 flex justify-center">
-          <div className="inline-flex gap-2 overflow-x-auto rounded-2xl bg-white p-2 shadow-sm dark:bg-zinc-800 dark:shadow-none">
+          <div className="inline-flex gap-2 overflow-x-auto rounded-2xl bg-white p-2 pt-3 shadow-sm dark:bg-zinc-800 dark:shadow-none">
             {tariffs.map((t) => {
-              const sp = savingsPct(t);
+              const sp = savingsPctForPlan(t.id);
               const isBest = t.id === "365d";
               return (
                 <button
@@ -62,12 +54,12 @@ export function TariffsSection() {
                 >
                   {t.label}
                   {isBest && (
-                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                       Лучшая цена
                     </span>
                   )}
                   {!isBest && sp > 0 && (
-                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                       −{sp}%
                     </span>
                   )}
@@ -118,7 +110,7 @@ function UpsellHint({ currentId }: { currentId: string }) {
 }
 
 function TariffCard({ tariff }: { tariff: Tariff }) {
-  const sp = savingsPct(tariff);
+  const sp = savingsPctForPlan(tariff.id);
   const isBest = tariff.id === "365d";
   return (
     <div className="mx-auto mt-8 max-w-md">
