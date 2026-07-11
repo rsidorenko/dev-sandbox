@@ -20,9 +20,9 @@ export default function HomePage() {
       <FeaturesSection />
       <HowItWorks steps={siteConfig.howItWorks} />
       <TariffsSection />
+      <ReferralSection />
       <DeliverySection />
       <FaqSection faq={siteConfig.faq} />
-      <ReferralSection />
       <CtaSection />
     </>
   );
