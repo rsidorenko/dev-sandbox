@@ -774,34 +774,62 @@ jobs:
             # versioned asset name is served and advertised here.
             python3 -c "import json,sys; json.dump({'version':sys.argv[1],'filename':sys.argv[2],'url':'/downloads/'+sys.argv[2],'size_bytes':int(sys.argv[3] or 0)}, open('./client-downloads/latest-android.json','w'))" "$VERSION" "$APK_FILE" "$APK_SIZE"
             echo "apk_found=true" >> "$GITHUB_OUTPUT"
+            echo "apk_file=$APK_FILE" >> "$GITHUB_OUTPUT"
             ls -lh ./client-downloads/
           else
             echo "apk_found=false" >> "$GITHUB_OUTPUT"
             echo "Failed to fetch latest Karing APK (rc=$DOWNLOAD_RC) — skipping (non-fatal)"
           fi
 
-      - name: Prepare downloads dir on server (create + prune stale APKs)
+      - name: Ensure downloads dir exists on server
         if: steps.fetch_apk.outputs.apk_found == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          # Create the dir and remove any previously-deployed versioned APK so
-          # only the freshly-fetched one remains. The manifest is overwritten by
-          # the scp step below.
-          script: mkdir -p /opt/bravada-downloads && rm -f /opt/bravada-downloads/karing_*_android_*.apk
+          script: mkdir -p /opt/bravada-downloads
 
-      - name: Place Karing APK + manifest into nginx downloads dir
+      # NOTE: appleboy/scp-action (drone-scp) does not split a multi-line/glob
+      # `source:` reliably — it tarred an empty archive. Use one literal source
+      # per step (the proven pattern) and the resolved filename from the fetch step.
+      - name: Place Karing APK into nginx downloads dir
         if: steps.fetch_apk.outputs.apk_found == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: |
-            ./client-downloads/karing_*android_arm64-v8a.apk
-            ./client-downloads/latest-android.json
+          source: "./client-downloads/${{ steps.fetch_apk.outputs.apk_file }}"
           target: "/opt/bravada-downloads"
           strip_components: 1
           overwrite: true
+
+      - name: Place Karing APK manifest into nginx downloads dir
+        if: steps.fetch_apk.outputs.apk_found == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "./client-downloads/latest-android.json"
+          target: "/opt/bravada-downloads"
+          strip_components: 1
+          overwrite: true
+
+      # Prune stale APKs only AFTER the fresh APK + manifest are confirmed in
+      # place, so a failed scp never leaves the dir without a working APK. Keeps
+      # the just-deployed versioned file; removes any older ones.
+      - name: Prune stale Karing APKs on server
+        if: steps.fetch_apk.outputs.apk_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/bravada-downloads || exit 0
+            for f in karing_*_android_*.apk; do
+              [ -e "$f" ] || continue
+              [ "$f" = "${{ steps.fetch_apk.outputs.apk_file }}" ] || rm -f "$f"
+            done
