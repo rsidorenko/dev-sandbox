@@ -741,10 +741,12 @@ jobs:
 
       # ─── Client binaries (Karing APK) ────────────────────────────────────
       # The APK is fetched fresh from Karing's UPSTREAM GitHub releases on every
-      # deploy, so /downloads/karing-android.apk always points at the latest
-      # stable Android build. nginx serves it from /downloads/ (see nginx/conf.d).
+      # deploy, under its REAL versioned filename (no stable-name rename). nginx
+      # serves it from /downloads/ (see nginx/conf.d). A small manifest
+      # latest-android.json is published alongside it; the bot and the web
+      # frontend read that manifest to render the always-latest download link.
       # The whole step is non-fatal: on any failure apk_found=false, the scp is
-      # skipped, and the deploy is never blocked.
+      # skipped (previous APK + manifest remain), and the deploy is never blocked.
       - name: Fetch latest Karing APK from upstream GitHub release
         id: fetch_apk
         env:
@@ -763,9 +765,14 @@ jobs:
           DOWNLOAD_RC=$?
           set -e
           if [ "$DOWNLOAD_RC" -eq 0 ] && [ -n "$LATEST_TAG" ]; then
-            # Stable server-side name so the public download URL never changes
-            # across Karing releases — every deploy refreshes the APK.
-            mv ./client-downloads/karing_*android_arm64-v8a.apk ./client-downloads/karing-android.apk
+            APK_PATH=$(ls ./client-downloads/karing_*android_arm64-v8a.apk 2>/dev/null | head -n1)
+            APK_FILE=$(basename "$APK_PATH")
+            APK_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || echo 0)
+            VERSION="${LATEST_TAG#v}"
+            # Manifest consumed by the bot (reads from the bind-mounted file) and
+            # the web frontend (HTTP GET). No stable filename is used — the real
+            # versioned asset name is served and advertised here.
+            python3 -c "import json,sys; json.dump({'version':sys.argv[1],'filename':sys.argv[2],'url':'/downloads/'+sys.argv[2],'size_bytes':int(sys.argv[3] or 0)}, open('./client-downloads/latest-android.json','w'))" "$VERSION" "$APK_FILE" "$APK_SIZE"
             echo "apk_found=true" >> "$GITHUB_OUTPUT"
             ls -lh ./client-downloads/
           else
@@ -773,23 +780,28 @@ jobs:
             echo "Failed to fetch latest Karing APK (rc=$DOWNLOAD_RC) — skipping (non-fatal)"
           fi
 
-      - name: Ensure downloads dir exists on server
+      - name: Prepare downloads dir on server (create + prune stale APKs)
         if: steps.fetch_apk.outputs.apk_found == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          script: mkdir -p /opt/bravada-downloads
+          # Create the dir and remove any previously-deployed versioned APK so
+          # only the freshly-fetched one remains. The manifest is overwritten by
+          # the scp step below.
+          script: mkdir -p /opt/bravada-downloads && rm -f /opt/bravada-downloads/karing_*_android_*.apk
 
-      - name: Place Karing APK into nginx downloads dir
+      - name: Place Karing APK + manifest into nginx downloads dir
         if: steps.fetch_apk.outputs.apk_found == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "./client-downloads/karing-android.apk"
+          source: |
+            ./client-downloads/karing_*android_arm64-v8a.apk
+            ./client-downloads/latest-android.json
           target: "/opt/bravada-downloads"
           strip_components: 1
           overwrite: true

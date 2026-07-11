@@ -93,6 +93,10 @@ services:
       # Used by BOTH bare_xray entries (id=26/27 Frankfurt + id=28/29 Helsinki) — the
       # Helsinki-entry cloud.ru box reuses the same key/user, so no per-row mount is needed.
       - /root/.ssh/cloudru_key.pem:/opt/bravada/cloudru_key.pem:ro
+      # Read-only mount of the self-hosted client downloads dir (same one nginx
+      # serves) so the bot can read latest-android.json to resolve the always-latest
+      # Karing APK link for Android step 1. Survives deploy (rm -rf /opt/bravada).
+      - /opt/bravada-downloads:/var/www/downloads:ro
     expose:
       - "8000"
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { connectionPlatforms } from "./data";
+import { connectionPlatforms, fetchAndroidApk, type AndroidApk } from "./data";
 
 /**
  * Блок пошаговых инструкций по подключению: переключатель платформ +
@@ -13,6 +13,19 @@ export function InstructionsBlock() {
   const [activeId, setActiveId] = useState(connectionPlatforms[0].id);
   const active =
     connectionPlatforms.find((p) => p.id === activeId) ?? connectionPlatforms[0];
+  // Latest self-hosted Karing APK, resolved from /downloads/latest-android.json.
+  // null until resolved (or if unreachable) — Android step 1 then falls back to
+  // the GitHub/Happ/v2rayTune links.
+  const [androidApk, setAndroidApk] = useState<AndroidApk | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchAndroidApk().then((apk) => {
+      if (!cancelled) setAndroidApk(apk);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div>
@@ -60,36 +73,49 @@ export function InstructionsBlock() {
         </h2>
 
         <ol className="mt-6 space-y-6">
-          {active.steps.map((step, i) => (
-            <li key={i} className="flex gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-100 text-base font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
-                {i + 1}
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {step.title}
-                </h3>
-                <p className="mt-1 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-                  {step.description}
-                </p>
-                {step.links && step.links.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {step.links.map((l) => (
-                      <a
-                        key={l.href}
-                        href={l.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700"
-                      >
-                        {l.label}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
+          {active.steps.map((step, i) => {
+            // Inject the always-latest APK download link into Android step 1.
+            const links =
+              active.id === "android" && i === 0 && androidApk
+                ? [
+                    {
+                      href: androidApk.url,
+                      label: `Скачать Karing (APK v${androidApk.version})`,
+                    },
+                    ...(step.links ?? []),
+                  ]
+                : step.links;
+            return (
+              <li key={i} className="flex gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-100 text-base font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
+                  {i + 1}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {step.title}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+                    {step.description}
+                  </p>
+                  {links && links.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {links.map((l) => (
+                        <a
+                          key={l.href}
+                          href={l.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700"
+                        >
+                          {l.label}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </div>

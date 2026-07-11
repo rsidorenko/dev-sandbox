@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import time
 from typing import Any
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
@@ -13,6 +16,7 @@ from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
 from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
+from app.shared.site_url import get_site_base_url
 
 # ─── Callback data constants ──────────────────────────────────────────
 
@@ -415,9 +419,8 @@ _PLATFORM_TEXTS: dict[str, str] = {
     "android": (
         "<b>📱 Android</b>\n\n"
         "Скачайте приложение:\n\n"
-        "🔹 Karing\n"
-        "https://github.com/KaringX/karing/releases\n"
-        "https://bravada-connect.ru/downloads/karing-android.apk\n\n"
+        "🔹 Karing — кнопка «Скачать Karing (APK)» в шаге 1 либо\n"
+        "https://github.com/KaringX/karing/releases\n\n"
         "🔹 Happ\n"
         "https://play.google.com/store/apps/details?id=com.happproxy\n\n"
         "🔹 v2rayTune\n"
@@ -992,6 +995,40 @@ _ANDROID_KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases"
 _ANDROID_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happproxy"
 _ANDROID_V2RAYTUNE_URL = "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru"
 
+# Where deploy publishes the always-latest APK manifest. The downloads dir is
+# bind-mounted read-only into the backend container (see docker-compose.prod.yml).
+_ANDROID_APK_MANIFEST_PATH = os.environ.get("ANDROID_APK_MANIFEST_PATH", "/var/www/downloads/latest-android.json")
+_ANDROID_APK_URL_TTL_SECONDS = 60
+_android_apk_url_cache: dict[str, Any] = {"url": None, "expires_at": 0.0}
+
+
+def get_android_apk_url() -> str | None:
+    """Resolve the always-latest self-hosted Karing APK URL, or ``None``.
+
+    Reads the manifest written by deploy (``latest-android.json``) and returns an
+    absolute URL (site base + the manifest's relative ``url``). Cached briefly so
+    repeated renders don't re-read the file. Any error (missing file, bad JSON,
+    missing fields) returns ``None`` — callers fall back to the GitHub link.
+    """
+    now = time.monotonic()
+    cached = _android_apk_url_cache
+    if cached["url"] and cached["expires_at"] > now:
+        return cached["url"]  # type: ignore[return-value]
+
+    url: str | None = None
+    try:
+        with open(_ANDROID_APK_MANIFEST_PATH, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        relative = str(manifest.get("url", "")).strip()
+        if relative:
+            url = f"{get_site_base_url().rstrip('/')}/{relative.lstrip('/')}"
+    except (OSError, ValueError, TypeError):
+        url = None
+
+    cached["url"] = url
+    cached["expires_at"] = now + _ANDROID_APK_URL_TTL_SECONDS
+    return url
+
 
 def _android_step_header(step: int) -> str:
     return f'🤖 <b>Шаг {step} из {_ANDROID_TOTAL_STEPS}</b>\n\nПосле каждого шага возвращайтесь в бота и нажимайте "Готово".\n\n'
@@ -1006,17 +1043,22 @@ def android_step_1_text() -> str:
 
 
 def android_step_1_keyboard() -> dict[str, Any]:
-    return _inline_kb(
+    rows: list[list[dict[str, Any]]] = []
+    # Prefer the self-hosted latest APK (resolved from the deploy manifest); the
+    # GitHub releases button stays as a fallback below it.
+    apk_url = get_android_apk_url()
+    if apk_url:
+        rows.append([{"text": "⬇️ Скачать Karing (APK)", "url": apk_url}])
+    rows.append([{"text": "Скачать Karing (GitHub)", "url": _ANDROID_KARING_GITHUB_URL}])
+    rows.append([{"text": "Скачать Happ", "url": _ANDROID_HAPP_PLAYSTORE_URL}])
+    rows.append([{"text": "Скачать v2rayTune", "url": _ANDROID_V2RAYTUNE_URL}])
+    rows.append(
         [
-            [{"text": "Скачать Karing", "url": _ANDROID_KARING_GITHUB_URL}],
-            [{"text": "Скачать Happ", "url": _ANDROID_HAPP_PLAYSTORE_URL}],
-            [{"text": "Скачать v2rayTune", "url": _ANDROID_V2RAYTUNE_URL}],
-            [
-                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
-                {"text": "✅ Готово", "callback_data": f"{CB_ANDROID_STEP}2"},
-            ],
+            {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+            {"text": "✅ Готово", "callback_data": f"{CB_ANDROID_STEP}2"},
         ]
     )
+    return _inline_kb(rows)
 
 
 def android_step_2_text() -> str:

@@ -25,13 +25,29 @@ export type InstructionPlatform = {
 
 const IOS_KARING_APPSTORE_URL = "https://apps.apple.com/app/karing/id6472431552";
 const KARING_GITHUB_URL = "https://github.com/KaringX/karing/releases";
-// Karing isn't on Google Play — self-hosted APK, served by nginx from /downloads/.
-// Stable name: deploy normalizes any versioned asset to this filename.
-const ANDROID_KARING_APK_URL = "/downloads/karing-android.apk";
 const ANDROID_HAPP_PLAYSTORE_URL =
   "https://play.google.com/store/apps/details?id=com.happproxy";
 const ANDROID_V2RAYTUNE_URL =
   "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru";
+
+// Karing isn't on Google Play — the APK is self-hosted by nginx from /downloads/.
+// deploy publishes /downloads/latest-android.json (version + real versioned
+// filename); the Android step-1 APK link is rendered from this manifest so it
+// always points at the latest build. Returns null if unreachable (the step then
+// falls back to the GitHub/Happ/v2rayTune links).
+export type AndroidApk = { url: string; version: string; filename: string };
+
+export async function fetchAndroidApk(): Promise<AndroidApk | null> {
+  try {
+    const res = await fetch("/downloads/latest-android.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<AndroidApk>;
+    if (!data.url || !data.version) return null;
+    return { url: data.url, version: data.version, filename: data.filename ?? "" };
+  } catch {
+    return null;
+  }
+}
 
 // Общие шаги для платформ на Karing (Windows / Android / iPhone / Mac).
 const karingOpenStep: InstructionStep = {
@@ -86,7 +102,6 @@ export const connectionPlatforms: readonly InstructionPlatform[] = [
           "Подойдёт Karing, Happ или v2rayTune — выберите любое. Рекомендуем Karing.",
         links: [
           { href: KARING_GITHUB_URL, label: "Karing (GitHub)" },
-          { href: ANDROID_KARING_APK_URL, label: "Скачать Karing (APK)" },
           { href: ANDROID_HAPP_PLAYSTORE_URL, label: "Happ" },
           { href: ANDROID_V2RAYTUNE_URL, label: "v2rayTune" },
         ],
