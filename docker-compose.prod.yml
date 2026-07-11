@@ -106,6 +106,7 @@ services:
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://bravada-connect.ru}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://bravada-connect.ru}
+        NEXT_PUBLIC_YM_ID: ${NEXT_PUBLIC_YM_ID:-}
     restart: unless-stopped
     depends_on:
       - backend

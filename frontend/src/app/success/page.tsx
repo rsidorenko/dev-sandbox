@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { siteConfig } from "@/shared/config/site";
+import { PurchaseGoal } from "./PurchaseGoal";
 
 export const metadata: Metadata = {
   title: "Оплата прошла успешно",
@@ -8,6 +9,8 @@ export const metadata: Metadata = {
 
 export default function SuccessPage() {
   return (
+    <>
+    <PurchaseGoal />
     <section className="flex min-h-[60vh] items-center justify-center py-20">
       <div className="mx-auto max-w-md px-4 text-center">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
@@ -59,5 +62,6 @@ export default function SuccessPage() {
         </div>
       </div>
     </section>
+    </>
   );
 }

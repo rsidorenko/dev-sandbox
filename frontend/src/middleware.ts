@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PROTECTED_PATHS = ["/dashboard", "/payment"];
+// /payment больше не защищён на уровне middleware: страница показывает тариф
+// и встроенный gate (вход по email или оплата через Telegram-бота), чтобы не
+// терять пользователя на редиректе. Реальная защита оплаты — на бэкенде.
+const PROTECTED_PATHS = ["/dashboard"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -23,5 +26,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/payment/:path*"],
+  matcher: ["/dashboard/:path*"],
 };

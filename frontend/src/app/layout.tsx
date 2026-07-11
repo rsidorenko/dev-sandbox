@@ -5,6 +5,7 @@ import { Header } from "@/widgets/header/Header";
 import { Footer } from "@/widgets/footer/Footer";
 import { siteConfig } from "@/shared/config/site";
 import { AuthProvider } from "@/shared/lib/auth";
+import { metrikaInitScript, metrikaPixelUrl } from "@/shared/lib/analytics";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -78,8 +79,21 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
         />
+        {metrikaInitScript() && (
+          <script dangerouslySetInnerHTML={{ __html: metrikaInitScript() }} />
+        )}
       </head>
       <body className={inter.className}>
+        {metrikaPixelUrl() && (
+          <noscript>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={metrikaPixelUrl()}
+              style={{ position: "absolute", left: "-9999px" }}
+              alt=""
+            />
+          </noscript>
+        )}
         <AuthProvider>
           <Header />
           <main>{children}</main>

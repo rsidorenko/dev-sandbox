@@ -7,6 +7,7 @@ import { HowItWorks } from "@/widgets/landing/HowItWorks";
 import { TariffsSection } from "@/widgets/landing/TariffsSection";
 import { DeliverySection } from "@/widgets/landing/DeliverySection";
 import { FaqSection } from "@/widgets/landing/FaqSection";
+import { ReferralSection } from "@/widgets/landing/ReferralSection";
 import { CtaSection } from "@/widgets/landing/CtaSection";
 
 export default function HomePage() {
@@ -21,6 +22,7 @@ export default function HomePage() {
       <TariffsSection />
       <DeliverySection />
       <FaqSection faq={siteConfig.faq} />
+      <ReferralSection />
       <CtaSection />
     </>
   );

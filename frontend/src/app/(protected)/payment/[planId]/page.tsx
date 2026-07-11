@@ -1,17 +1,18 @@
 "use client";
 
-import { Suspense, useState, useEffect, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi } from "@/entities/payment/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
 import { planName } from "@/entities/tariff/helpers";
+import { reachGoal } from "@/shared/lib/analytics";
 import { Alert } from "@/shared/ui/Alert";
 
 const EXTRA_DEVICE_PRICE = 80;
 const DEFAULT_DEVICES = 5;
-const CUSTOM_PRICE_PER_DAY = 15;
+const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
 
 function calcExtraDeviceCost(durationDays: number, extraDevices: number): number {
   return extraDevices * Math.round(EXTRA_DEVICE_PRICE / 30 * durationDays);
@@ -63,12 +64,6 @@ function PaymentForm() {
 
   const info = planId ? getTariffInfo(planId) : null;
 
-  useEffect(() => {
-    if (!authLoading && !authenticated) {
-      router.push(`/login?next=/payment/${planId}`);
-    }
-  }, [authLoading, authenticated, router, planId]);
-
   if (!info) {
     return (
       <section className="flex min-h-[60vh] items-center justify-center py-20">
@@ -83,6 +78,13 @@ function PaymentForm() {
         </div>
       </section>
     );
+  }
+
+  // Неавторизованный пользователь видит тариф и встроенный gate вместо жёсткого
+  // редиректа на /login — оффер остаётся в контексте, есть быстрый путь через
+  // Telegram-бота (бот уже знает пользователя, оплата в один клик).
+  if (!authLoading && !authenticated && planId) {
+    return <AuthGate info={info} planId={planId} />;
   }
 
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
@@ -199,6 +201,69 @@ function PaymentForm() {
               условиями оферты
             </Link>
           </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AuthGate({
+  info,
+  planId,
+}: {
+  info: { label: string; durationDays: number; basePrice: number };
+  planId: string;
+}) {
+  const loginUrl = `/login?next=/payment/${planId}`;
+  const botUrl = `https://t.me/${siteConfig.botUsername}?start=${planId}`;
+  return (
+    <section className="py-12">
+      <div className="mx-auto max-w-lg px-4">
+        <Link href="/#tariffs" className="text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400">
+          &larr; Назад к тарифам
+        </Link>
+        <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-8 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Оформление подписки</h1>
+          <div className="mt-6 space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Тариф</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.label}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Период</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.durationDays} дней</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Подписка</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{info.basePrice.toLocaleString("ru-RU")} ₽</span>
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-xl bg-brand-50 p-4 text-center dark:bg-brand-900/20">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              Войдите, чтобы оплатить подписку
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Или оплатите через Telegram-бота — без регистрации, в один клик
+            </p>
+          </div>
+
+          <Link
+            href={loginUrl}
+            onClick={() => reachGoal("auth_gate_email", { plan: planId })}
+            className="mt-4 block w-full rounded-xl bg-brand-600 py-3 text-center text-sm font-bold text-white transition hover:bg-brand-700"
+          >
+            Войти по email
+          </Link>
+          <a
+            href={botUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => reachGoal("auth_gate_bot", { plan: planId })}
+            className="mt-3 block w-full rounded-xl border border-gray-200 bg-white py-3 text-center text-sm font-bold text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
+          >
+            Оплатить через Telegram-бот
+          </a>
         </div>
       </div>
     </section>
