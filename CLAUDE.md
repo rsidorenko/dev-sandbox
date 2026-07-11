@@ -347,21 +347,27 @@ gh run view <run-id> --log-failed
 
 This repository uses the official CodeGraph package (`@colbymchenry/codegraph`) for semantic code intelligence.
 
-When `.codegraph/` exists in the project:
+### Mandatory rule: check file actuality via CodeGraph first
 
-- Prefer CodeGraph MCP tools before broad file exploration.
-- Use lightweight lookups first:
-  - `codegraph_search` — find symbols by name
-  - `codegraph_callers` / `codegraph_callees` — trace call flow
-  - `codegraph_impact` — check what's affected before editing
-  - `codegraph_node` — get a single symbol's details
-  - `codegraph_files` — indexed file structure (faster than filesystem scanning)
-  - `codegraph_status` — check index health and statistics
-- For larger exploration tasks, spawn Explore agents with CodeGraph instructions.
-- Do not grep/read broad directories before checking CodeGraph.
-- Only read full files after CodeGraph identifies the relevant files/symbols.
+When `.codegraph/` exists, CodeGraph is the first lens for any code work. **Always verify the actuality of files and symbols through CodeGraph before reading, editing, or trusting them:**
 
-Developer commands:
+- Before opening or changing a file/symbol, confirm via CodeGraph that it still exists and the index reflects current HEAD — do not rely on memory, recalled context, or legacy docs for file/symbol locations.
+- If a file/symbol named in conversation, a memory note, or a doc is absent from the index, treat it as potentially stale and re-verify against the live tree before acting on it.
+- If `codegraph status` reports the index as stale or missing, run `codegraph sync` (incremental) or `codegraph index --force` (full rebuild) **before** doing lookups.
+- Do not grep/read broad directories before checking CodeGraph. Read full source files only after CodeGraph has pinpointed the relevant files and symbols.
+
+### MCP tools (use these first)
+
+- `codegraph_search` — find symbols by name
+- `codegraph_callers` / `codegraph_callees` — trace call flow
+- `codegraph_impact` — check what's affected before editing
+- `codegraph_node` — get a single symbol's details
+- `codegraph_files` — indexed file structure (faster than filesystem scanning)
+- `codegraph_status` — check index health and statistics
+
+For larger exploration tasks, spawn Explore agents with CodeGraph instructions instead of loading broad directories in the main session.
+
+### Developer commands
 
 - Initialize: `codegraph init -i`
 - Full rebuild: `codegraph index --force`
@@ -370,11 +376,9 @@ Developer commands:
 - Query: `codegraph query "<term>" --json`
 - Files: `codegraph files --json`
 
-If the graph is stale or missing, run `codegraph sync` or `codegraph index --force`.
-
 `.codegraph/` is tracked in Git (`.gitignore` and `README.md` only; the SQLite DB is local-only and gitignored).
 `.codegraph/`, `.claude/`, and `scripts/codegraph/` are excluded from deployment via artifact-based deploy (`.github/workflows/deploy.yml`). They must not reach the server.
 
 ---
 
-*Last updated: 2026-05-23. Maintained by: rsidorenko / Claude Code delivery batches.*
+*Last updated: 2026-07-12. Maintained by: rsidorenko / Claude Code delivery batches.*
