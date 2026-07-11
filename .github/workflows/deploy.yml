@@ -817,9 +817,27 @@ jobs:
           strip_components: 1
           overwrite: true
 
+      # drone-scp preserves the source's "./" prefix, so strip_components: 1
+      # strips the "." and leaves the "client-downloads/" subdir — files landed at
+      # /opt/bravada-downloads/client-downloads/<file> and nginx (which serves the
+      # flat /var/www/downloads/) returned 404. Flatten them up to the served root.
+      - name: Flatten downloads dir on server
+        if: steps.fetch_apk.outputs.apk_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            if [ -d /opt/bravada-downloads/client-downloads ]; then
+              mv -f /opt/bravada-downloads/client-downloads/* /opt/bravada-downloads/ 2>/dev/null || true
+              rmdir /opt/bravada-downloads/client-downloads 2>/dev/null || true
+            fi
+
       # Prune stale APKs only AFTER the fresh APK + manifest are confirmed in
       # place, so a failed scp never leaves the dir without a working APK. Keeps
-      # the just-deployed versioned file; removes any older ones.
+      # the just-deployed versioned file; removes older ones + the legacy stable
+      # name from the previous scheme.
       - name: Prune stale Karing APKs on server
         if: steps.fetch_apk.outputs.apk_found == 'true'
         uses: appleboy/ssh-action@v1
@@ -829,32 +847,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/bravada-downloads || exit 0
+            rm -f karing-android.apk
             for f in karing_*_android_*.apk; do
               [ -e "$f" ] || continue
               [ "$f" = "${{ steps.fetch_apk.outputs.apk_file }}" ] || rm -f "$f"
             done
-
-      # TEMPORARY diagnostic: /downloads/* returns 404 even though the files are
-      # on the host. Print host dir, the nginx container's view, its mounts, and
-      # a localhost curl to localize the cause. Safe (read-only). Remove once the
-      # serving issue is resolved.
-      - name: Diagnose /downloads serving (TEMPORARY)
-        if: steps.fetch_apk.outputs.apk_found == 'true'
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            echo "=== HOST: ls -la /opt/bravada-downloads/ ==="
-            ls -la /opt/bravada-downloads/ 2>&1
-            echo "=== HOST: stat /opt/bravada-downloads ==="
-            stat -c '%i %n owner=%U mode=%A' /opt/bravada-downloads 2>&1
-            echo "=== NGINX container: ls -la /var/www/downloads/ ==="
-            docker exec bravada-nginx-1 ls -la /var/www/downloads/ 2>&1 || echo "(exec failed)"
-            echo "=== NGINX mounts ==="
-            docker inspect bravada-nginx-1 --format '{{range .Mounts}}{{.Type}} {{.Source}} -> {{.Destination}} (mode={{.Mode}}){{"\n"}}{{end}}' 2>&1
-            echo "=== NGINX conf grep ==="
-            docker exec bravada-nginx-1 sh -c 'grep -n "downloads" /etc/nginx/conf.d/default.conf' 2>&1 || true
-            echo "=== localhost curl via nginx ==="
-            curl -sk -o /dev/null -w "HTTP %{http_code} type=%{content_type}\n" -H "Host: bravada-connect.ru" https://127.0.0.1/downloads/latest-android.json 2>&1 || true
