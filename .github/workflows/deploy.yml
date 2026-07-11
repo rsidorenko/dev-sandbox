@@ -740,31 +740,47 @@ jobs:
             bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true
 
       # ─── Client binaries (Karing APK) ────────────────────────────────────
-      # The APK is too large for git (pre-commit 3 MB limit), so it is shipped
-      # as an asset of the 'client-binaries' GitHub release and placed on the
-      # server here. nginx serves it from /downloads/ (see nginx/conf.d). Safe
-      # to run before the asset exists: the fetch is non-fatal and the scp step
-      # is skipped, so this never blocks a deploy.
-      - name: Fetch Karing APK from GitHub release
+      # The APK is fetched fresh from Karing's UPSTREAM GitHub releases on every
+      # deploy, so /downloads/karing-android.apk always points at the latest
+      # stable Android build. nginx serves it from /downloads/ (see nginx/conf.d).
+      # The whole step is non-fatal: on any failure apk_found=false, the scp is
+      # skipped, and the deploy is never blocked.
+      - name: Fetch latest Karing APK from upstream GitHub release
         id: fetch_apk
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p ./client-downloads
-          if gh release download client-binaries \
-               --repo ${{ github.repository }} \
-               --pattern 'karing_*android*.apk' \
+          # Resolve the latest STABLE Karing release (excludes pre-releases).
+          set +e
+          LATEST_TAG=$(gh api repos/KaringX/karing/releases/latest --jq '.tag_name')
+          echo "Latest Karing release: ${LATEST_TAG:-<unresolved>}"
+          gh release download "$LATEST_TAG" \
+               --repo KaringX/karing \
+               --pattern 'karing_*android_arm64-v8a.apk' \
                --dir ./client-downloads \
-               --clobber; then
-            # Normalize to a stable server-side name so APK version bumps only
-            # touch the release asset — no code/data changes needed.
-            mv ./client-downloads/karing_*android*.apk ./client-downloads/karing-android.apk
+               --clobber
+          DOWNLOAD_RC=$?
+          set -e
+          if [ "$DOWNLOAD_RC" -eq 0 ] && [ -n "$LATEST_TAG" ]; then
+            # Stable server-side name so the public download URL never changes
+            # across Karing releases — every deploy refreshes the APK.
+            mv ./client-downloads/karing_*android_arm64-v8a.apk ./client-downloads/karing-android.apk
             echo "apk_found=true" >> "$GITHUB_OUTPUT"
             ls -lh ./client-downloads/
           else
             echo "apk_found=false" >> "$GITHUB_OUTPUT"
-            echo "no 'client-binaries' release or APK asset — skipping (non-fatal)"
+            echo "Failed to fetch latest Karing APK (rc=$DOWNLOAD_RC) — skipping (non-fatal)"
           fi
+
+      - name: Ensure downloads dir exists on server
+        if: steps.fetch_apk.outputs.apk_found == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: mkdir -p /opt/bravada-downloads
 
       - name: Place Karing APK into nginx downloads dir
         if: steps.fetch_apk.outputs.apk_found == 'true'
