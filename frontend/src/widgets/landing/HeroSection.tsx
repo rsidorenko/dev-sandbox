@@ -1,9 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
-
-const TRIAL_URL = `https://t.me/${siteConfig.botUsername}?start=trial`;
 
 export function HeroSection() {
   return (
@@ -35,15 +34,13 @@ export function HeroSection() {
           >
             Выбрать тариф
           </a>
-          <a
-            href={TRIAL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/trial"
             onClick={() => reachGoal("trial_click")}
             className="rounded-xl bg-brand-500 px-8 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-400"
           >
             🎁 {siteConfig.trialDays} дня бесплатно
-          </a>
+          </Link>
           <a
             href="#how-it-works"
             className="rounded-xl border border-white/20 px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"

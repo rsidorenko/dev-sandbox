@@ -11,7 +11,6 @@ const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
 const DEFAULT_DEVICES = 5;
 const MIN_CUSTOM_DAYS = 1;
 const MAX_CUSTOM_DAYS = 365;
-const TRIAL_URL = `https://t.me/${siteConfig.botUsername}?start=trial`;
 
 // Эталонный тариф для расчёта «выгоды» — самый дорогой в пересчёте на день (1 день).
 const DAY1_PRICE = siteConfig.tariffs[0]?.price ?? 12;
@@ -177,9 +176,9 @@ function TariffCard({ tariff }: { tariff: Tariff }) {
           🛡 Гарантия возврата {siteConfig.refundDays} дней
         </div>
         <div className="mt-1 text-center text-xs">
-          <a href={TRIAL_URL} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline dark:text-brand-400">
+          <Link href="/trial" className="text-brand-600 hover:underline dark:text-brand-400">
             или попробуйте {siteConfig.trialDays} дня бесплатно
-          </a>
+          </Link>
         </div>
 
         <UpsellHint currentId={tariff.id} />
