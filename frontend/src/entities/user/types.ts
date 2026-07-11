@@ -10,6 +10,11 @@ export interface UserProfile {
     remaining_days: number | null;
     plan_id: string | null;
     device_count: number | null;
+    // Бэкенд (web_api/profile.py) отдаёт поля триала; нужны для предпроверки
+    // на странице /trial, чтобы не дёргать активацию повторно.
+    trial_available?: boolean;
+    trial_started_at?: string | null;
+    trial_expires_at?: string | null;
   } | null;
   keys: { available: boolean; status: string } | null;
   referral: {
