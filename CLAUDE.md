@@ -210,6 +210,10 @@ Types: feat  fix  refactor  docs  test  chore
 type(scope): imperative description
 ```
 
+**Авторство и язык (жёсткие правила):**
+- Все действия с git выполняются **только от имени пользователя** (git-автор `Rpermyakov2005`, github.com/JeStRooo) — **никогда не добавлять** трейлер `Co-Authored-By` и любое другое соавторство/атрибуцию (никаких `Claude`, `Anthropic` и прочих).
+- Любые тексты при работе с git — сообщения коммитов, заголовки и описания PR, release notes, комментарии в коде, связанные с работой, — пишутся **на русском языке**. Имена веток — **на английском**, по устоявшейся конвенции `type/scope` (`feat/...`, `fix/...`, `docs/...` и т.п.).
+
 ### Delivery cycle (summary)
 
 1. **Sync** — `git checkout main && git pull --rebase origin main`
@@ -300,6 +304,8 @@ gh run view <run-id> --log-failed
 - Do not disable CI workflows or remove CI checks
 - Do not bypass tests with `--no-verify`
 - Do not hide CI failures
+- All git actions are performed under the user's identity only (`Rpermyakov2005` / github.com/JeStRooo) — never add `Co-Authored-By` or any co-authorship attribution
+- All git-facing prose (commit messages, PR titles and bodies, code comments) must be in Russian; branch names must be in English (`type/scope`)
 
 **File constraints:**
 - Do not edit any file under `.cursor/plans/`
