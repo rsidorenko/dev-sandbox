@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/shared/lib/auth";
@@ -19,46 +19,60 @@ type Status =
 const TG_FALLBACK = `https://t.me/${siteConfig.botUsername}?start=trial`;
 
 export default function TrialPage() {
-  const { loading, authenticated, refresh } = useAuth();
+  const { loading, authenticated, profile, refresh } = useAuth();
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
-  const started = useRef(false);
+  // Фиксируем, что решение по активации уже принято. После этого не уходим в
+  // /login и не переоцениваем статус, даже если refresh() на мгновение
+  // переключит loading/authenticated — именно это раньше вызывало бесконечный
+  // лоадер (refresh → loading флапал → отдельный эффект сбрасывал статус).
+  const resolved = useRef(false);
 
-  // Шаг 1: дождаться загрузки auth. Если не авторизован — на вход с возвратом сюда.
+  const runActivation = useCallback(async () => {
+    setStatus("activating");
+    reachGoal("trial_click");
+    const res = await trialApi.activate();
+    if (res.ok) {
+      setStatus("success");
+      reachGoal("trial_activated");
+      void refresh(); // обновить профиль, чтобы ЛК показал активный триал
+    } else if (res.error === "trial_already_used") {
+      setStatus("already_used");
+    } else if (res.error === "already_subscribed") {
+      setStatus("already_subscribed");
+    } else if (res.error === "unauthorized") {
+      // Сессия истекла — на вход с возвратом сюда.
+      router.replace("/login?next=/trial");
+    } else {
+      setStatus("error");
+    }
+  }, [refresh, router]);
+
   useEffect(() => {
     if (loading) return;
-    if (!authenticated) {
+    // Не авторизован и ещё не начинали — на вход с возвратом сюда.
+    if (!authenticated && !resolved.current) {
       router.replace("/login?next=/trial");
       return;
     }
-    setStatus("activating");
-    reachGoal("trial_click");
-  }, [loading, authenticated, router]);
+    // Уже приняли решение — повторно не дёргаем (refresh()/флапы auth не мешают).
+    if (resolved.current) return;
+    resolved.current = true;
 
-  // Шаг 2: после авторизации — одна попытка активации (guard от StrictMode double-fire).
-  useEffect(() => {
-    if (status !== "activating" || started.current) return;
-    started.current = true;
-    let cancelled = false;
-    (async () => {
-      const res = await trialApi.activate();
-      if (cancelled) return;
-      if (res.ok) {
-        setStatus("success");
-        reachGoal("trial_activated");
-        await refresh();
-      } else if (res.error === "trial_already_used") {
-        setStatus("already_used");
-      } else if (res.error === "already_subscribed") {
-        setStatus("already_subscribed");
-      } else {
-        setStatus("error");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [status, refresh]);
+    // Предпроверка: подписка уже активна или пробник уже использован — не делаем
+    // лишний POST, сразу показываем нужное состояние.
+    const sub = profile?.subscription;
+    if (sub?.state === "active") {
+      setStatus("already_subscribed");
+      return;
+    }
+    if (sub && sub.trial_available === false) {
+      setStatus("already_used");
+      return;
+    }
+
+    void runActivation();
+  }, [loading, authenticated, profile, router, runActivation]);
 
   return (
     <section className="flex min-h-[70vh] items-center justify-center py-20">
@@ -148,10 +162,7 @@ export default function TrialPage() {
               </p>
               <div className="mt-6 flex flex-col gap-2">
                 <button
-                  onClick={() => {
-                    started.current = false;
-                    setStatus("activating");
-                  }}
+                  onClick={() => void runActivation()}
                   className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
                 >
                   Повторить
