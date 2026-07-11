@@ -417,7 +417,7 @@ _PLATFORM_TEXTS: dict[str, str] = {
         "Скачайте приложение:\n\n"
         "🔹 Karing\n"
         "https://github.com/KaringX/karing/releases\n"
-        "https://bravada-connect.ru/downloads/karing-android.apk\n\n"
+        "https://github.com/KaringX/karing/releases/download/v1.2.21.2409/karing_1.2.21.2409_android_arm64-v8a.apk\n\n"
         "🔹 Happ\n"
         "https://play.google.com/store/apps/details?id=com.happproxy\n\n"
         "🔹 v2rayTune\n"
