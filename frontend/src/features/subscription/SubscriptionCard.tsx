@@ -280,7 +280,7 @@ export function SubscriptionCard({
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
                   Выберите тариф:
                 </p>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-x-3 gap-y-6 pt-3">
                   {PLANS.map((p) => {
                     const sp = savingsPctForPlan(p.id);
                     const isSelected = selectedPlan === p.id;
@@ -297,7 +297,7 @@ export function SubscriptionCard({
                         {p.label}
                         {sp > 0 && (
                           <span
-                            className={`absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                            className={`absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-bold leading-none ${
                               isSelected
                                 ? "bg-white text-brand-700"
                                 : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
@@ -459,7 +459,7 @@ export function SubscriptionCard({
                       "ref-tg",
                     )
                   }
-                  className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                 >
                   {isCopied("ref-tg") ? "✓ Скопировано!" : "Копировать"}
                 </button>
