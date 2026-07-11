@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { connectionPlatforms, fetchAndroidApk, type AndroidApk } from "./data";
+import {
+  connectionPlatforms,
+  fetchAndroidApk,
+  fetchWindowsExe,
+  type AndroidApk,
+  type WindowsExe,
+} from "./data";
 
 /**
  * Блок пошаговых инструкций по подключению: переключатель платформ +
@@ -17,10 +23,17 @@ export function InstructionsBlock() {
   // null until resolved (or if unreachable) — Android step 1 then falls back to
   // the GitHub/Happ/v2rayTune links.
   const [androidApk, setAndroidApk] = useState<AndroidApk | null>(null);
+  // Latest self-hosted Karing Windows .exe, resolved from
+  // /downloads/latest-windows.json — null until resolved (or if unreachable),
+  // Windows step 1 then falls back to the GitHub link.
+  const [windowsExe, setWindowsExe] = useState<WindowsExe | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetchAndroidApk().then((apk) => {
       if (!cancelled) setAndroidApk(apk);
+    });
+    fetchWindowsExe().then((exe) => {
+      if (!cancelled) setWindowsExe(exe);
     });
     return () => {
       cancelled = true;
@@ -74,7 +87,8 @@ export function InstructionsBlock() {
 
         <ol className="mt-6 space-y-6">
           {active.steps.map((step, i) => {
-            // Inject the always-latest APK download link into Android step 1.
+            // Inject the always-latest download link into step 1: APK for
+            // Android, .exe for Windows — both resolved from /downloads/*.json.
             const links =
               active.id === "android" && i === 0 && androidApk
                 ? [
@@ -84,7 +98,15 @@ export function InstructionsBlock() {
                     },
                     ...(step.links ?? []),
                   ]
-                : step.links;
+                : active.id === "win" && i === 0 && windowsExe
+                  ? [
+                      {
+                        href: windowsExe.url,
+                        label: `Скачать Karing для Windows (v${windowsExe.version})`,
+                      },
+                      ...(step.links ?? []),
+                    ]
+                  : step.links;
             return (
               <li key={i} className="flex gap-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-100 text-base font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
