@@ -6,6 +6,7 @@ add-missing, remove-orphan, fill a wiped inbound, and skip-and-continue on a lis
 failure. gRPC AlterInbound never restarts xray, so these tests also pin that the
 method never reaches for a reload path (there is none here).
 """
+
 from __future__ import annotations
 
 import types
@@ -74,7 +75,9 @@ def _provider(pool, clients):
 def test_adds_missing_and_removes_orphans_per_inbound():
     users = [{"internal_user_id": "u1"}, {"internal_user_id": "u2"}]
     client = _FakeBareXrayClient(
-        server_id=2, tag="cloudru-tcp", transport="tcp",
+        server_id=2,
+        tag="cloudru-tcp",
+        transport="tcp",
         present=["user-u1", "user-uGONE"],  # u1 present, u2 missing, uGONE orphan
     )
     p = _provider(_FakePool(users), [client])
@@ -138,5 +141,9 @@ def test_no_bare_xray_clients_returns_clean_summary():
     p = _provider(_FakePool([{"internal_user_id": "u1"}]), [])
     result = _run(p.reconcile_bare_xray())
     assert result == {
-        "users": 1, "inbounds": {}, "added": 0, "removed": 0, "failed_inbounds": 0,
+        "users": 1,
+        "inbounds": {},
+        "added": 0,
+        "removed": 0,
+        "failed_inbounds": 0,
     }
