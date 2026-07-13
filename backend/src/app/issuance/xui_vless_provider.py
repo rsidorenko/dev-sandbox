@@ -879,35 +879,113 @@ class XuiVlessProvider(VlessProviderPort):
             if user_failed:
                 failed += 1
 
-        # --- bare_xray reconcile (live xray gRPC): full desired-state per inbound.
-        # Repopulates Cloud.ru after an xray restart (API users are in-memory only) and
-        # removes orphans (users present on an inbound but no longer active/in-grace). ---
-        bx_clients = await self._get_bare_xray_clients()
-        bx_added = bx_removed = 0
-        for client in bx_clients:
-            transport = client.server_config.transport_type
-            desired = {_email_from_internal(u["internal_user_id"], transport_type=transport) for u in users}
-            try:
-                present = set(await client.list_user_emails())
-            except Exception:
-                _LOGGER.warning("reconcile bx_list_failed server=%s", client.server_id)
-                continue
-            for u in users:
-                email = _email_from_internal(u["internal_user_id"], transport_type=transport)
-                if email in present:
-                    continue
-                uid = u["internal_user_id"]
-                try:
-                    if await client.add_client(user_uuid=_vless_uuid_for_transport(uid, transport), email=email):
-                        bx_added += 1
-                except Exception:
-                    _LOGGER.warning("reconcile bx_add_failed user=%s server=%s", uid[:8], client.server_id)
-            for orphan in present - desired:
-                with contextlib.suppress(Exception):
-                    if await client.remove_client(email=orphan):
-                        bx_removed += 1
-        if bx_clients:
-            _LOGGER.info("reconcile_bare_xray added=%d removed=%d", bx_added, bx_removed)
+        # --- bare_xray reconcile delegated to the standalone method (shared with the
+        # fast reconcile-bare-xray systemd timer): desired-state per inbound via gRPC. ---
+        await self.reconcile_bare_xray()
 
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)
+
+    async def reconcile_bare_xray(self) -> dict:
+        """Standalone desired-state reconcile for every bare_xray inbound (live gRPC).
+
+        For each bare_xray server (raw xray box managed via xray's gRPC
+        ``HandlerService``), makes the live client list equal the desired set of
+        active + expired-in-grace users (keys not yet purged): adds missing clients
+        and removes orphans. Uses ``AlterInbound`` over gRPC, which is
+        **non-disruptive** — it never restarts xray and never drops existing
+        connections, so this is safe to run on a fast timer (~minutes).
+
+        Resilient: a hard failure on one inbound (unexpected raise) skips only that
+        inbound and logs; the rest of the pass still completes. An empty live list is
+        treated as "genuinely empty" (e.g. a freshly-wiped inbound such as Helsinki
+        ``clr-tcp``) and filled with the desired set — this is how the timer
+        self-heals drift and backfills users never added by the best-effort live path
+        (e.g. hosts where ``grpcurl`` was missing).
+
+        Returns a summary dict::
+
+            {"users": N, "added": A, "removed": R, "failed_inbounds": F,
+             "inbounds": {<id/tag>: {present, desired, added, removed, status}}}
+        """
+        users = await self._pool.fetch(
+            "SELECT i.internal_user_id "
+            "FROM user_identities i "
+            "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+            "WHERE s.state_label IN ('active', 'expired') "
+            "  AND s.keys_deleted_at IS NULL"
+        )
+        user_ids = [u["internal_user_id"] for u in users]
+
+        bx_clients = await self._get_bare_xray_clients()
+        summary: dict[str, dict] = {}
+        total_added = total_removed = 0
+        failed_inbounds = 0
+
+        if not bx_clients:
+            _LOGGER.info(
+                "reconcile_bare_xray: no bare_xray inbounds configured (users=%d)", len(user_ids)
+            )
+            return {
+                "users": len(user_ids), "inbounds": summary,
+                "added": 0, "removed": 0, "failed_inbounds": 0,
+            }
+
+        for client in bx_clients:
+            transport = client.server_config.transport_type
+            tag = client.server_config.xray_inbound_tag or client.server_config.label or ""
+            key = f"{client.server_id}/{tag}" if tag else str(client.server_id)
+            desired = {_email_from_internal(uid, transport_type=transport) for uid in user_ids}
+            try:
+                present = set(await client.list_user_emails())
+            except Exception:
+                _LOGGER.warning(
+                    "reconcile_bare_xray list_failed server=%s tag=%s", client.server_id, tag
+                )
+                failed_inbounds += 1
+                summary[key] = {
+                    "present": None, "desired": len(desired),
+                    "added": 0, "removed": 0, "status": "list_failed",
+                }
+                continue
+
+            added = removed = 0
+            for uid in user_ids:
+                email = _email_from_internal(uid, transport_type=transport)
+                if email in present:
+                    continue
+                try:
+                    if await client.add_client(
+                        user_uuid=_vless_uuid_for_transport(uid, transport), email=email
+                    ):
+                        added += 1
+                except Exception:
+                    _LOGGER.warning(
+                        "reconcile_bare_xray add_failed user=%s server=%s", uid[:8], client.server_id
+                    )
+            for orphan in present - desired:
+                with contextlib.suppress(Exception):
+                    if await client.remove_client(email=orphan):
+                        removed += 1
+            summary[key] = {
+                "present": len(present), "desired": len(desired),
+                "added": added, "removed": removed, "status": "ok",
+            }
+            total_added += added
+            total_removed += removed
+            _LOGGER.info(
+                "reconcile_bare_xray server=%s tag=%s present=%d desired=%d added=%d removed=%d",
+                client.server_id, tag, len(present), len(desired), added, removed,
+            )
+
+        _LOGGER.info(
+            "reconcile_bare_xray_done users=%d inbounds=%d added=%d removed=%d failed=%d",
+            len(user_ids), len(bx_clients), total_added, total_removed, failed_inbounds,
+        )
+        return {
+            "users": len(user_ids),
+            "inbounds": summary,
+            "added": total_added,
+            "removed": total_removed,
+            "failed_inbounds": failed_inbounds,
+        }

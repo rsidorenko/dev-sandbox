@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodically reconcile users on bare_xray inbounds (drift/missing-clients auto-heal)
+Documentation=https://github.com/rsidorenko/dev-sandbox backend/scripts/reconcile_bare_xray.py
+
+[Timer]
+# First run ~3 min after the timer activates, then every 3 min. The service does
+# idempotent gRPC AlterInbound add/remove with NO xray restart, so runs are
+# non-disruptive even under load. Heals drift/missing-clients (Yandex, Helsinki
+# clr-tcp, post-restart losses, users missed by the live path) within ~3 min.
+OnBootSec=3min
+OnUnitActiveSec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
