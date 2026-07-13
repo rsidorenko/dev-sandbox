@@ -1,0 +1,15 @@
+[Unit]
+Description=Desired-state reconcile of users on bare_xray inbounds (Yandex/cloud.ru/Helsinki gRPC)
+Documentation=https://github.com/rsidorenko/dev-sandbox backend/scripts/reconcile_bare_xray.py
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/bravada
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Copy the current script into the backend container and run it there (the container
+# has DATABASE_URL + CLOUDRU_SSH_* + the mounted cloudru key). It converges each
+# bare_xray inbound to the desired active-user set via gRPC AlterInbound — idempotent,
+# NO xray restart -> connected users feel nothing; steady-state runs are cheap no-ops.
+ExecStart=/bin/bash -c '/usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml cp /opt/bravada/backend/scripts/reconcile_bare_xray.py backend:/tmp/reconcile_bare_xray.py && /usr/bin/docker compose -f /opt/bravada/docker-compose.prod.yml exec -T backend python /tmp/reconcile_bare_xray.py'

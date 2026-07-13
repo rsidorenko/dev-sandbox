@@ -739,6 +739,9 @@ jobs:
             echo "=== Install/refresh reprovision-active timer (enable/expiry desync auto-heal, every 30 min, no xray restart) ==="
             bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true
 
+            echo "=== Install/refresh reconcile-bare-xray timer (bare_xray desired-state auto-heal, every 3 min, no xray restart) ==="
+            bash /opt/bravada/backend/scripts/install_reconcile_bare_xray_timer.sh || true
+
       # ─── Client binaries (Karing APK) ────────────────────────────────────
       # The APK is fetched fresh from Karing's UPSTREAM GitHub releases on every
       # deploy, under its REAL versioned filename (no stable-name rename). nginx
