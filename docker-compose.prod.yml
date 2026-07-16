@@ -93,6 +93,10 @@ services:
       # Used by BOTH bare_xray entries (id=26/27 Frankfurt + id=28/29 Helsinki) — the
       # Helsinki-entry cloud.ru box reuses the same key/user, so no per-row mount is needed.
       - /root/.ssh/cloudru_key.pem:/opt/bravada/cloudru_key.pem:ro
+      # Separate key for the CDN whitelist-bypass "Литва" bare_xray row (origin 89.169.135.48,
+      # GCP VM 'whitelist2'). That host uses user romtan + its own ed25519 key (not cloudru_key),
+      # so the row sets per-row ssh_user/ssh_key_path (mig 059) which override CLOUDRU_SSH_*.
+      - /root/.ssh/romtan_key.pem:/opt/bravada/romtan_key.pem:ro
       # Read-only mount of the self-hosted client downloads dir (same one nginx
       # serves) so the bot can read latest-android.json to resolve the always-latest
       # Karing APK link for Android step 1. Survives deploy (rm -rf /opt/bravada).
