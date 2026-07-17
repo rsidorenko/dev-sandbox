@@ -477,6 +477,155 @@ def test_facade_callback_connect_device_keyless_shows_no_subscription() -> None:
     _run(main())
 
 
+def _inline_buttons(keyboard: dict[str, object] | None) -> list[dict[str, object]]:
+    """Flatten an inline keyboard markup into a flat list of button dicts."""
+    if not keyboard:
+        return []
+    rows = keyboard.get("inline_keyboard")  # type: ignore[union-attr]
+    if not isinstance(rows, list):
+        return []
+    return [btn for row in rows if isinstance(row, list) for btn in row if isinstance(btn, dict)]
+
+
+def test_connect_device_back_goes_to_main_menu() -> None:
+    """«Назад» on the 'Выберите ваше устройство' screen returns to the main menu,
+    not to the keys list."""
+    from app.bot_transport.storefront_ui import connect_device_keyboard
+
+    callbacks = [str(b.get("callback_data")) for b in _inline_buttons(connect_device_keyboard())]
+    assert CB_MAIN_MENU in callbacks
+    assert CB_MY_KEYS not in callbacks
+
+
+def test_connect_platforms_render_app_chooser() -> None:
+    """Tapping iPhone/Android/Mac renders the Happ/Karing app chooser (Happ recommended),
+    not the Karing step 1 directly. Both app entry points must be reachable."""
+    from app.bot_transport.storefront_ui import (
+        CB_ANDROID_HAPP_STEP,
+        CB_ANDROID_STEP,
+        CB_CONNECT_ANDROID,
+        CB_CONNECT_IOS,
+        CB_CONNECT_MAC,
+        CB_IOS_HAPP_STEP,
+        CB_IOS_STEP,
+        CB_MAC_HAPP_STEP,
+        CB_MAC_STEP,
+        android_app_chooser_keyboard,
+        ios_app_chooser_keyboard,
+        mac_app_chooser_keyboard,
+        text_android_app_chooser,
+        text_ios_app_chooser,
+        text_mac_app_chooser,
+    )
+    from app.issuance.vless_provider import StubVlessProvider
+
+    cases = [
+        (CB_CONNECT_IOS, text_ios_app_chooser(), ios_app_chooser_keyboard(), CB_IOS_HAPP_STEP, CB_IOS_STEP),
+        (
+            CB_CONNECT_ANDROID,
+            text_android_app_chooser(),
+            android_app_chooser_keyboard(),
+            CB_ANDROID_HAPP_STEP,
+            CB_ANDROID_STEP,
+        ),
+        (CB_CONNECT_MAC, text_mac_app_chooser(), mac_app_chooser_keyboard(), CB_MAC_HAPP_STEP, CB_MAC_STEP),
+    ]
+
+    async def main() -> None:
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        update_id = 3
+        for code, expected_text, expected_kb, happ_prefix, karing_prefix in cases:
+            pkg = await handle_slice1_telegram_update_to_rendered_message(
+                _callback_update(callback_data=code, update_id=update_id),
+                c,
+                correlation_id=new_correlation_id(),
+            )
+            update_id += 1
+            assert pkg.message_text == expected_text, f"chooser text mismatch for {code}"
+            assert pkg.reply_markup == expected_kb, f"chooser keyboard mismatch for {code}"
+            callbacks = [str(b.get("callback_data")) for b in _inline_buttons(pkg.reply_markup)]
+            assert f"{happ_prefix}1" in callbacks, f"Happ entry missing for {code}"
+            assert f"{karing_prefix}1" in callbacks, f"Karing entry missing for {code}"
+
+    _run(main())
+
+
+def test_happ_step_renders_without_media_and_karing_entry_intact() -> None:
+    """Happ step 1 renders Happ text with no media; the chooser's Karing entry still
+    renders the existing Karing step 1 (videos untouched)."""
+    from app.bot_transport.storefront_ui import (
+        CB_ANDROID_HAPP_STEP,
+        CB_IOS_HAPP_STEP,
+        CB_MAC_HAPP_STEP,
+        android_happ_step_1_text,
+        ios_happ_step_1_text,
+        ios_step_1_text,
+        mac_happ_step_1_text,
+    )
+    from app.issuance.vless_provider import StubVlessProvider
+
+    async def main() -> None:
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        # Happ step 1 per platform — text-only (no Karing media reused)
+        for code, expected in (
+            (f"{CB_IOS_HAPP_STEP}1", ios_happ_step_1_text()),
+            (f"{CB_MAC_HAPP_STEP}1", mac_happ_step_1_text()),
+            (f"{CB_ANDROID_HAPP_STEP}1", android_happ_step_1_text()),
+        ):
+            pkg = await handle_slice1_telegram_update_to_rendered_message(
+                _callback_update(callback_data=code, update_id=3),
+                c,
+                correlation_id=new_correlation_id(),
+            )
+            assert pkg.message_text == expected
+            assert pkg.media_type is None
+            assert pkg.media_path is None
+        # Karing entry still works (existing scenario untouched)
+        from app.bot_transport.storefront_ui import CB_IOS_STEP
+
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=f"{CB_IOS_STEP}1", update_id=4),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert pkg.message_text == ios_step_1_text()
+
+    _run(main())
+
+
+def test_happ_step_keyless_shows_no_subscription() -> None:
+    """A keyless user opening a Happ connect step gets the 'no subscription' prompt —
+    step 3 needs a subscription URL and must not build an empty import button."""
+    from app.bot_transport.storefront_ui import CB_IOS_HAPP_STEP, no_subscription_keyboard, text_no_subscription
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=f"{CB_IOS_HAPP_STEP}3", update_id=2),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert pkg.message_text == text_no_subscription()
+        assert pkg.reply_markup == no_subscription_keyboard()
+
+    _run(main())
+
+
 def test_facade_callback_trial_returns_menu_not_key_list() -> None:
     """Trial activation returns the short main-menu confirmation, NOT the full key list
     (which exceeds Telegram's 4096-char limit with many servers and gets rejected)."""

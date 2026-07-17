@@ -29,6 +29,7 @@ from app.bot_transport.storefront_ui import (
     CB_ADD_DEVICE,
     CB_ALL_KEYS,
     CB_ANDROID_DID_WORK,
+    CB_ANDROID_HAPP_STEP,
     CB_ANDROID_NO,
     CB_ANDROID_RETRY,
     CB_ANDROID_STEP,
@@ -49,12 +50,14 @@ from app.bot_transport.storefront_ui import (
     CB_DO_PAY,
     CB_HELP,
     CB_IOS_DID_WORK,
+    CB_IOS_HAPP_STEP,
     CB_IOS_NO,
     CB_IOS_RETRY,
     CB_IOS_STEP,
     CB_IOS_YES,
     CB_LINK_EMAIL,
     CB_MAC_DID_WORK,
+    CB_MAC_HAPP_STEP,
     CB_MAC_NO,
     CB_MAC_RETRY,
     CB_MAC_STEP,
@@ -86,7 +89,20 @@ from app.bot_transport.storefront_ui import (
     add_device_confirm_keyboard,
     add_device_select_keyboard,
     all_keys_list_keyboard,
+    android_app_chooser_keyboard,
     android_did_work_keyboard,
+    android_happ_step_1_keyboard,
+    android_happ_step_1_text,
+    android_happ_step_2_keyboard,
+    android_happ_step_2_text,
+    android_happ_step_3_keyboard,
+    android_happ_step_3_text,
+    android_happ_step_4_keyboard,
+    android_happ_step_4_text,
+    android_happ_step_5_keyboard,
+    android_happ_step_5_text,
+    android_happ_step_6_keyboard,
+    android_happ_step_6_text,
     android_problem_keyboard,
     android_step_1_keyboard,
     android_step_1_text,
@@ -107,8 +123,21 @@ from app.bot_transport.storefront_ui import (
     connect_device_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
+    ios_app_chooser_keyboard,
     ios_did_work_keyboard,
     ios_did_work_text,
+    ios_happ_step_1_keyboard,
+    ios_happ_step_1_text,
+    ios_happ_step_2_keyboard,
+    ios_happ_step_2_text,
+    ios_happ_step_3_keyboard,
+    ios_happ_step_3_text,
+    ios_happ_step_4_keyboard,
+    ios_happ_step_4_text,
+    ios_happ_step_5_keyboard,
+    ios_happ_step_5_text,
+    ios_happ_step_6_keyboard,
+    ios_happ_step_6_text,
     ios_problem_keyboard,
     ios_problem_text,
     ios_step_1_keyboard,
@@ -127,7 +156,20 @@ from app.bot_transport.storefront_ui import (
     keys_keyboard,
     link_email_code_keyboard,
     link_email_keyboard,
+    mac_app_chooser_keyboard,
     mac_did_work_keyboard,
+    mac_happ_step_1_keyboard,
+    mac_happ_step_1_text,
+    mac_happ_step_2_keyboard,
+    mac_happ_step_2_text,
+    mac_happ_step_3_keyboard,
+    mac_happ_step_3_text,
+    mac_happ_step_4_keyboard,
+    mac_happ_step_4_text,
+    mac_happ_step_5_keyboard,
+    mac_happ_step_5_text,
+    mac_happ_step_6_keyboard,
+    mac_happ_step_6_text,
     mac_problem_keyboard,
     mac_step_1_keyboard,
     mac_step_1_text,
@@ -153,6 +195,7 @@ from app.bot_transport.storefront_ui import (
     text_add_device_success,
     text_add_device_unavailable,
     text_all_keys_list,
+    text_android_app_chooser,
     text_balance,
     text_balance_insufficient,
     text_balance_payment_success,
@@ -163,12 +206,14 @@ from app.bot_transport.storefront_ui import (
     text_device_select,
     text_error_generic,
     text_help,
+    text_ios_app_chooser,
     text_keys_not_available,
     text_link_email_already_linked,
     text_link_email_code_sent,
     text_link_email_error,
     text_link_email_intro,
     text_link_email_success,
+    text_mac_app_chooser,
     text_main_menu,
     text_my_keys,
     text_my_keys_menu,
@@ -305,18 +350,23 @@ async def _render_platform_step(
     composition: Slice1Composition,
 ) -> tuple[str, dict[str, Any] | None, str | None, str | None]:
     """Render a platform step (ios/mac/tv/win) and return (text, keyboard, media_type, media_path)."""
-    # Parse "ios_step:3" → ("ios", 3)
+    # Parse "ios_step:3" → ("ios", "karing", 3); "ios_happ_step:3" → ("ios", "happ", 3)
     platform: str | None = None
+    app = "karing"
     step_str: str | None = None
-    for prefix, _plat in (
-        (CB_IOS_STEP, "ios"),
-        (CB_MAC_STEP, "mac"),
-        (CB_TV_STEP, "tv"),
-        (CB_WIN_STEP, "win"),
-        (CB_ANDROID_STEP, "android"),
+    for prefix, _plat, _app in (
+        (CB_IOS_HAPP_STEP, "ios", "happ"),
+        (CB_MAC_HAPP_STEP, "mac", "happ"),
+        (CB_ANDROID_HAPP_STEP, "android", "happ"),
+        (CB_IOS_STEP, "ios", "karing"),
+        (CB_MAC_STEP, "mac", "karing"),
+        (CB_TV_STEP, "tv", "karing"),
+        (CB_WIN_STEP, "win", "karing"),
+        (CB_ANDROID_STEP, "android", "karing"),
     ):
         if code.startswith(prefix):
             platform = _plat
+            app = _app
             step_str = code[len(prefix) :]
             break
     if platform is None or step_str is None:
@@ -346,6 +396,61 @@ async def _render_platform_step(
             )
             if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
                 subscription_url = vless_result.config.subscription_url
+
+    # Happ branch: whitelist-bypass app for ios/mac/android. No media (the Karing
+    # step videos show the Karing UI and must not be reused for Happ) → text-only.
+    # Import is manual (copy subscription URL → paste in Happ), so step 3 shows the
+    # URL in <code> rather than building an app deep-link.
+    if app == "happ":
+        url = subscription_url or ""
+        if platform == "ios":
+            if step == 1:
+                text, keyboard = ios_happ_step_1_text(), ios_happ_step_1_keyboard()
+            elif step == 2:
+                text, keyboard = ios_happ_step_2_text(), ios_happ_step_2_keyboard()
+            elif step == 3:
+                text, keyboard = ios_happ_step_3_text(url), ios_happ_step_3_keyboard()
+            elif step == 4:
+                text, keyboard = ios_happ_step_4_text(), ios_happ_step_4_keyboard()
+            elif step == 5:
+                text, keyboard = ios_happ_step_5_text(), ios_happ_step_5_keyboard()
+            elif step == 6:
+                text, keyboard = ios_happ_step_6_text(), ios_happ_step_6_keyboard()
+            else:
+                text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+        elif platform == "mac":
+            if step == 1:
+                text, keyboard = mac_happ_step_1_text(), mac_happ_step_1_keyboard()
+            elif step == 2:
+                text, keyboard = mac_happ_step_2_text(), mac_happ_step_2_keyboard()
+            elif step == 3:
+                text, keyboard = mac_happ_step_3_text(url), mac_happ_step_3_keyboard()
+            elif step == 4:
+                text, keyboard = mac_happ_step_4_text(), mac_happ_step_4_keyboard()
+            elif step == 5:
+                text, keyboard = mac_happ_step_5_text(), mac_happ_step_5_keyboard()
+            elif step == 6:
+                text, keyboard = mac_happ_step_6_text(), mac_happ_step_6_keyboard()
+            else:
+                text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+        elif platform == "android":
+            if step == 1:
+                text, keyboard = android_happ_step_1_text(), android_happ_step_1_keyboard()
+            elif step == 2:
+                text, keyboard = android_happ_step_2_text(), android_happ_step_2_keyboard()
+            elif step == 3:
+                text, keyboard = android_happ_step_3_text(url), android_happ_step_3_keyboard()
+            elif step == 4:
+                text, keyboard = android_happ_step_4_text(), android_happ_step_4_keyboard()
+            elif step == 5:
+                text, keyboard = android_happ_step_5_text(), android_happ_step_5_keyboard()
+            elif step == 6:
+                text, keyboard = android_happ_step_6_text(), android_happ_step_6_keyboard()
+            else:
+                text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+        else:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+        return text, keyboard, None, None
 
     # Dispatch to step text/keyboard functions
     if platform == "ios":
@@ -578,6 +683,9 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_TV_STEP,
                     CB_WIN_STEP,
                     CB_ANDROID_STEP,
+                    CB_IOS_HAPP_STEP,
+                    CB_MAC_HAPP_STEP,
+                    CB_ANDROID_HAPP_STEP,
                     "add_dev_pay:",
                     "remove_dev",
                 )
@@ -1845,22 +1953,33 @@ async def _render_storefront_response(
         media_path = "media/karing_windows_x64.exe"
 
     elif code == CB_CONNECT_ANDROID:
-        text = android_step_1_text()
-        keyboard = android_step_1_keyboard()
+        text = text_android_app_chooser()
+        keyboard = android_app_chooser_keyboard()
 
     elif code == CB_CONNECT_IOS:
-        text = ios_step_1_text()
-        keyboard = ios_step_1_keyboard()
+        text = text_ios_app_chooser()
+        keyboard = ios_app_chooser_keyboard()
 
     elif code == CB_CONNECT_MAC:
-        text = mac_step_1_text()
-        keyboard = mac_step_1_keyboard()
+        text = text_mac_app_chooser()
+        keyboard = mac_app_chooser_keyboard()
 
     elif code == CB_CONNECT_TV:
         text = tv_step_1_text()
         keyboard = tv_step_1_keyboard()
 
-    elif code.startswith((CB_IOS_STEP, CB_MAC_STEP, CB_TV_STEP, CB_WIN_STEP, CB_ANDROID_STEP)):
+    elif code.startswith(
+        (
+            CB_IOS_STEP,
+            CB_MAC_STEP,
+            CB_TV_STEP,
+            CB_WIN_STEP,
+            CB_ANDROID_STEP,
+            CB_IOS_HAPP_STEP,
+            CB_MAC_HAPP_STEP,
+            CB_ANDROID_HAPP_STEP,
+        )
+    ):
         text, keyboard, media_type, media_path = await _render_platform_step(
             code,
             uid,
@@ -2250,6 +2369,9 @@ async def _render_storefront_response(
     if code.startswith(CB_WIN_STEP) or code == CB_WIN_RETRY:
         parse_mode = "HTML"
     if code.startswith(CB_ANDROID_STEP) or code == CB_ANDROID_RETRY:
+        parse_mode = "HTML"
+    # Happ steps (ios/mac/android) use HTML for bold headers and the <code> URL block
+    if code.startswith((CB_IOS_HAPP_STEP, CB_MAC_HAPP_STEP, CB_ANDROID_HAPP_STEP)):
         parse_mode = "HTML"
     if follow_up_main_menu:
         return RenderedMessagePackage(
