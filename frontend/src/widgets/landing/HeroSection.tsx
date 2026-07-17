@@ -23,8 +23,8 @@ export function HeroSection() {
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-brand-100">
           Смотрите YouTube и Instagram, пользуйтесь банками и мессенджерами за
-          границей, обходите региональные ограничения и защитите данные в публичном
-          Wi-Fi. Персональный шифрованный туннель — активация за пару минут.
+          границей и защитите данные в публичном Wi-Fi. Персональный шифрованный
+          туннель — активация за пару минут.
         </p>
         <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
           <a
