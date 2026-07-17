@@ -34,11 +34,15 @@ _DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 # The welcome card shown on the bot's empty/start chat screen. Plain text only.
 # Tone: formal and professional, suitable for a mass audience. Country list is
 # intentionally omitted — servers change over time and a static list goes stale.
+# The Reality protocol line is intentionally dropped: users care about the
+# outcome (works under hard blocking), not the transport. "Обход белых списков"
+# is the product's canonical term for the whitelist-bypass server (see
+# migration 060) and is the headline selling point here.
 WELCOME_DESCRIPTION = (
     "🛡️ Bravada VPN — стабильный и защищённый доступ в интернет без ограничений\n"
     "\n"
+    "🔓 Обход белых списков — работает даже при жёстких блокировках провайдеров\n"
     "⚡ Высокая скорость на всех серверах\n"
-    "🔒 Современный Reality-протокол — устойчив к блокировкам\n"
     "📱 Поддержка Windows, Android, iOS, macOS и Smart TV\n"
     "🎁 3 дня бесплатного использования для новых пользователей\n"
     "\n"
