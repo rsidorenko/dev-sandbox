@@ -32,16 +32,17 @@ _ENV_BOT_TOKEN = "BOT_TOKEN"
 _DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 # The welcome card shown on the bot's empty/start chat screen. Plain text only.
+# Tone: formal and professional, suitable for a mass audience. Country list is
+# intentionally omitted — servers change over time and a static list goes stale.
 WELCOME_DESCRIPTION = (
-    "🛡️ Bravada VPN — быстрый и безопасный интернет без границ\n"
+    "🛡️ Bravada VPN — стабильный и защищённый доступ в интернет без ограничений\n"
     "\n"
     "⚡ Высокая скорость на всех серверах\n"
-    "🌍 Нидерланды · Германия · Финляндия · США · Япония\n"
-    "🔒 Reality-протокол — не блокируется и не палится\n"
-    "📱 Windows · Android · iOS · macOS · TV\n"
-    "🎁 3 дня бесплатно новым пользователям\n"
+    "🔒 Современный Reality-протокол — устойчив к блокировкам\n"
+    "📱 Поддержка Windows, Android, iOS, macOS и Smart TV\n"
+    "🎁 3 дня бесплатного использования для новых пользователей\n"
     "\n"
-    "Жми «Начать» ↓"
+    "Нажмите «Начать», чтобы активировать доступ ↓"
 )
 
 
