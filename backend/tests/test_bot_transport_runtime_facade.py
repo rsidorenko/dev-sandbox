@@ -433,17 +433,104 @@ def test_facade_callback_my_keys_not_available() -> None:
     _run(main())
 
 
-def test_facade_callback_connect_device() -> None:
-    async def main() -> None:
-        c = build_slice1_composition()
-        cid = new_correlation_id()
-        raw = _callback_update(callback_data=CB_CONNECT_DEVICE)
-        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
-        from app.bot_transport.storefront_ui import text_connect_device
+def test_facade_callback_connect_device_for_subscribed_user() -> None:
+    from app.bot_transport.storefront_ui import text_connect_device
+    from app.issuance.vless_provider import StubVlessProvider
 
+    async def main() -> None:
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        # take the trial -> now has an active subscription
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CONNECT_DEVICE, update_id=3),
+            c,
+            correlation_id=new_correlation_id(),
+        )
         assert pkg.message_text == text_connect_device()
 
     _run(main())
+
+
+def test_facade_callback_connect_device_keyless_shows_no_subscription() -> None:
+    """A user with no subscription (skipped trial, no payment) opening 'Подключить
+    устройство' gets a 'no active subscription' prompt (not broken connect steps)."""
+    from app.bot_transport.storefront_ui import no_subscription_keyboard, text_no_subscription
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CONNECT_DEVICE, update_id=2),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert pkg.message_text == text_no_subscription()
+        assert pkg.reply_markup == no_subscription_keyboard()
+
+    _run(main())
+
+
+def test_facade_callback_trial_returns_menu_not_key_list() -> None:
+    """Trial activation returns the short main-menu confirmation, NOT the full key list
+    (which exceeds Telegram's 4096-char limit with many servers and gets rejected)."""
+    from app.issuance.vless_provider import StubVlessProvider
+
+    async def main() -> None:
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "активирован" in pkg.message_text.lower()
+        # short menu confirmation, not the long key list
+        assert len(pkg.message_text) < 700
+        btns = [b.get("callback_data") for row in pkg.reply_markup["inline_keyboard"] for b in row]
+        assert CB_BUY_VPN in btns  # main-menu keyboard
+
+    _run(main())
+
+
+def test_format_key_list_bounded_truncates_many_servers() -> None:
+    from app.bot_transport.storefront_ui import _format_key_list_bounded
+    from app.issuance.vless_provider import VlessServerConfig
+
+    long_link = (
+        "vless://11111111-1111-1111-1111-111111111111@host.example.com:443?type=xhttp"
+        "&security=tls&sni=host.example.com&path=%2Fapi-test&fp=firefox&pbk=" + ("A" * 43)
+    )
+    servers = tuple(
+        VlessServerConfig(server_label=f"S{i}", country_code="DE", country_flag="🇩🇪", vless_link=long_link)
+        for i in range(30)
+    )
+    out = _format_key_list_bounded(servers, budget=1500)
+    assert len(out) <= 1500
+    assert "подписки" in out  # truncation note
+
+
+def test_text_my_keys_fits_under_telegram_limit_with_many_servers() -> None:
+    from app.bot_transport.storefront_ui import text_my_keys
+    from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig
+
+    long_link = (
+        "vless://11111111-1111-1111-1111-111111111111@host.example.com:443?type=xhttp"
+        "&security=tls&sni=host.example.com&path=%2Fapi-test&fp=firefox&pbk=" + ("A" * 43)
+    )
+    servers = tuple(
+        VlessServerConfig(server_label=f"S{i}", country_code="DE", country_flag="🇩🇪", vless_link=long_link)
+        for i in range(20)
+    )
+    config = VlessUserConfig(user_uuid="u", subscription_url="https://example.com/sub/abc", servers=servers)
+    msg = text_my_keys(config)
+    assert len(msg) < 4096
 
 
 def test_facade_callback_my_sub_no_subscription() -> None:

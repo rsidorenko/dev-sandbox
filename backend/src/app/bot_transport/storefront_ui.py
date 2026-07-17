@@ -325,6 +325,28 @@ def text_no_subscription() -> str:
     return "У вас нет активной подписки.\n\nНажмите «🔑 Купить VPN» для оформления."
 
 
+def _format_key_list_bounded(servers: tuple[VlessServerConfig, ...], *, budget: int = 3600) -> str:
+    """format_key_list output, truncated to `budget` chars with a tail note if the full
+    list of vless:// links would overflow Telegram's 4096-char message limit (Telegram
+    rejects over-long messages -> "message is too long" 400). The subscription URL
+    auto-imports ALL keys, so truncating the inline list is safe — the user still gets
+    every key via the URL."""
+    full = format_key_list(servers)
+    if len(full) <= budget:
+        return full
+    note = "…остальные ключи — через ссылку подписки (она импортирует все ключи в приложение)."
+    out: list[str] = []
+    cur = 0
+    for s in servers:
+        block = f"{s.country_flag} {s.server_label}\n<code>{s.vless_link}</code>"
+        addition = ("\n\n" if out else "") + block
+        if cur + len(addition) + 2 + len(note) > budget:
+            break
+        out.append(block)
+        cur += len(addition)
+    return ("\n\n".join(out) + "\n\n" + note) if out else note
+
+
 def text_my_keys(config: VlessUserConfig) -> str:
     lines = [
         "<b>🔐 Ваши настройки подключения:</b>\n",
@@ -332,7 +354,7 @@ def text_my_keys(config: VlessUserConfig) -> str:
         f"<code>{config.subscription_url}</code>\n",
         "🔑 Ключи:",
     ]
-    lines.append(format_key_list(config.servers))
+    lines.append(_format_key_list_bounded(config.servers))
     lines.extend(["", "💡 Нажмите на ссылку или ключ, чтобы скопировать."])
     return "\n".join(lines)
 
@@ -383,7 +405,7 @@ def single_server_key_keyboard() -> dict[str, Any]:
 
 def text_all_keys_list(config: VlessUserConfig) -> str:
     lines = ["<b>🔐 Все ваши ключи:</b>\n"]
-    lines.append(format_key_list(config.servers))
+    lines.append(_format_key_list_bounded(config.servers))
     lines.append("💡 Нажмите на ключ, чтобы скопировать.")
     return "\n".join(lines)
 
