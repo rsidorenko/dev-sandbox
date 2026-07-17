@@ -612,6 +612,18 @@ async def _is_trial_available(
     return True
 
 
+async def _main_menu_keyboard(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> dict[str, Any]:
+    """Main menu keyboard with the deferrable trial button surfaced at the top while the
+    user's one-time trial is still available. The trial is NOT activated here — only when
+    the user clicks the trial button (CB_TRIAL -> _handle_trial_activation)."""
+    return main_menu_keyboard(
+        trial_available=await _is_trial_available(composition, uid),
+    )
+
+
 async def _handle_trial_activation(
     composition: Slice1Composition,
     uid: int | None,
@@ -692,65 +704,6 @@ async def _handle_trial_activation(
     return text_trial_activated(vless_result.config), trial_activated_keyboard()
 
 
-async def _activate_trial_silently(
-    composition: Slice1Composition,
-    uid: int | None,
-) -> bool:
-    """Activate 3-day trial without showing keys. Returns True on success.
-
-    Uses atomic trial claim to prevent double-activation under concurrency.
-    """
-    from datetime import UTC, datetime
-
-    from app.application.interfaces import SubscriptionSnapshot
-    from app.domain.trial import trial_expires_at
-    from app.issuance.vless_provider import VlessProviderOutcome
-
-    if uid is None:
-        return False
-    id_rec = await composition.identity.find_by_telegram_user_id(uid)
-    if id_rec is None:
-        return False
-    if composition.vless_provider is None:
-        return False
-
-    pool = _get_pool_from_composition(composition)
-
-    # Atomic claim
-    if pool is not None:
-        result = await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1 AND (trial_used = FALSE OR trial_used IS NULL)",
-            id_rec.internal_user_id,
-        )
-        if result == "UPDATE 0":
-            return False
-
-    vless_result = await composition.vless_provider.create_user(
-        internal_user_id=id_rec.internal_user_id,
-    )
-    if vless_result.outcome != VlessProviderOutcome.SUCCESS:
-        if pool is not None:
-            await pool.execute(
-                "UPDATE user_identities SET trial_used = FALSE WHERE internal_user_id = $1",
-                id_rec.internal_user_id,
-            )
-        return False
-
-    now = datetime.now(UTC)
-    expires = trial_expires_at(now)
-    await composition.snapshots.upsert_state(
-        SubscriptionSnapshot(
-            internal_user_id=id_rec.internal_user_id,
-            state_label="active",
-            active_until_utc=expires,
-            trial_started_at=now,
-            trial_expires_at=expires,
-        )
-    )
-
-    return True
-
-
 # ─── Storefront data helpers ─────────────────────────────────────────
 
 
@@ -792,7 +745,7 @@ async def _render_subscription_status(
             plan_name,
             device_count,
             remaining_days=remaining_days,
-        ), main_menu_keyboard()
+        ), await _main_menu_keyboard(composition, uid)
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), no_subscription_keyboard()
     return text_no_subscription(), no_subscription_keyboard()
@@ -949,7 +902,7 @@ async def _handle_email_linking(
         if merged:
             await _reprovision_keys_after_merge(composition, uid, pending["email"])
 
-        return text_link_email_success(pending["email"]), main_menu_keyboard()
+        return text_link_email_success(pending["email"]), await _main_menu_keyboard(composition, uid)
 
     # No pending verification — treat text as email
     if "@" not in text or "." not in text.split("@")[-1]:
@@ -963,7 +916,7 @@ async def _handle_email_linking(
         email,
     )
     if existing and existing["telegram_user_id"] == uid:
-        return text_link_email_already_linked(email), main_menu_keyboard()
+        return text_link_email_already_linked(email), await _main_menu_keyboard(composition, uid)
     if existing and existing["telegram_user_id"] > 0:
         # Verified email belongs to a DIFFERENT real Telegram account — refuse.
         # A web-only account has a non-positive telegram_user_id; claiming it by
@@ -1401,7 +1354,7 @@ async def _process_balance_payment(
     )
 
     active_until_str = (active_until or now).date().isoformat()
-    return text_balance_payment_success(active_until_str), main_menu_keyboard()
+    return text_balance_payment_success(active_until_str), await _main_menu_keyboard(composition, uid)
 
 
 async def _credit_referral_commissions(
@@ -1801,10 +1754,9 @@ async def _render_storefront_response(
     follow_up_main_menu: bool = False
 
     if code in (CB_MAIN_MENU, "store_menu"):
-        # Auto-activate trial for new users who haven't used it yet
-        if await _is_trial_available(composition, uid):
-            await _activate_trial_silently(composition, uid)
-        text, keyboard = text_main_menu(), main_menu_keyboard()
+        # Trial is NOT auto-activated here — the user must click the trial button
+        # (surfaced in the menu via _main_menu_keyboard while _is_trial_available is True).
+        text, keyboard = text_main_menu(), await _main_menu_keyboard(composition, uid)
 
     elif code in (CB_BUY_VPN, "store_plans"):
         plans = get_available_plans()
@@ -1886,7 +1838,7 @@ async def _render_storefront_response(
 
     elif code in (CB_IOS_YES, CB_MAC_YES, CB_TV_YES, CB_WIN_YES, CB_ANDROID_YES):
         text = ios_success_text()
-        keyboard = main_menu_keyboard()
+        keyboard = await _main_menu_keyboard(composition, uid)
 
     elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO, CB_ANDROID_NO):
         text = ios_problem_text()
@@ -2280,7 +2232,7 @@ async def _render_storefront_response(
                     message_text=text_main_menu(),
                     action_keys=(),
                     correlation_id=cid + "_menu",
-                    reply_markup=main_menu_keyboard(),
+                    reply_markup=await _main_menu_keyboard(composition, uid),
                 ),
             ),
         )

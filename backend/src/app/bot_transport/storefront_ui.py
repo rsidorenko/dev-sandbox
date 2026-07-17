@@ -102,8 +102,13 @@ def _inline_kb(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
     return {"inline_keyboard": rows}
 
 
-def main_menu_keyboard() -> dict[str, Any]:
-    return _inline_kb(
+def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    # Deferrable trial: surface a prominent "take trial" button at the very top while the
+    # user hasn't used their one-time trial yet. Hidden once trial_used / active subscription.
+    if trial_available:
+        rows.append([{"text": "🎁 Забрать 3 дня бесплатно", "callback_data": CB_TRIAL}])
+    rows.extend(
         [
             [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
             [
@@ -125,6 +130,7 @@ def main_menu_keyboard() -> dict[str, Any]:
             ],
         ]
     )
+    return _inline_kb(rows)
 
 
 _PLAN_EMOJI: dict[str, str] = {
