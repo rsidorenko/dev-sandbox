@@ -12,16 +12,19 @@ import {
 
 /**
  * Блок пошаговых инструкций по подключению: переключатель платформ +
- * нумерованные шаги. Контент — ./data.ts. Стилистика переиспользована из
- * HowItWorks (нумерованные круги) и SubscriptionCard (табы/кнопки).
+ * (для iOS/Android/Mac) переключатель приложения Happ/Karing + нумерованные шаги.
+ * Контент — ./data.ts. Стилистика переиспользована из HowItWorks (нумерованные
+ * круги) и SubscriptionCard (табы/кнопки).
  */
 export function InstructionsBlock() {
   const [activeId, setActiveId] = useState(connectionPlatforms[0].id);
   const active =
     connectionPlatforms.find((p) => p.id === activeId) ?? connectionPlatforms[0];
+  // Активное приложение внутри платформы с развилкой (ios/android/mac).
+  const [activeAppId, setActiveAppId] = useState<string | null>(null);
   // Latest self-hosted Karing APK, resolved from /downloads/latest-android.json.
-  // null until resolved (or if unreachable) — Android step 1 then falls back to
-  // the GitHub/Happ/v2rayTune links.
+  // null until resolved (or if unreachable) — Android Karing step 1 then falls
+  // back to the GitHub link.
   const [androidApk, setAndroidApk] = useState<AndroidApk | null>(null);
   // Latest self-hosted Karing Windows .exe, resolved from
   // /downloads/latest-windows.json — null until resolved (or if unreachable),
@@ -39,6 +42,15 @@ export function InstructionsBlock() {
       cancelled = true;
     };
   }, []);
+
+  const apps = active.apps;
+  // Fall back to the recommended (then first) app when the stored activeAppId
+  // doesn't match any app in the current platform (e.g. after switching platform).
+  const activeApp =
+    apps?.find((a) => a.id === activeAppId) ??
+    apps?.find((a) => a.recommended) ??
+    apps?.[0];
+  const steps = activeApp?.steps ?? active.steps ?? [];
 
   return (
     <div>
@@ -79,18 +91,42 @@ export function InstructionsBlock() {
         })}
       </div>
 
-      {/* Шаги активной платформы */}
+      {/* Переключатель приложения (Happ / Karing) для платформ с развилкой */}
+      {apps && apps.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {apps.map((a) => {
+            const isActive = activeApp?.id === a.id;
+            return (
+              <button
+                key={a.id}
+                onClick={() => setActiveAppId(a.id)}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  isActive
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {a.emoji} {a.label}
+                {a.recommended ? " (рекомендуется)" : ""}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Шаги активной платформы/приложения */}
       <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
         <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
           {active.emoji} {active.label}
         </h2>
 
         <ol className="mt-6 space-y-6">
-          {active.steps.map((step, i) => {
+          {steps.map((step, i) => {
             // Inject the always-latest download link into step 1: APK for
-            // Android, .exe for Windows — both resolved from /downloads/*.json.
+            // Android (Karing variant), .exe for Windows — both resolved from
+            // /downloads/*.json.
             const links =
-              active.id === "android" && i === 0 && androidApk
+              active.id === "android" && activeApp?.id === "karing" && i === 0 && androidApk
                 ? [
                     {
                       href: androidApk.url,

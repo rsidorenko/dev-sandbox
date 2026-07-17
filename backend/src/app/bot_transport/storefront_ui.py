@@ -651,7 +651,7 @@ def ios_step_1_keyboard() -> dict[str, Any]:
         [
             [{"text": "⬇️ Скачать Karing", "url": _IOS_KARING_APPSTORE_URL}],
             [
-                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_IOS},
                 {"text": "✅ Готово", "callback_data": f"{CB_IOS_STEP}2"},
             ],
         ]
@@ -813,7 +813,7 @@ def mac_step_1_keyboard() -> dict[str, Any]:
         [
             [{"text": "⬇️ Скачать Karing", "url": _IOS_KARING_APPSTORE_URL}],
             [
-                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_MAC},
                 {"text": "✅ Готово", "callback_data": f"{CB_MAC_STEP}2"},
             ],
         ]
@@ -1132,9 +1132,7 @@ def _android_step_header(step: int) -> str:
 
 def android_step_1_text() -> str:
     return _android_step_header(1) + (
-        "1. ⬇️ Нажмите «Скачать Karing» ниже или откройте GitHub\n"
-        "2. 📲 Установите приложение\n\n"
-        "Также можно использовать Happ или v2rayTune"
+        "1. ⬇️ Нажмите «Скачать Karing» ниже или откройте GitHub\n2. 📲 Установите приложение"
     )
 
 
@@ -1146,11 +1144,9 @@ def android_step_1_keyboard() -> dict[str, Any]:
     if apk_url:
         rows.append([{"text": "⬇️ Скачать Karing (APK)", "url": apk_url}])
     rows.append([{"text": "Скачать Karing (GitHub)", "url": _ANDROID_KARING_GITHUB_URL}])
-    rows.append([{"text": "Скачать Happ", "url": _ANDROID_HAPP_PLAYSTORE_URL}])
-    rows.append([{"text": "Скачать v2rayTune", "url": _ANDROID_V2RAYTUNE_URL}])
     rows.append(
         [
-            {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+            {"text": "↩️ Назад", "callback_data": CB_CONNECT_ANDROID},
             {"text": "✅ Готово", "callback_data": f"{CB_ANDROID_STEP}2"},
         ]
     )
@@ -1189,22 +1185,13 @@ def android_step_3_text(subscription_url: str) -> str:
 def android_step_3_keyboard(subscription_url: str) -> dict[str, Any]:
     sep = "&" if "?" in subscription_url else "?"
     karing_url = subscription_url + sep + "open=karing"
-    v2raytun_url = subscription_url + sep + "open=v2raytun"
     return _inline_kb(
         [
             [
                 {
-                    "text": "🔑 Karing",
+                    "text": "🔑 Загрузить ключи в Karing",
                     "url": karing_url,
-                },
-                {
-                    "text": "🔑 Happ",
-                    "url": subscription_url,
-                },
-                {
-                    "text": "🔑 v2rayTune",
-                    "url": v2raytun_url,
-                },
+                }
             ],
             [
                 {"text": "↩️ Назад", "callback_data": f"{CB_ANDROID_STEP}2"},
@@ -1323,6 +1310,11 @@ def android_problem_keyboard() -> dict[str, Any]:
 _HAPP_TOTAL_STEPS = 6
 _IOS_HAPP_APPSTORE_URL = "https://apps.apple.com/app/happ-proxy-utility/id6504287215"
 _ANDROID_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happproxy"
+# v2rayTune rides inside the Happ branch as an alternative app (no separate fork):
+# the instruction is shared. NOTE: bypass only works in Happ (surface='happ' is
+# served by UA), so the steps stay Happ-oriented; v2rayTune is just an extra download.
+# _ANDROID_V2RAYTUNE_URL is defined in the Android section above and reused here.
+_IOS_V2RAYTUNE_URL = "https://apps.apple.com/app/v2raytun/id6476628951"
 
 
 def _happ_step_header(emoji: str, step: int) -> str:
@@ -1334,7 +1326,7 @@ def _happ_step_header(emoji: str, step: int) -> str:
 
 def _happ_step_1_text(emoji: str) -> str:
     return _happ_step_header(emoji, 1) + (
-        "1. ⬇️ Нажмите «Скачать Happ» ниже или откройте магазин приложений\n2. 📲 Установите приложение"
+        "1. ⬇️ Нажмите «Скачать Happ» ниже (подойдёт и v2rayTune)\n2. 📲 Установите приложение"
     )
 
 
@@ -1382,12 +1374,13 @@ def _happ_step_6_text(emoji: str) -> str:
     )
 
 
-def _happ_step_1_keyboard(download_url: str, next_cb: str) -> dict[str, Any]:
+def _happ_step_1_keyboard(happ_url: str, v2raytune_url: str, next_cb: str, back_cb: str) -> dict[str, Any]:
     return _inline_kb(
         [
-            [{"text": "⬇️ Скачать Happ", "url": download_url}],
+            [{"text": "⬇️ Скачать Happ", "url": happ_url}],
+            [{"text": "⬇️ Скачать v2rayTune", "url": v2raytune_url}],
             [
-                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "↩️ Назад", "callback_data": back_cb},
                 {"text": "✅ Готово", "callback_data": next_cb},
             ],
         ]
@@ -1425,7 +1418,7 @@ def ios_happ_step_1_text() -> str:
 
 
 def ios_happ_step_1_keyboard() -> dict[str, Any]:
-    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, f"{CB_IOS_HAPP_STEP}2")
+    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, _IOS_V2RAYTUNE_URL, f"{CB_IOS_HAPP_STEP}2", CB_CONNECT_IOS)
 
 
 def ios_happ_step_2_text() -> str:
@@ -1476,7 +1469,7 @@ def mac_happ_step_1_text() -> str:
 
 
 def mac_happ_step_1_keyboard() -> dict[str, Any]:
-    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, f"{CB_MAC_HAPP_STEP}2")
+    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, _IOS_V2RAYTUNE_URL, f"{CB_MAC_HAPP_STEP}2", CB_CONNECT_MAC)
 
 
 def mac_happ_step_2_text() -> str:
@@ -1527,7 +1520,12 @@ def android_happ_step_1_text() -> str:
 
 
 def android_happ_step_1_keyboard() -> dict[str, Any]:
-    return _happ_step_1_keyboard(_ANDROID_HAPP_PLAYSTORE_URL, f"{CB_ANDROID_HAPP_STEP}2")
+    return _happ_step_1_keyboard(
+        _ANDROID_HAPP_PLAYSTORE_URL,
+        _ANDROID_V2RAYTUNE_URL,
+        f"{CB_ANDROID_HAPP_STEP}2",
+        CB_CONNECT_ANDROID,
+    )
 
 
 def android_happ_step_2_text() -> str:

@@ -626,6 +626,72 @@ def test_happ_step_keyless_shows_no_subscription() -> None:
     _run(main())
 
 
+def test_step1_back_returns_to_app_chooser() -> None:
+    """Step 1 «Назад» returns to the app chooser (CB_CONNECT_IOS/MAC/ANDROID) — not
+    to the device-selection page — for both Happ and Karing branches on ios/mac/android.
+    Windows/TV have no chooser and keep «Назад» → device selection."""
+    from app.bot_transport.storefront_ui import (
+        CB_CONNECT_ANDROID,
+        CB_CONNECT_DEVICE,
+        CB_CONNECT_IOS,
+        CB_CONNECT_MAC,
+        android_happ_step_1_keyboard,
+        android_step_1_keyboard,
+        ios_happ_step_1_keyboard,
+        ios_step_1_keyboard,
+        mac_happ_step_1_keyboard,
+        mac_step_1_keyboard,
+        tv_step_1_keyboard,
+        win_step_1_keyboard,
+    )
+
+    def back_target(kb: dict[str, object] | None) -> str:
+        back = [b for b in _inline_buttons(kb) if str(b.get("text", "")).startswith("↩️")]
+        assert back, f"no Назад button in {kb}"
+        return str(back[0].get("callback_data"))
+
+    # Happ branch (ios/mac/android): back → chooser
+    assert back_target(ios_happ_step_1_keyboard()) == CB_CONNECT_IOS
+    assert back_target(mac_happ_step_1_keyboard()) == CB_CONNECT_MAC
+    assert back_target(android_happ_step_1_keyboard()) == CB_CONNECT_ANDROID
+    # Karing branch (ios/mac/android): back → chooser
+    assert back_target(ios_step_1_keyboard()) == CB_CONNECT_IOS
+    assert back_target(mac_step_1_keyboard()) == CB_CONNECT_MAC
+    assert back_target(android_step_1_keyboard()) == CB_CONNECT_ANDROID
+    # Windows/TV have no chooser: back stays on device selection
+    assert back_target(win_step_1_keyboard()) == CB_CONNECT_DEVICE
+    assert back_target(tv_step_1_keyboard()) == CB_CONNECT_DEVICE
+
+
+def test_android_karing_is_clean_and_happ_branch_has_v2raytune() -> None:
+    """Android Karing step 1 offers only Karing (Happ/v2rayTune moved out); the Happ
+    branch step 1 offers BOTH Happ and v2rayTune download buttons."""
+    from app.bot_transport.storefront_ui import (
+        android_happ_step_1_keyboard,
+        android_step_1_keyboard,
+        android_step_3_keyboard,
+        ios_happ_step_1_keyboard,
+        mac_happ_step_1_keyboard,
+    )
+
+    def url_labels(kb: dict[str, object] | None) -> list[str]:
+        return [str(b.get("text", "")) for b in _inline_buttons(kb) if b.get("url")]
+
+    # Android Karing step 1: only Karing, no Happ/v2rayTune
+    a1 = url_labels(android_step_1_keyboard())
+    assert any("Karing" in t for t in a1), a1
+    assert not any("Happ" in t for t in a1), a1
+    assert not any("v2rayTune" in t for t in a1), a1
+    # Android Karing step 3: only the Karing import button
+    a3 = url_labels(android_step_3_keyboard("https://example.invalid/sub?t=1"))
+    assert a3 == ["🔑 Загрузить ключи в Karing"], a3
+    # Happ branch step 1 (all platforms): both Happ + v2rayTune download buttons
+    for kb in (ios_happ_step_1_keyboard(), mac_happ_step_1_keyboard(), android_happ_step_1_keyboard()):
+        labels = url_labels(kb)
+        assert any("Happ" in t for t in labels), labels
+        assert any("v2rayTune" in t for t in labels), labels
+
+
 def test_facade_callback_trial_returns_menu_not_key_list() -> None:
     """Trial activation returns the short main-menu confirmation, NOT the full key list
     (which exceeds Telegram's 4096-char limit with many servers and gets rejected)."""

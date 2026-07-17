@@ -2,9 +2,15 @@
  * Пошаговые инструкции по подключению.
  *
  * Контент зеркалирует шаги Telegram-бота (функции win_step / android_step /
- * ios_step / mac_step / tv_step в backend/src/app/bot_transport/storefront_ui.py),
- * адаптирован под веб. Ссылки на магазины приложений и GitHub взяты из бота
- * (проверенные). Ссылка подписки пользователем копируется в Личном кабинете → Ключи.
+ * ios_step / mac_step / tv_step и ветки *_happ_step в
+ * backend/src/app/bot_transport/storefront_ui.py), адаптирован под веб.
+ * Ссылки на магазины приложений и GitHub взяты из бота (проверенные). Ссылка
+ * подписки пользователем копируется в Личном кабинете → Ключи.
+ *
+ * Для iOS/Android/Mac есть развилка приложения: Happ (рекомендуется — в нём
+ * работает обход белых списков) и Karing. v2rayTune едет внутри ветки Happ как
+ * альтернативное приложение для скачивания (отдельной развилки нет, инструкция
+ * общая). Windows и Smart TV — без развилки (Windows — Karing, TV — Happ).
  */
 
 export type InstructionLink = { href: string; label: string };
@@ -16,11 +22,22 @@ export type InstructionStep = {
   links?: readonly InstructionLink[];
 };
 
+export type InstructionApp = {
+  id: string;
+  label: string;
+  emoji?: string;
+  recommended?: boolean;
+  steps: InstructionStep[];
+};
+
 export type InstructionPlatform = {
   id: string;
   label: string;
   emoji: string;
-  steps: InstructionStep[];
+  /** Одно приложение на платформе (win, tv). */
+  steps?: InstructionStep[];
+  /** Платформа с развилкой приложения — переключатель Happ/Karing (ios, android, mac). */
+  apps?: InstructionApp[];
 };
 
 const IOS_KARING_APPSTORE_URL = "https://apps.apple.com/app/karing/id6472431552";
@@ -29,12 +46,14 @@ const ANDROID_HAPP_PLAYSTORE_URL =
   "https://play.google.com/store/apps/details?id=com.happproxy";
 const ANDROID_V2RAYTUNE_URL =
   "https://play.google.com/store/apps/details?id=com.v2raytun.android&hl=ru";
+const IOS_HAPP_APPSTORE_URL = "https://apps.apple.com/app/happ-proxy-utility/id6504287215";
+const IOS_V2RAYTUNE_URL = "https://apps.apple.com/app/v2raytun/id6476628951";
 
 // Karing isn't on Google Play — the APK is self-hosted by nginx from /downloads/.
 // deploy publishes /downloads/latest-android.json (version + real versioned
 // filename); the Android step-1 APK link is rendered from this manifest so it
 // always points at the latest build. Returns null if unreachable (the step then
-// falls back to the GitHub/Happ/v2rayTune links).
+// falls back to the GitHub link).
 export type AndroidApk = { url: string; version: string; filename: string };
 
 export async function fetchAndroidApk(): Promise<AndroidApk | null> {
@@ -68,7 +87,7 @@ export async function fetchWindowsExe(): Promise<WindowsExe | null> {
   }
 }
 
-// Общие шаги для платформ на Karing (Windows / Android / iPhone / Mac).
+// Общие шаги для ветки Karing (Windows / Android / iPhone / Mac).
 const karingOpenStep: InstructionStep = {
   title: "Откройте приложение",
   description:
@@ -93,6 +112,70 @@ const doneStep: InstructionStep = {
     "VPN работает. Не закрывайте Karing во время использования. Если соединение пропало — перевыпустите или обновите ключи в Личном кабинете.",
 };
 
+// Общие шаги для ветки Happ (обход белых списков; v2rayTune — альтернатива при
+// скачивании, но обход работает только в Happ).
+const happOpenStep: InstructionStep = {
+  title: "Откройте приложение",
+  description:
+    "Запустите Happ, примите условия и выдайте разрешения. Откройте раздел «Подписки».",
+};
+
+const happImportStep: InstructionStep = {
+  title: "Добавьте подписку",
+  description:
+    "В Личном кабинете откройте «Ключи» и скопируйте ссылку подписки. В Happ нажмите «Добавить подписку» и вставьте ссылку — серверы с обходом белых списков подтянутся автоматически.",
+};
+
+const happConnectStep: InstructionStep = {
+  title: "Подключитесь",
+  description:
+    "Выберите обходной сервер и нажмите кнопку подключения. VPN остаётся стабильным даже при жёстких блокировках провайдера.",
+};
+
+const happDoneStep: InstructionStep = {
+  title: "Готово",
+  description:
+    "VPN настроен. Не закрывайте Happ во время использования. Если соединение пропало — переподключитесь, выбрав другой сервер.",
+};
+
+// Ветка Happ для платформы (ios/mac/android). differ только ссылками скачивания.
+function happApp(downloadLinks: readonly InstructionLink[]): InstructionApp {
+  return {
+    id: "happ",
+    label: "Happ",
+    emoji: "🚀",
+    recommended: true,
+    steps: [
+      {
+        title: "Установите Happ или v2rayTune",
+        description:
+          "Скачайте приложение. Рекомендуем Happ — в нём работает обход белых списков. v2rayTune подойдёт как альтернатива.",
+        links: downloadLinks,
+      },
+      happOpenStep,
+      happImportStep,
+      happConnectStep,
+      happDoneStep,
+    ],
+  };
+}
+
+// Ветка Karing для платформы (ios/mac/android).
+function karingApp(installTitle: string, installDesc: string, installLinks: readonly InstructionLink[]): InstructionApp {
+  return {
+    id: "karing",
+    label: "Karing",
+    emoji: "📱",
+    steps: [
+      { title: installTitle, description: installDesc, links: installLinks },
+      karingOpenStep,
+      importSubscriptionStep,
+      enableVpnStep,
+      doneStep,
+    ],
+  };
+}
+
 export const connectionPlatforms: readonly InstructionPlatform[] = [
   {
     id: "win",
@@ -114,53 +197,48 @@ export const connectionPlatforms: readonly InstructionPlatform[] = [
     id: "android",
     label: "Android",
     emoji: "🤖",
-    steps: [
-      {
-        title: "Установите приложение",
-        description:
-          "Подойдёт Karing, Happ или v2rayTune — выберите любое. Рекомендуем Karing.",
-        links: [
-          { href: KARING_GITHUB_URL, label: "Karing (GitHub)" },
-          { href: ANDROID_HAPP_PLAYSTORE_URL, label: "Happ" },
-          { href: ANDROID_V2RAYTUNE_URL, label: "v2rayTune" },
-        ],
-      },
-      karingOpenStep,
-      importSubscriptionStep,
-      enableVpnStep,
-      doneStep,
+    apps: [
+      happApp([
+        { href: ANDROID_HAPP_PLAYSTORE_URL, label: "Скачать Happ" },
+        { href: ANDROID_V2RAYTUNE_URL, label: "Скачать v2rayTune" },
+      ]),
+      karingApp(
+        "Установите Karing",
+        "Скачайте и установите приложение Karing.",
+        [{ href: KARING_GITHUB_URL, label: "Karing (GitHub)" }],
+      ),
     ],
   },
   {
     id: "ios",
     label: "iPhone",
     emoji: "📱",
-    steps: [
-      {
-        title: "Установите Karing",
-        description: "Скачайте и установите приложение Karing из App Store.",
-        links: [{ href: IOS_KARING_APPSTORE_URL, label: "Скачать Karing" }],
-      },
-      karingOpenStep,
-      importSubscriptionStep,
-      enableVpnStep,
-      doneStep,
+    apps: [
+      happApp([
+        { href: IOS_HAPP_APPSTORE_URL, label: "Скачать Happ" },
+        { href: IOS_V2RAYTUNE_URL, label: "Скачать v2rayTune" },
+      ]),
+      karingApp(
+        "Установите Karing",
+        "Скачайте и установите приложение Karing из App Store.",
+        [{ href: IOS_KARING_APPSTORE_URL, label: "Скачать Karing" }],
+      ),
     ],
   },
   {
     id: "mac",
     label: "Mac",
     emoji: "💻",
-    steps: [
-      {
-        title: "Установите Karing",
-        description: "Скачайте и установите приложение Karing из App Store.",
-        links: [{ href: IOS_KARING_APPSTORE_URL, label: "Скачать Karing" }],
-      },
-      karingOpenStep,
-      importSubscriptionStep,
-      enableVpnStep,
-      doneStep,
+    apps: [
+      happApp([
+        { href: IOS_HAPP_APPSTORE_URL, label: "Скачать Happ" },
+        { href: IOS_V2RAYTUNE_URL, label: "Скачать v2rayTune" },
+      ]),
+      karingApp(
+        "Установите Karing",
+        "Скачайте и установите приложение Karing из App Store.",
+        [{ href: IOS_KARING_APPSTORE_URL, label: "Скачать Karing" }],
+      ),
     ],
   },
   {
