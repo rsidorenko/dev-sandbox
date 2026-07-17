@@ -181,7 +181,7 @@ def test_polling_batch_one_start_one_send() -> None:
         )
         assert len(client.send_calls) == 1
         assert client.send_calls[0][0] == 42
-        assert "Добро пожаловать" in client.send_calls[0][1]
+        assert "Bravada VPN" in client.send_calls[0][1]
 
     _run(main())
 
@@ -492,7 +492,7 @@ def test_poll_once_start_one_send() -> None:
         assert r.send_count == 1
         assert len(client.send_calls) == 1
         assert client.send_calls[0][0] == 42
-        assert "Добро пожаловать" in client.send_calls[0][1]
+        assert "Bravada VPN" in client.send_calls[0][1]
 
     _run(main())
 
