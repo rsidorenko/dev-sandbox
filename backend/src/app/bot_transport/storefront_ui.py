@@ -82,6 +82,13 @@ CB_ANDROID_YES = "android_yes"
 CB_ANDROID_NO = "android_no"
 CB_ANDROID_RETRY = "android_retry"
 CB_ANDROID_DID_WORK = "android_did_work"
+# Happ step callbacks (parallel to the Karing *_STEP flows above). Happ is the
+# recommended app for ios/android/mac because whitelist bypass only works there
+# (see web_api/subscription.py: surface='happ' is served only to the Happ client).
+# The Karing flows (CB_IOS_STEP/CB_MAC_STEP/CB_ANDROID_STEP) stay untouched.
+CB_IOS_HAPP_STEP = "ios_happ_step:"
+CB_MAC_HAPP_STEP = "mac_happ_step:"
+CB_ANDROID_HAPP_STEP = "android_happ_step:"
 
 
 # ─── Inline keyboards ──────────────────────────────────────────────────
@@ -499,7 +506,68 @@ def connect_device_keyboard() -> dict[str, Any]:
                 {"text": "💻 Mac", "callback_data": CB_CONNECT_MAC},
             ],
             [{"text": "📺 Телевизор", "callback_data": CB_CONNECT_TV}],
-            [{"text": "↩️ Назад", "callback_data": CB_MY_KEYS}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+
+
+# ─── App chooser (Happ vs Karing) for ios/android/mac ───────────────
+#
+# Whitelist bypass ("обход белых списков") only works in Happ — the /sub/
+# endpoint serves the RU-relay servers (surface='happ') solely to the Happ
+# client; Karing gets the foreign fleet (surface='default'). So Happ is the
+# recommended app. The Karing step-by-step (and its videos) stay available as
+# the second button — see ios_step_*/android_step_*/mac_step_* below.
+
+
+def _text_app_chooser(emoji: str, device_word: str) -> str:
+    return (
+        f"{emoji} <b>Выберите приложение для {device_word}</b>\n\n"
+        "Рекомендуем <b>Happ</b> — в нём работает <b>обход белых списков</b> "
+        "(подключение остаётся стабильным даже при жёстких блокировках провайдера).\n\n"
+        "В Karing обход белых списков недоступен — он работает только на зарубежных серверах.\n\n"
+        "Выберите приложение:"
+    )
+
+
+def text_ios_app_chooser() -> str:
+    return _text_app_chooser("📱", "iPhone")
+
+
+def text_android_app_chooser() -> str:
+    return _text_app_chooser("🤖", "Android")
+
+
+def text_mac_app_chooser() -> str:
+    return _text_app_chooser("💻", "Mac")
+
+
+def ios_app_chooser_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "🚀 Happ — рекомендуется", "callback_data": f"{CB_IOS_HAPP_STEP}1"}],
+            [{"text": "📱 Karing", "callback_data": f"{CB_IOS_STEP}1"}],
+            [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
+
+
+def android_app_chooser_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "🚀 Happ — рекомендуется", "callback_data": f"{CB_ANDROID_HAPP_STEP}1"}],
+            [{"text": "📱 Karing", "callback_data": f"{CB_ANDROID_STEP}1"}],
+            [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
+
+
+def mac_app_chooser_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "🚀 Happ — рекомендуется", "callback_data": f"{CB_MAC_HAPP_STEP}1"}],
+            [{"text": "📱 Karing", "callback_data": f"{CB_MAC_STEP}1"}],
+            [{"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE}],
         ]
     )
 
@@ -1240,6 +1308,266 @@ def android_problem_keyboard() -> dict[str, Any]:
             [{"text": "↩️ Назад", "callback_data": CB_ANDROID_DID_WORK}],
         ]
     )
+
+
+# ─── Happ connection steps (ios / android / mac) ────────────────────
+#
+# Happ is the recommended client: whitelist bypass works only here. Import is
+# manual (copy subscription URL → paste into Happ's "add subscription"). There
+# is no happ:// deep-link in web_api/subscription.py (only karing:// and
+# v2raytun://), so we do not auto-open the app — Happ fetches the URL itself and
+# its User-Agent triggers the surface='happ' RU-relay servers automatically.
+# The flow ends at step 6 → success + main menu (reuses the platform's *_YES
+# handler); the Karing "did it work?" loop is intentionally not duplicated here.
+
+_HAPP_TOTAL_STEPS = 6
+_IOS_HAPP_APPSTORE_URL = "https://apps.apple.com/app/happ-proxy-utility/id6504287215"
+_ANDROID_HAPP_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.happproxy"
+
+
+def _happ_step_header(emoji: str, step: int) -> str:
+    return (
+        f"{emoji} <b>Шаг {step} из {_HAPP_TOTAL_STEPS}</b>\n\n"
+        "После каждого шага возвращайтесь в бота и нажимайте «Готово».\n\n"
+    )
+
+
+def _happ_step_1_text(emoji: str) -> str:
+    return _happ_step_header(emoji, 1) + (
+        "1. ⬇️ Нажмите «Скачать Happ» ниже или откройте магазин приложений\n2. 📲 Установите приложение"
+    )
+
+
+def _happ_step_2_text(emoji: str) -> str:
+    return _happ_step_header(emoji, 2) + (
+        "1. 📂 Откройте Happ\n"
+        "2. ✅ Примите условия и выдайте разрешения\n"
+        "3. 👆 Откройте раздел «Подписки» (или «Subscription»)"
+    )
+
+
+def _happ_step_3_text(emoji: str, subscription_url: str) -> str:
+    return _happ_step_header(emoji, 3) + (
+        "1. 🔑 Нажмите «Добавить подписку» (или «+») в Happ\n"
+        "2. 📋 Вставьте скопированную ссылку:\n\n"
+        f"<code>{subscription_url}</code>\n\n"
+        "3. ✅ Подтвердите добавление\n\n"
+        "Happ автоматически получит серверы с обходом белых списков."
+    )
+
+
+def _happ_step_4_text(emoji: str) -> str:
+    return _happ_step_header(emoji, 4) + (
+        "1. 🛡️ В Happ откройте добавленную подписку\n"
+        "2. 🌍 Выберите сервер (обходной — для жёстких блокировок)\n"
+        "3. ⚡ Нажмите кнопку подключения"
+    )
+
+
+def _happ_step_5_text(emoji: str) -> str:
+    return _happ_step_header(emoji, 5) + (
+        "✅ Обход белых списков активен — VPN работает даже при жёстких блокировках провайдера.\n\n"
+        "💡 Если соединение не появилось — переподключитесь, выбрав другой сервер."
+    )
+
+
+def _happ_step_6_text(emoji: str) -> str:
+    return _happ_step_header(emoji, 6) + (
+        "✅ VPN настроен!\n\n"
+        "💡 Советы:\n"
+        "• Оставьте Happ включённым для постоянной работы VPN\n"
+        "• Для обхода блокировок выбирайте обходной сервер\n\n"
+        "📢 Подпишитесь на канал, чтобы не пропустить обновления:\n"
+        "@bravada_vpn"
+    )
+
+
+def _happ_step_1_keyboard(download_url: str, next_cb: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "⬇️ Скачать Happ", "url": download_url}],
+            [
+                {"text": "↩️ Назад", "callback_data": CB_CONNECT_DEVICE},
+                {"text": "✅ Готово", "callback_data": next_cb},
+            ],
+        ]
+    )
+
+
+def _happ_step_keyboard(back_cb: str, next_cb: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [
+                {"text": "↩️ Назад", "callback_data": back_cb},
+                {"text": "✅ Готово", "callback_data": next_cb},
+            ],
+        ]
+    )
+
+
+def _happ_step_6_keyboard(back_cb: str, done_cb: str) -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "📢 Наш канал", "url": _IOS_CHANNEL_URL}],
+            [
+                {"text": "↩️ Назад", "callback_data": back_cb},
+                {"text": "✅ Готово", "callback_data": done_cb},
+            ],
+        ]
+    )
+
+
+# ─ iPhone (iOS) Happ wrappers ─
+
+
+def ios_happ_step_1_text() -> str:
+    return _happ_step_1_text("📱")
+
+
+def ios_happ_step_1_keyboard() -> dict[str, Any]:
+    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, f"{CB_IOS_HAPP_STEP}2")
+
+
+def ios_happ_step_2_text() -> str:
+    return _happ_step_2_text("📱")
+
+
+def ios_happ_step_2_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_IOS_HAPP_STEP}1", f"{CB_IOS_HAPP_STEP}3")
+
+
+def ios_happ_step_3_text(subscription_url: str) -> str:
+    return _happ_step_3_text("📱", subscription_url)
+
+
+def ios_happ_step_3_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_IOS_HAPP_STEP}2", f"{CB_IOS_HAPP_STEP}4")
+
+
+def ios_happ_step_4_text() -> str:
+    return _happ_step_4_text("📱")
+
+
+def ios_happ_step_4_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_IOS_HAPP_STEP}3", f"{CB_IOS_HAPP_STEP}5")
+
+
+def ios_happ_step_5_text() -> str:
+    return _happ_step_5_text("📱")
+
+
+def ios_happ_step_5_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_IOS_HAPP_STEP}4", f"{CB_IOS_HAPP_STEP}6")
+
+
+def ios_happ_step_6_text() -> str:
+    return _happ_step_6_text("📱")
+
+
+def ios_happ_step_6_keyboard() -> dict[str, Any]:
+    return _happ_step_6_keyboard(f"{CB_IOS_HAPP_STEP}5", CB_IOS_YES)
+
+
+# ─ Mac Happ wrappers (same App Store listing as iOS) ─
+
+
+def mac_happ_step_1_text() -> str:
+    return _happ_step_1_text("💻")
+
+
+def mac_happ_step_1_keyboard() -> dict[str, Any]:
+    return _happ_step_1_keyboard(_IOS_HAPP_APPSTORE_URL, f"{CB_MAC_HAPP_STEP}2")
+
+
+def mac_happ_step_2_text() -> str:
+    return _happ_step_2_text("💻")
+
+
+def mac_happ_step_2_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_MAC_HAPP_STEP}1", f"{CB_MAC_HAPP_STEP}3")
+
+
+def mac_happ_step_3_text(subscription_url: str) -> str:
+    return _happ_step_3_text("💻", subscription_url)
+
+
+def mac_happ_step_3_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_MAC_HAPP_STEP}2", f"{CB_MAC_HAPP_STEP}4")
+
+
+def mac_happ_step_4_text() -> str:
+    return _happ_step_4_text("💻")
+
+
+def mac_happ_step_4_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_MAC_HAPP_STEP}3", f"{CB_MAC_HAPP_STEP}5")
+
+
+def mac_happ_step_5_text() -> str:
+    return _happ_step_5_text("💻")
+
+
+def mac_happ_step_5_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_MAC_HAPP_STEP}4", f"{CB_MAC_HAPP_STEP}6")
+
+
+def mac_happ_step_6_text() -> str:
+    return _happ_step_6_text("💻")
+
+
+def mac_happ_step_6_keyboard() -> dict[str, Any]:
+    return _happ_step_6_keyboard(f"{CB_MAC_HAPP_STEP}5", CB_MAC_YES)
+
+
+# ─ Android Happ wrappers (Play Store) ─
+
+
+def android_happ_step_1_text() -> str:
+    return _happ_step_1_text("🤖")
+
+
+def android_happ_step_1_keyboard() -> dict[str, Any]:
+    return _happ_step_1_keyboard(_ANDROID_HAPP_PLAYSTORE_URL, f"{CB_ANDROID_HAPP_STEP}2")
+
+
+def android_happ_step_2_text() -> str:
+    return _happ_step_2_text("🤖")
+
+
+def android_happ_step_2_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_ANDROID_HAPP_STEP}1", f"{CB_ANDROID_HAPP_STEP}3")
+
+
+def android_happ_step_3_text(subscription_url: str) -> str:
+    return _happ_step_3_text("🤖", subscription_url)
+
+
+def android_happ_step_3_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_ANDROID_HAPP_STEP}2", f"{CB_ANDROID_HAPP_STEP}4")
+
+
+def android_happ_step_4_text() -> str:
+    return _happ_step_4_text("🤖")
+
+
+def android_happ_step_4_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_ANDROID_HAPP_STEP}3", f"{CB_ANDROID_HAPP_STEP}5")
+
+
+def android_happ_step_5_text() -> str:
+    return _happ_step_5_text("🤖")
+
+
+def android_happ_step_5_keyboard() -> dict[str, Any]:
+    return _happ_step_keyboard(f"{CB_ANDROID_HAPP_STEP}4", f"{CB_ANDROID_HAPP_STEP}6")
+
+
+def android_happ_step_6_text() -> str:
+    return _happ_step_6_text("🤖")
+
+
+def android_happ_step_6_keyboard() -> dict[str, Any]:
+    return _happ_step_6_keyboard(f"{CB_ANDROID_HAPP_STEP}5", CB_ANDROID_YES)
 
 
 # ─── Windows connection steps ──────────────────────────────────────
