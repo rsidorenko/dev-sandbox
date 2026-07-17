@@ -224,9 +224,7 @@ def test_facade_raw_private_help_rejected_as_unknown() -> None:
 # ─── Storefront callback rendering tests ──────────────────────────────
 
 
-def _callback_update(
-    *, callback_data: str, user_id: int = 42, update_id: int = 1
-) -> dict[str, object]:
+def _callback_update(*, callback_data: str, user_id: int = 42, update_id: int = 1) -> dict[str, object]:
     return _update(
         update_id=update_id,
         callback_query={"id": "cq1", "from": {"id": user_id}, "data": callback_data},
@@ -249,6 +247,7 @@ def test_facade_callback_main_menu_renders_storefront() -> None:
 
 def test_facade_callback_main_menu_after_start_shows_trial_button() -> None:
     """/start then «Главное меню»: trial NOT activated, big trial button surfaced at the top."""
+
     async def main() -> None:
         c = build_slice1_composition()
         # /start bootstraps the identity (makes the trial available)
@@ -273,6 +272,7 @@ def test_facade_callback_main_menu_after_start_shows_trial_button() -> None:
 
 def test_facade_callback_main_menu_does_not_activate_trial() -> None:
     """Clicking «Главное меню» must NOT consume the trial (regression for the auto-activation bug)."""
+
     async def main() -> None:
         from app.bot_transport.runtime_facade import _is_trial_available
 
@@ -338,6 +338,7 @@ def test_main_menu_keyboard_trial_button_only_when_available() -> None:
 
 def test_facade_start_offer_unchanged_two_buttons() -> None:
     """/start keeps the 2-button offer (trial + Главное меню)."""
+
     async def main() -> None:
         c = build_slice1_composition()
         pkg = await handle_slice1_telegram_update_to_rendered_message(
