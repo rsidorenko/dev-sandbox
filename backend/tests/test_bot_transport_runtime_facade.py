@@ -24,6 +24,7 @@ from app.bot_transport.storefront_ui import (
     CB_REFERRAL,
     CB_ROUTER,
     CB_SETTINGS,
+    CB_TRIAL,
     text_buy_vpn_intro,
     text_help,
     text_keys_not_available,
@@ -223,8 +224,9 @@ def test_facade_raw_private_help_rejected_as_unknown() -> None:
 # ─── Storefront callback rendering tests ──────────────────────────────
 
 
-def _callback_update(*, callback_data: str, user_id: int = 42) -> dict[str, object]:
+def _callback_update(*, callback_data: str, user_id: int = 42, update_id: int = 1) -> dict[str, object]:
     return _update(
+        update_id=update_id,
         callback_query={"id": "cq1", "from": {"id": user_id}, "data": callback_data},
     )
 
@@ -243,6 +245,114 @@ def test_facade_callback_main_menu_renders_storefront() -> None:
     _run(main())
 
 
+def test_facade_callback_main_menu_after_start_shows_trial_button() -> None:
+    """/start then «Главное меню»: trial NOT activated, big trial button surfaced at the top."""
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        # /start bootstraps the identity (makes the trial available)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        # user picks «Главное меню» instead of taking the trial
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_MAIN_MENU, update_id=2),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert pkg.message_text == text_main_menu()
+        kb = pkg.reply_markup
+        assert kb is not None
+        first_row = kb["inline_keyboard"][0]
+        assert first_row[0]["callback_data"] == CB_TRIAL
+        assert first_row[0]["text"] == "🎁 Забрать 3 дня бесплатно"
+
+    _run(main())
+
+
+def test_facade_callback_main_menu_does_not_activate_trial() -> None:
+    """Clicking «Главное меню» must NOT consume the trial (regression for the auto-activation bug)."""
+
+    async def main() -> None:
+        from app.bot_transport.runtime_facade import _is_trial_available
+
+        c = build_slice1_composition()
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        assert await _is_trial_available(c, 42) is True
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_MAIN_MENU, update_id=2),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        # trial still available after entering the menu (was auto-activated before the fix)
+        assert await _is_trial_available(c, 42) is True
+
+    _run(main())
+
+
+def test_facade_callback_trial_activates_and_then_menu_hides_button() -> None:
+    """/start → take trial → menu: trial button gone (trial used)."""
+    from app.issuance.vless_provider import StubVlessProvider
+
+    async def main() -> None:
+        from app.bot_transport.runtime_facade import _is_trial_available
+
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        # take the trial
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert await _is_trial_available(c, 42) is False
+        # back to menu — no trial button anymore
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_MAIN_MENU, update_id=3),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        assert pkg.message_text == text_main_menu()
+        kb = pkg.reply_markup
+        assert kb is not None
+        buttons = [b.get("callback_data") for row in kb["inline_keyboard"] for b in row]
+        assert CB_TRIAL not in buttons
+
+    _run(main())
+
+
+def test_main_menu_keyboard_trial_button_only_when_available() -> None:
+    from app.bot_transport.storefront_ui import main_menu_keyboard
+
+    kb_t = main_menu_keyboard(trial_available=True)
+    assert kb_t["inline_keyboard"][0][0]["callback_data"] == CB_TRIAL
+
+    for kb in (main_menu_keyboard(trial_available=False), main_menu_keyboard()):
+        buttons = [b.get("callback_data") for row in kb["inline_keyboard"] for b in row]
+        assert CB_TRIAL not in buttons
+
+
+def test_facade_start_offer_unchanged_two_buttons() -> None:
+    """/start keeps the 2-button offer (trial + Главное меню)."""
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        assert pkg.message_text == text_welcome(trial_available=True)
+        rows = pkg.reply_markup["inline_keyboard"]
+        assert len(rows) == 2
+        assert rows[0][0]["callback_data"] == CB_TRIAL
+        assert rows[1][0]["callback_data"] == CB_MAIN_MENU
+
+    _run(main())
+
+
 def test_facade_callback_buy_vpn_renders_plans_list() -> None:
     async def main() -> None:
         c = build_slice1_composition()
@@ -252,7 +362,7 @@ def test_facade_callback_buy_vpn_renders_plans_list() -> None:
         assert pkg.message_text == text_buy_vpn_intro()
         kb = pkg.reply_markup
         assert kb is not None
-        buttons = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+        buttons = [b.get("callback_data") for row in kb["inline_keyboard"] for b in row]
         assert any(b.startswith("plan:") for b in buttons)
 
     _run(main())
@@ -280,7 +390,7 @@ def test_facade_callback_plan_select_renders_device_select() -> None:
         assert "249" in pkg.message_text
         kb = pkg.reply_markup
         assert kb is not None
-        buttons = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+        buttons = [b.get("callback_data") for row in kb["inline_keyboard"] for b in row]
         assert any(b.startswith("devices:") for b in buttons)
 
     _run(main())
