@@ -179,9 +179,12 @@ def test_polling_batch_one_start_one_send() -> None:
             send_failure_count=0,
             processing_failure_count=0,
         )
-        assert len(client.send_calls) == 1
-        assert client.send_calls[0][0] == 42
-        assert "Добро пожаловать" in client.send_calls[0][1]
+        # /start sends the welcome card as a photo (media/welcome.jpeg) with the
+        # text as caption, so the send lands in media_calls, not send_calls.
+        assert len(client.media_calls) == 1
+        media = client.media_calls[0]
+        assert media["chat_id"] == 42
+        assert "Bravada VPN" in (media["caption"] or "")
 
     _run(main())
 
@@ -242,6 +245,10 @@ def test_send_failure_does_not_abort_batch() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()
+        # /start now sends the welcome as a photo; fail the whole media chain
+        # (photo+HTML, photo plain) and the text fallback so the send is counted
+        # as a failure instead of succeeding via fallback.
+        client.media_fail_remaining = 2
         client.send_fail = True
         rt = Slice1PollingRuntime(c, client)
         raw = _update(message=_base_message(text="/start"))
@@ -313,7 +320,10 @@ def test_connect_step_sends_media_with_caption_in_one_message(monkeypatch) -> No
         client = FakeTelegramPollingClient()
         rt = Slice1PollingRuntime(c, client)
         await _register_user(rt)
+        # _register_user triggers /start, which now sends the welcome as a photo
+        # (lands in media_calls); clear both lists so only the step-under-test counts.
         client.send_calls.clear()
+        client.media_calls.clear()
 
         cb = _callback_update(data="connect_win", update_id=2)
         r = await rt.process_batch([cb], correlation_id=new_correlation_id())
@@ -342,10 +352,15 @@ def test_connect_step_retries_media_without_parse_mode_on_caption_error(monkeypa
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()
-        client.media_fail_remaining = 1  # first (captioned) send fails; retry succeeds
         rt = Slice1PollingRuntime(c, client)
         await _register_user(rt)
+        # _register_user triggers /start, which now sends the welcome as a photo
+        # (lands in media_calls); clear both lists so only the step-under-test counts.
         client.send_calls.clear()
+        client.media_calls.clear()
+        # Set the failure budget AFTER registration so it applies to the step under
+        # test (the welcome photo no longer consumes it).
+        client.media_fail_remaining = 1  # first (captioned) send fails; retry succeeds
 
         cb = _callback_update(data="connect_win", update_id=2)
         r = await rt.process_batch([cb], correlation_id=new_correlation_id())
@@ -370,10 +385,15 @@ def test_connect_step_falls_back_to_text_when_media_unsendable(monkeypatch) -> N
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramPollingClient()
-        client.media_fail_remaining = 2  # both captioned and plain media sends fail
         rt = Slice1PollingRuntime(c, client)
         await _register_user(rt)
+        # _register_user triggers /start, which now sends the welcome as a photo
+        # (lands in media_calls); clear both lists so only the step-under-test counts.
         client.send_calls.clear()
+        client.media_calls.clear()
+        # Set the failure budget AFTER registration so it applies to the step under
+        # test (the welcome photo no longer consumes it).
+        client.media_fail_remaining = 2  # both captioned and plain media sends fail
 
         cb = _callback_update(data="connect_win", update_id=2)
         r = await rt.process_batch([cb], correlation_id=new_correlation_id())
@@ -407,7 +427,8 @@ def test_processing_failure_continues_batch(monkeypatch) -> None:
         r = await rt.process_batch([bad, good], correlation_id=new_correlation_id())
         assert r.processing_failure_count == 1
         assert r.send_count == 1
-        assert client.send_calls[0][0] == 7
+        # The successful /start sends the welcome as a photo (media_calls).
+        assert client.media_calls[0]["chat_id"] == 7
 
     _run(main())
 
@@ -490,9 +511,12 @@ def test_poll_once_start_one_send() -> None:
         cid = new_correlation_id()
         r = await rt.poll_once(correlation_id=cid)
         assert r.send_count == 1
-        assert len(client.send_calls) == 1
-        assert client.send_calls[0][0] == 42
-        assert "Добро пожаловать" in client.send_calls[0][1]
+        # /start sends the welcome card as a photo (media/welcome.jpeg) with the
+        # text as caption, so the send lands in media_calls, not send_calls.
+        assert len(client.media_calls) == 1
+        media = client.media_calls[0]
+        assert media["chat_id"] == 42
+        assert "Bravada VPN" in (media["caption"] or "")
 
     _run(main())
 
@@ -564,6 +588,9 @@ def test_start_send_failure_then_replay_sends_once_and_marks_sent() -> None:
         cid = new_correlation_id()
         rt = Slice1PollingRuntime(c, client)
         raw = _update(update_id=9, message=_base_message(user_id=42, text="/start"))
+        # /start sends the welcome as a photo: fail the whole media chain + the
+        # text fallback so the first send is counted as a failure (replay succeeds).
+        client.media_fail_remaining = 2
         client.send_fail = True
         r1 = await rt.process_batch([raw], correlation_id=cid)
         assert r1.send_count == 0 and r1.send_failure_count == 1

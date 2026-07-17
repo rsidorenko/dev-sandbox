@@ -113,6 +113,9 @@ class FakeTelegramRawPollingClient:
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
+        if self.send_fail:
+            raise RuntimeError("send failed")
+        self.send_calls.append((chat_id, caption or video_path, correlation_id))
         return 1
 
     async def send_photo(
@@ -124,6 +127,12 @@ class FakeTelegramRawPollingClient:
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
+        if self.send_fail:
+            raise RuntimeError("send failed")
+        # Media sends (e.g. the /start welcome photo) are real sends too;
+        # record them so send-count assertions hold. correlation_id is not
+        # passed on the media call path, hence "".
+        self.send_calls.append((chat_id, caption or photo_path, ""))
         return 1
 
     async def send_document(
@@ -135,6 +144,9 @@ class FakeTelegramRawPollingClient:
         reply_markup=None,
         parse_mode: str | None = None,
     ) -> int:
+        if self.send_fail:
+            raise RuntimeError("send failed")
+        self.send_calls.append((chat_id, caption or document_path, ""))
         return 1
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
@@ -257,7 +269,9 @@ def test_mixed_batch_accepted_rejected_bridge_exception() -> None:
                 reply_markup=None,
                 parse_mode: str | None = None,
             ) -> int:
-                return 1
+                return await client.send_photo(
+                    chat_id, photo_path, caption=caption, reply_markup=reply_markup, parse_mode=parse_mode
+                )
 
             async def send_document(
                 self,
@@ -323,7 +337,10 @@ def test_correlation_id_reaches_send_path() -> None:
     async def main() -> None:
         c = build_slice1_composition()
         client = FakeTelegramRawPollingClient(
-            fetch_queue=[_update(message=_base_message(text="/start"))],
+            # /start now sends the welcome as a photo (send_photo, which does
+            # not carry correlation_id); use /status so a TEXT send carries the
+            # correlation_id, which is what this test asserts.
+            fetch_queue=[_update(message=_base_message(user_id=999, text="/status"))],
         )
         rt = Slice1RawPollingRuntime(c, client, _identity_bridge)
         cid = new_correlation_id()
