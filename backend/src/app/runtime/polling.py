@@ -14,6 +14,7 @@ from app.bot_transport import (
     TelegramRuntimeActionKind,
     handle_slice1_telegram_update_to_runtime_action,
 )
+from app.bot_transport.storefront_ui import CB_TRIAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,6 +212,20 @@ class Slice1PollingRuntime:
         for u in capped:
             cb_qid = _extract_callback_query_id(u)
             cb_origin = _extract_callback_origin_message(u)
+            # CB_TRIAL triggers a slow (~15-20s) VLESS key generation across all panels.
+            # Show an immediate "generating keys" interim on the callback-origin message so
+            # the user has feedback during the wait; the normal edit flow below replaces it
+            # with the main menu once _handle_trial_activation completes.
+            cb_query = u.get("callback_query")
+            cb_data = cb_query.get("data") if isinstance(cb_query, dict) else None
+            if cb_data == CB_TRIAL and cb_origin is not None:
+                with contextlib.suppress(Exception):
+                    await self._client.edit_message_text(
+                        cb_origin[0],
+                        cb_origin[1],
+                        "⏳ <b>Идёт генерация ключей…</b>",
+                        parse_mode="HTML",
+                    )
             try:
                 action = await handle_slice1_telegram_update_to_runtime_action(
                     u,

@@ -184,9 +184,7 @@ from app.bot_transport.storefront_ui import (
     text_single_server_key,
     text_subscription_active,
     text_subscription_expired,
-    text_trial_activated,
     text_welcome,
-    trial_activated_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -328,6 +326,13 @@ async def _render_platform_step(
         step = int(step_str)
     except (ValueError, TypeError):
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU), None, None
+
+    # Keyless users (no active subscription / no trial) must not walk into connect steps:
+    # step 3 builds a Karing deep-link from the subscription URL, which is empty without a
+    # subscription -> an invalid "?open=karing" URL button -> Telegram rejects the message.
+    # Show a "no subscription" prompt with Buy + Main menu buttons instead.
+    if not await _has_active_subscription(composition, uid):
+        return text_no_subscription(), no_subscription_keyboard(), None, None
 
     # Fetch subscription URL for step 3
     subscription_url: str | None = None
@@ -624,6 +629,23 @@ async def _main_menu_keyboard(
     )
 
 
+async def _has_active_subscription(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> bool:
+    """True if the user has an active subscription (trial or paid) — i.e. has VLESS keys.
+    Gates the connect-device flow: a keyless user (no trial, no payment) gets a
+    "no active subscription" prompt instead of walking into connect steps that need a
+    subscription URL (which would render an invalid karing deep-link button)."""
+    if uid is None:
+        return False
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return False
+    snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+    return snap is not None and snap.state_label == "active"
+
+
 async def _handle_trial_activation(
     composition: Slice1Composition,
     uid: int | None,
@@ -701,7 +723,17 @@ async def _handle_trial_activation(
         )
     )
 
-    return text_trial_activated(vless_result.config), trial_activated_keyboard()
+    # Trial activated: show the main menu (NOT the full key list — it can exceed
+    # Telegram's 4096-char limit and get rejected). The user reaches their keys via
+    # "Мои ключи" / "Подключить устройство". trial_used is now TRUE, so the menu's
+    # trial button is hidden. The "⏳ Идёт генерация ключей…" interim message +
+    # delete-and-show-menu choreography is handled by the runtime (process_batch),
+    # which detects CB_TRIAL and shows feedback during the slow key creation.
+    return (
+        "✅ <b>Пробный период активирован!</b>\n\n"
+        "Ключи сгенерированы. Откройте «🔐 Мои ключи» или «📱 Подключить устройство».\n\n" + text_main_menu(),
+        main_menu_keyboard(),
+    )
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -1801,7 +1833,10 @@ async def _render_storefront_response(
         text, keyboard = await _render_subscription_status(composition, uid, cid)
 
     elif code == CB_CONNECT_DEVICE:
-        text, keyboard = text_connect_device(), connect_device_keyboard()
+        if await _has_active_subscription(composition, uid):
+            text, keyboard = text_connect_device(), connect_device_keyboard()
+        else:
+            text, keyboard = text_no_subscription(), no_subscription_keyboard()
 
     elif code == CB_CONNECT_WIN:
         text = win_step_1_text()
