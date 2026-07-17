@@ -1825,8 +1825,6 @@ async def _render_storefront_response(
         trial_available = await _is_trial_available(composition, uid)
         text = text_welcome(trial_available=trial_available)
         keyboard = welcome_keyboard(trial_available=trial_available)
-        media_type = "photo"
-        media_path = "media/welcome.jpeg"
 
     elif code == CB_TRIAL:
         text, keyboard = await _handle_trial_activation(composition, uid)

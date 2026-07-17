@@ -225,20 +225,10 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
 
 
 def text_welcome(*, trial_available: bool = False) -> str:
-    body = (
-        "🛡️ <b>Bravada VPN</b>\n"
-        "Твой безопасный и свободный интернет\n\n"
-        "⚡ Высокая скорость без лимитов\n"
-        "🌍 Серверы: Нидерланды · Германия · Финляндия · США · Япония\n"
-        "🔒 Reality-протокол — не блокируется и не палится\n"
-        "📱 Windows · Android · iOS · macOS · TV\n"
-        "🎭 Стабилен даже тогда, когда глушат связь\n"
-    )
+    base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\nВыберите действие в меню ниже."
     if trial_available:
-        body += "\n🎁 Жми кнопку и получи <b>3 дня бесплатно</b> 👇"
-    else:
-        body += "\nРады видеть тебя снова! Выбирай действие в меню 👇"
-    return body
+        base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
+    return base
 
 
 def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
