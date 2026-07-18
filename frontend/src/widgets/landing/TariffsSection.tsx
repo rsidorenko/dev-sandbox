@@ -5,6 +5,7 @@ import Link from "next/link";
 import { siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
 import { savingsPctForPlan } from "@/entities/tariff/savings";
+import { Reveal } from "@/shared/ui/Reveal";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
 
@@ -24,18 +25,18 @@ export function TariffsSection() {
   return (
     <section id="tariffs" className="bg-gray-50 py-20 dark:bg-zinc-800/50">
       <div className="mx-auto max-w-4xl px-4">
-        <div className="text-center">
+        <Reveal className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
             Тарифы
           </h2>
           <p className="mt-3 text-gray-500 dark:text-gray-400">
             Выберите подходящий период подписки
           </p>
-        </div>
+        </Reveal>
 
         {/* Tab pills */}
-        <div className="mt-10 flex justify-center">
-          <div className="inline-flex gap-2 overflow-x-auto rounded-2xl bg-white p-2 pt-3 shadow-sm dark:bg-zinc-800 dark:shadow-none">
+        <Reveal className="mt-10 flex justify-center">
+          <div className="inline-flex max-w-full flex-wrap justify-center gap-2 rounded-2xl bg-white p-2 pt-4 shadow-sm dark:bg-zinc-800 dark:shadow-none">
             {tariffs.map((t) => {
               const sp = savingsPctForPlan(t.id);
               const isBest = t.id === "365d";
@@ -67,14 +68,16 @@ export function TariffsSection() {
               );
             })}
           </div>
-        </div>
+        </Reveal>
 
         {/* Detail card */}
-        {showCustom ? (
-          <CustomCard days={customDays} onDaysChange={setCustomDays} />
-        ) : activeTariff ? (
-          <TariffCard tariff={activeTariff} />
-        ) : null}
+        <div key={showCustom ? "custom" : selected} className="animate-fade-in-up">
+          {showCustom ? (
+            <CustomCard days={customDays} onDaysChange={setCustomDays} />
+          ) : activeTariff ? (
+            <TariffCard tariff={activeTariff} />
+          ) : null}
+        </div>
 
         {/* Custom tariff toggle */}
         <div className="mt-8 flex justify-center">
