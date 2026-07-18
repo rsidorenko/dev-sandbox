@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Reveal } from "@/shared/ui/Reveal";
 
 type FaqItem = {
   question: string;
@@ -17,21 +18,19 @@ export function FaqSection({ faq }: Props) {
   return (
     <section id="faq" className="py-20">
       <div className="mx-auto max-w-3xl px-4">
-        <div className="text-center">
+        <Reveal className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
             Часто задаваемые вопросы
           </h2>
           <p className="mt-3 text-gray-500 dark:text-gray-400">
             Ответы на популярные вопросы о сервисе
           </p>
-        </div>
+        </Reveal>
 
         <div className="mt-12 flex flex-col gap-3">
           {faq.map((item, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-gray-100 bg-white transition dark:border-zinc-700 dark:bg-zinc-800"
-            >
+            <Reveal key={i} delay={i * 60}>
+            <div className="rounded-xl border border-gray-100 bg-white transition dark:border-zinc-700 dark:bg-zinc-800">
               <button
                 className="flex w-full items-center justify-between px-6 py-4 text-left"
                 onClick={() => setOpen(open === i ? null : i)}
@@ -61,6 +60,7 @@ export function FaqSection({ faq }: Props) {
                 </div>
               )}
             </div>
+            </Reveal>
           ))}
         </div>
       </div>

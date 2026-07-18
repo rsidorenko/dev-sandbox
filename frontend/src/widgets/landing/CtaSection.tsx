@@ -1,11 +1,12 @@
 import { siteConfig } from "@/shared/config/site";
 import { AuroraBackground } from "@/widgets/landing/AuroraBackground";
+import { Reveal } from "@/shared/ui/Reveal";
 
 export function CtaSection() {
   return (
     <section className="relative overflow-hidden bg-brand-900 py-20 text-white">
       <AuroraBackground />
-      <div className="relative mx-auto max-w-3xl px-4 text-center">
+      <Reveal className="relative mx-auto max-w-3xl px-4 text-center">
         <h2 className="text-3xl font-bold tracking-tight">
           Начните использовать защищённое соединение прямо сейчас
         </h2>
@@ -28,7 +29,7 @@ export function CtaSection() {
             Написать в поддержку
           </a>
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
