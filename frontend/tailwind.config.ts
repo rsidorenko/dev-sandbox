@@ -49,9 +49,9 @@ const config: Config = {
         },
       },
       animation: {
-        "aurora-a": "aurora-a 13s ease-in-out infinite",
-        "aurora-b": "aurora-b 16s ease-in-out infinite",
-        "aurora-sweep": "aurora-sweep 18s linear infinite",
+        "aurora-a": "aurora-a 7s ease-in-out infinite",
+        "aurora-b": "aurora-b 8s ease-in-out infinite",
+        "aurora-sweep": "aurora-sweep 9s linear infinite",
         "fade-in-up": "fade-in-up 0.6s ease-out both",
         "fade-in": "fade-in 0.6s ease-out both",
         shimmer: "shimmer 4s linear infinite",
