@@ -56,6 +56,13 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
   icons: { icon: "/favicon.ico", apple: "/apple-touch-icon.png" },
+  alternates: { canonical: siteConfig.siteUrl },
+  // Метатег верификации Google Search Console (для Security Issues → Request Review
+  // при ложном флаге Safe Browsing «мошеннический сайт»). Рендерится только если
+  // env задан на этапе сборки (метаданные статичны, как NEXT_PUBLIC_YM_ID).
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+  },
 };
 
 export default function RootLayout({
