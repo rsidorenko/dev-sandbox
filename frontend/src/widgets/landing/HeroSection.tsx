@@ -21,7 +21,7 @@ export function HeroSection() {
             на любом устройстве
           </span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl animate-fade-in-up text-lg leading-relaxed text-brand-100 text-shadow-soft [animation-delay:200ms]">
+        <p className="mx-auto mt-6 max-w-2xl animate-fade-in-up text-lg leading-relaxed text-brand-50 text-shadow-soft [animation-delay:200ms]">
           Смотрите YouTube и Instagram, пользуйтесь банками и мессенджерами за
           границей и защитите данные в публичном Wi-Fi. Персональный шифрованный
           туннель — активация за пару минут.
