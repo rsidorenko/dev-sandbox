@@ -20,6 +20,9 @@ export function AuroraBackground() {
 
       {/* Мягкий цветовой sweep — медленно вращающийся conic-градиент */}
       <div className="absolute inset-0 animate-aurora-sweep bg-[conic-gradient(from_180deg_at_50%_50%,transparent,theme(colors.brand.400/0.32),transparent,theme(colors.brand.300/0.22),transparent)] blur-2xl" />
+
+      {/* Виньетка-затемнение в центре: текст читаем, анимация по краям остаётся яркой */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_45%,theme(colors.brand.950/0.55),transparent_75%)]" />
     </div>
   );
 }
