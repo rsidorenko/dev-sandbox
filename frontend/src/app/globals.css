@@ -13,3 +13,11 @@ body {
 .dark body {
   @apply bg-zinc-900 text-gray-100;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-aurora-a,
+  .animate-aurora-b,
+  .animate-aurora-sweep {
+    animation: none;
+  }
+}

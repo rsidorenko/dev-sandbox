@@ -1,9 +1,11 @@
 import { siteConfig } from "@/shared/config/site";
+import { AuroraBackground } from "@/widgets/landing/AuroraBackground";
 
 export function CtaSection() {
   return (
-    <section className="bg-brand-900 py-20 text-white">
-      <div className="mx-auto max-w-3xl px-4 text-center">
+    <section className="relative overflow-hidden bg-brand-900 py-20 text-white">
+      <AuroraBackground />
+      <div className="relative mx-auto max-w-3xl px-4 text-center">
         <h2 className="text-3xl font-bold tracking-tight">
           Начните использовать защищённое соединение прямо сейчас
         </h2>

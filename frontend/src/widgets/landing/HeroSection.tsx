@@ -3,14 +3,12 @@
 import Link from "next/link";
 import { siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
+import { AuroraBackground } from "@/widgets/landing/AuroraBackground";
 
 export function HeroSection() {
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-brand-900 via-brand-800 to-brand-950 py-24 text-white sm:py-32">
-      <div className="absolute inset-0 opacity-10">
-        <div className="absolute -left-20 -top-20 h-96 w-96 rounded-full bg-brand-400 blur-3xl" />
-        <div className="absolute -bottom-20 -right-20 h-96 w-96 rounded-full bg-brand-300 blur-3xl" />
-      </div>
+      <AuroraBackground />
 
       <div className="relative mx-auto max-w-4xl px-4 text-center">
         <span className="inline-block rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium tracking-wide">
