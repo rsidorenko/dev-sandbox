@@ -14,14 +14,14 @@ export function HeroSection() {
         <span className="inline-block animate-fade-in-up rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium tracking-wide [animation-delay:0ms]">
           Доступ к сервисам без ограничений
         </span>
-        <h1 className="mt-6 animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight text-shadow-soft sm:text-5xl lg:text-6xl [animation-delay:100ms]">
+        <h1 className="mt-6 animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl [animation-delay:100ms]">
           Свободный интернет
           <br />
           <span className="bg-gradient-to-r from-brand-200 via-brand-400 to-brand-300 bg-clip-text text-transparent [background-size:200%_auto] animate-shimmer">
             на любом устройстве
           </span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl animate-fade-in-up text-lg leading-relaxed text-brand-50 text-shadow-soft [animation-delay:200ms]">
+        <p className="mx-auto mt-6 max-w-2xl animate-fade-in-up text-lg leading-relaxed text-brand-100 [animation-delay:200ms]">
           Смотрите YouTube и Instagram, пользуйтесь банками и мессенджерами за
           границей и защитите данные в публичном Wi-Fi. Персональный шифрованный
           туннель — активация за пару минут.

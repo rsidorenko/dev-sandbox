@@ -21,9 +21,9 @@ export function AuroraBackground() {
       {/* Мягкий цветовой sweep — медленно вращающийся conic-градиент */}
       <div className="absolute inset-0 animate-aurora-sweep bg-[conic-gradient(from_180deg_at_50%_50%,transparent,theme(colors.brand.400/0.32),transparent,theme(colors.brand.300/0.22),transparent)] blur-2xl" />
 
-      {/* Усиленная виньетка: тёмная «безопасная зона» под текстом —
-          движущиеся блобы и sweep остаются яркими только по краям и не налезают на текст */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_82%_68%_at_50%_45%,theme(colors.brand.950/0.80),theme(colors.brand.950/0.34)_52%,transparent_80%)]" />
+      {/* Мягкая виньетка в центре: притеняет только зону под текстом,
+          чтобы светлые блобы/sweep не налезали на него. Края остаются яркими. */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_45%,theme(colors.brand.950/0.5),transparent_72%)]" />
     </div>
   );
 }
