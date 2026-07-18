@@ -34,12 +34,13 @@ export function FaqSection({ faq }: Props) {
               <button
                 className="flex w-full items-center justify-between px-6 py-4 text-left"
                 onClick={() => setOpen(open === i ? null : i)}
+                aria-expanded={open === i}
               >
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {item.question}
                 </span>
                 <svg
-                  className={`h-5 w-5 shrink-0 text-gray-400 transition-transform ${
+                  className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-300 ${
                     open === i ? "rotate-180" : ""
                   }`}
                   fill="none"
@@ -54,11 +55,17 @@ export function FaqSection({ faq }: Props) {
                   />
                 </svg>
               </button>
-              {open === i && (
-                <div className="px-6 pb-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-                  {item.answer}
+              <div
+                className={`grid transition-all duration-300 ease-out ${
+                  open === i ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="px-6 pb-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+                    {item.answer}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
             </Reveal>
           ))}

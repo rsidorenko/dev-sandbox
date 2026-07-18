@@ -7,10 +7,10 @@ export function CtaSection() {
     <section className="relative overflow-hidden bg-brand-900 py-20 text-white">
       <AuroraBackground />
       <Reveal className="relative mx-auto max-w-3xl px-4 text-center">
-        <h2 className="text-3xl font-bold tracking-tight">
+        <h2 className="text-3xl font-bold tracking-tight text-shadow-soft">
           Начните использовать защищённое соединение прямо сейчас
         </h2>
-        <p className="mt-4 text-brand-200">
+        <p className="mt-4 text-brand-200 text-shadow-soft">
           Подключитесь за несколько минут и защитите свой трафик в любых сетях.
         </p>
         <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
