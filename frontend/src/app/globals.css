@@ -17,7 +17,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-aurora-a,
   .animate-aurora-b,
-  .animate-aurora-sweep {
+  .animate-aurora-sweep,
+  .animate-fade-in-up,
+  .animate-fade-in,
+  .animate-shimmer {
     animation: none;
+  }
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

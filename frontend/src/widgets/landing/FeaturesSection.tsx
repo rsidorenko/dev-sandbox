@@ -1,4 +1,5 @@
 import { TelegramButton } from "@/shared/ui/TelegramButton";
+import { Reveal } from "@/shared/ui/Reveal";
 
 const features = [
   {
@@ -43,21 +44,19 @@ export function FeaturesSection() {
   return (
     <section id="features" className="py-20 bg-gray-50 dark:bg-zinc-800/50">
       <div className="mx-auto max-w-6xl px-4">
-        <div className="text-center">
+        <Reveal className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
             Что вы получаете
           </h2>
           <p className="mt-3 text-gray-500 dark:text-gray-400">
             Надёжная защита трафика без сложных настроек
           </p>
-        </div>
+        </Reveal>
 
         <div className="mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((f, i) => (
-            <div
-              key={i}
-              className="rounded-2xl border border-gray-100 bg-white p-6 transition hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600"
-            >
+            <Reveal key={i} delay={i * 80} className="h-full">
+              <div className="h-full rounded-2xl border border-gray-100 bg-white p-6 transition hover:-translate-y-1 hover:shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-400">
                 {f.icon}
               </div>
@@ -67,16 +66,17 @@ export function FeaturesSection() {
               <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
                 {f.description}
               </p>
-            </div>
+              </div>
+            </Reveal>
           ))}
         </div>
 
-        <div className="mt-12 text-center">
+        <Reveal className="mt-12 text-center">
           <TelegramButton
-            className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-700"
+            className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-700 hover:shadow-xl"
             label="Перейти к боту"
           />
-        </div>
+        </Reveal>
       </div>
     </section>
   );

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { reachGoal } from "@/shared/lib/analytics";
+import { Reveal } from "@/shared/ui/Reveal";
 
 /**
  * Секция реферальной программы на лендинге.
@@ -13,6 +14,7 @@ export function ReferralSection() {
   return (
     <section id="referral" className="py-20">
       <div className="mx-auto max-w-5xl px-4">
+        <Reveal>
         <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 to-brand-900 px-6 py-12 text-center text-white shadow-lg sm:px-12">
           <h2 className="text-3xl font-bold tracking-tight">
             Приведи друга — получай до 35%
@@ -50,6 +52,7 @@ export function ReferralSection() {
             </p>
           </div>
         </div>
+        </Reveal>
       </div>
     </section>
   );
