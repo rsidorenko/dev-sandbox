@@ -9,6 +9,7 @@ import { z } from "zod";
 import { authApi } from "./api";
 import { siteConfig } from "@/shared/config/site";
 import { useCountdown } from "@/shared/hooks/useCountdown";
+import { safeNextPath } from "@/shared/lib/safeRedirect";
 import { Alert } from "@/shared/ui/Alert";
 
 const emailSchema = z.object({
@@ -94,7 +95,7 @@ export function LoginForm() {
     if (typeof window !== "undefined") {
       localStorage.removeItem("pending_referral_code");
     }
-    const next = searchParams.get("next") || "/dashboard";
+    const next = safeNextPath(searchParams.get("next"));
     window.location.href = next;
   });
 
