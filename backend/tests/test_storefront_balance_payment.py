@@ -218,11 +218,7 @@ def test_add_device_balance_description_is_unique_per_payment():
     assert "Готово" in pkg2.message_text
 
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=20))
-    add_txs = [
-        t
-        for t in txs
-        if t.transaction_type == "subscription_payment" and "add device" in t.description
-    ]
+    add_txs = [t for t in txs if t.transaction_type == "subscription_payment" and "add device" in t.description]
     assert len(add_txs) == 2
     descriptions = {t.description for t in add_txs}
     assert len(descriptions) == 2  # оба description уникальны
