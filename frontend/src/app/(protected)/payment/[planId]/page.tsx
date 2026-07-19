@@ -49,6 +49,13 @@ function PaymentForm() {
     amount_rubles: number;
     message: string;
   } | null>(null);
+  const [promoInput, setPromoInput] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("pending_promo_code") || "";
+  });
+  const [appliedPromo, setAppliedPromo] = useState<{ discount_percent: number } | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState("");
 
   const info = planId ? getTariffInfo(planId) : null;
 
@@ -78,13 +85,38 @@ function PaymentForm() {
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
   const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
   const total = info.basePrice + extraCost;
+  const discountPct = appliedPromo?.discount_percent ?? 0;
+  const finalTotal =
+    discountPct > 0 ? Math.max(1, Math.round((total * (100 - discountPct)) / 100)) : total;
+
+  const handleApplyPromo = async () => {
+    setPromoError("");
+    const code = promoInput.trim();
+    if (!code) {
+      setAppliedPromo(null);
+      return;
+    }
+    setPromoLoading(true);
+    const res = await paymentApi.validatePromo(code, planId, deviceCount);
+    setPromoLoading(false);
+    if (!res.ok || !res.data?.valid) {
+      setAppliedPromo(null);
+      setPromoError("Промокод недействителен или истёк.");
+      return;
+    }
+    setAppliedPromo({ discount_percent: res.data.discount_percent ?? 0 });
+  };
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
-    const result = await paymentApi.create(planId, deviceCount);
+    const result = await paymentApi.create(
+      planId,
+      deviceCount,
+      appliedPromo ? promoInput.trim() : undefined,
+    );
     setLoading(false);
 
     if (!result.ok) {
@@ -159,9 +191,57 @@ function PaymentForm() {
             )}
           </div>
 
-          <div className="mt-6 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
+          {/* Promo code */}
+          <div className="mt-6">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Промокод
+            </label>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={promoInput}
+                onChange={(e) => {
+                  setPromoInput(e.target.value);
+                  setAppliedPromo(null);
+                  setPromoError("");
+                }}
+                placeholder="Например, BRAVADA-XXXX"
+                className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                onClick={handleApplyPromo}
+                disabled={promoLoading || !promoInput.trim()}
+                className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-300"
+              >
+                {promoLoading ? "..." : "Применить"}
+              </button>
+            </div>
+            {appliedPromo && (
+              <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                ✓ Применена скидка {appliedPromo.discount_percent}%
+              </p>
+            )}
+            {promoError && <p className="mt-2 text-xs text-red-500">{promoError}</p>}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total.toLocaleString("ru-RU")} ₽</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              {discountPct > 0 ? (
+                <>
+                  <span className="mr-2 text-sm font-normal text-gray-400 line-through">
+                    {total.toLocaleString("ru-RU")} ₽
+                  </span>
+                  <span className="mr-2 align-middle text-xs text-emerald-600 dark:text-emerald-400">
+                    −{discountPct}%
+                  </span>
+                  {finalTotal.toLocaleString("ru-RU")} ₽
+                </>
+              ) : (
+                <>{total.toLocaleString("ru-RU")} ₽</>
+              )}
+            </span>
           </div>
 
           {errorMsg && <Alert className="mt-4">{errorMsg}</Alert>}
@@ -180,7 +260,7 @@ function PaymentForm() {
             disabled={loading}
             className="mt-6 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оплатить ${total.toLocaleString("ru-RU")} ₽`}
+            {loading ? "Обработка..." : `Оплатить ${finalTotal.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">

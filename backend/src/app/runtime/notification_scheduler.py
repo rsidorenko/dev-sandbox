@@ -36,6 +36,10 @@ _EXPIRY_WARNING_HOURS = int(os.environ.get("NOTIFICATION_EXPIRY_WARNING_HOURS", 
 _GRACE_PERIOD_DAYS = int(os.environ.get("NOTIFICATION_GRACE_PERIOD_DAYS", "20"))
 _ADVISORY_LOCK_ID = 20260608
 
+# Personal promo offered in the 'trial ends tomorrow' notice (converted at web checkout).
+_TRIAL_PROMO_DISCOUNT_PERCENT = int(os.environ.get("TRIAL_PROMO_DISCOUNT_PERCENT", "15"))
+_TRIAL_PROMO_VALID_DAYS = int(os.environ.get("TRIAL_PROMO_VALID_DAYS", "7"))
+
 
 class NotificationScheduler:
     def __init__(
@@ -167,9 +171,9 @@ class NotificationScheduler:
         return True
 
     async def _check_trial_expiring(self, now: datetime) -> None:
-        """Trials expiring in <24h: send warning (batch)."""
+        """Trials expiring in <24h: send warning with a personal promo code + referral CTA."""
         rows = await self._pool.fetch(
-            """SELECT s.internal_user_id, s.trial_expires_at
+            """SELECT s.internal_user_id
                FROM subscription_snapshots s
                WHERE s.state_label = 'active'
                AND s.trial_expires_at IS NOT NULL
@@ -179,18 +183,45 @@ class NotificationScheduler:
         )
         if not rows:
             return
-        text, keyboard = text_trial_expiring()
-        await asyncio.gather(
-            *[
-                self._send_notification(
-                    internal_user_id=row["internal_user_id"],
-                    notification_type="trial_expiring",
-                    text=text,
-                    keyboard=keyboard,
+
+        from app.persistence.postgres_promo import PostgresPromoCodeRepository
+        from app.persistence.postgres_referral import PostgresReferralCodeRepository
+        from app.shared.site_url import get_site_base_url
+
+        site_url = get_site_base_url().rstrip("/")
+        promo_repo = PostgresPromoCodeRepository(self._pool)
+        code_repo = PostgresReferralCodeRepository(self._pool)
+
+        async def _notify(row: asyncpg.Record) -> None:
+            uid = row["internal_user_id"]
+            # Best-effort personal promo: BRAVADA-<referral_code> (referral code is unique
+            # → promo code is unique). Failure here must not block the trial notice.
+            promo_code_str: str | None = None
+            try:
+                ref = await code_repo.get_or_create(uid)
+                promo = await promo_repo.ensure_personal_code(
+                    owner_internal_user_id=uid,
+                    code=f"BRAVADA-{ref.referral_code}",
+                    discount_percent=_TRIAL_PROMO_DISCOUNT_PERCENT,
+                    valid_days=_TRIAL_PROMO_VALID_DAYS,
                 )
-                for row in rows
-            ]
-        )
+                promo_code_str = promo.code
+            except Exception:
+                _LOGGER.debug("trial promo ensure failed user=%s", uid, exc_info=True)
+            checkout_url = f"{site_url}/?promo={promo_code_str}" if promo_code_str else None
+            text, keyboard = text_trial_expiring(
+                promo_code=promo_code_str,
+                discount_percent=_TRIAL_PROMO_DISCOUNT_PERCENT,
+                checkout_url=checkout_url,
+            )
+            await self._send_notification(
+                internal_user_id=uid,
+                notification_type="trial_expiring",
+                text=text,
+                keyboard=keyboard,
+            )
+
+        await asyncio.gather(*[_notify(r) for r in rows])
 
     async def _check_trial_expired(self, now: datetime) -> None:
         """Expired trials: deactivate keys, send notification."""

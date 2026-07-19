@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { siteConfig } from "@/shared/config/site";
 import { ReferralCapture } from "@/shared/lib/referralCapture";
+import { PromoCapture } from "@/shared/lib/promoCapture";
 import { HeroSection } from "@/widgets/landing/HeroSection";
 import { FeaturesSection } from "@/widgets/landing/FeaturesSection";
 import { HowItWorks } from "@/widgets/landing/HowItWorks";
@@ -15,6 +16,7 @@ export default function HomePage() {
     <>
       <Suspense fallback={null}>
         <ReferralCapture />
+        <PromoCapture />
       </Suspense>
       <HeroSection />
       <FeaturesSection />

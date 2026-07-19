@@ -9,6 +9,10 @@ export interface PaymentCreateResponse {
   message?: string;
   payment_url?: string;
   payment_id?: string;
+  promo_code?: string;
+  discount_percent?: number;
+  original_rubles?: number;
+  discounted_rubles?: number;
 }
 
 export interface AddDevicesResponse {
@@ -19,4 +23,13 @@ export interface AddDevicesResponse {
   amount_kopecks: number;
   payment_url?: string;
   payment_id?: string;
+}
+
+export interface PromoValidateResponse {
+  ok: boolean;
+  valid: boolean;
+  reason?: string;
+  discount_percent?: number;
+  original_rubles?: number;
+  discounted_rubles?: number;
 }

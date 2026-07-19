@@ -6,7 +6,8 @@ import asyncio
 import secrets
 import uuid
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
 from app.application.interfaces import (
@@ -16,6 +17,7 @@ from app.application.interfaces import (
     OutboundDeliveryRecord,
     SubscriptionSnapshot,
 )
+from app.domain.promo import PromoCode
 from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
     ReferralCodeRecord,
@@ -326,3 +328,64 @@ class InMemoryReferralTransactionRepository:
                 for t in self._transactions
                 if t.internal_user_id == internal_user_id and t.amount_kopecks > 0
             )
+
+
+class InMemoryPromoCodeRepository:
+    """In-memory PromoCodeRepository for tests / local composition."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._codes: dict[str, PromoCode] = {}
+
+    async def get_by_code(self, code: str) -> PromoCode | None:
+        async with self._lock:
+            return self._codes.get(code)
+
+    async def create(self, record: PromoCode) -> PromoCode:
+        async with self._lock:
+            self._codes[record.code] = record
+            return record
+
+    async def consume(self, code: str) -> bool:
+        async with self._lock:
+            promo = self._codes.get(code)
+            if promo is None:
+                return False
+            now = datetime.now(UTC)
+            usable = (
+                promo.active
+                and promo.uses_count < promo.max_uses
+                and now >= promo.valid_from
+                and (promo.valid_until is None or now < promo.valid_until)
+            )
+            if not usable:
+                return False
+            self._codes[code] = replace(promo, uses_count=promo.uses_count + 1)
+            return True
+
+    async def ensure_personal_code(
+        self,
+        *,
+        owner_internal_user_id: str,
+        code: str,
+        discount_percent: int,
+        valid_days: int,
+        max_uses: int = 1,
+    ) -> PromoCode:
+        async with self._lock:
+            existing = self._codes.get(code)
+            if existing is not None:
+                return existing
+            now = datetime.now(UTC)
+            record = PromoCode(
+                code=code,
+                owner_internal_user_id=owner_internal_user_id,
+                discount_percent=discount_percent,
+                valid_from=now,
+                valid_until=now + timedelta(days=valid_days),
+                max_uses=max_uses,
+                uses_count=0,
+                active=True,
+            )
+            self._codes[code] = record
+            return record

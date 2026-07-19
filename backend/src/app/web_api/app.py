@@ -26,6 +26,7 @@ from app.web_api.profile import (
     handle_reissue_keys,
     handle_renew_subscription,
 )
+from app.web_api.promo import handle_validate_promo
 from app.web_api.subscription import handle_subscription
 from app.yookassa.webhook import create_yookassa_webhook_handler
 
@@ -133,6 +134,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
             "/api/v1/payment/add-devices", _with_auth(_with_csrf(handle_create_add_device_payment)), methods=["POST"]
         ),
         Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
+        # Promo (read-only validation preview; discount applied at payment/create)
+        Route("/api/v1/promo/validate", _with_auth(handle_validate_promo), methods=["POST"]),
         # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
         Route("/api/v1/internal/email/send-code", _wrap_internal(handle_bot_send_code), methods=["POST"]),
         Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),

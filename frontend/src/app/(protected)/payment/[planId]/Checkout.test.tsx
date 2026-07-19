@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { auth, paymentApi, params } = vi.hoisted(() => ({
   auth: { authenticated: true, loading: false },
-  paymentApi: { create: vi.fn() },
+  paymentApi: { create: vi.fn(), validatePromo: vi.fn() },
   params: { planId: "1m" },
 }));
 
@@ -89,7 +89,8 @@ describe("Checkout (payment/[planId])", () => {
     await waitFor(() => {
       expect(window.location.href).toBe("https://pay.example/x");
     });
-    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5);
+    // No promo applied in this test → create is called with promoCode=undefined.
+    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5, undefined);
   });
 
   it("shows an Alert when payment is unavailable", async () => {

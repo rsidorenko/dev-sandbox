@@ -44,8 +44,36 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     if plan is None:
         return safe_json_error(400, "invalid_plan_id")
 
-    total_rubles = calculate_total_price(plan, device_count)
+    pool = request.app.state.pool
+
+    original_rubles = calculate_total_price(plan, device_count)
+    total_rubles = original_rubles
+    discount_percent = 0
+    promo_code_raw = (data.get("promo_code") or "").strip()
+    if promo_code_raw:
+        from datetime import UTC, datetime
+
+        from app.domain.promo import calculate_discounted_rubles, validate_promo
+        from app.persistence.postgres_promo import PostgresPromoCodeRepository
+
+        promo = await PostgresPromoCodeRepository(pool).get_by_code(promo_code_raw)
+        err = validate_promo(promo, now=datetime.now(UTC))
+        if err is not None:
+            return safe_json_error(400, "promo_invalid", detail=err.value)
+        discount_percent = promo.discount_percent
+        total_rubles = calculate_discounted_rubles(original_rubles, discount_percent)
+
     total_kopecks = total_rubles * 100
+
+    def _promo_fields() -> dict:
+        if not promo_code_raw:
+            return {}
+        return {
+            "promo_code": promo_code_raw,
+            "discount_percent": discount_percent,
+            "original_rubles": original_rubles,
+            "discounted_rubles": total_rubles,
+        }
 
     yookassa_enabled = truthy(os.environ.get(ENV_YOOKASSA_ENABLED))
 
@@ -63,6 +91,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
                     "Для оформления подписки нажмите кнопку ниже. "
                     "После подтверждения оплаты доступ к сервису будет активирован автоматически."
                 ),
+                **_promo_fields(),
             }
         )
 
@@ -84,7 +113,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     # "web_<hash>" (NOT f"u{telegram_user_id}"); the YooKassa webhook must apply
     # the subscription to that exact identity, so we carry it in the payment
     # metadata. Mirrors handle_get_keys / handle_activate_trial.
-    pool = request.app.state.pool
     identity = await pool.fetchrow(
         "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
         telegram_user_id,
@@ -93,11 +121,23 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         return safe_json_error(404, "identity_not_found")
     internal_user_id = identity["internal_user_id"]
 
+    # Spend the promo use only now (right before creating a real payment) — avoids
+    # wasting a personal 1-use code on a request that never reaches the provider.
+    if promo_code_raw:
+        from app.persistence.postgres_promo import PostgresPromoCodeRepository
+
+        if not await PostgresPromoCodeRepository(pool).consume(promo_code_raw):
+            return safe_json_error(409, "promo_exhausted")
+
     checkout_secret = (
         os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
     )
     # Always carry the real identity so the webhook credits the correct account.
     payment_metadata: dict[str, str] = {"internal_user_id": internal_user_id}
+    if discount_percent > 0:
+        payment_metadata["promo_code"] = promo_code_raw
+        payment_metadata["discount_percent"] = str(discount_percent)
+        payment_metadata["expected_amount_kopecks"] = str(total_kopecks)
     # Checkout-reference correlation assumes a real Telegram identity —
     # validate_telegram_user_id rejects the non-positive ids used by web-only
     # accounts (which previously raised here, outside any try/except, and crashed
@@ -138,6 +178,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             "amount_kopecks": total_kopecks,
             "payment_url": result.confirmation_url,
             "payment_id": result.payment_id,
+            **_promo_fields(),
         }
     )
 
