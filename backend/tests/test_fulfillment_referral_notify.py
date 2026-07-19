@@ -8,6 +8,7 @@ must receive a best-effort Telegram notification with the credited amount. These
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -252,18 +253,23 @@ async def test_credit_applied_even_when_notifier_is_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_referral_exception_does_not_break_fulfillment() -> None:
+async def test_referral_exception_does_not_break_fulfillment(caplog: pytest.LogCaptureFixture) -> None:
     notifier = AsyncMock()
     with pytest.MonkeyPatch.context() as m:
         _mock_fulfillment_deps(m, find_raises=True)
-        result = await process_fulfillment(
-            pool=_FakePool(),
-            inp=_payer_input(),
-            activation_telegram_notifier=notifier,
-        )
+        with caplog.at_level(logging.WARNING, logger="app.runtime.fulfillment_processor"):
+            result = await process_fulfillment(
+                pool=_FakePool(),
+                inp=_payer_input(),
+                activation_telegram_notifier=notifier,
+            )
     # Payer fulfillment still succeeds; the swallowed referral error yields no commission notice.
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS
     assert notifier.send_subscription_activated_notice.await_count == 1  # payer activation only
+    # P-2: best-effort swallow must still leave a traceable log (lost commission is a real incident).
+    assert any("referral commission best-effort failed" in r.message for r in caplog.records), (
+        "lost-commission warning must be logged"
+    )
 
 
 @pytest.mark.asyncio
