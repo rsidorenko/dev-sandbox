@@ -10,6 +10,7 @@ import json
 import os
 import time
 from typing import Any
+from urllib.parse import quote
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
@@ -1733,12 +1734,14 @@ def text_referral_program(info: ReferralInfo) -> str:
     links_section = f"🔗 <b>Для Telegram</b> — друг без сайта:\n<code>{info.referral_link}</code>\n\n"
     if info.web_referral_link:
         links_section += f"🌐 <b>Для сайта</b> — друг без Telegram:\n<code>{info.web_referral_link}</code>\n\n"
+    stats = (
+        f"📊 <b>Заработано всего:</b> {info.total_earned_rubles:.2f} ₽\n"
+        f"💰 <b>Баланс:</b> {info.balance_rubles:.2f} ₽\n"
+        f"👤 <b>Приглашено:</b> {info.direct_referrals_count}\n\n"
+    )
     return (
-        "<b>👥 Реферальная программа</b>\n\n"
-        "Отправьте ссылку другу — получите процент с его оплаты.\n"
-        "Выбирайте удобную ссылку:\n\n" + links_section + f"💰 Баланс: {info.balance_rubles:.2f} ₽\n"
-        f"👤 Приглашено: {info.direct_referrals_count}\n\n"
-        "📊 <b>Ваш заработок:</b>\n\n"
+        "<b>👥 Реферальная программа</b>\n\n" + stats + "Отправьте ссылку другу — получите процент с его оплаты.\n"
+        "Выбирайте удобную ссылку:\n\n" + links_section + "📊 <b>Сколько вы получаете с оплаты друга:</b>\n\n"
         "<b>Прямые рефералы:</b>\n"
         "  1 день — 10%\n"
         "  7 дней — 15%\n"
@@ -1757,6 +1760,20 @@ def text_referral_program(info: ReferralInfo) -> str:
         "  1 год — 2%\n\n"
         "💡 Реферальными деньгами можно оплачивать подписку."
     )
+
+
+def referral_program_keyboard(info: ReferralInfo) -> dict[str, Any]:
+    """Клавиатура экрана рефералки: «Поделиться ссылкой» (URL-кнопка → диалог шеринга
+    в Telegram) + «Назад». Share-кнопка показывается только при наличии ссылки."""
+    rows: list[list[dict[str, str]]] = []
+    if info.referral_link:
+        share_text = quote(
+            "Защищённый VPN на Reality-протоколе — работает там, где другие сломались. 3 дня бесплатно по моей ссылке:"
+        )
+        share_url = f"https://t.me/share/url?url={quote(info.referral_link, safe='')}&text={share_text}"
+        rows.append([{"text": "📤 Поделиться ссылкой", "url": share_url}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
 
 
 def text_balance(info: ReferralBalanceInfo) -> str:

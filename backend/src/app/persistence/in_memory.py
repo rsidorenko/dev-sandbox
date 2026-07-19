@@ -318,3 +318,11 @@ class InMemoryReferralTransactionRepository:
             user_tx = [t for t in self._transactions if t.internal_user_id == internal_user_id]
             user_tx.sort(key=lambda t: t.created_at, reverse=True)
             return tuple(user_tx[:limit])
+
+    async def total_earned_kopecks(self, internal_user_id: str) -> int:
+        async with self._lock:
+            return sum(
+                t.amount_kopecks
+                for t in self._transactions
+                if t.internal_user_id == internal_user_id and t.amount_kopecks > 0
+            )

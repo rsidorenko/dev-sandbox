@@ -20,6 +20,7 @@ export interface UserProfile {
   referral: {
     code: string;
     balance_rubles: number;
+    total_earned_rubles: number;
     referrals_count: number;
     web_referral_link?: string;
   } | null;

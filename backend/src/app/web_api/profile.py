@@ -63,7 +63,8 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
                iss.issuance_state,
                rc.referral_code,
                rb.balance_kopecks,
-               COALESCE(l1.cnt, 0) AS referral_count
+               COALESCE(l1.cnt, 0) AS referral_count,
+               COALESCE(earn.total, 0) AS total_earned_kopecks
            FROM user_identities i
            LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
            LEFT JOIN issuance_state iss ON iss.internal_user_id = i.internal_user_id
@@ -73,6 +74,10 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
                SELECT COUNT(*) AS cnt FROM referral_relationships
                WHERE referrer_user_id = i.internal_user_id AND level = 1
            ) l1 ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(SUM(amount_kopecks), 0) AS total FROM referral_transactions
+               WHERE internal_user_id = i.internal_user_id AND amount_kopecks > 0
+           ) earn ON TRUE
            WHERE i.telegram_user_id = $1""",
         telegram_user_id,
     )
@@ -132,6 +137,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
         referral = {
             "code": row["referral_code"],
             "balance_rubles": round((row["balance_kopecks"] or 0) / 100, 2),
+            "total_earned_rubles": round((row["total_earned_kopecks"] or 0) / 100, 2),
             "referrals_count": row["referral_count"] or 0,
             "web_referral_link": f"{site_url}/?ref={row['referral_code']}",
         }

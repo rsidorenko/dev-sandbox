@@ -17,7 +17,7 @@ import pytest
 
 from app.persistence import postgres_referral as pgref
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
-from app.persistence.referral_contracts import ReferralBalanceRecord
+from app.persistence.referral_contracts import ReferralBalanceRecord, ReferralCodeRecord
 from app.runtime import fulfillment_processor as fp_mod
 from app.runtime.fulfillment_processor import FulfillmentInput, process_fulfillment
 from app.shared.types import OperationOutcomeCategory
@@ -264,3 +264,93 @@ async def test_referral_exception_does_not_break_fulfillment() -> None:
     # Payer fulfillment still succeeds; the swallowed referral error yields no commission notice.
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS
     assert notifier.send_subscription_activated_notice.await_count == 1  # payer activation only
+
+
+# ── referral CTA after payment (referral trigger) ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_referral_cta_after_payment_sent_to_telegram_user() -> None:
+    """A real Telegram user (id > 0) gets a second best-effort message after activation
+    nudging them to share the referral link (the 'after payment' referral trigger)."""
+    notifier = AsyncMock()
+    with pytest.MonkeyPatch.context() as m:
+        m.setenv("BOT_USERNAME", "testbot")
+        _mock_fulfillment_deps(m, referrers=[])  # no referrers → only payer-facing messages
+        m.setattr(
+            pgref.PostgresReferralCodeRepository,
+            "get_or_create",
+            AsyncMock(
+                return_value=ReferralCodeRecord(
+                    internal_user_id="u12345",
+                    referral_code="ABC12345",
+                    created_at=datetime(2026, 6, 28, tzinfo=UTC),
+                )
+            ),
+        )
+        await process_fulfillment(
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
+        )
+    payer_calls = _notifier_calls_to(notifier, 12345)
+    assert len(payer_calls) == 2  # activation notice + referral CTA
+    cta = payer_calls[1].kwargs
+    assert "Позовите друга" in cta["text"]
+    assert "https://t.me/testbot?start=ref_ABC12345" in cta["text"]
+    assert cta["reply_markup"] is not None  # inline keyboard with a share button
+
+
+@pytest.mark.asyncio
+async def test_referral_cta_after_payment_skipped_for_web_user() -> None:
+    """Web-only users (telegram_user_id <= 0) have no Telegram chat → no referral CTA.
+    The activation notice is still attempted (to the negative id), but no CTA text is sent."""
+    notifier = AsyncMock()
+    web_input = FulfillmentInput(
+        provider_key="provider_agnostic_v1",
+        external_event_id="evt-w",
+        external_payment_id="pay-w",
+        telegram_user_id=-12345,
+        internal_user_id="web_xxx",
+        paid_at=datetime(2026, 6, 28, tzinfo=UTC),
+        period_days=30,
+        amount_kopecks=30000,
+    )
+    with pytest.MonkeyPatch.context() as m:
+        m.setenv("BOT_USERNAME", "testbot")
+        _mock_fulfillment_deps(m, referrers=[])
+        m.setattr(
+            pgref.PostgresReferralCodeRepository,
+            "get_or_create",
+            AsyncMock(
+                return_value=ReferralCodeRecord(
+                    internal_user_id="web_xxx",
+                    referral_code="WEB12345",
+                    created_at=datetime(2026, 6, 28, tzinfo=UTC),
+                )
+            ),
+        )
+        await process_fulfillment(
+            pool=_FakePool(),
+            inp=web_input,
+            activation_telegram_notifier=notifier,
+        )
+    all_calls = notifier.send_subscription_activated_notice.await_args_list
+    # No CTA text anywhere (web user has no chat to deliver a share prompt to).
+    assert all("Позовите друга" not in c.kwargs["text"] for c in all_calls)
+
+
+@pytest.mark.asyncio
+async def test_referral_cta_skipped_when_bot_username_missing() -> None:
+    """No BOT_USERNAME → cannot build a referral link → CTA silently skipped (best-effort)."""
+    notifier = AsyncMock()
+    with pytest.MonkeyPatch.context() as m:
+        m.delenv("BOT_USERNAME", raising=False)
+        _mock_fulfillment_deps(m, referrers=[])
+        await process_fulfillment(
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
+        )
+    payer_calls = _notifier_calls_to(notifier, 12345)
+    assert len(payer_calls) == 1  # activation notice only, no CTA

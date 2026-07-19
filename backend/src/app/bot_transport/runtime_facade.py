@@ -186,6 +186,7 @@ from app.bot_transport.storefront_ui import (
     main_menu_keyboard,
     my_keys_menu_keyboard,
     no_subscription_keyboard,
+    referral_program_keyboard,
     reissue_confirm_keyboard,
     remove_device_keyboard,
     settings_keyboard,
@@ -2113,10 +2114,11 @@ async def _render_storefront_response(
                     code_repo=composition.referral_code_repo,
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
+                    transaction_repo=composition.referral_transaction_repo,
                     bot_username=composition.bot_username,
                     site_base_url=get_site_base_url(),
                 )
-                text, keyboard = text_referral_program(info), back_only_keyboard(CB_MAIN_MENU)
+                text, keyboard = text_referral_program(info), referral_program_keyboard(info)
             else:
                 text, keyboard = (
                     text_referral_program(
