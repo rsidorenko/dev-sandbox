@@ -1849,6 +1849,13 @@ def text_balance_insufficient() -> str:
     return "❌ Недостаточно средств на балансе.\n\nПриглашайте друзей по реферальной ссылке, чтобы пополнить баланс."
 
 
+def text_balance_payment_in_progress() -> str:
+    """Shown when a second balance-payment click arrives within the debounce window
+    (accidental double-click). The first click is still processing/has processed —
+    no second debit must happen."""
+    return "⏳ Платёж ещё обрабатывается.\n\nОткройте «Мои подписки», чтобы увидеть результат."
+
+
 def add_device_select_keyboard(current: int) -> dict[str, Any]:
     rows = [
         [

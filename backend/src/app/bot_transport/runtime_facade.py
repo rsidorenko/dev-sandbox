@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
@@ -198,6 +199,7 @@ from app.bot_transport.storefront_ui import (
     text_android_app_chooser,
     text_balance,
     text_balance_insufficient,
+    text_balance_payment_in_progress,
     text_balance_payment_success,
     text_buy_vpn_intro,
     text_connect_device,
@@ -269,6 +271,13 @@ _LOGGER = logging.getLogger(__name__)
 
 _awaiting_custom_days: dict[int, bool] = {}
 _last_connect_platform: dict[int, str] = {}
+
+# Debounce accidental double-click on the "pay with balance" inline button: two rapid
+# callbacks would otherwise debit twice and credit the referrer's commission twice.
+# In-process per-user window; a legit repeat renewal 3+ s later is unaffected. State is
+# lost on restart (acceptable — only protects against sub-second double-clicks).
+_balance_payment_last_click: dict[int, float] = {}
+_BALANCE_PAYMENT_DEBOUNCE_SECONDS = 3.0
 
 _INMEMORY_DICT_MAX = 10_000
 
@@ -1317,6 +1326,17 @@ async def _process_balance_payment(
     plan = get_plan(plan_id)
     if plan is None:
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    # Debounce accidental double-click on the "pay with balance" inline button.
+    # Without this, two rapid callbacks debit twice and credit the referrer's
+    # commission twice. In-process per-user window (3 s); a legit repeat renewal
+    # after the window is unaffected.
+    if uid is not None:
+        now_ts = time.monotonic()
+        last_ts = _balance_payment_last_click.get(uid, 0.0)
+        if now_ts - last_ts < _BALANCE_PAYMENT_DEBOUNCE_SECONDS:
+            return text_balance_payment_in_progress(), back_only_keyboard(CB_MAIN_MENU)
+        _balance_payment_last_click[uid] = now_ts
 
     internal_user_id = await _get_internal_user_id(composition, uid)
     if internal_user_id is None:
