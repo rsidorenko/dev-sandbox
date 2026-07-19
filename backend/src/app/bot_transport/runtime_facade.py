@@ -1479,7 +1479,7 @@ async def _process_balance_payment(
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=plan_id,
-            description=f"balance payment: {plan_id} x {device_count} devices",
+            description=f"balance payment: {plan_id} x {device_count} devices [{correlation_id}]",
             created_at=now,
         )
     )
@@ -1691,15 +1691,16 @@ async def _process_add_device_balance(
             await composition.referral_balance_repo.credit(internal_user_id, cost_kopecks)
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
 
+    correlation_id = f"add-dev-{uuid.uuid4()}"
     await composition.referral_transaction_repo.append_transaction(
         ReferralTransactionRecord(
-            transaction_id=f"add-dev-{uuid.uuid4()}",
+            transaction_id=correlation_id,
             internal_user_id=internal_user_id,
             amount_kopecks=-cost_kopecks,
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=snap.plan_id,
-            description=f"add device: {current} → {new_count}",
+            description=f"add device: {current} → {new_count} [{correlation_id}]",
             created_at=now,
         )
     )
