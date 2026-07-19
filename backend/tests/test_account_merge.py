@@ -96,6 +96,10 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             [web_id, tg_id, inviter_id, inviter2_id],
         )
         await conn.execute(
+            "DELETE FROM referral_balances WHERE internal_user_id = ANY($1::text[])",
+            [web_id, tg_id],
+        )
+        await conn.execute(
             "DELETE FROM subscription_snapshots WHERE internal_user_id = ANY($1::text[])",
             [web_id, tg_id],
         )
@@ -487,6 +491,113 @@ def test_merge_deletes_self_referral_loop_when_tg_user_owns_referrals_email(pg_u
                     _TEST_EMAIL,
                 )
                 assert em == _REAL_TG
+        finally:
+            await _cleanup(pool)
+            await pool.close()
+
+    asyncio.run(main())
+
+
+def test_merge_sums_web_balance_into_telegram(pg_url: str) -> None:
+    """REGRESSION (P-3): web-баланс должен СКЛАДЫВАТЬСЯ с TG-балансом при merge, а не
+    теряться. Раньше web-строка переносилась только если у TG баланса нет — иначе она
+    оставалась orphan под web_<hash> (недостижима после reassign email), и web-юзер
+    терял заработанную комиссию."""
+
+    async def main() -> None:
+        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+        try:
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+            await _cleanup(pool)
+            web_internal = _web_internal_id(_TEST_EMAIL)
+            tg_internal = _telegram_internal_id(_REAL_TG)
+            async with pool.acquire() as conn:
+                for tg, iid in ((_WEB_TG, web_internal), (_REAL_TG, tg_internal)):
+                    await conn.execute(
+                        "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                        tg,
+                        iid,
+                    )
+                await conn.execute(
+                    "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
+                    " VALUES ($1, $2, TRUE, now())",
+                    _WEB_TG,
+                    _TEST_EMAIL,
+                )
+                # У обоих есть баланс: web = 100.00 ₽, tg = 50.00 ₽.
+                await conn.execute(
+                    "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, 10000)",
+                    web_internal,
+                )
+                await conn.execute(
+                    "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, 5000)",
+                    tg_internal,
+                )
+
+            merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
+            assert merged is True
+
+            async with pool.acquire() as conn:
+                tg_bal = await conn.fetchval(
+                    "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id = $1",
+                    tg_internal,
+                )
+                assert tg_bal == 15000  # 10000 + 5000 — суммирование, а не потеря web-баланса
+                web_bal = await conn.fetchval(
+                    "SELECT 1 FROM referral_balances WHERE internal_user_id = $1",
+                    web_internal,
+                )
+                assert web_bal is None  # orphan web-строка удалена
+        finally:
+            await _cleanup(pool)
+            await pool.close()
+
+    asyncio.run(main())
+
+
+def test_merge_adopts_web_balance_when_telegram_has_none(pg_url: str) -> None:
+    """Базовый случай: у TG баланса нет — web-баланс переносится на TG целиком."""
+
+    async def main() -> None:
+        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+        try:
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+            await _cleanup(pool)
+            web_internal = _web_internal_id(_TEST_EMAIL)
+            tg_internal = _telegram_internal_id(_REAL_TG)
+            async with pool.acquire() as conn:
+                for tg, iid in ((_WEB_TG, web_internal), (_REAL_TG, tg_internal)):
+                    await conn.execute(
+                        "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                        tg,
+                        iid,
+                    )
+                await conn.execute(
+                    "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
+                    " VALUES ($1, $2, TRUE, now())",
+                    _WEB_TG,
+                    _TEST_EMAIL,
+                )
+                # Только web имеет баланс; у TG строки баланса нет.
+                await conn.execute(
+                    "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, 10000)",
+                    web_internal,
+                )
+
+            merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
+            assert merged is True
+
+            async with pool.acquire() as conn:
+                tg_bal = await conn.fetchval(
+                    "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id = $1",
+                    tg_internal,
+                )
+                assert tg_bal == 10000  # web-баланс перенесён
+                web_bal = await conn.fetchval(
+                    "SELECT 1 FROM referral_balances WHERE internal_user_id = $1",
+                    web_internal,
+                )
+                assert web_bal is None
         finally:
             await _cleanup(pool)
             await pool.close()

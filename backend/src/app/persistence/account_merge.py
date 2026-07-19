@@ -170,11 +170,22 @@ async def merge_web_account_if_needed(
                 new_id,
                 old_id,
             )
-            # referral_balances PK = internal_user_id -> adopt web's only if Telegram has none.
+            # referral_balances PK = internal_user_id. SUM web's balance into Telegram's
+            # (UPSERT) instead of dropping it. Previously the web row was adopted only when
+            # Telegram had no balance — otherwise it stayed orphaned under web_<hash>, which
+            # is unreachable after the email is reassigned to the real identity, so a web user
+            # who earned commission before linking Telegram silently lost it.
             await conn.execute(
-                "UPDATE referral_balances SET internal_user_id = $1 WHERE internal_user_id = $2"
-                " AND NOT EXISTS (SELECT 1 FROM referral_balances WHERE internal_user_id = $1)",
+                "INSERT INTO referral_balances (internal_user_id, balance_kopecks)"
+                " SELECT $1, balance_kopecks FROM referral_balances WHERE internal_user_id = $2"
+                " ON CONFLICT (internal_user_id) DO UPDATE"
+                " SET balance_kopecks = referral_balances.balance_kopecks + EXCLUDED.balance_kopecks,"
+                " updated_at = now()",
                 new_id,
+                old_id,
+            )
+            await conn.execute(
+                "DELETE FROM referral_balances WHERE internal_user_id = $1",
                 old_id,
             )
             # referral_transactions UNIQUE(internal_user_id, description) -> drop
