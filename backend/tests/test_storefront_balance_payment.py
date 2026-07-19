@@ -83,6 +83,12 @@ def test_balance_payment_description_is_unique_per_payment():
     update1 = _callback_update(user_id=600, callback_data="pay_balance:1m:5")
     pkg1 = _run(handle_slice1_telegram_update_to_rendered_message(update1, c))
     assert "реферального баланса" in pkg1.message_text
+    # Этот тест про формат description при повторе, а не про double-click debounce —
+    # обходим debounce-окно (см. test_balance_payment_double_click_debounced), иначе
+    # второй платёж тем же user в течение 3с будет отклонён.
+    from app.bot_transport.runtime_facade import _balance_payment_last_click
+
+    _balance_payment_last_click.pop(600, None)
     update2 = _callback_update(user_id=600, callback_data="pay_balance:1m:5")
     pkg2 = _run(handle_slice1_telegram_update_to_rendered_message(update2, c))
     assert "реферального баланса" in pkg2.message_text
@@ -93,6 +99,28 @@ def test_balance_payment_description_is_unique_per_payment():
     assert len(descriptions) == 2  # оба description уникальны
     for desc in descriptions:
         assert "[bal-pay-" in desc  # correlation_id включён в каждый debit
+
+
+def test_balance_payment_double_click_debounced():
+    """Двойной клик по «С баланса» (два callback подряд в течение окна) не должен
+    списывать баланс дважды и не должен начислять двойную комиссию реферёру.
+    Второй клик отклоняется информационным текстом; баланс и журнал остаются
+    как после одного платежа."""
+    c, uid = _make_composition_with_balance(user_id=700, balance_kopecks=600_00)
+    update1 = _callback_update(user_id=700, callback_data="pay_balance:1m:5")
+    pkg1 = _run(handle_slice1_telegram_update_to_rendered_message(update1, c))
+    assert "реферального баланса" in pkg1.message_text  # первый платёж прошёл
+    update2 = _callback_update(user_id=700, callback_data="pay_balance:1m:5")
+    pkg2 = _run(handle_slice1_telegram_update_to_rendered_message(update2, c))
+    assert "ещё обрабатывается" in pkg2.message_text  # второй — debounce
+    # Баланс списан один раз (600 - 249 = 351), НЕ дважды.
+    bal = _run(c.referral_balance_repo.get_balance(uid))
+    assert bal is not None
+    assert bal.balance_kopecks == 351_00
+    # Дебет-запись в журнале одна.
+    txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=20))
+    debit_txs = [t for t in txs if t.transaction_type == "subscription_payment"]
+    assert len(debit_txs) == 1
 
 
 def test_balance_payment_insufficient_funds():
