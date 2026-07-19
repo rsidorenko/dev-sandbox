@@ -359,8 +359,14 @@ async def process_fulfillment(
     telemetry: FulfillmentTelemetry | None = None,
     activation_telegram_notifier: FulfillmentActivationTelegramNotifier | None = None,
     vless_provider: Any | None = None,
+    emit_activation_notice: bool = True,
 ) -> FulfillmentResult:
-    """Core fulfillment pipeline: UC-04 → UC-05 → snapshot → VLESS → referral → notification."""
+    """Core fulfillment pipeline: UC-04 → UC-05 → snapshot → VLESS → referral → notification.
+
+    ``emit_activation_notice=False`` suppresses ONLY the payer's own activation message
+    (used by the YooKassa webhook, which already edits the payer's payment-prompt message
+    in-place, to avoid a duplicate). Referrer commission notices and the VLESS-pending
+    notice still fire — those are the reason the notifier is forwarded at all."""
     _telemetry = telemetry or NoopFulfillmentTelemetry()
     notify_activation = activation_telegram_notifier
 
@@ -455,7 +461,7 @@ async def process_fulfillment(
                     ref_amount_kopecks = ref_plan.price_rubles * 100 if ref_plan else 0
 
         # --- Post-transaction: HTTP calls (best-effort, won't block DB) ---
-        if should_notify:
+        if should_notify and emit_activation_notice:
             plan = build_fulfillment_success_notification_plan(
                 correlation_id=correlation_id,
                 active_until_ymd=active_until_utc.date().isoformat(),

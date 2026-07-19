@@ -264,3 +264,29 @@ async def test_referral_exception_does_not_break_fulfillment() -> None:
     # Payer fulfillment still succeeds; the swallowed referral error yields no commission notice.
     assert result.operation_outcome is OperationOutcomeCategory.SUCCESS
     assert notifier.send_subscription_activated_notice.await_count == 1  # payer activation only
+
+
+@pytest.mark.asyncio
+async def test_activation_notice_suppressed_but_referrers_notified() -> None:
+    """YooKassa-вебхук передаёт emit_activation_notice=False (он сам правит сообщение
+    плательщика через edit_message_text и не хочет дубля), но реферёр всё равно должен
+    получить commission-notice. До фикса вебхук хардкодил activation_telegram_notifier=None,
+    и реферёры вообще не получали уведомлений о комиссии для web-платежей."""
+    notifier = AsyncMock()
+    with pytest.MonkeyPatch.context() as m:
+        _mock_fulfillment_deps(
+            m,
+            referrers=[SimpleNamespace(level=1, referrer_user_id="u999")],
+        )
+        await process_fulfillment(
+            pool=_FakePool(),
+            inp=_payer_input(),
+            activation_telegram_notifier=notifier,
+            emit_activation_notice=False,
+        )
+    # activation-notice плательщику (12345) подавлен — его не зовут.
+    assert _notifier_calls_to(notifier, 12345) == []
+    # commission-notice реферёру (999) отправлен — это и есть фикс.
+    ref_calls = _notifier_calls_to(notifier, 999)
+    assert len(ref_calls) == 1
+    assert "Реферальная программа" in ref_calls[0].kwargs["text"]

@@ -514,7 +514,8 @@ def create_yookassa_webhook_handler(
                 pool=pool,
                 inp=fulfillment_input,
                 telemetry=telemetry,
-                activation_telegram_notifier=None,
+                activation_telegram_notifier=activation_telegram_notifier,
+                emit_activation_notice=False,
                 vless_provider=vless_provider,
             )
         except Exception:
