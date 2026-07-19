@@ -9,6 +9,7 @@ from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
     ReferralCodeRepository,
     ReferralRelationshipRepository,
+    ReferralTransactionRepository,
 )
 
 
@@ -19,6 +20,7 @@ class ReferralInfo:
     web_referral_link: str
     balance_rubles: float
     direct_referrals_count: int
+    total_earned_rubles: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +94,7 @@ async def get_referral_info(
     code_repo: ReferralCodeRepository,
     balance_repo: ReferralBalanceRepository,
     relationship_repo: ReferralRelationshipRepository,
+    transaction_repo: ReferralTransactionRepository,
     bot_username: str,
     site_base_url: str,
 ) -> ReferralInfo:
@@ -104,12 +107,16 @@ async def get_referral_info(
     # referrer). NOT find_referrers (which returns who referred this user) — that
     # inverted direction showed referrers (0/1) instead of referrals invited.
     direct_count = await relationship_repo.count_direct_referrals(internal_user_id)
+    # total_earned = cumulative credits over all time (differs from current balance,
+    # which decreases when used to pay for a subscription).
+    total_earned_kopecks = await transaction_repo.total_earned_kopecks(internal_user_id)
     return ReferralInfo(
         referral_code=code_record.referral_code,
         referral_link=tg_link,
         web_referral_link=web_link,
         balance_rubles=rubles_from_kopecks(balance_kopecks),
         direct_referrals_count=direct_count,
+        total_earned_rubles=rubles_from_kopecks(total_earned_kopecks),
     )
 
 

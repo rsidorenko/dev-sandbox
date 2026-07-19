@@ -1,5 +1,7 @@
 """Tests for domain.referral: commission rates and calculations."""
 
+from datetime import UTC, datetime
+
 from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.domain.referral import (
     ReferralCommission,
@@ -14,7 +16,9 @@ from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
+    InMemoryReferralTransactionRepository,
 )
+from app.persistence.referral_contracts import ReferralTransactionRecord
 from app.shared.test_helpers import run_async as _run
 
 
@@ -303,6 +307,7 @@ def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
         code_repo = InMemoryReferralCodeRepository()
         rel_repo = InMemoryReferralRelationshipRepository()
         bal_repo = InMemoryReferralBalanceRepository()
+        tx_repo = InMemoryReferralTransactionRepository()
 
         # referrer invited two users
         await code_repo.get_or_create("user_referrer")
@@ -319,11 +324,67 @@ def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
             code_repo=code_repo,
             balance_repo=bal_repo,
             relationship_repo=rel_repo,
+            transaction_repo=tx_repo,
             bot_username="bot",
             site_base_url="https://site.example",
         )
         # The referrer invited 2 — must show 2, not 0 (the old find_referrers-based
         # count returned 0 because the referrer was never referred by anyone).
         assert info.direct_referrals_count == 2
+        # No credits yet → total earned is 0.
+        assert info.total_earned_rubles == 0.0
+
+    _run(main())
+
+
+def test_get_referral_info_total_earned_sums_credits() -> None:
+    """total_earned_rubles is the cumulative sum of credit transactions (amount > 0),
+    independent of the current balance (which drops when balance pays for a subscription)."""
+
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+        bal_repo = InMemoryReferralBalanceRepository()
+        tx_repo = InMemoryReferralTransactionRepository()
+        await code_repo.get_or_create("user_referrer")
+
+        now = datetime.now(UTC)
+        for amount in (3500, 1250):  # +35.00 ₽ and +12.50 ₽ credits
+            await tx_repo.append_transaction(
+                ReferralTransactionRecord(
+                    transaction_id=f"tx-{amount}",
+                    internal_user_id="user_referrer",
+                    amount_kopecks=amount,
+                    transaction_type="referral_credit",
+                    related_user_id="payer",
+                    related_plan_id="1m",
+                    description=f"credit-{amount}",
+                    created_at=now,
+                )
+            )
+        # A debit (balance used to pay) must NOT reduce total earned.
+        await tx_repo.append_transaction(
+            ReferralTransactionRecord(
+                transaction_id="tx-debit",
+                internal_user_id="user_referrer",
+                amount_kopecks=-2000,
+                transaction_type="balance_payment",
+                related_user_id=None,
+                related_plan_id=None,
+                description="debit",
+                created_at=now,
+            )
+        )
+
+        info = await get_referral_info(
+            internal_user_id="user_referrer",
+            code_repo=code_repo,
+            balance_repo=bal_repo,
+            relationship_repo=rel_repo,
+            transaction_repo=tx_repo,
+            bot_username="bot",
+            site_base_url="https://site.example",
+        )
+        assert info.total_earned_rubles == 47.50  # 35.00 + 12.50, debit ignored
 
     _run(main())
