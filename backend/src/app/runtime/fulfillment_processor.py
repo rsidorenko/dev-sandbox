@@ -149,6 +149,46 @@ async def _send_activation_notice_best_effort(
         return
 
 
+async def _send_referral_cta_after_payment_best_effort(
+    *,
+    pool: asyncpg.Pool,
+    notifier: FulfillmentActivationTelegramNotifier,
+    internal_user_id: str,
+    telegram_user_id: int,
+    correlation_id: str,
+) -> None:
+    """Реферальный триггер после успешной оплаты: best-effort ВТОРОЕ сообщение с призывом
+    поделиться ссылкой (sent via the activation notifier → parse_mode=None, plain text).
+    Только для реальных Telegram-юзеров (у web-only аккаунтов telegram_user_id <= 0, чата нет).
+    Любая ошибка проглатывается — не должно ломать fulfillment."""
+    try:
+        import os
+
+        from app.bot_transport.notification_texts import text_referral_cta_after_payment
+        from app.persistence.postgres_referral import PostgresReferralCodeRepository
+
+        bot_username = os.environ.get("BOT_USERNAME", "").strip()
+        if not bot_username:
+            return
+        code_record = await PostgresReferralCodeRepository(pool).get_or_create(internal_user_id)
+        tg_link = f"https://t.me/{bot_username}?start=ref_{code_record.referral_code}"
+        text, keyboard = text_referral_cta_after_payment(tg_link=tg_link)
+        await notifier.send_subscription_activated_notice(
+            telegram_user_id=telegram_user_id,
+            text=text,
+            reply_markup=keyboard,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        # Best-effort: failure to nudge about referrals must never roll back fulfillment.
+        _LOGGER.debug(
+            "referral cta after payment failed (best-effort); user=%s cid=%s",
+            internal_user_id,
+            correlation_id,
+            exc_info=True,
+        )
+
+
 async def _ensure_vless_keys_after_payment(
     *,
     pool: asyncpg.Pool,
@@ -468,6 +508,15 @@ async def process_fulfillment(
                 reply_markup=rendered.reply_markup,
                 correlation_id=correlation_id,
             )
+            # Реферальный триггер после оплаты — только для реальных Telegram-юзеров.
+            if notify_activation is not None and inp.telegram_user_id > 0:
+                await _send_referral_cta_after_payment_best_effort(
+                    pool=pool,
+                    notifier=notify_activation,
+                    internal_user_id=inp.internal_user_id,
+                    telegram_user_id=inp.telegram_user_id,
+                    correlation_id=correlation_id,
+                )
         if should_process_referral:
             credited = await _process_referral_commissions_best_effort(
                 pool=pool,

@@ -292,3 +292,14 @@ class PostgresReferralTransactionRepository:
             )
             for r in rows
         )
+
+    async def total_earned_kopecks(self, internal_user_id: str) -> int:
+        """Cumulative credits earned via referrals (amount_kopecks > 0).
+        Differs from the current balance: balance drops when used to pay for a subscription."""
+        async with self._pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COALESCE(SUM(amount_kopecks), 0) FROM referral_transactions "
+                "WHERE internal_user_id = $1 AND amount_kopecks > 0",
+                internal_user_id,
+            )
+        return int(value or 0)

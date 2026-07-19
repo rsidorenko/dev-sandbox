@@ -6,10 +6,12 @@ Each function returns (text, inline_keyboard) for Telegram Bot API.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from app.bot_transport.storefront_ui import (
     CB_BUY_VPN,
     CB_MAIN_MENU,
+    CB_REFERRAL,
     _inline_kb,
 )
 
@@ -18,13 +20,39 @@ def text_trial_expiring() -> tuple[str, dict[str, Any]]:
     text = (
         "⏳ Бесплатный период заканчивается!\n\n"
         "Через 24 часа доступ к VPN будет приостановлен.\n"
-        "Оформите подписку, чтобы продолжить пользоваться VPN."
+        "Оформите подписку, чтобы продолжить пользоваться VPN.\n\n"
+        "👥 А пока позовите друга своей ссылкой — получите до 35% с его оплаты."
     )
     keyboard = _inline_kb(
         [
             [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL}],
             [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ]
+    )
+    return text, keyboard
+
+
+def text_referral_cta_after_payment(*, tg_link: str) -> tuple[str, dict[str, Any]]:
+    """Реферальный призыв сразу после успешной оплаты (отправляется отдельным
+    best-effort сообщением через fulfillment-нотификатор, parse_mode=None → plain text).
+    Кнопка «Поделиться» открывает диалог шеринга в Telegram с готовым текстом."""
+    share_text = quote(
+        "Защищённый VPN на Reality-протоколе — работает там, где другие сломались. 3 дня бесплатно по моей ссылке:"
+    )
+    share_url = f"https://t.me/share/url?url={quote(tg_link, safe='')}&text={share_text}"
+    keyboard = _inline_kb(
+        [
+            [{"text": "📤 Поделиться ссылкой", "url": share_url}],
+            [{"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+    text = (
+        "🎁 Спасибо за оплату — подписка активна!\n\n"
+        "Позовите друга своей ссылкой и получите до 35% с каждой его оплаты. "
+        "Заработанное можно тратить на продление подписки.\n\n"
+        f"🔗 Ваша ссылка:\n{tg_link}"
     )
     return text, keyboard
 

@@ -29,6 +29,7 @@ type Subscription = {
 type Referral = {
   code: string;
   balance_rubles: number;
+  total_earned_rubles: number;
   referrals_count: number;
   web_referral_link?: string;
 };
@@ -66,6 +67,15 @@ export function SubscriptionCard({
   const [actionLoading, setActionLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const { copy, isCopied } = useCopyToClipboard();
+
+  // Telegram share-dialog link with a ready-made message (referral trigger CTA).
+  const referralShareUrl = referral?.code
+    ? `https://t.me/share/url?url=${encodeURIComponent(
+        `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
+      )}&text=${encodeURIComponent(
+        "Защищённый VPN на Reality-протоколе — работает там, где другие сломались. 3 дня бесплатно по моей ссылке:",
+      )}`
+    : "";
 
   const handleChangePlan = () => {
     window.location.href = `/payment/${normalizePlanId(selectedPlan)}`;
@@ -432,56 +442,81 @@ export function SubscriptionCard({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">
             Реферальная программа
           </h2>
-          <div className="mt-3 space-y-2">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              Баланс:{" "}
-              <strong>{referral.balance_rubles.toFixed(2)} ₽</strong>
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              Рефералов: <strong>{referral.referrals_count}</strong>
-            </p>
-            <div className="mt-3 rounded-lg bg-gradient-to-br from-emerald-50 to-green-100/50 p-4 dark:from-emerald-950/30 dark:to-green-900/20">
-              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                Отправьте ссылку другу — получите процент с его оплаты
+          {/* Дашборд: заработано всего / баланс / приглашено */}
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-gradient-to-br from-amber-50 to-yellow-100/50 p-3 text-center dark:from-amber-950/30 dark:to-yellow-900/20">
+              <p className="text-xs text-amber-600 dark:text-amber-400">Заработано</p>
+              <p className="mt-1 text-sm font-bold text-amber-800 dark:text-amber-300">
+                {referral.total_earned_rubles.toFixed(2)} ₽
               </p>
-              {/* Telegram link */}
-              <div className="mt-3">
+            </div>
+            <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-green-100/50 p-3 text-center dark:from-emerald-950/30 dark:to-green-900/20">
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">Баланс</p>
+              <p className="mt-1 text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                {referral.balance_rubles.toFixed(2)} ₽
+              </p>
+            </div>
+            <div className="rounded-xl bg-gradient-to-br from-sky-50 to-blue-100/50 p-3 text-center dark:from-sky-950/30 dark:to-blue-900/20">
+              <p className="text-xs text-sky-600 dark:text-sky-400">Приглашено</p>
+              <p className="mt-1 text-sm font-bold text-sky-800 dark:text-sky-300">
+                {referral.referrals_count}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            «Заработано» — суммарно за всё время. Баланс можно тратить на продление подписки.
+          </p>
+          <div className="mt-3 rounded-lg bg-gradient-to-br from-emerald-50 to-green-100/50 p-4 dark:from-emerald-950/30 dark:to-green-900/20">
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              Отправьте ссылку другу — получите до 35% с его оплаты
+            </p>
+            {referralShareUrl && (
+              <a
+                href={referralShareUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
+              >
+                📤 Поделиться ссылкой
+              </a>
+            )}
+            {/* Telegram link */}
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                🔗 Для Telegram <span className="font-normal text-gray-400">— друг без сайта</span>
+              </p>
+              <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
+                https://t.me/{siteConfig.botUsername}?start=ref_{referral.code}
+              </p>
+              <button
+                onClick={() =>
+                  copy(
+                    `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
+                    "ref-tg",
+                  )
+                }
+                className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+              >
+                {isCopied("ref-tg") ? "✓ Скопировано!" : "Копировать"}
+              </button>
+            </div>
+            {/* Web link */}
+            {referral.web_referral_link && (
+              <div className="mt-3 border-t border-emerald-200/50 pt-3 dark:border-emerald-800/30">
                 <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  🔗 Для Telegram <span className="font-normal text-gray-400">— друг без сайта</span>
+                  🌐 Для сайта <span className="font-normal text-gray-400">— друг без Telegram</span>
                 </p>
                 <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                  https://t.me/{siteConfig.botUsername}?start=ref_{referral.code}
+                  {referral.web_referral_link}
                 </p>
                 <button
-                  onClick={() =>
-                    copy(
-                      `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
-                      "ref-tg",
-                    )
-                  }
+                  onClick={() => copy(referral.web_referral_link!, "ref-web")}
                   className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                 >
-                  {isCopied("ref-tg") ? "✓ Скопировано!" : "Копировать"}
+                  {isCopied("ref-web") ? "✓ Скопировано!" : "Копировать"}
                 </button>
               </div>
-              {/* Web link */}
-              {referral.web_referral_link && (
-                <div className="mt-3 border-t border-emerald-200/50 pt-3 dark:border-emerald-800/30">
-                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                    🌐 Для сайта <span className="font-normal text-gray-400">— друг без Telegram</span>
-                  </p>
-                  <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                    {referral.web_referral_link}
-                  </p>
-                  <button
-                    onClick={() => copy(referral.web_referral_link!, "ref-web")}
-                    className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                  >
-                    {isCopied("ref-web") ? "✓ Скопировано!" : "Копировать"}
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
