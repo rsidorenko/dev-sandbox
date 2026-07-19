@@ -300,6 +300,15 @@ async def _process_referral_commissions_best_effort(
                     )
         return credited
     except Exception:
+        # Best-effort: fulfillment must not break. But a permanently-lost commission
+        # is a real incident — log it (with traceback) so it's traceable. Without this
+        # the referrer silently loses the commission and there is no signal to debug.
+        _LOGGER.warning(
+            "referral commission best-effort failed; payer=%s cid=%s",
+            payer_internal_user_id,
+            correlation_id,
+            exc_info=True,
+        )
         return []
 
 
