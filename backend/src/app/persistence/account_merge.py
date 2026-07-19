@@ -217,6 +217,12 @@ async def merge_web_account_if_needed(
                 new_id,
                 old_id,
             )
+            # Self-referral guard: the remapping above can close a loop — e.g. a TG user
+            # who owns the email of their own referrer (or referral) ends up with a
+            # relationship row where referrer_user_id = referred_user_id, which would route
+            # all future commission payouts to self. Self-loops have no business meaning;
+            # delete any the remapping created (covers both L1 and L2 rows).
+            await conn.execute("DELETE FROM referral_relationships WHERE referrer_user_id = referred_user_id")
 
             # Reassign the email row from the web-only account (non-positive id) to the
             # real Telegram identity. Must run BEFORE the caller inserts its own

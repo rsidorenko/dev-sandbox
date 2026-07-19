@@ -416,3 +416,79 @@ def test_merge_active_web_subscription_beats_expired_telegram(pg_url: str) -> No
             await pool.close()
 
     asyncio.run(main())
+
+
+def test_merge_deletes_self_referral_loop_when_tg_user_owns_referrals_email(pg_url: str) -> None:
+    """REGRESSION (P-4): если TG-юзер владеет email своего собственного реферала, merge
+    web→TG замыкает связь на себя — строка (referred=tg_internal, referrer=tg_internal,
+    level=1) — и все будущие платежи этого TG-юзера начисляли бы комиссию самому себе
+    (эксплойт для выкачивания баланса). Self-loop не имеет бизнес-смысла; merge должен
+    удалить любую такую строку, созданную перемаппированием. DELETE универсален — ловит
+    self-loop независимо от того, какой UPDATE его создал (referred-side или referrer-side)."""
+
+    async def main() -> None:
+        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+        try:
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+            await _cleanup(pool)
+            web_internal = _web_internal_id(_TEST_EMAIL)
+            tg_internal = _telegram_internal_id(_REAL_TG)
+            async with pool.acquire() as conn:
+                # web-аккаунт (email _TEST_EMAIL) и TG-аккаунт — один и тот же человек.
+                await conn.execute(
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                    _WEB_TG,
+                    web_internal,
+                )
+                await conn.execute(
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                    _REAL_TG,
+                    tg_internal,
+                )
+                await conn.execute(
+                    "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)"
+                    " VALUES ($1, $2, TRUE, now())",
+                    _WEB_TG,
+                    _TEST_EMAIL,
+                )
+                # web-юзер был приглашён TG-юзером (tg_internal — его реферёр). Это и есть
+                # сетап self-loop: после merge referred (web) переезжает на tg_internal.
+                await conn.execute(
+                    "INSERT INTO referral_codes (internal_user_id, referral_code) VALUES ($1, $2)",
+                    tg_internal,
+                    "SELFCODE1",
+                )
+                await conn.execute(
+                    "INSERT INTO referral_relationships"
+                    " (relationship_id, referred_user_id, referrer_user_id, level)"
+                    " VALUES ($1, $2, $3, 1)",
+                    "rel-self-1",
+                    web_internal,
+                    tg_internal,
+                )
+
+            merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
+            assert merged is True
+
+            async with pool.acquire() as conn:
+                # До фикса здесь оставалась бы self-loop (referred=tg_internal, referrer=tg_internal).
+                self_loops = await conn.fetchval(
+                    "SELECT count(*) FROM referral_relationships WHERE referrer_user_id = referred_user_id"
+                )
+                assert self_loops == 0, "merge must not leave a self-referral loop"
+                self_for_tg = await conn.fetchval(
+                    "SELECT count(*) FROM referral_relationships WHERE referred_user_id = $1 AND referrer_user_id = $1",
+                    tg_internal,
+                )
+                assert self_for_tg == 0
+                # email корректно перенесён на реальный TG-аккаунт (merge отработал).
+                em = await conn.fetchval(
+                    "SELECT telegram_user_id FROM user_emails WHERE email = $1",
+                    _TEST_EMAIL,
+                )
+                assert em == _REAL_TG
+        finally:
+            await _cleanup(pool)
+            await pool.close()
+
+    asyncio.run(main())
