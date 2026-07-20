@@ -51,8 +51,16 @@ function PaymentForm() {
     message: string;
   } | null>(null);
   // Balance-payment: one idempotency key per mount (survives re-render, dedups
-  // double-clicks/retries server-side). Balance-loading + inline result state.
-  const balanceIdempotencyKey = useRef(crypto.randomUUID()).current;
+  // double-clicks/retries server-side). Lazy-init the ref so crypto.randomUUID()
+  // runs ONCE, not on every render (useRef(arg) evaluates arg every render).
+  const balanceIdempotencyRef = useRef<string | null>(null);
+  if (balanceIdempotencyRef.current === null) {
+    balanceIdempotencyRef.current =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+  const balanceIdempotencyKey = balanceIdempotencyRef.current;
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceResult, setBalanceResult] = useState<{
     active_until?: string;
