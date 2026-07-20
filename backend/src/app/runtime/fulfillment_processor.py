@@ -18,6 +18,7 @@ from app.application.interfaces import SubscriptionSnapshot
 from app.bot_transport.message_catalog import render_telegram_outbound_plan
 from app.bot_transport.outbound import build_fulfillment_success_notification_plan
 from app.domain.plans import DEFAULT_DEVICE_LIMIT, get_plan
+from app.domain.subscription_timing import compute_renewal_active_until
 from app.persistence.billing_events_ledger_contracts import (
     BillingEventAmountCurrency,
     BillingEventLedgerStatus,
@@ -444,7 +445,9 @@ async def process_fulfillment(
                     _LOGGER.info("fulfillment EXTENDING from existing end=%s", extend_from.isoformat())
                 else:
                     extend_from = inp.paid_at
-                active_until_utc = extend_from + timedelta(days=inp.period_days)
+                # Card path uses the shared renewal-timing helper (wall_clock) — same as the
+                # balance-payment service (Phase 3 L10 parity: card == balance active_until).
+                active_until_utc = compute_renewal_active_until(extend_from, inp.period_days, "wall_clock")
                 _LOGGER.info("fulfillment new active_until=%s", active_until_utc.isoformat())
 
                 snapshot_plan_id = _plan_id_from_period_days(inp.period_days)
