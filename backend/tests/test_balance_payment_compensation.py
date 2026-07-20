@@ -57,6 +57,8 @@ class _FakeConn:
 
     async def fetchval(self, sql: str, *args: object):
         self._log.append(sql)
+        if "pg_try_advisory_xact_lock" in sql:
+            return 1  # advisory lock acquired (service uses pg_try_advisory_xact_lock)
         return 0
 
 
@@ -78,6 +80,8 @@ class _FakePool:
 
     async def fetchval(self, sql: str, *args: object):
         self.log.append(sql)
+        if "pg_try_advisory_xact_lock" in sql:
+            return 1
         return 0
 
 
