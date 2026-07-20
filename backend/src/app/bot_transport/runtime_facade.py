@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import time
@@ -1320,26 +1319,13 @@ async def _process_balance_payment(
     plan_id: str,
     device_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
-    from datetime import UTC, datetime, timedelta
-
-    from app.application.interfaces import SubscriptionSnapshot
-    from app.domain.plans import calculate_total_price_kopecks
-    from app.persistence.postgres_referral import PostgresReferralBalanceRepository
-    from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
-    from app.persistence.referral_contracts import ReferralTransactionRecord
-
-    plan = get_plan(plan_id)
-    if plan is None:
-        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
-
-    # Debounce accidental double-click on the "pay with balance" inline button.
-    # Without this, two rapid callbacks debit twice and credit the referrer's
-    # commission twice. In-process per-user window (3 s); a legit repeat renewal
-    # after the window is unaffected.
+    # Debounce pre-filter (UX double-click). The service has server-side idempotency
+    # too (advisory lock + description dedup), but this cheap in-process check avoids
+    # a DB roundtrip on rapid double-clicks of the inline button.
     if uid is not None:
         now_ts = time.monotonic()
-        last_ts = _balance_payment_last_click.get(uid, 0.0)
-        if now_ts - last_ts < _BALANCE_PAYMENT_DEBOUNCE_SECONDS:
+        last_ts = _balance_payment_last_click.get(uid)
+        if last_ts is not None and now_ts - last_ts < _BALANCE_PAYMENT_DEBOUNCE_SECONDS:
             return text_balance_payment_in_progress(), back_only_keyboard(CB_MAIN_MENU)
         _balance_payment_last_click[uid] = now_ts
         _trim_inmemory_dict(_balance_payment_last_click)
@@ -1348,252 +1334,44 @@ async def _process_balance_payment(
     if internal_user_id is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    total_kopecks = calculate_total_price_kopecks(plan, device_count)
-    pool = _get_pool_from_composition(composition)
+    from app.application.balance_payment_service import pay_plan_from_balance
 
-    now = datetime.now(UTC)
-    active_until: datetime | None = None
-
-    if pool is not None:
-        # Save pre-payment subscription state for possible revert on VLESS failure
-        pre_payment_snap: SubscriptionSnapshot | None = None
-        with contextlib.suppress(Exception):
-            pre_payment_snap = await PostgresSubscriptionSnapshotReader(pool).get_for_user(internal_user_id)
-
-        # Production path: atomic debit + upsert in a single transaction
-        try:
-            async with pool.acquire() as conn, conn.transaction():
-                balance_record = await PostgresReferralBalanceRepository.get_balance_in_connection(
-                    conn,
-                    internal_user_id,
-                )
-                balance_kopecks = balance_record.balance_kopecks if balance_record else 0
-                if balance_kopecks < total_kopecks:
-                    return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
-
-                debit_result = await PostgresReferralBalanceRepository.debit_in_connection(
-                    conn,
-                    internal_user_id,
-                    total_kopecks,
-                )
-                if debit_result is None:
-                    return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
-
-                existing_snap = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
-                    conn,
-                    internal_user_id,
-                )
-                base_date = now
-                if (
-                    existing_snap is not None
-                    and existing_snap.active_until_utc is not None
-                    and existing_snap.active_until_utc > now
-                ):
-                    base_date = existing_snap.active_until_utc
-                active_until = base_date + timedelta(days=plan.duration_days)
-                active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
-                await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
-                    conn,
-                    SubscriptionSnapshot(
-                        internal_user_id=internal_user_id,
-                        state_label="active",
-                        active_until_utc=active_until,
-                        plan_id=plan_id,
-                        device_count=device_count,
-                    ),
-                )
-        except Exception:
-            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
-
-        # VLESS key creation with retry + compensation on failure
-        if composition.vless_provider is not None:
-            vless_ok = False
-            for _attempt in range(3):
-                try:
-                    snap_check = await pool.fetchrow(
-                        """SELECT keys_deactivated_at, keys_deleted_at, device_count FROM subscription_snapshots
-                           WHERE internal_user_id = $1""",
-                        internal_user_id,
-                    )
-                    dc = (snap_check.get("device_count") or 0) if snap_check else 0
-                    if snap_check is not None and snap_check["keys_deleted_at"] is not None:
-                        await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
-                    elif snap_check is not None and snap_check["keys_deactivated_at"] is not None:
-                        await composition.vless_provider.activate_user(
-                            internal_user_id=internal_user_id, device_count=dc
-                        )
-                    else:
-                        await composition.vless_provider.create_user(internal_user_id=internal_user_id, device_count=dc)
-                    vless_ok = True
-                    break
-                except Exception:
-                    _LOGGER.warning("balance_payment vless retry user=%s", internal_user_id, exc_info=True)
-                    await asyncio.sleep(2.0)
-
-            if vless_ok:
-                try:
-                    await pool.execute(
-                        """UPDATE subscription_snapshots
-                           SET keys_deactivated_at = NULL, keys_deleted_at = NULL, updated_at = NOW()
-                           WHERE internal_user_id = $1""",
-                        internal_user_id,
-                    )
-                except Exception:
-                    _LOGGER.error("balance_payment snapshot clear failed user=%s", internal_user_id, exc_info=True)
-            else:
-                # Compensation: credit back the deducted balance + revert subscription
-                _LOGGER.error("balance_payment vless FAILED after retries — refunding user=%s", internal_user_id)
-                with contextlib.suppress(Exception):
-                    await PostgresReferralBalanceRepository(pool).credit(internal_user_id, total_kopecks)
-                with contextlib.suppress(Exception):
-                    if pre_payment_snap is not None:
-                        await PostgresSubscriptionSnapshotReader(pool).upsert_state(pre_payment_snap)
-                    else:
-                        await pool.execute(
-                            """UPDATE subscription_snapshots
-                               SET state_label = 'inactive', active_until_utc = NULL, updated_at = NOW()
-                               WHERE internal_user_id = $1""",
-                            internal_user_id,
-                        )
-                return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
-    else:
-        # Test path: in-memory repositories (no transaction support)
-        balance_record = await composition.referral_balance_repo.get_balance(internal_user_id)
-        balance_kopecks = balance_record.balance_kopecks if balance_record else 0
-        if balance_kopecks < total_kopecks:
-            return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
-
-        debit_result = await composition.referral_balance_repo.debit(internal_user_id, total_kopecks)
-        if debit_result is None:
-            return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
-
-        try:
-            existing_snap = await composition.snapshots.get_for_user(internal_user_id)
-            base_date = now
-            if (
-                existing_snap is not None
-                and existing_snap.active_until_utc is not None
-                and existing_snap.active_until_utc > now
-            ):
-                base_date = existing_snap.active_until_utc
-            active_until = base_date + timedelta(days=plan.duration_days)
-            active_until = active_until.replace(hour=0, minute=0, second=0, microsecond=0)
-            await composition.snapshots.upsert_state(
-                SubscriptionSnapshot(
-                    internal_user_id=internal_user_id,
-                    state_label="active",
-                    active_until_utc=active_until,
-                    plan_id=plan_id,
-                    device_count=device_count,
-                ),
-            )
-        except Exception:
-            with contextlib.suppress(Exception):
-                await composition.referral_balance_repo.credit(internal_user_id, total_kopecks)
-            return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
-
-        if composition.vless_provider is not None:
-            with contextlib.suppress(Exception):
-                await composition.vless_provider.create_user(internal_user_id=internal_user_id)
-
-    correlation_id = f"bal-pay-{uuid.uuid4()}"
-    await composition.referral_transaction_repo.append_transaction(
-        ReferralTransactionRecord(
-            transaction_id=correlation_id,
-            internal_user_id=internal_user_id,
-            amount_kopecks=-total_kopecks,
-            transaction_type="subscription_payment",
-            related_user_id=None,
-            related_plan_id=plan_id,
-            description=f"balance payment: {plan_id} x {device_count} devices [{correlation_id}]",
-            created_at=now,
-        )
-    )
-
-    await _credit_referral_commissions(
+    result = await pay_plan_from_balance(
+        pool=_get_pool_from_composition(composition),
         composition=composition,
-        payer_internal_user_id=internal_user_id,
-        payment_amount_kopecks=total_kopecks,
+        internal_user_id=internal_user_id,
         plan_id=plan_id,
-        correlation_prefix="bal",
-        correlation_id=correlation_id,
+        device_count=device_count,
+        description_prefix="balance payment",
+        vless_provider=composition.vless_provider,
+        notifier=None,  # M5-bot (notify referrers) — follow-up PR with notifier wiring
     )
-
-    active_until_str = (active_until or now).date().isoformat()
-    return text_balance_payment_success(active_until_str), await _main_menu_keyboard(composition, uid)
+    return await _map_balance_payment_result(result, composition, uid)
 
 
-async def _credit_referral_commissions(
-    *,
+async def _map_balance_payment_result(
+    result: Any,
     composition: Slice1Composition,
-    payer_internal_user_id: str,
-    payment_amount_kopecks: int,
-    plan_id: str,
-    correlation_prefix: str,
-    correlation_id: str,
-) -> None:
-    import uuid
-    from datetime import UTC, datetime
+    uid: int | None,
+) -> tuple[str, dict[str, Any] | None]:
+    from app.application.balance_payment_service import BalancePaymentStatus
 
-    from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
-    from app.persistence.referral_contracts import ReferralTransactionRecord
+    s = result.status
+    if s is BalancePaymentStatus.COMPLETED or s is BalancePaymentStatus.ALREADY_COMPLETED:
+        active_until_str = result.active_until_utc.date().isoformat() if result.active_until_utc else None
+        return text_balance_payment_success(active_until_str), await _main_menu_keyboard(composition, uid)
+    if s is BalancePaymentStatus.INSUFFICIENT:
+        return text_balance_insufficient(), back_only_keyboard(CB_BUY_VPN)
+    if s is BalancePaymentStatus.IN_PROGRESS:
+        return text_balance_payment_in_progress(), back_only_keyboard(CB_MAIN_MENU)
+    if s is BalancePaymentStatus.INVALID_PLAN:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+    # INVALID_DEVICE_COUNT, VLESS_FAILED, INTERNAL_ERROR → generic error.
+    return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    referrers = await composition.referral_relationship_repo.find_referrers(payer_internal_user_id)
-    direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
 
-    commissions = build_commissions_for_payment(
-        payer_user_id=payer_internal_user_id,
-        direct_referrer_user_id=direct_referrer,
-        indirect_referrer_user_id=indirect_referrer,
-        plan_id=plan_id,
-        payment_amount_kopecks=payment_amount_kopecks,
-    )
-
-    pool = _get_pool_from_composition(composition)
-    if pool is not None:
-        from app.persistence.postgres_referral import (
-            PostgresReferralBalanceRepository,
-            PostgresReferralTransactionRepository,
-        )
-
-        async with pool.acquire() as conn, conn.transaction():
-            for comm in commissions:
-                dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
-                tx_record = ReferralTransactionRecord(
-                    transaction_id=f"ref-{uuid.uuid4()}",
-                    internal_user_id=comm.referrer_user_id,
-                    amount_kopecks=comm.amount_kopecks,
-                    transaction_type="referral_credit",
-                    related_user_id=comm.payer_user_id,
-                    related_plan_id=comm.plan_id,
-                    description=dedup_desc,
-                    created_at=datetime.now(UTC),
-                )
-                inserted = (
-                    await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
-                        conn, tx_record
-                    )
-                )
-                if inserted:
-                    await PostgresReferralBalanceRepository.credit_in_connection(
-                        conn, comm.referrer_user_id, comm.amount_kopecks
-                    )
-    else:
-        for comm in commissions:
-            dedup_desc = f"{correlation_prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
-            tx_record = ReferralTransactionRecord(
-                transaction_id=f"ref-{uuid.uuid4()}",
-                internal_user_id=comm.referrer_user_id,
-                amount_kopecks=comm.amount_kopecks,
-                transaction_type="referral_credit",
-                related_user_id=comm.payer_user_id,
-                related_plan_id=comm.plan_id,
-                description=dedup_desc,
-                created_at=datetime.now(UTC),
-            )
-            inserted = await composition.referral_transaction_repo.append_transaction_if_description_absent(tx_record)
-            if inserted:
-                await composition.referral_balance_repo.credit(comm.referrer_user_id, comm.amount_kopecks)
+# Referral-commission credit moved to balance_payment_service
+# (_credit_commissions_best_effort / _credit_commissions_inmemory).
 
 
 # ─── Add device helpers ────────────────────────────────────────────────
@@ -1665,11 +1443,6 @@ async def _process_add_device_balance(
     uid: int | None,
     new_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
-    from datetime import UTC, datetime
-
-    from app.application.interfaces import SubscriptionSnapshot
-    from app.persistence.referral_contracts import ReferralTransactionRecord
-
     if uid is None:
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
 
@@ -1677,61 +1450,27 @@ async def _process_add_device_balance(
     if internal_user_id is None:
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
 
-    snap = await composition.snapshots.get_for_user(internal_user_id)
-    if snap is None:
-        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+    from app.application.balance_payment_service import BalancePaymentStatus, add_device_from_balance
 
-    current = snap.device_count or DEVICES_DEFAULT
-    if new_count <= current:
-        return text_add_device_intro(current), add_device_select_keyboard(current)
-
-    from app.domain.devices import extra_device_cost as _extra_device_cost
-
-    duration_days = 30
-    if snap.plan_id:
-        plan = get_plan(snap.plan_id)
-        if plan is not None:
-            duration_days = plan.duration_days
-
-    cost_rubles = _extra_device_cost(new_count, current, duration_days)
-    cost_kopecks = cost_rubles * 100
-
-    debit_result = await composition.referral_balance_repo.debit(internal_user_id, cost_kopecks)
-    if debit_result is None:
-        return text_balance_insufficient(), back_only_keyboard(CB_SETTINGS)
-
-    now = datetime.now(UTC)
-    try:
-        await composition.snapshots.upsert_state(
-            SubscriptionSnapshot(
-                internal_user_id=internal_user_id,
-                state_label=snap.state_label,
-                active_until_utc=snap.active_until_utc,
-                plan_id=snap.plan_id,
-                device_count=new_count,
-            )
-        )
-    except Exception:
-        # Компенсирующая транзакция: вернуть списанные средства при ошибке обновления
-        with contextlib.suppress(Exception):
-            await composition.referral_balance_repo.credit(internal_user_id, cost_kopecks)
-        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
-
-    correlation_id = f"add-dev-{uuid.uuid4()}"
-    await composition.referral_transaction_repo.append_transaction(
-        ReferralTransactionRecord(
-            transaction_id=correlation_id,
-            internal_user_id=internal_user_id,
-            amount_kopecks=-cost_kopecks,
-            transaction_type="subscription_payment",
-            related_user_id=None,
-            related_plan_id=snap.plan_id,
-            description=f"add device: {current} → {new_count} [{correlation_id}]",
-            created_at=now,
-        )
+    result = await add_device_from_balance(
+        pool=_get_pool_from_composition(composition),
+        composition=composition,
+        internal_user_id=internal_user_id,
+        new_device_count=new_count,
+        description_prefix="add device",
     )
-
-    return text_add_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
+    s = result.status
+    if s is BalancePaymentStatus.COMPLETED or s is BalancePaymentStatus.ALREADY_COMPLETED:
+        return text_add_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
+    if s is BalancePaymentStatus.INSUFFICIENT:
+        return text_balance_insufficient(), back_only_keyboard(CB_SETTINGS)
+    if s is BalancePaymentStatus.NO_ACTIVE:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+    if s is BalancePaymentStatus.NOT_HIGHER:
+        snap = await composition.snapshots.get_for_user(internal_user_id)
+        current = snap.device_count if snap and snap.device_count else DEVICES_DEFAULT
+        return text_add_device_intro(current), add_device_select_keyboard(current)
+    return text_error_generic(), back_only_keyboard(CB_SETTINGS)
 
 
 async def _process_add_device_yookassa(
