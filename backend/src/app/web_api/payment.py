@@ -23,6 +23,10 @@ from app.persistence.postgres_referral import (
 )
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.referral_contracts import ReferralTransactionRecord
+from app.runtime.fulfillment_processor import (
+    CreditedCommission,
+    _notify_referrers_of_commission_best_effort,
+)
 from app.web_api.helpers import safe_json_error, truthy
 from app.web_api.middleware import require_auth
 
@@ -452,37 +456,44 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
                 await asyncio.sleep(2.0)
         if not vless_ok:
             _LOGGER.error("web balance vless FAILED after retries — refunding user=%s", internal_user_id)
-            with contextlib.suppress(Exception):
-                await PostgresReferralBalanceRepository(pool).credit(internal_user_id, total_kopecks)
-            with contextlib.suppress(Exception):
-                if pre_payment_snap is not None:
-                    await PostgresSubscriptionSnapshotReader(pool).upsert_state(pre_payment_snap)
-                else:
-                    await pool.execute(
-                        "UPDATE subscription_snapshots SET state_label='inactive',"
-                        " active_until_utc=NULL, updated_at=NOW() WHERE internal_user_id=$1",
+            # Atomic compensation: credit + snapshot revert + audit-row DELETE + refund
+            # row in ONE transaction. Any failure rolls back ALL four — leaving the debit
+            # audit row in place, so a replay returns already_completed (NO double-charge);
+            # the 30-min reconcile/operator resolves the stuck state.
+            try:
+                async with pool.acquire() as conn, conn.transaction():
+                    await PostgresReferralBalanceRepository.credit_in_connection(conn, internal_user_id, total_kopecks)
+                    if pre_payment_snap is not None:
+                        await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(conn, pre_payment_snap)
+                    else:
+                        await conn.execute(
+                            "UPDATE subscription_snapshots SET state_label='inactive',"
+                            " active_until_utc=NULL, updated_at=NOW() WHERE internal_user_id=$1",
+                            internal_user_id,
+                        )
+                    await conn.execute(
+                        "DELETE FROM referral_transactions WHERE internal_user_id=$1 AND description=$2",
                         internal_user_id,
+                        description,
                     )
-            # Drop the committed debit audit row + write an offsetting refund row so a
-            # replay with the same X-Idempotency-Key re-attempts cleanly and the ledger nets to zero.
-            with contextlib.suppress(Exception):
-                await pool.execute(
-                    "DELETE FROM referral_transactions WHERE internal_user_id=$1 AND description=$2",
+                    await conn.execute(
+                        "INSERT INTO referral_transactions"
+                        " (transaction_id, internal_user_id, amount_kopecks, transaction_type,"
+                        " related_user_id, related_plan_id, description, created_at)"
+                        " VALUES ($1, $2, $3, 'subscription_payment', NULL, $4, $5, now())",
+                        f"ref-{uuid.uuid4()}",
+                        internal_user_id,
+                        total_kopecks,
+                        plan_id,
+                        f"web balance refund (vless failed): {plan_id} x {device_count} devices [{correlation_id}]",
+                    )
+            except Exception:
+                _LOGGER.error(
+                    "web balance compensation tx FAILED user=%s cid=%s — debit left in place,"
+                    " replay will return already_completed; manual reconcile needed",
                     internal_user_id,
-                    description,
-                )
-            with contextlib.suppress(Exception):
-                await PostgresReferralTransactionRepository(pool).append_transaction(
-                    ReferralTransactionRecord(
-                        transaction_id=f"ref-{uuid.uuid4()}",
-                        internal_user_id=internal_user_id,
-                        amount_kopecks=total_kopecks,
-                        transaction_type="subscription_payment",
-                        related_user_id=None,
-                        related_plan_id=plan_id,
-                        description=f"web balance refund (vless failed): {plan_id} x {device_count} devices [{correlation_id}]",
-                        created_at=datetime.now(UTC),
-                    )
+                    correlation_id,
+                    exc_info=True,
                 )
             return safe_json_error(503, "vless_creation_failed")
         with contextlib.suppress(Exception):
@@ -492,9 +503,28 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
                 internal_user_id,
             )
 
-    # Referral commissions (best-effort, separate tx — mirrors bot _credit_referral_commissions).
-    with contextlib.suppress(Exception):
-        await _credit_web_balance_commissions(pool, internal_user_id, plan_id, total_kopecks, correlation_id)
+    # Referral commissions (best-effort) + notify TG referrers — parity with the
+    # card-payment path (PR #468). A lost commission is a real incident, so log it
+    # traceably instead of silently swallowing (regression vs PR #470).
+    notifier = getattr(request.app.state, "activation_notifier", None)
+    try:
+        credited = await _credit_web_balance_commissions(pool, internal_user_id, plan_id, total_kopecks, correlation_id)
+    except Exception:
+        _LOGGER.warning(
+            "web balance commission credit failed payer=%s cid=%s — referrer may lose commission",
+            internal_user_id,
+            correlation_id,
+            exc_info=True,
+        )
+        credited = []
+    if credited and notifier is not None:
+        with contextlib.suppress(Exception):
+            await _notify_referrers_of_commission_best_effort(
+                pool=pool,
+                notifier=notifier,
+                credited=credited,
+                correlation_id=correlation_id,
+            )
 
     return JSONResponse(
         {
@@ -678,16 +708,18 @@ async def _credit_web_balance_commissions(
     plan_id: str,
     payment_amount_kopecks: int,
     correlation_id: str,
-) -> None:
+) -> list[CreditedCommission]:
     """Credit L1/L2 referral commissions for a web balance payment (idempotent by
     description — the same ``correlation_id`` ties commission rows to the debit row
-    so a replayed idempotency key re-credits nothing)."""
+    so a replayed idempotency key re-credits nothing). Returns the commissions that
+    were actually credited, so the caller can best-effort notify each referrer."""
+    credited: list[CreditedCommission] = []
     async with pool.acquire() as conn, conn.transaction():
         referrers = await PostgresReferralRelationshipRepository.find_referrers_in_connection(
             conn, payer_internal_user_id
         )
         if not referrers:
-            return
+            return credited
         direct, indirect = resolve_direct_and_indirect_referrers(referrers)
         commissions = build_commissions_for_payment(
             payer_user_id=payer_internal_user_id,
@@ -720,3 +752,11 @@ async def _credit_web_balance_commissions(
                 await PostgresReferralBalanceRepository.credit_in_connection(
                     conn, comm.referrer_user_id, comm.amount_kopecks
                 )
+                credited.append(
+                    CreditedCommission(
+                        referrer_internal_user_id=comm.referrer_user_id,
+                        amount_kopecks=comm.amount_kopecks,
+                        level=comm.level,
+                    )
+                )
+    return credited
