@@ -1342,6 +1342,7 @@ async def _process_balance_payment(
         if now_ts - last_ts < _BALANCE_PAYMENT_DEBOUNCE_SECONDS:
             return text_balance_payment_in_progress(), back_only_keyboard(CB_MAIN_MENU)
         _balance_payment_last_click[uid] = now_ts
+        _trim_inmemory_dict(_balance_payment_last_click)
 
     internal_user_id = await _get_internal_user_id(composition, uid)
     if internal_user_id is None:
