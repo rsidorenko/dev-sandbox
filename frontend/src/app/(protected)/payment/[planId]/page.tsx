@@ -83,7 +83,9 @@ function PaymentForm() {
   // Неавторизованный пользователь видит тариф и встроенный gate вместо жёсткого
   // редиректа на /login — оффер остаётся в контексте, есть быстрый путь через
   // Telegram-бота (бот уже знает пользователя, оплата в один клик).
-  if (!authLoading && !authenticated && planId) {
+  // Но если только что успешно оплачено с баланса — НЕ заменяем форму на gate,
+  // иначе refresh() (который transiently сбрасывает auth-состояние) скроет success.
+  if (!authLoading && !authenticated && planId && !balanceResult) {
     return <AuthGate info={info} planId={planId} refParam={refParam} />;
   }
 
