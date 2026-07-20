@@ -274,10 +274,15 @@ _last_connect_platform: dict[int, str] = {}
 
 # Debounce accidental double-click on the "pay with balance" inline button: two rapid
 # callbacks would otherwise debit twice and credit the referrer's commission twice.
-# In-process per-user window; a legit repeat renewal 3+ s later is unaffected. State is
-# lost on restart (acceptable — only protects against sub-second double-clicks).
+# The window must cover the WHOLE processing — including VLESS retries (3×2s = up to 6s),
+# otherwise a second click arriving after the old 3s window but while the first payment
+# is still in VLESS-retry would double-debit + double-commission. 30s covers VLESS
+# worst-case with margin; a legit repeat renewal 30s+ later is unaffected. Bot runs a
+# single polling worker, so an in-process window is sufficient here. (Server-side
+# idempotency like the web path's description-dedup + advisory lock is a Phase 3 refactor
+# that shares one balance-payment service across bot and web.)
 _balance_payment_last_click: dict[int, float] = {}
-_BALANCE_PAYMENT_DEBOUNCE_SECONDS = 3.0
+_BALANCE_PAYMENT_DEBOUNCE_SECONDS = 30.0
 
 _INMEMORY_DICT_MAX = 10_000
 
