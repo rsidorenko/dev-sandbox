@@ -658,10 +658,13 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
                     {
                         "ok": True,
                         "status": "already_completed",
+                        # amount_* is 0 for already_completed (nothing charged on this replay;
+                        # the original charge was reported in the first completed response) —
+                        # consistent with the dedup-LOOK branch above.
                         "device_count": new_device_count,
-                        "amount_rubles": cost_rubles,
-                        "amount_kopecks": cost_kopecks,
-                        "balance_rubles_remaining": round((bal.balance_kopecks if bal else 0) / 100, 2),
+                        "amount_rubles": 0,
+                        "amount_kopecks": 0,
+                        "balance_rubes_remaining": round((bal.balance_kopecks if bal else 0) / 100, 2),
                     }
                 )
 

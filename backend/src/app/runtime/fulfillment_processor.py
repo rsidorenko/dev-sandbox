@@ -271,6 +271,11 @@ async def _process_referral_commissions_best_effort(
         credited: list[CreditedCommission] = []
         async with pool.acquire() as conn, conn.transaction():
             for comm in commissions:
+                # NOTE: `correlation_id` is fresh per process_fulfillment call, so this
+                # description is NOT a cross-replay dedup key — it only guards the rare
+                # within-call double-insert of the same commission. Real replay idempotency
+                # comes from the outer `is_new_active` gate (driven by the ingest-layer
+                # external_event_id dedup): a replayed webhook never reaches this block.
                 dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
                 tx_record = ReferralTransactionRecord(
                     transaction_id=f"ref-{uuid.uuid4()}",
