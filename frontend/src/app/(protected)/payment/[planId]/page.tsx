@@ -37,6 +37,7 @@ function PaymentForm() {
   const planId = rawPlanId ? decodeURIComponent(rawPlanId) : "";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const refParam = searchParams.get("ref");
   const { loading: authLoading, authenticated } = useAuth();
   const [deviceCount, setDeviceCount] = useState(() => {
     const d = searchParams.get("devices");
@@ -72,7 +73,7 @@ function PaymentForm() {
   // редиректа на /login — оффер остаётся в контексте, есть быстрый путь через
   // Telegram-бота (бот уже знает пользователя, оплата в один клик).
   if (!authLoading && !authenticated && planId) {
-    return <AuthGate info={info} planId={planId} />;
+    return <AuthGate info={info} planId={planId} refParam={refParam} />;
   }
 
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
@@ -89,7 +90,7 @@ function PaymentForm() {
 
     if (!result.ok) {
       if (result.error === "unauthorized") {
-        router.push(`/login?next=/payment/${planId}`);
+        router.push(`/login?next=/payment/${planId}${refParam ? `&ref=${encodeURIComponent(refParam)}` : ""}`);
         return;
       }
       setErrorMsg("Не удалось создать платёж. Попробуйте позже.");
@@ -198,11 +199,15 @@ function PaymentForm() {
 function AuthGate({
   info,
   planId,
+  refParam,
 }: {
   info: { label: string; durationDays: number; basePrice: number };
   planId: string;
+  refParam: string | null;
 }) {
-  const loginUrl = `/login?next=/payment/${planId}`;
+  // Preserve ?ref= across the /login redirect so a referral link to /payment/...
+  // still attributes after email verification.
+  const loginUrl = `/login?next=/payment/${planId}${refParam ? `&ref=${encodeURIComponent(refParam)}` : ""}`;
   const botUrl = `https://t.me/${siteConfig.botUsername}?start=${planId}`;
   return (
     <section className="py-12">
