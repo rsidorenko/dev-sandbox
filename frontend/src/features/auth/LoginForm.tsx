@@ -10,6 +10,7 @@ import { authApi } from "./api";
 import { siteConfig } from "@/shared/config/site";
 import { useCountdown } from "@/shared/hooks/useCountdown";
 import { safeNextPath } from "@/shared/lib/safeRedirect";
+import { clearPendingReferralCode, readPendingReferralCode } from "@/shared/lib/referralCapture";
 import { Alert } from "@/shared/ui/Alert";
 
 const emailSchema = z.object({
@@ -70,9 +71,7 @@ export function LoginForm() {
   const onVerifyCode = codeForm.handleSubmit(async ({ code }) => {
     setServerError("");
     const email = emailForm.getValues("email");
-    const referralCode = typeof window !== "undefined"
-      ? localStorage.getItem("pending_referral_code") || undefined
-      : undefined;
+    const referralCode = readPendingReferralCode() || undefined;
     const result = await authApi.verifyCode(email, code, referralCode);
     if (!result.ok) {
       if (result.error === "invalid_code") {
@@ -92,9 +91,7 @@ export function LoginForm() {
       }
       return;
     }
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("pending_referral_code");
-    }
+    clearPendingReferralCode();
     const next = safeNextPath(searchParams.get("next"));
     window.location.href = next;
   });

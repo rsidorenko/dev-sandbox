@@ -38,4 +38,15 @@ describe("useCopyToClipboard", () => {
     });
     expect(result.current.isCopied("k1")).toBe(false);
   });
+
+  it("returns false and does not mark copied when clipboard rejects", async () => {
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    const { result } = renderHook(() => useCopyToClipboard(1000));
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.copy("hello", "k1");
+    });
+    expect(ok).toBe(false);
+    expect(result.current.isCopied("k1")).toBe(false);
+  });
 });
