@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 import { Header } from "@/widgets/header/Header";
 import { Footer } from "@/widgets/footer/Footer";
 import { siteConfig } from "@/shared/config/site";
 import { AuthProvider } from "@/shared/lib/auth";
+import { ReferralCapture } from "@/shared/lib/referralCapture";
 import { metrikaInitScript, metrikaPixelUrl } from "@/shared/lib/analytics";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
@@ -102,6 +104,14 @@ export default function RootLayout({
           </noscript>
         )}
         <AuthProvider>
+          {/*
+            Capture ?ref= on EVERY page (not just /) so referral links to /login,
+            /payment/*, /trial, /dashboard still attribute. Suspense boundary is
+            required because ReferralCapture uses useSearchParams (Next.js App Router).
+          */}
+          <Suspense fallback={null}>
+            <ReferralCapture />
+          </Suspense>
           <Header />
           <main>{children}</main>
           <Footer />

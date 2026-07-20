@@ -19,6 +19,10 @@ export function middleware(request: NextRequest) {
   if (!session) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
+    // Preserve ?ref= across the redirect so a referral link to a protected page
+    // (e.g. /dashboard?ref=ABC) still attributes on /login.
+    const ref = request.nextUrl.searchParams.get("ref");
+    if (ref) loginUrl.searchParams.set("ref", ref);
     return NextResponse.redirect(loginUrl);
   }
 

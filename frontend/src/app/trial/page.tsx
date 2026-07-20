@@ -41,8 +41,9 @@ export default function TrialPage() {
     } else if (res.error === "already_subscribed") {
       setStatus("already_subscribed");
     } else if (res.error === "unauthorized") {
-      // Сессия истекла — на вход с возвратом сюда.
-      router.replace("/login?next=/trial");
+      // Сессия истекла — на вход с возвратом сюда. Сохраняем ?ref= для атрибуции.
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      router.replace(`/login?next=/trial${ref ? `&ref=${encodeURIComponent(ref)}` : ""}`);
     } else {
       setStatus("error");
     }
@@ -50,9 +51,10 @@ export default function TrialPage() {
 
   useEffect(() => {
     if (loading) return;
-    // Не авторизован и ещё не начинали — на вход с возвратом сюда.
+    // Не авторизован и ещё не начинали — на вход с возвратом сюда. Сохраняем ?ref=.
     if (!authenticated && !resolved.current) {
-      router.replace("/login?next=/trial");
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      router.replace(`/login?next=/trial${ref ? `&ref=${encodeURIComponent(ref)}` : ""}`);
       return;
     }
     // Уже приняли решение — повторно не дёргаем (refresh()/флапы auth не мешают).
