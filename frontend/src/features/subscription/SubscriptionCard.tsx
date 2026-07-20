@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { subscriptionApi } from "@/entities/subscription/api";
 import { paymentApi } from "@/entities/payment/api";
+import { calcExtraDeviceCost, getTariffInfo } from "@/entities/payment/calc";
 import { siteConfig } from "@/shared/config/site";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
@@ -66,6 +67,13 @@ export function SubscriptionCard({
   const [actionLoading, setActionLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const { copy, isCopied } = useCopyToClipboard();
+  // One idempotency key per mount for the add-device-via-balance button.
+  const addDeviceIdempotencyKey = useRef(crypto.randomUUID()).current;
+  const tariffInfo = sub?.plan_id ? getTariffInfo(normalizePlanId(sub.plan_id)) : null;
+  const addDeviceExtra = Math.max(0, selectedDevices - deviceMin);
+  const addDeviceCost = tariffInfo ? calcExtraDeviceCost(tariffInfo.durationDays, addDeviceExtra) : 0;
+  const balanceRubles = referral?.balance_rubles ?? 0;
+  const canAddWithBalance = referral != null && addDeviceCost > 0 && balanceRubles >= addDeviceCost;
 
   const handleChangePlan = () => {
     window.location.href = `/payment/${normalizePlanId(selectedPlan)}`;
@@ -83,6 +91,35 @@ export function SubscriptionCard({
       if (res.data.payment_url) {
         window.location.href = res.data.payment_url;
       }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAddDevicesWithBalance = async () => {
+    setDeviceError("");
+    setActionLoading(true);
+    try {
+      const res = await paymentApi.addDevicesWithBalance(selectedDevices, addDeviceIdempotencyKey);
+      if (!res.ok) {
+        // Backend returns these as HTTP 4xx/5xx with {ok:false, error:<code>} — map each.
+        if (res.error === "insufficient_balance") {
+          setDeviceError("Недостаточно средств на балансе.");
+          await onRefresh();
+        } else if (res.error === "payment_in_progress") {
+          setDeviceError("Платёж уже обрабатывается. Попробуйте обновить страницу через минуту.");
+        } else if (res.error === "no_active_subscription") {
+          setDeviceError("Нет активной подписки. Оформите подписку прежде чем добавлять устройства.");
+        } else if (res.error === "device_count_not_higher") {
+          setDeviceError("Выберите больше устройств, чем у вас уже есть.");
+        } else {
+          setDeviceError("Не удалось оплатить с баланса. Попробуйте позже.");
+        }
+        return;
+      }
+      // Only `completed` / `already_completed` arrive as {ok:true, data:{status:...}}.
+      await onRefresh();
+      setShowChangeDevices(false);
     } finally {
       setActionLoading(false);
     }
@@ -365,7 +402,16 @@ export function SubscriptionCard({
                 {deviceError && (
                   <p className="mt-2 text-sm text-red-500">{deviceError}</p>
                 )}
-                <div className="flex gap-2 mt-3">
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {canAddWithBalance && (
+                    <button
+                      onClick={handleAddDevicesWithBalance}
+                      disabled={actionLoading}
+                      className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
+                    >
+                      {actionLoading ? "Обработка..." : `С баланса ${addDeviceCost} ₽`}
+                    </button>
+                  )}
                   <button
                     onClick={handleChangeDevices}
                     disabled={actionLoading}

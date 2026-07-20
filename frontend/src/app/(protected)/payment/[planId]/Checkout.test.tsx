@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { auth, paymentApi, params } = vi.hoisted(() => ({
-  auth: { authenticated: true, loading: false },
-  paymentApi: { create: vi.fn() },
+  auth: { authenticated: true, loading: false, profile: null as null | { referral: { balance_rubles: number; code: string; referrals_count: number } } },
+  paymentApi: { create: vi.fn(), payWithBalance: vi.fn() },
   params: { planId: "1m" },
 }));
 
@@ -12,7 +12,7 @@ vi.mock("@/shared/lib/auth", () => ({
   useAuth: () => ({
     loading: auth.loading,
     authenticated: auth.authenticated,
-    profile: null,
+    profile: auth.profile,
     refresh: vi.fn(),
   }),
 }));
@@ -31,8 +31,10 @@ const originalLocation = window.location;
 beforeEach(() => {
   auth.authenticated = true;
   auth.loading = false;
+  auth.profile = null;
   params.planId = "1m";
   paymentApi.create.mockReset();
+  paymentApi.payWithBalance.mockReset();
   Object.defineProperty(window, "location", {
     value: { ...originalLocation, href: "" },
     writable: true,
@@ -63,7 +65,7 @@ describe("Checkout (payment/[planId])", () => {
   it("renders the checkout form with the base total for an authenticated visitor", () => {
     render(<PaymentPage />);
     expect(screen.getByText("Оформление подписки")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Оплатить 249 ₽/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Оплатить картой 249 ₽/ })).toBeInTheDocument();
   });
 
   it("updates the total when the device slider increases", () => {
@@ -74,7 +76,48 @@ describe("Checkout (payment/[planId])", () => {
     fireEvent.change(slider, { target: { value: "10" } });
     // 5 доп. устройств × round(80/30*30)=80 → +400 → 249+400 = 649.
     expect(
-      screen.getByRole("button", { name: /Оплатить 649 ₽/ }),
+      screen.getByRole("button", { name: /Оплатить картой 649 ₽/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the balance-pay button when the user has enough balance", () => {
+    auth.profile = {
+      referral: { balance_rubles: 1000, code: "X", referrals_count: 0 },
+    };
+    render(<PaymentPage />);
+    expect(
+      screen.getByRole("button", { name: /Оплатить с баланса/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the balance-pay button when balance is insufficient", () => {
+    auth.profile = {
+      referral: { balance_rubles: 100, code: "X", referrals_count: 0 },
+    };
+    render(<PaymentPage />);
+    expect(
+      screen.queryByRole("button", { name: /Оплатить с баланса/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("pays with balance and refreshes on success", async () => {
+    auth.profile = {
+      referral: { balance_rubles: 1000, code: "X", referrals_count: 0 },
+    };
+    paymentApi.payWithBalance.mockResolvedValue({
+      ok: true,
+      data: { status: "completed", active_until: "2099-01-01", balance_rubles_remaining: 751 },
+    });
+    const user = userEvent.setup();
+    render(<PaymentPage />);
+    await user.click(screen.getByRole("button", { name: /Оплатить с баланса/ }));
+    await waitFor(() => {
+      expect(paymentApi.payWithBalance).toHaveBeenCalled();
+    });
+    // Card-pay button must NOT have been used.
+    expect(paymentApi.create).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Подписка оплачена с реферального баланса/),
     ).toBeInTheDocument();
   });
 

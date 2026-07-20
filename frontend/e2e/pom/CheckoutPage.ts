@@ -17,7 +17,13 @@ export class CheckoutPage {
   }
 
   payButton(amount?: number): Locator {
-    const name = amount === undefined ? /Оплатить/ : new RegExp(`Оплатить ${amount} ₽`);
+    // Card-pay button text is "Оплатить картой N ₽" (the balance-pay button is
+    // "Оплатить с баланса …" — matched separately). Without an amount, default to
+    // the card button.
+    const name =
+      amount === undefined
+        ? /Оплатить картой/
+        : new RegExp(`Оплатить.*${amount} ₽`);
     return this.page.getByRole("button", { name });
   }
 
