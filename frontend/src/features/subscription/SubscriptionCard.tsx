@@ -68,7 +68,15 @@ export function SubscriptionCard({
   const [deviceError, setDeviceError] = useState("");
   const { copy, isCopied } = useCopyToClipboard();
   // One idempotency key per mount for the add-device-via-balance button.
-  const addDeviceIdempotencyKey = useRef(crypto.randomUUID()).current;
+  // Lazy-init so crypto.randomUUID() runs ONCE, not on every render.
+  const addDeviceIdempotencyRef = useRef<string | null>(null);
+  if (addDeviceIdempotencyRef.current === null) {
+    addDeviceIdempotencyRef.current =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+  const addDeviceIdempotencyKey = addDeviceIdempotencyRef.current;
   const tariffInfo = sub?.plan_id ? getTariffInfo(normalizePlanId(sub.plan_id)) : null;
   const addDeviceExtra = Math.max(0, selectedDevices - deviceMin);
   const addDeviceCost = tariffInfo ? calcExtraDeviceCost(tariffInfo.durationDays, addDeviceExtra) : 0;
@@ -85,7 +93,16 @@ export function SubscriptionCard({
     try {
       const res = await paymentApi.addDevices(selectedDevices);
       if (!res.ok) {
-        setDeviceError("Не удалось создать платёж. Попробуйте позже.");
+        // Map backend error codes to specific messages (parity with handleAddDevicesWithBalance).
+        if (res.error === "no_active_subscription") {
+          setDeviceError("Нет активной подписки.");
+        } else if (res.error === "device_count_not_higher") {
+          setDeviceError("Выберите больше устройств, чем у вас уже есть.");
+        } else if (res.error === "unauthorized") {
+          setDeviceError("Войдите, чтобы изменить количество устройств.");
+        } else {
+          setDeviceError("Не удалось создать платёж. Попробуйте позже.");
+        }
         return;
       }
       if (res.data.payment_url) {
