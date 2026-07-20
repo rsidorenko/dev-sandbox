@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi } from "@/entities/payment/api";
@@ -38,7 +38,7 @@ function PaymentForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const refParam = searchParams.get("ref");
-  const { loading: authLoading, authenticated } = useAuth();
+  const { loading: authLoading, authenticated, profile, refresh } = useAuth();
   const [deviceCount, setDeviceCount] = useState(() => {
     const d = searchParams.get("devices");
     return d ? Math.max(DEFAULT_DEVICES, parseInt(d) || DEFAULT_DEVICES) : DEFAULT_DEVICES;
@@ -50,6 +50,17 @@ function PaymentForm() {
     amount_rubles: number;
     message: string;
   } | null>(null);
+  // Balance-payment: one idempotency key per mount (survives re-render, dedups
+  // double-clicks/retries server-side). Balance-loading + inline result state.
+  const balanceIdempotencyKey = useRef(crypto.randomUUID()).current;
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceResult, setBalanceResult] = useState<{
+    active_until?: string;
+    balance_rubles_remaining?: number;
+  } | null>(null);
+  const [balanceError, setBalanceError] = useState("");
+  const balanceRubles = profile?.referral?.balance_rubles ?? 0;
+  const busy = loading || balanceLoading;
 
   const info = planId ? getTariffInfo(planId) : null;
 
@@ -79,6 +90,38 @@ function PaymentForm() {
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
   const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
   const total = info.basePrice + extraCost;
+  const canPayWithBalance = profile?.referral != null && balanceRubles >= total;
+
+  const handlePayWithBalance = async (e: FormEvent) => {
+    e.preventDefault();
+    setBalanceError("");
+    setBalanceLoading(true);
+    const result = await paymentApi.payWithBalance(planId, deviceCount, balanceIdempotencyKey);
+    setBalanceLoading(false);
+    if (!result.ok) {
+      // Backend returns these as HTTP 4xx/5xx with {ok:false, error:<code>} (no `status`
+      // field) — apiFetch surfaces them as result.error. Map each to a specific message.
+      if (result.error === "insufficient_balance") {
+        setBalanceError("Недостаточно средств на балансе. Приглашайте друзей по реферальной ссылке.");
+        await refresh();
+      } else if (result.error === "payment_in_progress") {
+        setBalanceError("Платёж уже обрабатывается. Попробуйте обновить страницу через минуту.");
+      } else if (result.error === "vless_creation_failed") {
+        setBalanceError("Не удалось выпустить VPN-ключи — средства возвращены на баланс.");
+        await refresh();
+      } else {
+        setBalanceError("Не удалось оплатить с баланса. Попробуйте позже.");
+      }
+      return;
+    }
+    // Only `completed` / `already_completed` arrive as {ok:true, data:{status:...}}.
+    const data = result.data;
+    setBalanceResult({
+      active_until: data.active_until,
+      balance_rubles_remaining: data.balance_rubles_remaining,
+    });
+    await refresh();
+  };
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
@@ -176,12 +219,50 @@ function PaymentForm() {
             </Alert>
           )}
 
+          {balanceResult && (
+            <Alert variant="info" className="mt-4">
+              <p className="text-sm font-medium text-brand-900 dark:text-brand-200">
+                ✅ Подписка оплачена с реферального баланса!
+              </p>
+              {balanceResult.active_until && (
+                <p className="mt-1 text-sm text-brand-900 dark:text-brand-200">
+                  Действует до: {balanceResult.active_until}
+                </p>
+              )}
+              {typeof balanceResult.balance_rubles_remaining === "number" && (
+                <p className="mt-1 text-xs text-brand-700 dark:text-brand-300">
+                  Остаток на балансе: {balanceResult.balance_rubles_remaining.toLocaleString("ru-RU")} ₽
+                </p>
+              )}
+              <Link
+                href="/dashboard"
+                className="mt-3 inline-block rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+              >
+                Открыть ключи
+              </Link>
+            </Alert>
+          )}
+
+          {balanceError && <Alert className="mt-4">{balanceError}</Alert>}
+
+          {canPayWithBalance && !balanceResult && (
+            <button
+              onClick={handlePayWithBalance}
+              disabled={busy}
+              className="mt-6 w-full rounded-xl border border-brand-200 bg-brand-50 py-3 text-sm font-bold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
+            >
+              {balanceLoading
+                ? "Обработка..."
+                : `Оплатить с баланса ${balanceRubles.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽`}
+            </button>
+          )}
+
           <button
             onClick={handlePay}
-            disabled={loading}
-            className="mt-6 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
+            disabled={busy || !!balanceResult}
+            className="mt-3 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оплатить ${total.toLocaleString("ru-RU")} ₽`}
+            {loading ? "Обработка..." : `Оплатить картой ${total.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">
