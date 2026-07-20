@@ -26,6 +26,9 @@ from app.persistence.slice1_postgres_wiring import (  # noqa: E402
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
 )
+from app.runtime.fulfillment_activation_notifier import (  # noqa: E402
+    FulfillmentActivationTelegramNotifierAdapter as _FulfillmentActivationTelegramNotifier,
+)
 from app.runtime.notification_scheduler import (  # noqa: E402
     NotificationScheduler,
     start_notification_scheduler,
@@ -35,7 +38,6 @@ from app.runtime.payment_fulfillment_ingress import (  # noqa: E402
     load_fulfillment_ingress_settings_from_env,
 )
 from app.runtime.server_sync_scheduler import ServerSyncScheduler  # noqa: E402
-from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient  # noqa: E402
 from app.runtime.telegram_httpx_raw_startup import build_slice1_httpx_raw_runtime_bundle  # noqa: E402
 from app.runtime.telegram_webhook_ingress import (  # noqa: E402
     create_slice1_telegram_webhook_starlette_app,
@@ -50,30 +52,6 @@ from app.security.config import ConfigurationError, load_runtime_config  # noqa:
 
 _LOGGER = logging.getLogger(__name__)
 ReadinessCheck = Callable[[], Awaitable[bool]]
-
-
-class _FulfillmentActivationTelegramNotifier:
-    """Delegates proactive activation copy to the shared raw Bot API client."""
-
-    __slots__ = ("_client",)
-
-    def __init__(self, client: HttpxTelegramRawPollingClient) -> None:
-        self._client = client
-
-    async def send_subscription_activated_notice(
-        self,
-        *,
-        telegram_user_id: int,
-        text: str,
-        reply_markup: dict[str, Any] | None,
-        correlation_id: str,
-    ) -> None:
-        await self._client.send_text_message(
-            chat_id=telegram_user_id,
-            text=text,
-            correlation_id=correlation_id,
-            reply_markup=reply_markup,
-        )
 
 
 def _truthy_env(raw: str | None) -> bool:
