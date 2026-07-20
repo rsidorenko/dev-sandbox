@@ -16,7 +16,13 @@ from starlette.routing import Route
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.middleware import require_auth, require_csrf
-from app.web_api.payment import handle_create_add_device_payment, handle_create_payment, handle_get_payment_status
+from app.web_api.payment import (
+    handle_create_add_device_balance_payment,
+    handle_create_add_device_payment,
+    handle_create_balance_payment,
+    handle_create_payment,
+    handle_get_payment_status,
+)
 from app.web_api.profile import (
     handle_activate_trial,
     handle_cancel_subscription,
@@ -131,6 +137,16 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/payment/create", _with_auth(_with_csrf(handle_create_payment)), methods=["POST"]),
         Route(
             "/api/v1/payment/add-devices", _with_auth(_with_csrf(handle_create_add_device_payment)), methods=["POST"]
+        ),
+        Route(
+            "/api/v1/payment/balance",
+            _with_auth(_with_csrf(handle_create_balance_payment)),
+            methods=["POST"],
+        ),
+        Route(
+            "/api/v1/payment/add-devices/balance",
+            _with_auth(_with_csrf(handle_create_add_device_balance_payment)),
+            methods=["POST"],
         ),
         Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
         # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
