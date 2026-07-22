@@ -1,0 +1,186 @@
+"""Промокоды: чистая доменная логика (скидки, валидация, критерии применимости).
+
+Без ввода-вывода и без зависимостей от БД — только frozen-dataclass, константы и
+чистые функции. Это позволяет покрывать математику скидки и критерии «нового
+пользователя» unit-тестами изолированно.
+
+Ключевые инварианты (выявлены адверсариальной проверкой платёжного конвейера):
+- деньги на границе YooKassa — целые рубли (create_payment принимает amount_rubles: int),
+  поэтому итог скидки округляется до целого рубля (half-up) и ТОТ ЖЕ результат
+  используется и в create_payment, и в пересчёте вебхука → сверка не расходится;
+- скидка клампится так, чтобы итог был >= 1 рубля (YooKassa не принимает 0.00) и
+  никогда не превышал базу (иначе отрицательный дебит баланса кредитовал бы юзера);
+- «новый пользователь» определяется НЕ по доступности триала, а по отсутствию
+  принятых платёжных фактов (billing_events_ledger status='accepted') — иначе
+  юзер с истёкшей платной подпиской прошёл бы как «новый».
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+
+# Применённый промокод живёт в БД (promo_applied) и должен пересчитываться при
+# оплате — поэтому TTL по умолчанию задаём здесь, в едином месте.
+PROMO_APPLIED_TTL_HOURS = 24
+
+
+class PromoAudience(StrEnum):
+    """Аудитория промокода: только новые или только «не новые» пользователи."""
+
+    NEW_USERS = "new_users"
+    EXISTING_USERS = "existing_users"
+
+
+class PromoDiscountKind(StrEnum):
+    """Тип скидки: процент от цены или фиксированная сумма в рублях."""
+
+    PERCENT = "percent"
+    FIXED_RUBLES = "fixed_rubles"
+
+
+@dataclass(frozen=True, slots=True)
+class PromoCode:
+    """Определение промокода (зеркало строки promo_codes)."""
+
+    code: str
+    audience: PromoAudience
+    discount_kind: PromoDiscountKind
+    discount_value: int
+    max_redemptions: int | None  # None = без глобального лимита
+    redemptions_count: int
+    expires_at: datetime | None  # None = бессрочно
+    is_active: bool
+    note: str | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PromoPrice:
+    """Результат применения скидки к базовой цене (в целых рублях)."""
+
+    base_rubles: int
+    discounted_rubles: int
+    discount_kopecks: int
+
+    @property
+    def discounted_kopecks(self) -> int:
+        return self.discounted_rubles * 100
+
+
+def _round_half_up(value: float) -> int:
+    """Округление к ближайшему целому, .5 — вверх (не банковское)."""
+    return math.floor(value + 0.5)
+
+
+def normalize_code(code: str) -> str:
+    """Нормализация введённого кода: trim + upper. Применяется и при создании, и при поиске."""
+    return code.strip().upper()
+
+
+def validate_code_format(code: str) -> str | None:
+    """Возвращает текст ошибки либо None, если формат кода допустим."""
+    normalized = normalize_code(code)
+    if not normalized:
+        return "Код не может быть пустым"
+    if len(normalized) < 3 or len(normalized) > 32:
+        return "Длина кода — от 3 до 32 символов"
+    if not all(ch.isascii() and (ch.isalnum()) for ch in normalized):
+        return "Код содержит недопустимые символы (только латиница и цифры)"
+    return None
+
+
+def validate_discount(kind: PromoDiscountKind, value: int) -> str | None:
+    """Возвращает текст ошибки либо None, если значение скидки допустимо."""
+    if value <= 0:
+        return "Значение скидки должно быть положительным"
+    if kind == PromoDiscountKind.PERCENT and value > 100:
+        return "Процент скидки не может превышать 100"
+    if kind == PromoDiscountKind.FIXED_RUBLES and value < 1:
+        return "Фиксированная скидка — минимум 1 рубль"
+    return None
+
+
+def is_expired(expires_at: datetime | None, now: datetime | None = None) -> bool:
+    if expires_at is None:
+        return False
+    now = now or datetime.now(UTC)
+    return now >= expires_at
+
+
+def redeem_block_reason(promo: PromoCode, now: datetime | None = None) -> str | None:
+    """Причина, по которой промокод нельзя гасить (None = можно).
+
+    Проверяет только свойства самого кода (активность, срок, глобальный лимит).
+    Принадлежность к аудитории и лимит «один на пользователя» проверяются отдельно,
+    т.к. требуют контекста пользователя и/или транзакции.
+    """
+    if not promo.is_active:
+        return "promo_inactive"
+    if is_expired(promo.expires_at, now):
+        return "promo_expired"
+    if promo.max_redemptions is not None and promo.redemptions_count >= promo.max_redemptions:
+        return "promo_exhausted"
+    return None
+
+
+def is_new_user_eligible(
+    *,
+    trial_used: bool,
+    has_active_subscription: bool,
+    has_accepted_payment: bool,
+) -> bool:
+    """true, если пользователь никогда не конвертировался (не использовал VPN платно).
+
+    Ключевые сигналы (по internal_user_id):
+    - trial_used (user_identities): когда-либо активировал триал;
+    - has_active_subscription (subscription_snapshots.state_label == 'active');
+    - has_accepted_payment (billing_events_ledger status='accepted'): canonical признак оплаты.
+
+    Только совпадение всех трёх «нет» даёт «нового». Триал опционален/откладываем,
+    поэтому trial_used и state_label по отдельности недостаточны — платный, но
+    истёкший юзер имеет trial_used=False и state_label='expired' и без признака
+    оплаты прошёл бы как «новый».
+    """
+    return not trial_used and not has_active_subscription and not has_accepted_payment
+
+
+def audience_eligible(audience: PromoAudience, *, is_new_user: bool) -> bool:
+    """Подходит ли пользователь под аудиторию промокода."""
+    if audience == PromoAudience.NEW_USERS:
+        return is_new_user
+    if audience == PromoAudience.EXISTING_USERS:
+        return not is_new_user
+    return False
+
+
+def apply_promo_discount(base_rubles: int, promo: PromoCode) -> PromoPrice:
+    """Применить скидку промокода к базовой цене (целые рубли).
+
+    Гарантии:
+    - при base_rubles <= 0 скидка не применяется (нечего скидывать — например,
+      add-device без доплаты);
+    - итог округляется до целого рубля (half-up) — требование границы YooKassa;
+    - итог >= 1 рубля, чтобы платёжный путь никогда не получал 0.00;
+    - итог <= base_rubles — скидка не может сделать цену выше базы или отрицательной;
+    - discount_kopecks = (base - discounted) * 100 — именно это значение кладётся в
+      metadata платежа и вычитается вебхуком при пересчёте ожидаемой суммы.
+    """
+    if base_rubles <= 0:
+        return PromoPrice(base_rubles=0, discounted_rubles=0, discount_kopecks=0)
+    if promo.discount_kind == PromoDiscountKind.PERCENT:
+        discounted_exact = base_rubles * (100 - promo.discount_value) / 100
+        discounted = _round_half_up(discounted_exact)
+    else:  # PromoDiscountKind.FIXED_RUBLES
+        discounted = base_rubles - promo.discount_value
+    discounted = max(1, min(discounted, base_rubles))
+    discount_kopecks = (base_rubles - discounted) * 100
+    return PromoPrice(
+        base_rubles=base_rubles,
+        discounted_rubles=discounted,
+        discount_kopecks=discount_kopecks,
+    )

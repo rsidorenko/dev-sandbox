@@ -18,6 +18,11 @@ from app.persistence.postgres_audit import PostgresAuditAppender
 from app.persistence.postgres_idempotency import PostgresIdempotencyRepository
 from app.persistence.postgres_issuance_state import PostgresIssuanceStateRepository
 from app.persistence.postgres_outbound_delivery import PostgresOutboundDeliveryLedger
+from app.persistence.postgres_promo import (
+    PostgresPromoAppliedRepository,
+    PostgresPromoCodeRepository,
+    PostgresPromoRedemptionRepository,
+)
 from app.persistence.postgres_referral import (
     PostgresReferralBalanceRepository,
     PostgresReferralCodeRepository,
@@ -104,6 +109,9 @@ async def resolve_slice1_composition_for_runtime(
         referral_relationship_repo=PostgresReferralRelationshipRepository(pool),
         referral_balance_repo=PostgresReferralBalanceRepository(pool),
         referral_transaction_repo=PostgresReferralTransactionRepository(pool),
+        promo_code_repo=PostgresPromoCodeRepository(pool),
+        promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
+        promo_applied_repo=PostgresPromoAppliedRepository(pool),
         bot_username=os.environ.get("BOT_USERNAME", ""),
         vless_provider=vless_provider,
     )

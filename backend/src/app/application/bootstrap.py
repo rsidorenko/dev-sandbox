@@ -44,12 +44,20 @@ from app.persistence.in_memory import (
     InMemoryAuditAppender,
     InMemoryIdempotencyRepository,
     InMemoryOutboundDeliveryLedger,
+    InMemoryPromoAppliedRepository,
+    InMemoryPromoCodeRepository,
+    InMemoryPromoRedemptionRepository,
     InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
     InMemoryReferralTransactionRepository,
     InMemorySubscriptionSnapshotReader,
     InMemoryUserIdentityRepository,
+)
+from app.persistence.promo_contracts import (
+    PromoAppliedRepository,
+    PromoCodeRepository,
+    PromoRedemptionRepository,
 )
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
@@ -78,6 +86,9 @@ class Slice1Composition:
     referral_relationship_repo: ReferralRelationshipRepository
     referral_balance_repo: ReferralBalanceRepository
     referral_transaction_repo: ReferralTransactionRepository
+    promo_code_repo: PromoCodeRepository
+    promo_redemption_repo: PromoRedemptionRepository
+    promo_applied_repo: PromoAppliedRepository
     bot_username: str
     vless_provider: VlessProviderPort | None = None
 
@@ -103,6 +114,9 @@ def build_slice1_composition(
     referral_relationship_repo: ReferralRelationshipRepository | None = None,
     referral_balance_repo: ReferralBalanceRepository | None = None,
     referral_transaction_repo: ReferralTransactionRepository | None = None,
+    promo_code_repo: PromoCodeRepository | None = None,
+    promo_redemption_repo: PromoRedemptionRepository | None = None,
+    promo_applied_repo: PromoAppliedRepository | None = None,
     bot_username: str | None = None,
     vless_provider: VlessProviderPort | None = None,
 ) -> Slice1Composition:
@@ -136,6 +150,9 @@ def build_slice1_composition(
     ref_rel = referral_relationship_repo or InMemoryReferralRelationshipRepository()
     ref_bal = referral_balance_repo or InMemoryReferralBalanceRepository()
     ref_tx = referral_transaction_repo or InMemoryReferralTransactionRepository()
+    promo_codes = promo_code_repo or InMemoryPromoCodeRepository()
+    promo_redemptions = promo_redemption_repo or InMemoryPromoRedemptionRepository()
+    promo_applied = promo_applied_repo or InMemoryPromoAppliedRepository()
     resolved_bot_username = bot_username or os.environ.get("BOT_USERNAME", "")
     return Slice1Composition(
         bootstrap=BootstrapIdentityHandler(identity, idempotency, audit, snapshot_writer),
@@ -166,6 +183,9 @@ def build_slice1_composition(
         referral_relationship_repo=ref_rel,
         referral_balance_repo=ref_bal,
         referral_transaction_repo=ref_tx,
+        promo_code_repo=promo_codes,
+        promo_redemption_repo=promo_redemptions,
+        promo_applied_repo=promo_applied,
         bot_username=resolved_bot_username,
         vless_provider=vless_provider,
     )
