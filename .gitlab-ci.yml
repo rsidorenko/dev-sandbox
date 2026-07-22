@@ -360,7 +360,8 @@ deploy:
       rsync -az --delete -e ssh bravada-deploy/ "$SERVER_USER@$SERVER_HOST:/opt/bravada-release/"
 
       echo "=== Run deploy on server (swap + docker compose) ==="
-      ssh "$SERVER_USER@$SERVER_HOST" 'bash -s' < scripts/ci/deploy_remote.sh
+      scp -o StrictHostKeyChecking=no scripts/ci/deploy_remote.sh "$SERVER_USER@$SERVER_HOST:/tmp/bravada_deploy_remote.sh"
+      ssh "$SERVER_USER@$SERVER_HOST" 'bash /tmp/bravada_deploy_remote.sh && rm -f /tmp/bravada_deploy_remote.sh'
 
       echo "=== Verify healthz ==="
       sleep 8
