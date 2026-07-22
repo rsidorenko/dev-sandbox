@@ -80,7 +80,7 @@ backend:test:
   cache:
     paths: [.cache/pip]
   before_script:
-    - cd backend && pip install -e .[test]
+    - pip install -e ./backend[test]
   script:
     - cd backend
     - python -m compileall src/ -q
@@ -91,7 +91,7 @@ backend:test:
 backend:postgres-smoke:
   stage: test
   image: python:3.12-slim
-  extends: .manual-rules
+  extends: .backend-rules
   interruptible: true
   services:
     - name: postgres:16-alpine
@@ -126,7 +126,7 @@ backend:postgres-smoke:
   cache:
     paths: [.cache/pip]
   before_script:
-    - cd backend && pip install -e .[test]
+    - pip install -e ./backend[test]
   script:
     - cd backend
     - python -m compileall src/ -q
@@ -154,7 +154,7 @@ backend:postgres-smoke:
 backend:postgres-retention:
   stage: test
   image: python:3.12-slim
-  extends: .manual-rules
+  extends: .backend-rules
   interruptible: true
   services:
     - name: postgres:16-alpine
@@ -169,7 +169,7 @@ backend:postgres-retention:
   cache:
     paths: [.cache/pip]
   before_script:
-    - cd backend && pip install -e .[test]
+    - pip install -e ./backend[test]
   script:
     - cd backend
     - python -m compileall src/ -q
@@ -274,7 +274,7 @@ frontend:unit:
 frontend:build:
   stage: build
   image: node:20
-  extends: .manual-rules
+  extends: .frontend-rules
   needs: ["frontend:lint", "frontend:typecheck"]
   cache:
     key: npm-frontend
@@ -288,7 +288,7 @@ frontend:build:
 frontend:e2e:
   stage: e2e
   image: node:20
-  extends: .manual-rules
+  extends: .frontend-rules
   needs: ["frontend:unit", "frontend:build"]
   cache:
     key: npm-frontend
@@ -310,7 +310,7 @@ frontend:e2e:
 frontend:gate:
   stage: e2e
   image: alpine:3.20
-  extends: .manual-rules
+  extends: .frontend-rules
   needs: ["frontend:lint", "frontend:typecheck", "frontend:build", "frontend:unit", "frontend:e2e"]
   script:
     - exit 0
