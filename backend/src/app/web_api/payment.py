@@ -101,11 +101,30 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         return safe_json_error(404, "identity_not_found")
     internal_user_id = identity["internal_user_id"]
 
+    # Применённый промокод (каноническая re-валидация). Если пригоден — списываем
+    # discounted и кладём discount_kopecks в metadata для сверки вебхуком.
+    from app.application.promo_service import resolve_active_promo
+    from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
+
+    active_promo = await resolve_active_promo(
+        pool=pool,
+        promo_applied_repo=PostgresPromoAppliedRepository(pool),
+        promo_code_repo=PostgresPromoCodeRepository(pool),
+        snapshots=None,
+        internal_user_id=internal_user_id,
+        base_rubles=total_rubles,
+    )
+    charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else total_rubles
+    charge_kopecks = charge_rubles * 100
+
     checkout_secret = (
         os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
     )
     # Always carry the real identity so the webhook credits the correct account.
     payment_metadata: dict[str, str] = {"internal_user_id": internal_user_id}
+    if active_promo is not None:
+        payment_metadata["discount_kopecks"] = str(active_promo.price.discount_kopecks)
+        payment_metadata["promo_code"] = active_promo.code
     # Checkout-reference correlation assumes a real Telegram identity —
     # validate_telegram_user_id rejects the non-positive ids used by web-only
     # accounts (which previously raised here, outside any try/except, and crashed
@@ -123,7 +142,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
 
     try:
         result = await client.create_payment(
-            amount_rubles=total_rubles,
+            amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=device_count,
             telegram_user_id=telegram_user_id,
@@ -142,8 +161,8 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             "plan_id": plan_id,
             "plan_name": plan_display_name_safe(plan_id),
             "device_count": device_count,
-            "amount_rubles": total_rubles,
-            "amount_kopecks": total_kopecks,
+            "amount_rubles": charge_rubles,
+            "amount_kopecks": charge_kopecks,
             "payment_url": result.confirmation_url,
             "payment_id": result.payment_id,
         }
@@ -239,6 +258,32 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         return safe_json_error(400, "device_count_not_higher")
     cost_kopecks = cost_rubles * 100
 
+    # Применённый промокод: cost_rubles И expected_amount_kopecks скидываются синхронно,
+    # т.к. add-device вебхук сверяет платёж именно по expected_amount_kopecks из metadata.
+    from app.application.promo_service import resolve_active_promo
+    from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
+
+    active_promo = await resolve_active_promo(
+        pool=pool,
+        promo_applied_repo=PostgresPromoAppliedRepository(pool),
+        promo_code_repo=PostgresPromoCodeRepository(pool),
+        snapshots=None,
+        internal_user_id=internal_user_id,
+        base_rubles=cost_rubles,
+    )
+    charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else cost_rubles
+    expected_amount_kopecks = (
+        active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
+    )
+    add_device_meta: dict[str, str] = {
+        "kind": "add_device",
+        "new_device_count": str(new_device_count),
+        "expected_amount_kopecks": str(expected_amount_kopecks),
+    }
+    if active_promo is not None:
+        add_device_meta["discount_kopecks"] = str(active_promo.price.discount_kopecks)
+        add_device_meta["promo_code"] = active_promo.code
+
     if not truthy(os.environ.get(ENV_YOOKASSA_ENABLED)):
         return safe_json_error(503, "payment_unavailable")
 
@@ -251,17 +296,13 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         return safe_json_error(503, "payment_provider_not_configured")
     try:
         result = await client.create_payment(
-            amount_rubles=cost_rubles,
+            amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=new_device_count,
             telegram_user_id=telegram_user_id,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — добавление устройств ({current}→{new_device_count})",
-            metadata={
-                "kind": "add_device",
-                "new_device_count": str(new_device_count),
-                "expected_amount_kopecks": str(cost_kopecks),
-            },
+            metadata=add_device_meta,
         )
     except Exception:
         _LOGGER.exception("yookassa create_payment failed (add-device)")
@@ -272,8 +313,8 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
             "ok": True,
             "status": "pending",
             "device_count": new_device_count,
-            "amount_rubles": cost_rubles,
-            "amount_kopecks": cost_kopecks,
+            "amount_rubles": charge_rubles,
+            "amount_kopecks": expected_amount_kopecks,
             "payment_url": result.confirmation_url,
             "payment_id": result.payment_id,
         }

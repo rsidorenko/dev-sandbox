@@ -15,6 +15,7 @@ from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
+from app.domain.promo import PromoCode, PromoDiscountKind
 from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
 from app.shared.site_url import get_site_base_url
 
@@ -56,6 +57,7 @@ CB_TRIAL = "start_trial"
 CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
 CB_CUSTOM_DAYS = "custom_days"
+CB_PROMOCODE = "enter_promo"
 CB_IOS_STEP = "ios_step:"
 CB_IOS_YES = "ios_yes"
 CB_IOS_NO = "ios_no"
@@ -135,6 +137,7 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
                 {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
                 {"text": "❓ Помощь", "callback_data": CB_HELP},
             ],
+            [{"text": "🎟️ Ввести промокод", "callback_data": CB_PROMOCODE}],
         ]
     )
     return _inline_kb(rows)
@@ -2079,3 +2082,53 @@ def custom_days_prompt_keyboard() -> dict[str, Any]:
 
 def text_custom_days_invalid(user_input: str) -> str:
     return f"❌ «{user_input}» — некорректное значение.\n\nВведите целое число от 1 до 365."
+
+
+# ─── Promocode flow (ввод текстом по образцу «свой тариф») ──────────────
+
+
+def text_promo_prompt() -> str:
+    return (
+        "🎟️ Промокод\n\n"
+        "Введите промокод одним сообщением — скидка применится автоматически при следующей "
+        "оплате подписки или устройств и будет действовать 24 часа."
+    )
+
+
+def promo_prompt_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}]])
+
+
+def text_promo_code_invalid(user_input: str) -> str:
+    return (
+        f"❌ «{user_input}» — некорректный промокод.\n\n"
+        "Код — от 3 до 32 символов (только латиница и цифры). Попробуйте ещё раз."
+    )
+
+
+def text_promo_not_found() -> str:
+    return "❌ Промокод не найден или больше неактивен.\n\nПроверьте написание или срок действия кода."
+
+
+def text_promo_ineligible() -> str:
+    # Аудитория (new/existing) — общая формулировка, детали намеренно скрыты.
+    return "❌ Этот промокод недоступен для вашей учётной записи."
+
+
+def text_promo_rate_limited() -> str:
+    return "⏳ Слишком много попыток ввода. Попробуйте ввести промокод чуть позже."
+
+
+def promo_offer_preview(promo: PromoCode) -> str:
+    """Человекочитаемое описание скидки без привязки к тарифу (тариф ещё не выбран)."""
+    if promo.discount_kind == PromoDiscountKind.PERCENT:
+        return f"Скидка: {promo.discount_value}% от стоимости."
+    return f"Скидка: {promo.discount_value} ₽ от стоимости."
+
+
+def text_promo_applied(code: str, *, offer_text: str) -> str:
+    return (
+        f"✅ Промокод {code} применён!\n\n"
+        f"{offer_text}\n\n"
+        "Скидка действует 24 часа и будет учтена при следующей оплате."
+    )

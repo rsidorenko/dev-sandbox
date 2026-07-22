@@ -121,33 +121,54 @@ async def pay_plan_from_balance(
     total_kopecks = calculate_total_price_kopecks(plan, device_count)
     cid = correlation_id or f"bal-pay-{uuid.uuid4()}"
 
+    # Применённый промокод: скидка применяется ОДИН РАЗ к charge_kopecks и течёт в debit,
+    # result.amount и базу комиссии (паритет карта/баланс — комиссия с discounted суммы).
+    active_promo, charge_kopecks = await _resolve_balance_discount(
+        pool=pool,
+        composition=composition,
+        internal_user_id=internal_user_id,
+        base_kopecks=total_kopecks,
+    )
+
     if pool is not None:
-        return await _pay_plan_pg(
+        result = await _pay_plan_pg(
             pool=pool,
             internal_user_id=internal_user_id,
             plan=plan,
             plan_id=plan_id,
             device_count=device_count,
-            total_kopecks=total_kopecks,
+            total_kopecks=charge_kopecks,
             correlation_id=cid,
             description_prefix=description_prefix,
             vless_provider=vless_provider,
             notifier=notifier,
             active_until_normalization=active_until_normalization,
         )
-    return await _pay_plan_inmemory(
-        composition=composition,
-        internal_user_id=internal_user_id,
-        plan=plan,
-        plan_id=plan_id,
-        device_count=device_count,
-        total_kopecks=total_kopecks,
-        correlation_id=cid,
-        description_prefix=description_prefix,
-        vless_provider=vless_provider,
-        notifier=notifier,
-        active_until_normalization=active_until_normalization,
-    )
+    else:
+        result = await _pay_plan_inmemory(
+            composition=composition,
+            internal_user_id=internal_user_id,
+            plan=plan,
+            plan_id=plan_id,
+            device_count=device_count,
+            total_kopecks=charge_kopecks,
+            correlation_id=cid,
+            description_prefix=description_prefix,
+            vless_provider=vless_provider,
+            notifier=notifier,
+            active_until_normalization=active_until_normalization,
+        )
+
+    # Погашение — только при свежем COMPLETED (не ALREADY_COMPLETED = реплей). Best-effort.
+    if result.status is BalancePaymentStatus.COMPLETED and active_promo is not None:
+        await _redeem_balance_promo(
+            pool=pool,
+            composition=composition,
+            active_promo=active_promo,
+            internal_user_id=internal_user_id,
+            payment_ref=cid,
+        )
+    return result
 
 
 async def _pay_plan_pg(
@@ -423,6 +444,7 @@ async def _add_device_pg(
     cost_kopecks = 0
     balance_after: int = 0
     new_count_resolved = new_device_count
+    active_promo_add: Any = None
 
     try:
         async with pool.acquire() as conn, conn.transaction():
@@ -464,6 +486,23 @@ async def _add_device_pg(
             if cost_rubles <= 0:
                 raise _NotHigher()
             cost_kopecks = cost_rubles * 100
+
+            # Промокод: discounted debit. resolve_active_promo читает promo_* на отдельном
+            # соединении из pool — безопасно внутри транзакции (другие таблицы, только чтение;
+            # advisory lock сериализует per-user операции, рассинхрона current здесь быть не может).
+            from app.application.promo_service import resolve_active_promo
+
+            applied_repo, code_repo, _red, _snap = _balance_promo_repos(pool, None)
+            active_promo_add = await resolve_active_promo(
+                pool=pool,
+                promo_applied_repo=applied_repo,
+                promo_code_repo=code_repo,
+                snapshots=_snap,
+                internal_user_id=internal_user_id,
+                base_rubles=cost_rubles,
+            )
+            if active_promo_add is not None:
+                cost_kopecks = active_promo_add.price.discounted_kopecks
 
             inserted = (
                 await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
@@ -517,6 +556,16 @@ async def _add_device_pg(
         _LOGGER.exception("add-device balance tx failed user=%s", internal_user_id)
         return BalancePaymentResult(BalancePaymentStatus.INTERNAL_ERROR, internal_user_id, correlation_id)
 
+    # Погашение промокода после успешной транзакции (best-effort, идемпотентно).
+    if active_promo_add is not None:
+        await _redeem_balance_promo(
+            pool=pool,
+            composition=None,
+            active_promo=active_promo_add,
+            internal_user_id=internal_user_id,
+            payment_ref=correlation_id,
+        )
+
     return BalancePaymentResult(
         BalancePaymentStatus.COMPLETED,
         internal_user_id,
@@ -552,6 +601,20 @@ async def _add_device_inmemory(
         return BalancePaymentResult(BalancePaymentStatus.NOT_HIGHER, internal_user_id, correlation_id)
     cost_kopecks = cost_rubles * 100
 
+    # Промокод (in-memory путь): discounted debit + погашение на успех (composition-репозитории).
+    from app.application.promo_service import redeem_promo_on_success, resolve_active_promo
+
+    active_promo_add = await resolve_active_promo(
+        pool=None,
+        promo_applied_repo=composition.promo_applied_repo,
+        promo_code_repo=composition.promo_code_repo,
+        snapshots=composition.snapshots,
+        internal_user_id=internal_user_id,
+        base_rubles=cost_rubles,
+    )
+    if active_promo_add is not None:
+        cost_kopecks = active_promo_add.price.discounted_kopecks
+
     debit_result = await composition.referral_balance_repo.debit(internal_user_id, cost_kopecks)
     if debit_result is None:
         return BalancePaymentResult(BalancePaymentStatus.INSUFFICIENT, internal_user_id, correlation_id)
@@ -582,6 +645,19 @@ async def _add_device_inmemory(
             created_at=now,
         )
     )
+    if active_promo_add is not None:
+        await redeem_promo_on_success(
+            pool=None,
+            promo_applied_repo=composition.promo_applied_repo,
+            promo_code_repo=composition.promo_code_repo,
+            promo_redemption_repo=composition.promo_redemption_repo,
+            internal_user_id=internal_user_id,
+            code=active_promo_add.code,
+            base_rubles=active_promo_add.price.base_rubles,
+            discounted_rubles=active_promo_add.price.discounted_rubles,
+            discount_kopecks=active_promo_add.price.discount_kopecks,
+            payment_ref=correlation_id,
+        )
     return BalancePaymentResult(
         BalancePaymentStatus.COMPLETED,
         internal_user_id,
@@ -593,6 +669,88 @@ async def _add_device_inmemory(
 
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
+
+
+def _balance_promo_repos(
+    pool: asyncpg.Pool | None, composition: Slice1Composition | None
+) -> tuple[Any, Any, Any, Any]:
+    """Репозитории промокодов для баланс-пути: (applied, code, redemption, snapshots).
+
+    На postgres инстанциируем из pool (web-обработчик передаёт composition=None), на
+    in-memory берём из composition (бот/unit-тесты). snapshots нужен только in-memory
+    ветке compute_is_new_user; на postgres is_new_user считается через SQL на pool.
+    """
+    if pool is not None:
+        from app.persistence.postgres_promo import (
+            PostgresPromoAppliedRepository,
+            PostgresPromoCodeRepository,
+            PostgresPromoRedemptionRepository,
+        )
+        return (
+            PostgresPromoAppliedRepository(pool),
+            PostgresPromoCodeRepository(pool),
+            PostgresPromoRedemptionRepository(pool),
+            None,
+        )
+    assert composition is not None  # invariant: pool is None ⇒ composition задан (бот/тесты)
+    return (
+        composition.promo_applied_repo,
+        composition.promo_code_repo,
+        composition.promo_redemption_repo,
+        composition.snapshots,
+    )
+
+
+async def _resolve_balance_discount(
+    *,
+    pool: asyncpg.Pool | None,
+    composition: Slice1Composition | None,
+    internal_user_id: str,
+    base_kopecks: int,
+) -> tuple[Any, int]:
+    """Возвращает (ActivePromo | None, charge_kopecks). charge = discounted если промокод пригоден."""
+    from app.application.promo_service import resolve_active_promo
+
+    base_rubles = base_kopecks // 100
+    if base_rubles <= 0:
+        return None, base_kopecks
+    applied, code_repo, _redemption, snapshots = _balance_promo_repos(pool, composition)
+    active = await resolve_active_promo(
+        pool=pool,
+        promo_applied_repo=applied,
+        promo_code_repo=code_repo,
+        snapshots=snapshots,
+        internal_user_id=internal_user_id,
+        base_rubles=base_rubles,
+    )
+    charge = active.price.discounted_kopecks if active is not None else base_kopecks
+    return active, charge
+
+
+async def _redeem_balance_promo(
+    *,
+    pool: asyncpg.Pool | None,
+    composition: Slice1Composition | None,
+    active_promo: Any,
+    internal_user_id: str,
+    payment_ref: str,
+) -> None:
+    """Best-effort погашение промокода при успехе баланс-оплаты (атомарно, идемпотентно)."""
+    from app.application.promo_service import redeem_promo_on_success
+
+    applied, code_repo, redemption, _snapshots = _balance_promo_repos(pool, composition)
+    await redeem_promo_on_success(
+        pool=pool,
+        promo_applied_repo=applied,
+        promo_code_repo=code_repo,
+        promo_redemption_repo=redemption,
+        internal_user_id=internal_user_id,
+        code=active_promo.code,
+        base_rubles=active_promo.price.base_rubles,
+        discounted_rubles=active_promo.price.discounted_rubles,
+        discount_kopecks=active_promo.price.discount_kopecks,
+        payment_ref=payment_ref,
+    )
 
 
 async def _ensure_vless_keys_atomic(

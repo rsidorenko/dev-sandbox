@@ -67,6 +67,7 @@ from app.bot_transport.storefront_ui import (
     CB_MY_SUB,
     CB_PAY_BALANCE,
     CB_PLAN,
+    CB_PROMOCODE,
     CB_REFERRAL,
     CB_REISSUE_CONFIRM,
     CB_REISSUE_KEYS,
@@ -186,6 +187,8 @@ from app.bot_transport.storefront_ui import (
     main_menu_keyboard,
     my_keys_menu_keyboard,
     no_subscription_keyboard,
+    promo_offer_preview,
+    promo_prompt_keyboard,
     reissue_confirm_keyboard,
     remove_device_keyboard,
     settings_keyboard,
@@ -220,6 +223,12 @@ from app.bot_transport.storefront_ui import (
     text_my_keys_menu,
     text_no_subscription,
     text_payment_unavailable,
+    text_promo_applied,
+    text_promo_code_invalid,
+    text_promo_ineligible,
+    text_promo_not_found,
+    text_promo_prompt,
+    text_promo_rate_limited,
     text_purchase_summary,
     text_referral_program,
     text_reissue_confirm,
@@ -269,6 +278,10 @@ _LOGGER = logging.getLogger(__name__)
 # ─── Custom days input state ────────────────────────────────────────
 
 _awaiting_custom_days: dict[int, bool] = {}
+# Флаг FSM «ждём ввод промокода текстом» — параллелен _awaiting_custom_days.
+# Сам применённый промокод хранится в БД (promo_applied), а не здесь: этот флаг лишь
+# переключает text-input guard, чтобы сообщение-код не ушло в email-linking.
+_awaiting_promo_code: dict[int, bool] = {}
 _last_connect_platform: dict[int, str] = {}
 
 # Debounce accidental double-click on the "pay with balance" inline button: two rapid
@@ -571,6 +584,76 @@ def _handle_custom_days_input(
     return text, keyboard, True
 
 
+async def _handle_promo_code_input(
+    composition: Slice1Composition,
+    uid: int | None,
+    user_text: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Обработать ввод промокода текстом → валидация → запись в promo_applied → текст.
+
+    Возвращает (text, keyboard). Rate-limit — ключ PROMOCODE (5/мин, anti-bruteforce).
+    Применённый промокод пишется в БД (promo_applied, TTL 24ч) — переживает деплой.
+    Скидка канонически пере-валидируется при оплате (resolve_active_promo), поэтому здесь
+    сохраняется лишь «намерение». Флаг FSM сбрасывается только при успехе (retry по опечатке).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.application.promo_service import compute_is_new_user
+    from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
+    from app.domain.promo import (
+        PROMO_APPLIED_TTL_HOURS,
+        audience_eligible,
+        normalize_code,
+        redeem_block_reason,
+        validate_code_format,
+    )
+
+    prompt_keyboard = promo_prompt_keyboard()
+    if uid is None:
+        return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Storefront-колбэки обходят командный лимитер — явная проверка только ввода текстом.
+    allowed = await composition.command_rate_limiter.allow(
+        telegram_user_id=uid,
+        command_key=TelegramCommandRateLimitKey.PROMOCODE,
+    )
+    if not allowed:
+        return text_promo_rate_limited(), prompt_keyboard
+
+    code = normalize_code(user_text)
+    if validate_code_format(code) is not None:
+        return text_promo_code_invalid(user_text), prompt_keyboard
+
+    promo = await composition.promo_code_repo.get(code)
+    if promo is None:
+        return text_promo_not_found(), prompt_keyboard
+
+    now = datetime.now(UTC)
+    if redeem_block_reason(promo, now) is not None:
+        # inactive/expired/exhausted — для пользователя единое «не найден/неактивен».
+        return text_promo_not_found(), prompt_keyboard
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    resolved_iid = internal_user_id or f"u{uid}"
+    is_new = await compute_is_new_user(
+        pool=_get_pool_from_composition(composition),
+        snapshots=composition.snapshots,
+        internal_user_id=resolved_iid,
+    )
+    if not audience_eligible(promo.audience, is_new_user=is_new):
+        return text_promo_ineligible(), prompt_keyboard
+
+    expires_at = now + timedelta(hours=PROMO_APPLIED_TTL_HOURS)
+    await composition.promo_applied_repo.upsert(resolved_iid, code, expires_at)
+
+    # Успех — сбрасываем флаг FSM (до этого повторный ввод был возможен).
+    _awaiting_promo_code.pop(uid, None)
+    return (
+        text_promo_applied(code, offer_text=promo_offer_preview(promo)),
+        await _main_menu_keyboard(composition, uid),
+    )
+
+
 # ─── User ID extraction ──────────────────────────────────────────────
 
 
@@ -621,6 +704,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_MAIN_MENU,
         CB_BUY_VPN,
         CB_CUSTOM_DAYS,
+        CB_PROMOCODE,
         CB_MY_SUB,
         CB_MY_KEYS,
         CB_ALL_KEYS,
@@ -1273,6 +1357,32 @@ async def _process_yookassa_payment(
 
     total_rubles = calculate_total_price(plan, device_count)
 
+    # Применённый промокод: каноническая re-валидация (активность/срок/лимит/аудитория).
+    # Если пригоден — списываем discounted, кладём discount_kopecks в metadata платежа,
+    # чтобы вебхук вычел его из ожидаемой суммы при сверке (round-trip доказан add-device).
+    charge_rubles = total_rubles
+    discount_kopecks = 0
+    payment_metadata: dict[str, str] = {}
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is not None:
+        from app.application.promo_service import resolve_active_promo
+
+        active = await resolve_active_promo(
+            pool=_get_pool_from_composition(composition),
+            promo_applied_repo=composition.promo_applied_repo,
+            promo_code_repo=composition.promo_code_repo,
+            snapshots=composition.snapshots,
+            internal_user_id=internal_user_id,
+            base_rubles=total_rubles,
+        )
+        if active is not None:
+            charge_rubles = active.price.discounted_rubles
+            discount_kopecks = active.price.discount_kopecks
+            payment_metadata = {
+                "discount_kopecks": str(discount_kopecks),
+                "promo_code": active.code,
+            }
+
     client = YooKassaClient.from_env()
     if client is None:
         _logger.warning("yookassa not configured, cannot create bot payment")
@@ -1281,12 +1391,13 @@ async def _process_yookassa_payment(
     return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
     try:
         result = await client.create_payment(
-            amount_rubles=total_rubles,
+            amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=device_count,
             telegram_user_id=uid,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — {plan_display_name(plan_id)}",
+            metadata=payment_metadata,
         )
     except Exception:
         _logger.exception("yookassa create_payment failed in bot flow")
@@ -1297,10 +1408,17 @@ async def _process_yookassa_payment(
     set_pending_payment_for_user(uid, result.payment_id)
 
     display_name = plan_display_name(plan_id)
+    if discount_kopecks > 0:
+        price_line = (
+            f"💰 К оплате: {charge_rubles} ₽ "
+            f"(скидка по промокоду −{discount_kopecks // 100} ₽)"
+        )
+    else:
+        price_line = f"💰 К оплате: {charge_rubles} ₽"
     text = (
         f"📋 Оформление подписки\n\n"
         f"🔹 Тариф: {display_name}\n"
-        f"💰 К оплате: {total_rubles} ₽\n\n"
+        f"{price_line}\n\n"
         f"Нажмите кнопку ниже для перехода на страницу оплаты 👇"
     )
     keyboard = {
@@ -1519,7 +1637,32 @@ async def _process_add_device_yookassa(
     cost_rubles = extra_device_cost(new_count, current, duration_days)
     if cost_rubles <= 0:
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
-    cost_kopecks = cost_rubles * 100
+
+    # Применённый промокод: cost_rubles И expected_amount_kopecks скидываются синхронно,
+    # т.к. add-device вебхук сверяет платёж именно по expected_amount_kopecks из metadata.
+    charge_rubles = cost_rubles
+    expected_amount_kopecks = cost_rubles * 100
+    add_device_meta: dict[str, str] = {
+        "kind": "add_device",
+        "new_device_count": str(new_count),
+        "expected_amount_kopecks": str(expected_amount_kopecks),
+    }
+    from app.application.promo_service import resolve_active_promo
+
+    active = await resolve_active_promo(
+        pool=_get_pool_from_composition(composition),
+        promo_applied_repo=composition.promo_applied_repo,
+        promo_code_repo=composition.promo_code_repo,
+        snapshots=composition.snapshots,
+        internal_user_id=internal_user_id,
+        base_rubles=cost_rubles,
+    )
+    if active is not None:
+        charge_rubles = active.price.discounted_rubles
+        expected_amount_kopecks = active.price.discounted_kopecks
+        add_device_meta["expected_amount_kopecks"] = str(expected_amount_kopecks)
+        add_device_meta["discount_kopecks"] = str(active.price.discount_kopecks)
+        add_device_meta["promo_code"] = active.code
 
     client = YooKassaClient.from_env()
     if client is None:
@@ -1529,17 +1672,13 @@ async def _process_add_device_yookassa(
     return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
     try:
         result = await client.create_payment(
-            amount_rubles=cost_rubles,
+            amount_rubles=charge_rubles,
             plan_id=snap.plan_id or "1m",
             device_count=new_count,
             telegram_user_id=uid,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — добавление устройств ({current}→{new_count})",
-            metadata={
-                "kind": "add_device",
-                "new_device_count": str(new_count),
-                "expected_amount_kopecks": str(cost_kopecks),
-            },
+            metadata=add_device_meta,
         )
     except Exception:
         _logger.exception("yookassa create_payment failed in add-device flow")
@@ -1549,10 +1688,17 @@ async def _process_add_device_yookassa(
 
     set_pending_payment_for_user(uid, result.payment_id)
 
+    if active is not None:
+        price_line = (
+            f"💰 К оплате: {charge_rubles} ₽ "
+            f"(скидка по промокоду −{active.price.discount_kopecks // 100} ₽)"
+        )
+    else:
+        price_line = f"💰 К оплате: {charge_rubles} ₽"
     text = (
         "📋 Добавление устройств\n\n"
         f"📱 Устройств: {current} → {new_count}\n"
-        f"💰 К оплате: {cost_rubles} ₽\n\n"
+        f"{price_line}\n\n"
         "Нажмите кнопку ниже для перехода на страницу оплаты 👇"
     )
     keyboard = {
@@ -1968,6 +2114,15 @@ async def _render_storefront_response(
         text = text_custom_days_prompt()
         keyboard = custom_days_prompt_keyboard()
 
+    elif code == CB_PROMOCODE:
+        # Storefront-колбэки обходят командный лимитер, поэтому флаг FSM ставим здесь,
+        # а сам rate-limit ввода текстом — в _handle_promo_code_input (ключ PROMOCODE).
+        if uid is not None:
+            _awaiting_promo_code[uid] = True
+            _trim_inmemory_dict(_awaiting_promo_code)
+        text = text_promo_prompt()
+        keyboard = promo_prompt_keyboard()
+
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN) :]
         plan = get_plan(plan_id)
@@ -2197,6 +2352,20 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         action_keys=(),
                         correlation_id=correlation_id or uuid.uuid4().hex,
                         reply_markup=custom_keyboard,
+                        replay_suppresses_outbound=False,
+                        uc01_idempotency_key=None,
+                    )
+                if _awaiting_promo_code.get(uid, False):
+                    # Флаг сбрасывается только при успешном применении (внутри обработчика) —
+                    # как в custom_days, чтобы опечатку можно было сразу исправить новым сообщением.
+                    promo_text, promo_keyboard = await _handle_promo_code_input(
+                        composition, uid, user_text.strip()
+                    )
+                    return RenderedMessagePackage(
+                        message_text=promo_text,
+                        action_keys=(),
+                        correlation_id=correlation_id or uuid.uuid4().hex,
+                        reply_markup=promo_keyboard,
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
                     )

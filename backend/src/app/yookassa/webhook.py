@@ -140,16 +140,69 @@ def _validate_add_device_amount(expected_amount_kopecks: int, paid_kopecks: int 
     return abs(paid_kopecks - expected_amount_kopecks) <= 1
 
 
-def _expected_subscription_kopecks(plan: Any, device_count: int) -> int:
-    """Kopecks a subscription purchase is expected to cost: plan price + extra devices.
+def _expected_subscription_kopecks(plan: Any, device_count: int, *, discount_kopecks: int = 0) -> int:
+    """Kopecks a subscription purchase is expected to cost: plan price + extra devices − promo.
 
-    The bot/web charge ``calculate_total_price(plan, device_count)`` at creation, so
-    the webhook must expect the same — checking only ``plan.price_rubles`` rejected
-    every card purchase with >5 devices (charged for devices, but unmatched → 409).
+    The bot/web charge ``calculate_total_price(plan, device_count)`` at creation and apply the
+    promo discount there, carrying ``discount_kopecks`` in the payment metadata. The webhook must
+    expect the SAME discounted amount — subtracting ``discount_kopecks`` here keeps the amount
+    gate in sync with what was charged (otherwise every promo payment → 409 amount_mismatch).
+    Default 0 for legacy payments without the field (charged full price → unchanged behaviour).
     """
     from app.domain.plans import calculate_total_price
 
-    return calculate_total_price(plan, device_count) * 100
+    return calculate_total_price(plan, device_count) * 100 - max(0, discount_kopecks)
+
+
+def _promo_from_metadata(metadata: dict[str, Any]) -> tuple[str, int] | None:
+    """Промокод платежа из metadata: (code, discount_kopecks) или None, если кода нет.
+
+    Безопасный parse как _parse_add_device_metadata: default 0 для legacy-платежей без поля.
+    """
+    code = metadata.get("promo_code", "")
+    if not isinstance(code, str) or not code:
+        return None
+    try:
+        discount_kopecks = int(metadata.get("discount_kopecks", "0"))
+    except (ValueError, TypeError):
+        discount_kopecks = 0
+    return code, max(0, discount_kopecks)
+
+
+async def _redeem_webhook_promo(
+    *,
+    pool: asyncpg.Pool,
+    code: str,
+    base_rubles: int,
+    discounted_rubles: int,
+    discount_kopecks: int,
+    internal_user_id: str,
+    payment_ref: str,
+) -> None:
+    """Best-effort погашение промокода при успехе карточной оплаты (атомарно, идемпотентно).
+
+    Срабатывает и при повторном вебхуке — UNIQUE(idempotency_key) гасит дубль без двойного +1.
+    Деньги/fulfillment уже прошли, поэтому сбой погашения лишь логируется (аудит-пробел).
+    """
+    from app.application.promo_service import redeem_promo_on_success
+    from app.persistence.postgres_promo import (
+        PostgresPromoAppliedRepository,
+        PostgresPromoCodeRepository,
+        PostgresPromoRedemptionRepository,
+    )
+
+    await redeem_promo_on_success(
+        pool=pool,
+        promo_applied_repo=PostgresPromoAppliedRepository(pool),
+        promo_code_repo=PostgresPromoCodeRepository(pool),
+        promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
+        internal_user_id=internal_user_id,
+        code=code,
+        base_rubles=base_rubles,
+        discounted_rubles=discounted_rubles,
+        discount_kopecks=discount_kopecks,
+        payment_ref=payment_ref,
+    )
 
 
 def _resolve_subscription_internal_user_id(metadata: dict[str, Any], telegram_user_id: int) -> str:
@@ -355,6 +408,20 @@ def create_yookassa_webhook_handler(
                     exc_info=True,
                 )
 
+        # Погашение промокода (best-effort, идемпотентно). add-device: base = discounted + discount
+        # (expected_amount_kopecks уже = discounted стоимости доплаты за устройства).
+        add_promo = _promo_from_metadata(metadata)
+        if add_promo is not None:
+            await _redeem_webhook_promo(
+                pool=pool,
+                code=add_promo[0],
+                base_rubles=(expected_amount_kopecks + add_promo[1]) // 100,
+                discounted_rubles=expected_amount_kopecks // 100,
+                discount_kopecks=add_promo[1],
+                internal_user_id=internal_user_id,
+                payment_ref=payment_id,
+            )
+
         await _edit_payment_message_success(
             payment_id,
             success_text=(
@@ -464,10 +531,13 @@ def create_yookassa_webhook_handler(
         amount_kopecks = _amount_value_to_kopecks(verified.amount_value)
 
         # Expected amount must cover the plan PLUS any extra devices the user paid
-        # for (the bot/web charge calculate_total_price at creation). Checking only
-        # plan.price_rubles rejected every card purchase with >5 devices and left
-        # the user charged-but-unsubscribed.
-        expected_kopecks = _expected_subscription_kopecks(plan, device_count)
+        # for (the bot/web charge calculate_total_price at creation), MINUS the promo
+        # discount carried in metadata (default 0 for legacy payments without the field).
+        promo = _promo_from_metadata(metadata)
+        discount_kopecks = promo[1] if promo is not None else 0
+        expected_kopecks = _expected_subscription_kopecks(
+            plan, device_count, discount_kopecks=discount_kopecks
+        )
         if amount_kopecks is not None and abs(amount_kopecks - expected_kopecks) > 1:
             _LOGGER.warning(
                 "yookassa webhook: amount mismatch expected=%d got=%d id=%s",
@@ -539,6 +609,22 @@ def create_yookassa_webhook_handler(
             internal_user_id,
             result.operation_outcome.value,
         )
+
+        # Погашение промокода (best-effort, идемпотентно). base/discounted пересчитываем из
+        # канонической цены и discount_kopecks из metadata — те же значения, что при оплате.
+        if promo is not None:
+            from app.domain.plans import calculate_total_price as _calc_total
+
+            base_rubles = _calc_total(plan, device_count)
+            await _redeem_webhook_promo(
+                pool=pool,
+                code=promo[0],
+                base_rubles=base_rubles,
+                discounted_rubles=max(0, base_rubles - promo[1] // 100),
+                discount_kopecks=promo[1],
+                internal_user_id=internal_user_id,
+                payment_ref=payment_id,
+            )
 
         # Edit the original bot payment message to show success
         active_until_str = "не указано"
