@@ -337,8 +337,7 @@ deploy:
     - apt-get update -qq
     - apt-get install -y -qq openssh-client rsync sshpass curl jq python3 > /dev/null
     - eval $(ssh-agent -s)
-    - chmod 400 "$SERVER_SSH_KEY"
-    - ssh-add "$SERVER_SSH_KEY"
+    - printf '%s' "$SERVER_SSH_KEY" | base64 -d > /tmp/deploy_key && chmod 400 /tmp/deploy_key && ssh-add /tmp/deploy_key
     - mkdir -p ~/.ssh
     - printf 'Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile /dev/null\n' > ~/.ssh/config
   script:
