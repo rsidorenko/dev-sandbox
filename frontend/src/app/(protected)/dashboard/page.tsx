@@ -7,6 +7,7 @@ import { authApi } from "@/features/auth/api";
 import { normalizePlanId } from "@/entities/tariff/helpers";
 import { useAuth } from "@/shared/lib/auth";
 import { KeysModal } from "@/features/keys/KeysModal";
+import { PromocodeCard } from "@/features/promocode/PromocodeCard";
 import { SubscriptionCard } from "@/features/subscription/SubscriptionCard";
 
 export default function DashboardPage() {
@@ -71,6 +72,8 @@ export default function DashboardPage() {
               router.push(`/payment/${normalizePlanId(sub?.plan_id)}`)
             }
           />
+
+          <PromocodeCard />
 
           <div className="mt-6 text-center">
             <Link

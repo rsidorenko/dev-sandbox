@@ -15,7 +15,7 @@ from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
-from app.domain.promo import PromoCode, PromoDiscountKind
+from app.domain.promo import PromoCode, PromoDiscountKind, apply_promo_discount
 from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
 from app.shared.site_url import get_site_base_url
 
@@ -58,6 +58,8 @@ CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
 CB_CUSTOM_DAYS = "custom_days"
 CB_PROMOCODE = "enter_promo"
+# Ввод промокода ИЗ сводки покупки (несёт plan:devices, чтобы после ввода вернуться к заказу).
+CB_PROMO_AT = "enter_promo:"
 CB_IOS_STEP = "ios_step:"
 CB_IOS_YES = "ios_yes"
 CB_IOS_NO = "ios_no"
@@ -188,6 +190,7 @@ def confirm_pay_keyboard(
     *,
     balance_kopecks: int = 0,
     total_kopecks: int = 0,
+    promo: PromoCode | None = None,
 ) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = [
         [{"text": "💳 Оплатить", "callback_data": f"{CB_DO_PAY}{plan_id}:{device_count}"}],
@@ -201,6 +204,18 @@ def confirm_pay_keyboard(
                 }
             ]
         )
+    # Промокод: точка ввода внутри оплаты (Фаза 4). После ввода FSM возвращает к этой сводке.
+    if promo is not None:
+        rows.append(
+            [
+                {
+                    "text": f"🎁 {promo.code} ({promo_badge_label(promo)}) — изменить",
+                    "callback_data": f"{CB_PROMO_AT}{plan_id}:{device_count}",
+                }
+            ]
+        )
+    else:
+        rows.append([{"text": "🎟️ Ввести промокод", "callback_data": f"{CB_PROMO_AT}{plan_id}:{device_count}"}])
     rows.append([{"text": "↩️ Назад", "callback_data": f"{CB_DEVICES}{plan_id}:{device_count}"}])
     return _inline_kb(rows)
 
@@ -289,10 +304,11 @@ def text_device_select(plan_id: str, price_rubles: int, duration_days: int, devi
     return "\n".join(lines)
 
 
-def text_purchase_summary(summary: PurchaseSummary) -> str:
-    lines = [
-        "<b>📋 Заказ:</b>",
-        "",
+def text_purchase_summary(summary: PurchaseSummary, *, promo: PromoCode | None = None, promo_note: str = "") -> str:
+    lines = ["<b>📋 Заказ:</b>", ""]
+    if promo_note:
+        lines += [promo_note, ""]
+    lines += [
         f"  Тариф: {summary.plan_display_name}",
         f"  Устройств: {summary.device_count}",
     ]
@@ -301,7 +317,20 @@ def text_purchase_summary(summary: PurchaseSummary) -> str:
         lines.append(
             f"  Доп. устройств: {summary.extra_devices} × {daily_price:.1f} ₽/день × {summary.duration_days} дн = {summary.extra_device_cost_rubles} ₽"
         )
-    lines.extend(["", f"💳 К оплате: {summary.total_price_rubles} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
+    base = summary.total_price_rubles
+    if promo is not None:
+        # Скидка канонически считается тем же apply_promo_discount, что и при оплате.
+        price = apply_promo_discount(base, promo)
+        lines += ["", f"  🎁 Промокод {promo.code}: {promo_badge_label(promo)}"]
+        lines.append(f"  Скидка: {base - price.discounted_rubles} ₽")
+        lines += [
+            "",
+            f"💳 К оплате: {price.discounted_rubles} ₽ (вместо {base} ₽)",
+            "",
+            "Нажмите «Оплатить» для перехода к оплате.",
+        ]
+    else:
+        lines.extend(["", f"💳 К оплате: {base} ₽", "", "Нажмите «Оплатить» для перехода к оплате."])
     return "\n".join(lines)
 
 
@@ -2095,8 +2124,8 @@ def text_promo_prompt() -> str:
     )
 
 
-def promo_prompt_keyboard() -> dict[str, Any]:
-    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}]])
+def promo_prompt_keyboard(*, back_callback: str = CB_MAIN_MENU) -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": back_callback}]])
 
 
 def text_promo_code_invalid(user_input: str) -> str:
@@ -2124,6 +2153,23 @@ def promo_offer_preview(promo: PromoCode) -> str:
     if promo.discount_kind == PromoDiscountKind.PERCENT:
         return f"Скидка: {promo.discount_value}% от стоимости."
     return f"Скидка: {promo.discount_value} ₽ от стоимости."
+
+
+def promo_badge_label(promo: PromoCode) -> str:
+    """Короткая подпись скидки для бейджей/кнопок: «−15%» или «−200 ₽»."""
+    if promo.discount_kind == PromoDiscountKind.PERCENT:
+        return f"−{promo.discount_value}%"
+    return f"−{promo.discount_value} ₽"
+
+
+def promo_menu_badge(code: str, label: str, remaining_hours: int) -> str:
+    """Строка-бейдж закреплённого промокода для главного меню / статуса подписки."""
+    return f"\n\n🎁 Промокод {code}: {label} (ещё {remaining_hours} ч)"
+
+
+def text_promo_applied_in_order(code: str, label: str) -> str:
+    """Короткая подтверждайка при успешном вводе промокода внутри оплаты (над сводкой)."""
+    return f"✅ Промокод {code} применён ({label}) — скидка учтена в заказе ниже."
 
 
 def text_promo_applied(code: str, *, offer_text: str) -> str:

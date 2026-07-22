@@ -15,7 +15,11 @@ from dataclasses import replace
 from typing import Any
 
 from app.application.bootstrap import Slice1Composition
-from app.application.purchase_handler import build_purchase_summary, get_available_plans
+from app.application.purchase_handler import (
+    PurchaseSummary,
+    build_purchase_summary,
+    get_available_plans,
+)
 from app.bot_transport.message_catalog import RenderedMessagePackage, render_telegram_outbound_plan
 from app.bot_transport.outbound import (
     build_subscription_active_recovery_confirmation_plan,
@@ -67,6 +71,7 @@ from app.bot_transport.storefront_ui import (
     CB_MY_SUB,
     CB_PAY_BALANCE,
     CB_PLAN,
+    CB_PROMO_AT,
     CB_PROMOCODE,
     CB_REFERRAL,
     CB_REISSUE_CONFIRM,
@@ -187,6 +192,8 @@ from app.bot_transport.storefront_ui import (
     main_menu_keyboard,
     my_keys_menu_keyboard,
     no_subscription_keyboard,
+    promo_badge_label,
+    promo_menu_badge,
     promo_offer_preview,
     promo_prompt_keyboard,
     reissue_confirm_keyboard,
@@ -224,6 +231,7 @@ from app.bot_transport.storefront_ui import (
     text_no_subscription,
     text_payment_unavailable,
     text_promo_applied,
+    text_promo_applied_in_order,
     text_promo_code_invalid,
     text_promo_ineligible,
     text_promo_not_found,
@@ -279,9 +287,11 @@ _LOGGER = logging.getLogger(__name__)
 
 _awaiting_custom_days: dict[int, bool] = {}
 # Флаг FSM «ждём ввод промокода текстом» — параллелен _awaiting_custom_days.
-# Сам применённый промокод хранится в БД (promo_applied), а не здесь: этот флаг лишь
-# переключает text-input guard, чтобы сообщение-код не ушло в email-linking.
-_awaiting_promo_code: dict[int, bool] = {}
+# Значение = callback возврата (CB_MAIN_MENU из меню либо f"{CB_CONFIRM_PAY}...:N" из
+# сводки покупки) — куда вернуться после успешного ввода. Сам применённый промокод
+# хранится в БД (promo_applied), а не здесь: этот флаг лишь переключает text-input
+# guard, чтобы сообщение-код не ушло в email-linking.
+_awaiting_promo_code: dict[int, str] = {}
 _last_connect_platform: dict[int, str] = {}
 
 # Debounce accidental double-click on the "pay with balance" inline button: two rapid
@@ -584,17 +594,127 @@ def _handle_custom_days_input(
     return text, keyboard, True
 
 
+async def _active_applied_promo(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> tuple[Any, Any] | None:
+    """Закреплённый промокод для отображения — (promo, expires_at) либо None.
+
+    Каноническая re-валидация (как при оплате): запись есть и не протухла, код
+    существует, активен/в сроке/лимит не исчерпан, аудитория подходит. expires_at
+    нужен бейджу «ещё N ч».
+    """
+    if uid is None:
+        return None
+    from datetime import UTC, datetime
+
+    from app.application.promo_service import compute_is_new_user
+    from app.domain.promo import audience_eligible, redeem_block_reason
+
+    resolved_iid = (await _get_internal_user_id(composition, uid)) or f"u{uid}"
+    now = datetime.now(UTC)
+    applied = await composition.promo_applied_repo.get(resolved_iid)
+    if applied is None or applied.is_expired(now):
+        return None
+    promo = await composition.promo_code_repo.get(applied.code)
+    if promo is None or redeem_block_reason(promo, now) is not None:
+        return None
+    is_new = await compute_is_new_user(
+        pool=_get_pool_from_composition(composition),
+        snapshots=composition.snapshots,
+        internal_user_id=resolved_iid,
+    )
+    if not audience_eligible(promo.audience, is_new_user=is_new):
+        return None
+    return promo, applied.expires_at
+
+
+def _promo_remaining_hours(expires_at: Any) -> int:
+    from datetime import UTC, datetime
+
+    delta = expires_at - datetime.now(UTC)
+    return max(0, int(delta.total_seconds() // 3600))
+
+
+async def _promo_menu_badge(composition: Slice1Composition, uid: int | None) -> str:
+    """Бейдж закреплённого промокода для меню/статуса ('' если промокода нет)."""
+    active = await _active_applied_promo(composition, uid)
+    if active is None:
+        return ""
+    promo, expires_at = active
+    return promo_menu_badge(promo.code, promo_badge_label(promo), _promo_remaining_hours(expires_at))
+
+
+async def _main_menu_text(composition: Slice1Composition, uid: int | None) -> str:
+    return text_main_menu() + await _promo_menu_badge(composition, uid)
+
+
+async def _render_purchase_summary(
+    composition: Slice1Composition,
+    uid: int | None,
+    plan_id: str,
+    device_count: int,
+    *,
+    promo_note: str = "",
+) -> tuple[str, dict[str, Any] | None]:
+    """Сводка заказа со скидкой закреплённого промокода + кнопкой ввода промокода.
+
+    Скидка — отображение того же apply_promo_discount, что применяется при оплате
+    (CB_DO_PAY/CB_PAY_BALANCE пере-резолвят resolve_active_promo). Кнопка промокода
+    ведёт в FSM с возвратом к этой сводке. Гейт «С баланса» ориентируется на скидочную
+    сумму.
+    """
+    from app.domain.promo import apply_promo_discount
+
+    summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
+    if not isinstance(summary, PurchaseSummary):
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    user_balance_kopecks = 0
+    if uid is not None:
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is not None:
+            from app.application.referral_handler import get_referral_balance
+
+            bal = await get_referral_balance(
+                internal_user_id=id_rec.internal_user_id,
+                balance_repo=composition.referral_balance_repo,
+            )
+            user_balance_kopecks = bal.balance_kopecks
+
+    active = await _active_applied_promo(composition, uid)
+    promo = active[0] if active is not None else None
+    text = text_purchase_summary(summary, promo=promo, promo_note=promo_note)
+
+    if promo is not None:
+        price = apply_promo_discount(summary.total_price_rubles, promo)
+        charge_kopecks = price.discounted_rubles * 100
+    else:
+        charge_kopecks = summary.total_price_rubles * 100
+    keyboard = confirm_pay_keyboard(
+        plan_id,
+        device_count,
+        balance_kopecks=user_balance_kopecks,
+        total_kopecks=charge_kopecks,
+        promo=promo,
+    )
+    return text, keyboard
+
+
 async def _handle_promo_code_input(
     composition: Slice1Composition,
     uid: int | None,
     user_text: str,
+    return_target: str = CB_MAIN_MENU,
 ) -> tuple[str, dict[str, Any] | None]:
     """Обработать ввод промокода текстом → валидация → запись в promo_applied → текст.
 
-    Возвращает (text, keyboard). Rate-limit — ключ PROMOCODE (5/мин, anti-bruteforce).
-    Применённый промокод пишется в БД (promo_applied, TTL 24ч) — переживает деплой.
-    Скидка канонически пере-валидируется при оплате (resolve_active_promo), поэтому здесь
-    сохраняется лишь «намерение». Флаг FSM сбрасывается только при успехе (retry по опечатке).
+    Возвращает (text, keyboard). ``return_target`` — callback возврата после успеха
+    (CB_MAIN_MENU из главного меню либо f"{CB_CONFIRM_PAY}plan:N" из сводки покупки).
+    Rate-limit — ключ PROMOCODE (5/мин, anti-bruteforce). Применённый промокод пишется
+    в БД (promo_applied, TTL 24ч) — переживает деплой. Скидка канонически
+    пере-валидируется при оплате (resolve_active_promo), поэтому здесь сохраняется лишь
+    «намерение». Флаг FSM сбрасывается только при успехе (retry по опечатке).
     """
     from datetime import UTC, datetime, timedelta
 
@@ -608,7 +728,7 @@ async def _handle_promo_code_input(
         validate_code_format,
     )
 
-    prompt_keyboard = promo_prompt_keyboard()
+    prompt_keyboard = promo_prompt_keyboard(back_callback=return_target)
     if uid is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
@@ -648,6 +768,17 @@ async def _handle_promo_code_input(
 
     # Успех — сбрасываем флаг FSM (до этого повторный ввод был возможен).
     _awaiting_promo_code.pop(uid, None)
+    # Куда вернуться: из главного меню — в меню с бейджем; из оплаты — к сводке со скидкой.
+    if return_target.startswith(CB_CONFIRM_PAY):
+        rest = return_target[len(CB_CONFIRM_PAY) :]
+        sep = rest.rfind(":")
+        plan_id = rest[:sep] if sep >= 0 else rest
+        try:
+            device_count = int(rest[sep + 1 :]) if sep >= 0 else DEVICES_DEFAULT
+        except ValueError:
+            device_count = DEVICES_DEFAULT
+        note = text_promo_applied_in_order(code, promo_badge_label(promo))
+        return await _render_purchase_summary(composition, uid, plan_id, device_count, promo_note=note)
     return (
         text_promo_applied(code, offer_text=promo_offer_preview(promo)),
         await _main_menu_keyboard(composition, uid),
@@ -774,6 +905,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_DO_PAY,
                     CB_ADD_DEV_BALANCE,
                     CB_ADD_DEV,
+                    CB_PROMO_AT,
                     CB_SERVER,
                     CB_IOS_STEP,
                     CB_MAC_STEP,
@@ -977,12 +1109,13 @@ async def _render_subscription_status(
                 device_count = snap.device_count
         if device_count is None:
             device_count = DEVICES_DEFAULT
-        return text_subscription_active(
+        text = text_subscription_active(
             active_until,
             plan_name,
             device_count,
             remaining_days=remaining_days,
-        ), await _main_menu_keyboard(composition, uid)
+        ) + await _promo_menu_badge(composition, uid)
+        return text, await _main_menu_keyboard(composition, uid)
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), no_subscription_keyboard()
     return text_no_subscription(), no_subscription_keyboard()
@@ -1802,7 +1935,7 @@ async def _render_storefront_response(
     if code in (CB_MAIN_MENU, "store_menu"):
         # Trial is NOT auto-activated here — the user must click the trial button
         # (surfaced in the menu via _main_menu_keyboard while _is_trial_available is True).
-        text, keyboard = text_main_menu(), await _main_menu_keyboard(composition, uid)
+        text, keyboard = await _main_menu_text(composition, uid), await _main_menu_keyboard(composition, uid)
 
     elif code in (CB_BUY_VPN, "store_plans"):
         plans = get_available_plans()
@@ -2108,14 +2241,21 @@ async def _render_storefront_response(
         text = text_custom_days_prompt()
         keyboard = custom_days_prompt_keyboard()
 
-    elif code == CB_PROMOCODE:
+    elif code == CB_PROMOCODE or code.startswith(CB_PROMO_AT):
         # Storefront-колбэки обходят командный лимитер, поэтому флаг FSM ставим здесь,
         # а сам rate-limit ввода текстом — в _handle_promo_code_input (ключ PROMOCODE).
+        # Значение флага = callback возврата: из меню — в меню, из оплаты — к сводке заказа.
+        if code.startswith(CB_PROMO_AT):
+            return_target = f"{CB_CONFIRM_PAY}{code[len(CB_PROMO_AT) :]}"
+            back_callback = return_target
+        else:
+            return_target = CB_MAIN_MENU
+            back_callback = CB_MAIN_MENU
         if uid is not None:
-            _awaiting_promo_code[uid] = True
+            _awaiting_promo_code[uid] = return_target
             _trim_inmemory_dict(_awaiting_promo_code)
         text = text_promo_prompt()
-        keyboard = promo_prompt_keyboard()
+        keyboard = promo_prompt_keyboard(back_callback=back_callback)
 
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN) :]
@@ -2154,29 +2294,7 @@ async def _render_storefront_response(
         else:
             plan_id = rest
             device_count = DEVICES_DEFAULT
-        summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
-        if summary is not None:
-            user_balance_kopecks = 0
-            if uid is not None:
-                id_rec = await composition.identity.find_by_telegram_user_id(uid)
-                if id_rec is not None:
-                    from app.application.referral_handler import get_referral_balance
-
-                    bal = await get_referral_balance(
-                        internal_user_id=id_rec.internal_user_id,
-                        balance_repo=composition.referral_balance_repo,
-                    )
-                    user_balance_kopecks = bal.balance_kopecks
-            text = text_purchase_summary(summary)
-            keyboard = confirm_pay_keyboard(
-                plan_id,
-                device_count,
-                balance_kopecks=user_balance_kopecks,
-                total_kopecks=summary.total_price_rubles * 100,
-            )
-        else:
-            text = text_payment_unavailable()
-            keyboard = back_only_keyboard(CB_BUY_VPN)
+        text, keyboard = await _render_purchase_summary(composition, uid, plan_id, device_count)
 
     elif code.startswith(CB_DO_PAY):
         rest = code[len(CB_DO_PAY) :]
@@ -2349,10 +2467,13 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
                     )
-                if _awaiting_promo_code.get(uid, False):
+                if _awaiting_promo_code.get(uid):
                     # Флаг сбрасывается только при успешном применении (внутри обработчика) —
                     # как в custom_days, чтобы опечатку можно было сразу исправить новым сообщением.
-                    promo_text, promo_keyboard = await _handle_promo_code_input(composition, uid, user_text.strip())
+                    # Значение флага = callback возврата (меню либо сводка заказа).
+                    promo_text, promo_keyboard = await _handle_promo_code_input(
+                        composition, uid, user_text.strip(), _awaiting_promo_code[uid]
+                    )
                     return RenderedMessagePackage(
                         message_text=promo_text,
                         action_keys=(),

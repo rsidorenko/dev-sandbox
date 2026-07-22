@@ -134,7 +134,7 @@ backend:postgres-smoke:
     - python scripts/check_adm01_internal_http_entrypoint_smoke.py
     - python scripts/check_issuance_operator_entrypoint_smoke.py
     - >-
-      ( unset DATABASE_URL SLICE1_USE_POSTGRES_REPOS SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS;
+      ( unset DATABASE_URL SLICE1_USE_POSTGRES_REPOS SLICE1_POSTGRES_MVP_SMOKE_ALLOW_MUTATING_TESTS TELEGRAM_WEBHOOK_HTTP_ENABLE PAYMENT_FULFILLMENT_HTTP_ENABLE;
         python -m pytest -q --junitxml="$REPORT_DIR/backend-full-regression.xml" )
     - >-
       python -m pytest -q

@@ -40,6 +40,11 @@ from app.web_api.profile import (
     handle_reissue_keys,
     handle_renew_subscription,
 )
+from app.web_api.promocode import (
+    handle_apply_promocode,
+    handle_clear_promocode,
+    handle_get_promocode,
+)
 from app.web_api.subscription import handle_subscription
 from app.yookassa.webhook import create_yookassa_webhook_handler
 
@@ -141,6 +146,19 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/subscription/cancel", _with_auth(_with_csrf(handle_cancel_subscription)), methods=["POST"]),
         # Trial
         Route("/api/v1/user/trial/activate", _with_auth(_with_csrf(handle_activate_trial)), methods=["POST"]),
+        # Promocode (web session) — display/apply/clear the 24h-pinned promo. Discount
+        # math stays in promo_service; these are input/display surface (Фаза 4).
+        Route("/api/v1/user/promocode", _with_auth(handle_get_promocode), methods=["GET"]),
+        Route(
+            "/api/v1/user/promocode/apply",
+            _with_auth(_with_csrf(handle_apply_promocode)),
+            methods=["POST"],
+        ),
+        Route(
+            "/api/v1/user/promocode/clear",
+            _with_auth(_with_csrf(handle_clear_promocode)),
+            methods=["POST"],
+        ),
         # Payment
         Route("/api/v1/payment/create", _with_auth(_with_csrf(handle_create_payment)), methods=["POST"]),
         Route(

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi } from "@/entities/payment/api";
@@ -13,6 +13,8 @@ import {
   EXTRA_DEVICE_PRICE,
 } from "@/entities/payment/calc";
 import { reachGoal } from "@/shared/lib/analytics";
+import { PROMO_ERROR_MESSAGES, promoApi } from "@/features/promocode/api";
+import { usePromocode } from "@/features/promocode/usePromocode";
 import { Alert } from "@/shared/ui/Alert";
 
 export default function PaymentPage() {
@@ -70,6 +72,42 @@ function PaymentForm() {
   const balanceRubles = profile?.referral?.balance_rubles ?? 0;
   const busy = loading || balanceLoading;
 
+  // Промокод: закрепление хранится в БД (TTL 24ч); скидка считается на сервере тем же
+  // apply_promo_discount, что и при оплате. Preview валиден только для текущего
+  // количества устройств — при изменении слайдера показываем полную цену (скидка всё
+  // равно применится на checkout, т.к. /payment/create пере-резолвит промокод).
+  const { applied: appliedPromo, apply: applyPromo, clear: clearPromo } = usePromocode();
+  const [promoDiscount, setPromoDiscount] = useState<number | null>(null);
+  const [promoDevices, setPromoDevices] = useState<number | null>(null);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+
+  // Держим preview скидки актуальным для текущего тарифа И количества устройств:
+  // срабатывает при входе с уже закреплённым промокодом и при изменении слайдера.
+  // Сами деньги считает бэкенд (apply_promo_discount); это только отображение.
+  useEffect(() => {
+    if (!appliedPromo || !planId) {
+      setPromoDiscount(null);
+      setPromoDevices(null);
+      return;
+    }
+    let cancelled = false;
+    promoApi.apply(appliedPromo.code, planId, deviceCount).then((r) => {
+      if (cancelled) return;
+      if (r.ok && r.data.preview) {
+        setPromoDiscount(r.data.preview.discounted_rubles);
+        setPromoDevices(deviceCount);
+      } else {
+        setPromoDiscount(null);
+        setPromoDevices(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedPromo, appliedPromo?.code, planId, deviceCount]);
+
   const info = planId ? getTariffInfo(planId) : null;
 
   if (!info) {
@@ -100,7 +138,40 @@ function PaymentForm() {
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
   const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
   const total = info.basePrice + extraCost;
-  const canPayWithBalance = profile?.referral != null && balanceRubles >= total;
+  const promoPreviewValid = promoDiscount != null && promoDevices === deviceCount;
+  const displayTotal = promoPreviewValid ? (promoDiscount as number) : total;
+  const canPayWithBalance = profile?.referral != null && balanceRubles >= displayTotal;
+
+  const handleApplyPromo = async (e: FormEvent) => {
+    e.preventDefault();
+    setPromoError("");
+    const code = promoCodeInput.trim().toUpperCase();
+    if (code.length < 3) {
+      setPromoError("Введите код (от 3 символов).");
+      return;
+    }
+    setPromoBusy(true);
+    const result = await applyPromo(code, planId, deviceCount);
+    setPromoBusy(false);
+    if (!result.ok) {
+      setPromoError(PROMO_ERROR_MESSAGES[result.error] ?? "Не удалось применить промокод.");
+      setPromoDiscount(null);
+      setPromoDevices(null);
+      return;
+    }
+    if (result.data.preview) {
+      setPromoDiscount(result.data.preview.discounted_rubles);
+      setPromoDevices(deviceCount);
+    }
+    setPromoCodeInput("");
+  };
+
+  const handleClearPromo = async () => {
+    setPromoError("");
+    await clearPromo();
+    setPromoDiscount(null);
+    setPromoDevices(null);
+  };
 
   const handlePayWithBalance = async (e: FormEvent) => {
     e.preventDefault();
@@ -213,9 +284,67 @@ function PaymentForm() {
             )}
           </div>
 
-          <div className="mt-6 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
+          {/* Промокод: точка ввода в оплате (Фаза 4). Скидку считает бэкенд. */}
+          <div className="mt-6 rounded-xl border border-gray-100 p-4 dark:border-zinc-700">
+            {appliedPromo ? (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="text-sm">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">
+                    🎁 {appliedPromo.code}
+                  </span>{" "}
+                  <span className="font-semibold text-brand-700 dark:text-brand-300">
+                    {appliedPromo.discount_label}
+                  </span>
+                  {!promoPreviewValid && (
+                    <span className="ml-2 text-xs text-gray-400">
+                      нажмите «Применить» после выбора устройств
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearPromo}
+                  className="text-xs font-medium text-gray-500 transition hover:text-gray-700 dark:text-gray-400"
+                >
+                  Убрать
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleApplyPromo} className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  value={promoCodeInput}
+                  onChange={(e) => setPromoCodeInput(e.target.value)}
+                  placeholder="Промокод"
+                  className="block w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm uppercase transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
+                  disabled={promoBusy}
+                />
+                <button
+                  type="submit"
+                  disabled={promoBusy}
+                  className="shrink-0 rounded-lg border border-brand-200 bg-brand-50 px-5 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
+                >
+                  {promoBusy ? "Проверка…" : "Применить"}
+                </button>
+              </form>
+            )}
+            {promoError && (
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{promoError}</p>
+            )}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{total.toLocaleString("ru-RU")} ₽</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              {promoPreviewValid && (
+                <span className="mr-2 text-sm font-normal text-gray-400 line-through">
+                  {total.toLocaleString("ru-RU")} ₽
+                </span>
+              )}
+              {displayTotal.toLocaleString("ru-RU")} ₽
+            </span>
           </div>
 
           {errorMsg && <Alert className="mt-4">{errorMsg}</Alert>}
@@ -272,7 +401,7 @@ function PaymentForm() {
             disabled={busy || !!balanceResult}
             className="mt-3 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оплатить картой ${total.toLocaleString("ru-RU")} ₽`}
+            {loading ? "Обработка..." : `Оплатить картой ${displayTotal.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">
