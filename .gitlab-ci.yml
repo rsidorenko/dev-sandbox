@@ -360,42 +360,13 @@ deploy:
       rsync -az --delete -e ssh bravada-deploy/ "$SERVER_USER@$SERVER_HOST:/opt/bravada-release/"
 
       echo "=== Run deploy on server (swap + docker compose) ==="
-      ssh "$SERVER_USER@$SERVER_HOST" 'bash -s' <<'REMOTE'
-      set -e
-      cd /opt/bravada
-      echo "=== Pre-deploy DB backup (страховка; БД и так в named-volume pgdata, deploy его не трогает) ==="
-      mkdir -p /opt/bravada-backups
-      docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U vpnbot vpnbot 2>/dev/null | gzip > "/opt/bravada-backups/db-$(date +%Y%m%d-%H%M%S).sql.gz" || echo "  pg_dump skipped (non-fatal; БД в volume всё равно цела)"
-      ls -t /opt/bravada-backups/db-*.sql.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
-      cp -p backend/.env /tmp/backend.env.backup 2>/dev/null || true
-      cp -p .env /tmp/root.env.backup 2>/dev/null || true
-      cp -rp ssl /tmp/ssl.backup 2>/dev/null || true
-      rm -rf /opt/bravada
-      mv /opt/bravada-release /opt/bravada
-      cp -p /tmp/backend.env.backup /opt/bravada/backend/.env 2>/dev/null || true
-      cp -p /tmp/root.env.backup /opt/bravada/.env 2>/dev/null || true
-      cp -a /tmp/ssl.backup/. /opt/bravada/ssl/ 2>/dev/null || true
-      echo "--- Verify excluded paths absent ---"
-      test ! -e /opt/bravada/.codegraph || { echo "FAIL: .codegraph on server"; exit 1; }
-      test ! -e /opt/bravada/.claude || { echo "FAIL: .claude on server"; exit 1; }
-      test ! -e /opt/bravada/scripts/codegraph || { echo "FAIL: scripts/codegraph on server"; exit 1; }
-      echo "--- Build + start containers ---"
-      cd /opt/bravada
-      docker compose -f docker-compose.prod.yml build --no-cache
-      docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate \
-        || docker compose -f docker-compose.prod.yml up -d --remove-orphans
-      docker image prune -f
-      docker builder prune -f || true
-      echo "Deploy complete: $(date)"
-      bash /opt/bravada/backend/scripts/install_reprovision_timer.sh || true
-      bash /opt/bravada/backend/scripts/install_reconcile_bare_xray_timer.sh || true
-      REMOTE
+      ssh "$SERVER_USER@$SERVER_HOST" 'bash -s' < scripts/ci/deploy_remote.sh
 
       echo "=== Verify healthz ==="
       sleep 8
       ssh "$SERVER_USER@$SERVER_HOST" 'curl -sf http://127.0.0.1:8000/healthz && echo " OK" || echo " FAILED"' || true
 
       echo "=== Refresh Karing client binaries (public upstream, no GitHub account needed) ==="
-      ./scripts/ci/fetch_karing_clients.sh "$SERVER_USER@$SERVER_HOST" || echo "Karing refresh skipped (non-fatal)"
+      bash scripts/ci/fetch_karing_clients.sh "$SERVER_USER@$SERVER_HOST" || echo "Karing refresh skipped (non-fatal)"
   environment:
     name: production
