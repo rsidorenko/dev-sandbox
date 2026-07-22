@@ -1409,10 +1409,7 @@ async def _process_yookassa_payment(
 
     display_name = plan_display_name(plan_id)
     if discount_kopecks > 0:
-        price_line = (
-            f"💰 К оплате: {charge_rubles} ₽ "
-            f"(скидка по промокоду −{discount_kopecks // 100} ₽)"
-        )
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{discount_kopecks // 100} ₽)"
     else:
         price_line = f"💰 К оплате: {charge_rubles} ₽"
     text = (
@@ -1689,10 +1686,7 @@ async def _process_add_device_yookassa(
     set_pending_payment_for_user(uid, result.payment_id)
 
     if active is not None:
-        price_line = (
-            f"💰 К оплате: {charge_rubles} ₽ "
-            f"(скидка по промокоду −{active.price.discount_kopecks // 100} ₽)"
-        )
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{active.price.discount_kopecks // 100} ₽)"
     else:
         price_line = f"💰 К оплате: {charge_rubles} ₽"
     text = (
@@ -2358,9 +2352,7 @@ async def handle_slice1_telegram_update_to_rendered_message(
                 if _awaiting_promo_code.get(uid, False):
                     # Флаг сбрасывается только при успешном применении (внутри обработчика) —
                     # как в custom_days, чтобы опечатку можно было сразу исправить новым сообщением.
-                    promo_text, promo_keyboard = await _handle_promo_code_input(
-                        composition, uid, user_text.strip()
-                    )
+                    promo_text, promo_keyboard = await _handle_promo_code_input(composition, uid, user_text.strip())
                     return RenderedMessagePackage(
                         message_text=promo_text,
                         action_keys=(),

@@ -272,9 +272,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         base_rubles=cost_rubles,
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else cost_rubles
-    expected_amount_kopecks = (
-        active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
-    )
+    expected_amount_kopecks = active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
     add_device_meta: dict[str, str] = {
         "kind": "add_device",
         "new_device_count": str(new_device_count),

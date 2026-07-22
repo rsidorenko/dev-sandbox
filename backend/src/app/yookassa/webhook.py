@@ -535,9 +535,7 @@ def create_yookassa_webhook_handler(
         # discount carried in metadata (default 0 for legacy payments without the field).
         promo = _promo_from_metadata(metadata)
         discount_kopecks = promo[1] if promo is not None else 0
-        expected_kopecks = _expected_subscription_kopecks(
-            plan, device_count, discount_kopecks=discount_kopecks
-        )
+        expected_kopecks = _expected_subscription_kopecks(plan, device_count, discount_kopecks=discount_kopecks)
         if amount_kopecks is not None and abs(amount_kopecks - expected_kopecks) > 1:
             _LOGGER.warning(
                 "yookassa webhook: amount mismatch expected=%d got=%d id=%s",

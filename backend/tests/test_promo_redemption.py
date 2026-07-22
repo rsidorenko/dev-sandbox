@@ -259,7 +259,11 @@ def test_balance_subscription_discount_and_commission_parity():
 
     result = _run(
         pay_plan_from_balance(
-            pool=None, composition=c, internal_user_id=uid, plan_id="1m", device_count=5,
+            pool=None,
+            composition=c,
+            internal_user_id=uid,
+            plan_id="1m",
+            device_count=5,
             vless_provider=StubVlessProvider(),
         )
     )
@@ -359,4 +363,3 @@ def test_bot_promo_input_rate_limited_after_window():
         assert "Слишком много" not in text
     text, _kb = _run(_handle_promo_code_input(c, 9001, "GHOST"))
     assert "Слишком много" in text
-

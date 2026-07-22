@@ -2128,7 +2128,5 @@ def promo_offer_preview(promo: PromoCode) -> str:
 
 def text_promo_applied(code: str, *, offer_text: str) -> str:
     return (
-        f"✅ Промокод {code} применён!\n\n"
-        f"{offer_text}\n\n"
-        "Скидка действует 24 часа и будет учтена при следующей оплате."
+        f"✅ Промокод {code} применён!\n\n{offer_text}\n\nСкидка действует 24 часа и будет учтена при следующей оплате."
     )

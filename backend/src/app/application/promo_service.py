@@ -137,9 +137,7 @@ async def resolve_active_promo(
     if redeem_block_reason(promo, moment) is not None:
         return None
 
-    is_new = await compute_is_new_user(
-        pool=pool, snapshots=snapshots, internal_user_id=internal_user_id
-    )
+    is_new = await compute_is_new_user(pool=pool, snapshots=snapshots, internal_user_id=internal_user_id)
     if not audience_eligible(promo.audience, is_new_user=is_new):
         return None
 
@@ -234,16 +232,12 @@ async def _redeem_atomic(
 
     if pool is not None:
         async with pool.acquire() as conn, conn.transaction():
-            locked = await conn.fetchval(
-                "SELECT pg_try_advisory_xact_lock(hashtext($1))", record.internal_user_id
-            )
+            locked = await conn.fetchval("SELECT pg_try_advisory_xact_lock(hashtext($1))", record.internal_user_id)
             if not locked:
                 return False  # другая транзакция погашения в полёте — идемпотентность доберёт
             inserted = await PostgresPromoRedemptionRepository.redeem_in_connection(conn, record)
             if inserted and promo is not None:
-                await PostgresPromoCodeRepository.increment_redemptions_in_connection(
-                    conn, code, max_redemptions
-                )
+                await PostgresPromoCodeRepository.increment_redemptions_in_connection(conn, code, max_redemptions)
             return inserted
 
     # in-memory путь (unit-тесты бота): instance-метод redeem вместо *_in_connection staticmethod.

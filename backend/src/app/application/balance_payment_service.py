@@ -671,9 +671,7 @@ async def _add_device_inmemory(
 # ── Shared helpers ───────────────────────────────────────────────────────────
 
 
-def _balance_promo_repos(
-    pool: asyncpg.Pool | None, composition: Slice1Composition | None
-) -> tuple[Any, Any, Any, Any]:
+def _balance_promo_repos(pool: asyncpg.Pool | None, composition: Slice1Composition | None) -> tuple[Any, Any, Any, Any]:
     """Репозитории промокодов для баланс-пути: (applied, code, redemption, snapshots).
 
     На postgres инстанциируем из pool (web-обработчик передаёт composition=None), на
@@ -686,6 +684,7 @@ def _balance_promo_repos(
             PostgresPromoCodeRepository,
             PostgresPromoRedemptionRepository,
         )
+
         return (
             PostgresPromoAppliedRepository(pool),
             PostgresPromoCodeRepository(pool),
