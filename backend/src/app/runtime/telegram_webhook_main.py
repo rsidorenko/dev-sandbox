@@ -525,7 +525,16 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
         return response
 
     if web_api_enabled:
-        routes.append(Route("/api/{path:path}", _web_api_proxy, methods=["GET", "POST", "OPTIONS"]))
+        # Прокси должен пропускать все методы внутреннего web_api, иначе PATCH/DELETE
+        # (напр. admin promocodes update/delete) отсекаются на входе и возвращают 405,
+        # хотя внутренний build_web_api_app их регистрирует.
+        routes.append(
+            Route(
+                "/api/{path:path}",
+                _web_api_proxy,
+                methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            )
+        )
         routes.append(Route("/sub/{path:path}", _web_api_proxy, methods=["GET"]))
 
     lifespan = _lifespan_with_web_api if web_api_enabled else _lifespan

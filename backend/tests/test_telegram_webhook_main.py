@@ -409,3 +409,22 @@ def test_module_app_attribute_after_reload(monkeypatch: pytest.MonkeyPatch) -> N
     _reload_webhook_main(monkeypatch)
     assert hasattr(webhook_main_mod, "app")
     assert webhook_main_mod.app is not None
+
+
+def test_web_api_proxy_route_allows_patch_and_delete(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прокси /api/* должен пропускать PATCH/DELETE к внутреннему web_api, иначе
+    admin-эндпоинты update/delete (напр. promocodes) возвращают 405 на проде."""
+    secret = _synthetic_ascii_secret()
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_HTTP_ENABLE", "1")
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", secret)
+    monkeypatch.setenv("BOT_TOKEN", "1234567890tok")
+    monkeypatch.setenv("WEB_API_ENABLE", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/db?sslmode=disable")
+    app = webhook_main_mod.build_slice1_telegram_webhook_asgi_application_from_env()
+    proxy_routes = [r for r in app.routes if getattr(r, "path", "") == "/api/{path:path}"]
+    assert proxy_routes, "/api proxy route must be registered when WEB_API_ENABLE=1"
+    methods: set[str] = set()
+    for r in proxy_routes:
+        methods |= set(getattr(r, "methods", []) or [])
+    assert {"PATCH", "DELETE"} <= methods, f"proxy must allow PATCH/DELETE, got {sorted(methods)}"
