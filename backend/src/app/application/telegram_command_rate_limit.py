@@ -13,6 +13,7 @@ class TelegramCommandRateLimitKey(StrEnum):
     STATUS = "status"
     ACCESS_RESEND = "access_resend"
     SUPPORT = "support"
+    PROMOCODE = "promocode"
 
 
 class TelegramCommandRateLimiter(Protocol):
@@ -42,6 +43,8 @@ class InMemoryTelegramCommandRateLimiter:
         access_resend_window_seconds: float = 60.0,
         support_limit: int = 30,
         support_window_seconds: float = 60.0,
+        promocode_limit: int = 5,
+        promocode_window_seconds: float = 60.0,
         now_seconds: Callable[[], float] = time.time,
     ) -> None:
         self._rules: dict[TelegramCommandRateLimitKey, _FixedWindowRule] = {
@@ -56,6 +59,13 @@ class InMemoryTelegramCommandRateLimiter:
             TelegramCommandRateLimitKey.SUPPORT: _FixedWindowRule(
                 max_requests=int(support_limit),
                 window_seconds=float(support_window_seconds),
+            ),
+            # Ввод промокода текстом — мягкий anti-bruteforce перебора кодов: 5 попыток/мин
+            # на пользователя. Storefront-колбэки обходят лимитер, поэтому проверка ставится
+            # явно в ветке text-input (как access_resend).
+            TelegramCommandRateLimitKey.PROMOCODE: _FixedWindowRule(
+                max_requests=int(promocode_limit),
+                window_seconds=float(promocode_window_seconds),
             ),
         }
         self._state: dict[tuple[int, TelegramCommandRateLimitKey], tuple[float, int]] = {}
