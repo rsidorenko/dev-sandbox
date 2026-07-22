@@ -2474,6 +2474,10 @@ async def handle_slice1_telegram_update_to_rendered_message(
                     promo_text, promo_keyboard = await _handle_promo_code_input(
                         composition, uid, user_text.strip(), _awaiting_promo_code[uid]
                     )
+                    # Сводка заказа (возврат из оплаты) содержит HTML-теги (<b>…</b>), поэтому
+                    # явный parse_mode HTML — иначе теги отдаются literal-текстом. Прочие тексты
+                    # promo-обработчика HTML-безопасны; пользовательский ввод экранируется
+                    # в text_promo_code_invalid.
                     return RenderedMessagePackage(
                         message_text=promo_text,
                         action_keys=(),
@@ -2481,6 +2485,7 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         reply_markup=promo_keyboard,
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
+                        parse_mode="HTML",
                     )
                 email_result = await _handle_email_linking(composition, uid, user_text.strip())
                 if email_result is not None:

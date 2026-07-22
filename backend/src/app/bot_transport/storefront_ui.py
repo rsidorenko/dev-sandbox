@@ -2129,8 +2129,12 @@ def promo_prompt_keyboard(*, back_callback: str = CB_MAIN_MENU) -> dict[str, Any
 
 
 def text_promo_code_invalid(user_input: str) -> str:
+    # Экранируем ввод: сообщение уходит в HTML parse_mode, а сюда попадает код,
+    # не прошедший валидацию (т.е. возможно содержащий <, &, и т. п.).
+    from html import escape
+
     return (
-        f"❌ «{user_input}» — некорректный промокод.\n\n"
+        f"❌ «{escape(user_input)}» — некорректный промокод.\n\n"
         "Код — от 3 до 32 символов (только латиница и цифры). Попробуйте ещё раз."
     )
 

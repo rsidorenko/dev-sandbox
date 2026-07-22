@@ -176,3 +176,32 @@ def test_handle_promo_input_from_menu_returns_to_menu():
     # Возврат в меню: текст успеха (не сводка заказа).
     assert "Промокод WELCOME применён" in text
     assert "вместо" not in text
+
+
+def test_promo_text_input_summary_has_html_parse_mode():
+    """Регрессия: возврат к HTML-сводке заказа после ввода промокода должен уходить с
+    parse_mode=HTML, иначе <b>…</b> отрисовывается literal-текстом (Фаза 4)."""
+    from app.bot_transport.runtime_facade import (
+        _awaiting_promo_code,
+        handle_slice1_telegram_update_to_rendered_message,
+    )
+
+    c, uid, _iid = _composition()
+    _run(c.promo_code_repo.create(_promo(value=50)))
+    _awaiting_promo_code[uid] = f"{CB_CONFIRM_PAY}1m:5"
+    try:
+        update = {
+            "update_id": 701,
+            "message": {
+                "message_id": 1,
+                "from": {"id": uid, "is_bot": False, "first_name": "U"},
+                "chat": {"id": uid, "type": "private"},
+                "text": "welcome",
+            },
+        }
+        pkg = _run(handle_slice1_telegram_update_to_rendered_message(update, c, correlation_id="cid"))
+        assert pkg.parse_mode == "HTML"
+        assert "<b>" in pkg.message_text
+        assert "125 ₽" in pkg.message_text  # 50% от 249
+    finally:
+        _awaiting_promo_code.pop(uid, None)
