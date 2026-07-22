@@ -308,6 +308,15 @@ gh run view <run-id> --log-failed
 - All git actions are performed under the configured author identity only — never add `Co-Authored-By` or any other co-authorship attribution
 - All git-facing prose (commit messages, PR titles and bodies, code comments) must be in Russian; branch names must be in English (`type/scope`)
 
+**GitLab usage — anti-ban (HARD RULES, every session):**
+We migrated off GitHub (account `rsidorenko` was **suspended 2026-07-22**) → **GitLab.com** (`rsidorenko/dev-sandbox`, private). Access: SSH key `~/.ssh/id_ed25519_gitlab` (remote `gitlab`) + `glab` CLI (PAT). Full detail in memory `reference_gitlab_workflow_rules.md` — **READ IT before any non-trivial GitLab work**. To never get banned again for "suspicious activity":
+- **NEVER clone/fork/download many repos, and NEVER script loops of `git clone`/fork** — GitLab auto-bans accounts for this ("git abuse rate limit"). This is the #1 ban trigger. Only ever clone/pull this project's own remote.
+- **NEVER hammer the API** (`glab`/`curl`) in tight loops. Check pipeline/CI status a few times **with pauses**, not sub-minute polling. Cache results. Authenticated API rate limits apply (~64,800 max; sensitive endpoints 5/min).
+- **CI minutes are scarce** (400/month on free private namespace): heavy jobs are manual (`.manual-rules` in `.gitlab-ci.yml`); do not re-run pipelines frivolously; prefer a self-hosted runner when one is set up.
+- **Shared runners are for THIS project's CI only** — never run crypto-mining or unrelated workloads (abuse policy).
+- **Before any bulk/automated git or API operation, STOP** and confirm it won't trip abuse detection. When unsure, ask the user first.
+- Normal push/pull/branch/MR is fine and expected — limits are generous for ordinary dev work; the danger is **automation and bulk operations**.
+
 **File constraints:**
 - Do not edit any file under `.cursor/plans/`
 
