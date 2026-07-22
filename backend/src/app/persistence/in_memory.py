@@ -16,6 +16,11 @@ from app.application.interfaces import (
     OutboundDeliveryRecord,
     SubscriptionSnapshot,
 )
+from app.domain.promo import PromoCode
+from app.persistence.promo_contracts import (
+    PromoAppliedRecord,
+    PromoRedemptionRecord,
+)
 from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
     ReferralCodeRecord,
@@ -318,3 +323,120 @@ class InMemoryReferralTransactionRepository:
             user_tx = [t for t in self._transactions if t.internal_user_id == internal_user_id]
             user_tx.sort(key=lambda t: t.created_at, reverse=True)
             return tuple(user_tx[:limit])
+
+
+_PROMO_UPDATABLE: set[str] = {
+    "audience",
+    "discount_kind",
+    "discount_value",
+    "max_redemptions",
+    "expires_at",
+    "is_active",
+    "note",
+}
+
+
+class InMemoryPromoCodeRepository:
+    """In-memory CRUD промокодов (тесты / локальная композиция без Postgres)."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._codes: dict[str, PromoCode] = {}
+
+    async def get(self, code: str) -> PromoCode | None:
+        async with self._lock:
+            return self._codes.get(code)
+
+    async def create(self, promo: PromoCode) -> PromoCode:
+        async with self._lock:
+            if promo.code in self._codes:
+                raise ValueError("promo_code_exists")
+            self._codes[promo.code] = promo
+            return promo
+
+    async def update(self, code: str, changes: dict[str, object]) -> PromoCode | None:
+        async with self._lock:
+            current = self._codes.get(code)
+            if current is None:
+                return None
+            safe = {k: v for k, v in changes.items() if k in _PROMO_UPDATABLE}
+            if not safe:
+                return current
+            from dataclasses import replace as _replace
+
+            self._codes[code] = _replace(current, **safe)
+            return self._codes[code]
+
+    async def delete(self, code: str) -> bool:
+        async with self._lock:
+            return self._codes.pop(code, None) is not None
+
+    async def list_codes(
+        self, *, limit: int = 100, offset: int = 0, include_inactive: bool = True
+    ) -> tuple[PromoCode, ...]:
+        async with self._lock:
+            items = sorted(self._codes.values(), key=lambda p: p.created_at, reverse=True)
+            if not include_inactive:
+                items = [p for p in items if p.is_active]
+            return tuple(items[offset : offset + limit])
+
+    async def increment_redemptions(self, code: str, max_redemptions: int | None) -> bool:
+        """In-memory аналог Postgres staticmethod для пути погашения в тестах."""
+        async with self._lock:
+            current = self._codes.get(code)
+            if current is None:
+                return False
+            if max_redemptions is not None and current.redemptions_count >= max_redemptions:
+                return False
+            from dataclasses import replace as _replace
+
+            self._codes[code] = _replace(current, redemptions_count=current.redemptions_count + 1)
+            return True
+
+
+class InMemoryPromoRedemptionRepository:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._redemptions: list[PromoRedemptionRecord] = []
+
+    async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[PromoRedemptionRecord, ...]:
+        async with self._lock:
+            items = [r for r in self._redemptions if r.internal_user_id == internal_user_id]
+            items.sort(key=lambda r: r.created_at, reverse=True)
+            return tuple(items[:limit])
+
+    async def redeem(self, record: PromoRedemptionRecord) -> bool:
+        """Идемпотентная вставка: True — вставлено, False — дубль (по idempotency_key или code+user)."""
+        async with self._lock:
+            for r in self._redemptions:
+                if r.idempotency_key == record.idempotency_key or (
+                    r.code == record.code and r.internal_user_id == record.internal_user_id
+                ):
+                    return False
+            self._redemptions.append(record)
+            return True
+
+
+class InMemoryPromoAppliedRepository:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._applied: dict[str, PromoAppliedRecord] = {}
+
+    async def get(self, internal_user_id: str) -> PromoAppliedRecord | None:
+        async with self._lock:
+            return self._applied.get(internal_user_id)
+
+    async def upsert(self, internal_user_id: str, code: str, expires_at: datetime) -> PromoAppliedRecord:
+        async with self._lock:
+            record = PromoAppliedRecord(
+                internal_user_id=internal_user_id,
+                code=code,
+                applied_at=datetime.now(UTC),
+                expires_at=expires_at,
+            )
+            self._applied[internal_user_id] = record
+            return record
+
+    async def clear(self, internal_user_id: str) -> None:
+        async with self._lock:
+            self._applied.pop(internal_user_id, None)
