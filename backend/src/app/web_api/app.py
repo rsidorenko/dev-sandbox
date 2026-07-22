@@ -13,6 +13,14 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app.web_api.admin_auth import handle_admin_login, handle_admin_logout
+from app.web_api.admin_promocodes import (
+    handle_admin_create_promocode,
+    handle_admin_delete_promocode,
+    handle_admin_list_promocodes,
+    handle_admin_update_promocode,
+)
+from app.web_api.admin_users import handle_admin_get_user, handle_admin_list_users
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.middleware import require_auth, require_csrf
@@ -156,6 +164,15 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
         # YooKassa webhook (no auth — signature verified internally)
         Route("/api/v1/payment/yookassa/webhook", _yookassa_webhook_handler, methods=["POST"]),
+        # Admin panel (feature-flagged via WEB_ADMIN_ENABLE; auth via admin_session cookie)
+        Route("/api/v1/admin/auth/login", handle_admin_login, methods=["POST"]),
+        Route("/api/v1/admin/auth/logout", handle_admin_logout, methods=["POST"]),
+        Route("/api/v1/admin/users", handle_admin_list_users, methods=["GET"]),
+        Route("/api/v1/admin/users/{internal_user_id}", handle_admin_get_user, methods=["GET"]),
+        Route("/api/v1/admin/promocodes", handle_admin_list_promocodes, methods=["GET"]),
+        Route("/api/v1/admin/promocodes", handle_admin_create_promocode, methods=["POST"]),
+        Route("/api/v1/admin/promocodes/{code}", handle_admin_update_promocode, methods=["PATCH"]),
+        Route("/api/v1/admin/promocodes/{code}", handle_admin_delete_promocode, methods=["DELETE"]),
     ]
 
     app = Starlette(routes=routes)
@@ -206,7 +223,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
             app.add_middleware(
                 CORSMiddleware,
                 allow_origins=origins,
-                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
                 allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
                 allow_credentials=True,
             )
