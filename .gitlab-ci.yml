@@ -11,6 +11,7 @@ stages:
   - lint
   - test
   - build
+  - e2e
   - deploy
 
 variables:
@@ -243,7 +244,7 @@ frontend:lint:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: [npm, frontend]
+    key: npm-frontend
     paths: [frontend/node_modules]
   script:
     - cd frontend && npm ci && npm run lint
@@ -254,7 +255,7 @@ frontend:typecheck:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: [npm, frontend]
+    key: npm-frontend
     paths: [frontend/node_modules]
   script:
     - cd frontend && npm ci && npx tsc --noEmit
@@ -265,7 +266,7 @@ frontend:unit:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: [npm, frontend]
+    key: npm-frontend
     paths: [frontend/node_modules]
   script:
     - cd frontend && npm ci && npm run test
@@ -276,7 +277,7 @@ frontend:build:
   extends: .manual-rules
   needs: ["frontend:lint", "frontend:typecheck"]
   cache:
-    key: [npm, frontend]
+    key: npm-frontend
     paths: [frontend/node_modules]
   script:
     - cd frontend
@@ -285,12 +286,12 @@ frontend:build:
     - test -d .next/standalone
 
 frontend:e2e:
-  stage: test
+  stage: e2e
   image: node:20
   extends: .manual-rules
   needs: ["frontend:unit", "frontend:build"]
   cache:
-    key: [npm, frontend]
+    key: npm-frontend
     paths: [frontend/node_modules]
   script:
     - cd frontend
@@ -307,7 +308,7 @@ frontend:e2e:
 # Единый гейт: падает, если любая проверка фронтенда не success
 # (аналог job `gate` в frontend-ci — сделать обязательным в Protected Branches).
 frontend:gate:
-  stage: build
+  stage: e2e
   image: alpine:3.20
   extends: .manual-rules
   needs: ["frontend:lint", "frontend:typecheck", "frontend:build", "frontend:unit", "frontend:e2e"]
