@@ -20,7 +20,11 @@ from app.web_api.admin_promocodes import (
     handle_admin_list_promocodes,
     handle_admin_update_promocode,
 )
-from app.web_api.admin_users import handle_admin_get_user, handle_admin_list_users
+from app.web_api.admin_users import (
+    handle_admin_add_days,
+    handle_admin_get_user,
+    handle_admin_list_users,
+)
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.middleware import require_auth, require_csrf
@@ -187,6 +191,12 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/admin/auth/logout", handle_admin_logout, methods=["POST"]),
         Route("/api/v1/admin/users", handle_admin_list_users, methods=["GET"]),
         Route("/api/v1/admin/users/{internal_user_id}", handle_admin_get_user, methods=["GET"]),
+        # Операторский грант дней подписки без смены тарифа (auth + CSRF в обработчике).
+        Route(
+            "/api/v1/admin/users/{internal_user_id}/add-days",
+            handle_admin_add_days,
+            methods=["POST"],
+        ),
         Route("/api/v1/admin/promocodes", handle_admin_list_promocodes, methods=["GET"]),
         Route("/api/v1/admin/promocodes", handle_admin_create_promocode, methods=["POST"]),
         Route("/api/v1/admin/promocodes/{code}", handle_admin_update_promocode, methods=["PATCH"]),

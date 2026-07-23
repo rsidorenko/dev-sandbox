@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+import math
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.domain.status_view import remaining_days
-from app.web_api.admin_auth import _with_admin_auth
+from app.issuance.vless_provider import VlessProviderOutcome
+from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
 from app.web_api.helpers import safe_json_error
 
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
+
+# Разумные границы админ-гранта дней (без смены тарифа).
+_ADD_DAYS_MIN = 1
+_ADD_DAYS_MAX = 3650
 
 # Полные SQL-строки как неявная конкатенация литералов (без '+' и интерполяции) —
 # как в postgres_referral; в fetch передаётся по имени, поэтому S608 не срабатывает.
@@ -159,5 +166,152 @@ async def handle_admin_get_user(request: Request) -> JSONResponse:
                 }
                 for r in redemptions
             ],
+        }
+    )
+
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_add_days(request: Request) -> JSONResponse:
+    """Операторский грант дней подписки БЕЗ смены тарифа.
+
+    Только продлевает active_until_utc (от текущего срока, либо от now если истекла) и
+    реактивирует подписку (state='active', keys_*_at=NULL). plan_id и device_count НЕ
+    меняются — главное требование: «просто добавить дни, без смены тарифа». После
+    продления перепровижинит VLESS-клиента на всех серверах (идентично платёжной
+    активации, через app.state.vless_provider). Записывает админ-аудит (бесплатный
+    грант оператора — НЕ в billing_events_ledger, чтобы не искажать выручку/сверку).
+    """
+    pool: asyncpg.Pool = request.app.state.pool
+    internal_user_id = request.path_params["internal_user_id"]
+
+    try:
+        data = await request.json()
+    except Exception:
+        return safe_json_error(400, "invalid_request", "Expected JSON body")
+
+    try:
+        days = int(data.get("days"))
+    except (TypeError, ValueError):
+        return safe_json_error(400, "invalid_days", "days must be an integer")
+    if not (_ADD_DAYS_MIN <= days <= _ADD_DAYS_MAX):
+        return safe_json_error(400, "invalid_days", f"days must be between {_ADD_DAYS_MIN} and {_ADD_DAYS_MAX}")
+
+    # Цель должна существовать и иметь снапшот подписки для продления.
+    ident = await pool.fetchrow(
+        "SELECT internal_user_id FROM user_identities WHERE internal_user_id = $1",
+        internal_user_id,
+    )
+    if ident is None:
+        return safe_json_error(404, "user_not_found")
+
+    snap = await pool.fetchrow(
+        "SELECT state_label, plan_id, device_count, active_until_utc, "
+        "keys_deactivated_at, keys_deleted_at FROM subscription_snapshots "
+        "WHERE internal_user_id = $1",
+        internal_user_id,
+    )
+    if snap is None:
+        # «Прочерк»: зарегистрирован, но никогда не активировал подписку/триал —
+        # продлевать нечего. Легенда статусов объясняет это в UI.
+        return safe_json_error(
+            409,
+            "no_subscription_to_extend",
+            "У пользователя нет подписки для продления (никогда не активировал)",
+        )
+
+    now = datetime.now(UTC)
+    base = snap["active_until_utc"]
+    # Активную — продлеваем от текущего срока; истёкшую — реактивируем от now.
+    start = base if (base is not None and base > now) else now
+    new_until = start + timedelta(days=days)
+    device_count = snap["device_count"] or 0
+
+    # ИНВАРИАНТ: меняем ТОЛЬКО срок + реактивацию. plan_id / device_count не трогаем.
+    result = await pool.execute(
+        """UPDATE subscription_snapshots
+           SET state_label = 'active',
+               active_until_utc = $2,
+               keys_deactivated_at = NULL,
+               keys_deleted_at = NULL,
+               updated_at = NOW()
+           WHERE internal_user_id = $1""",
+        internal_user_id,
+        new_until,
+    )
+    if result == "UPDATE 0":
+        return safe_json_error(404, "user_not_found")
+
+    # Перепровижининг VLESS-клиента на всех серверах с новым сроком — идентично
+    # платёжной активации (_ensure_vless_keys_after_payment): create_user если ключи
+    # удалены/активны, activate_user если деактивированы. Best-effort: сбой панели
+    # не откатывает продление в БД (срок уже прошёл) — логируем и возвращаем счётчик.
+    expiry_days = max(1, math.ceil((new_until - now).total_seconds() / 86_400))
+    provisioning = "skipped"
+    servers_ok = 0
+    vless_provider = getattr(request.app.state, "vless_provider", None)
+    try:
+        if vless_provider is None:
+            provisioning = "skipped_no_provider"
+        else:
+            if snap["keys_deleted_at"] is not None:
+                pres = await vless_provider.create_user(
+                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                )
+            elif snap["keys_deactivated_at"] is not None:
+                pres = await vless_provider.activate_user(
+                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                )
+            else:
+                pres = await vless_provider.create_user(
+                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                )
+            if pres.outcome == VlessProviderOutcome.SUCCESS:
+                servers_ok = len(pres.config.servers) if pres.config is not None else 0
+                provisioning = f"success servers={servers_ok}"
+            else:
+                provisioning = f"outcome={pres.outcome}"
+    except Exception:
+        _LOGGER.exception("admin_add_days provisioning failed user=%s", internal_user_id[:8])
+        provisioning = "failed"
+
+    # Аудит бесплатного гранта оператора (отдельно от billing — не искажает выручку).
+    # Фиксируем old/new срок и НЕИЗМЕННЫЙ plan_id/device_count для контрольного следа.
+    correlation_id = f"add-days-{uuid.uuid4().hex[:12]}"
+    try:
+        await pool.execute(
+            """INSERT INTO admin_subscription_actions
+               (actor, internal_user_id, action, days, old_active_until, new_active_until,
+                plan_id, device_count, provisioning, correlation_id)
+               VALUES ($1,$2,'add_days',$3,$4,$5,$6,$7,$8,$9)""",
+            _admin_actor(request),
+            internal_user_id,
+            days,
+            base,
+            new_until,
+            snap["plan_id"],
+            snap["device_count"],
+            provisioning,
+            correlation_id,
+        )
+    except Exception:
+        _LOGGER.exception("admin_add_days audit insert failed user=%s", internal_user_id[:8])
+
+    # Свежее состояние для ответа (remaining_days / is_active пересчитаны).
+    row = await pool.fetchrow(_GET_BY_ID, internal_user_id)
+    user = _row_to_user(row) if row else None
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "user": user,
+            "days_added": days,
+            "old_active_until": base.isoformat() if base is not None else None,
+            "new_active_until": new_until.isoformat(),
+            "plan_unchanged": snap["plan_id"],
+            "device_count_unchanged": snap["device_count"],
+            "provisioning": provisioning,
+            "servers_ok": servers_ok,
+            "correlation_id": correlation_id,
         }
     )

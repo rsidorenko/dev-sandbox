@@ -21,6 +21,18 @@ export interface AdminUsersResponse {
   total: number;
 }
 
+export interface AdminAddDaysResponse {
+  user: AdminUser;
+  days_added: number;
+  old_active_until: string | null;
+  new_active_until: string;
+  plan_unchanged: string | null;
+  device_count_unchanged: number | null;
+  provisioning: string;
+  servers_ok: number;
+  correlation_id: string;
+}
+
 export type PromoAudience = "new_users" | "existing_users";
 export type PromoDiscountKind = "percent" | "fixed_rubles";
 

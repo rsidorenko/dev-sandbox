@@ -26,10 +26,14 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
 # ── Шаблоны правил: когда запускать ─────────────────────────────────────────
+# merge_request_event идёт БЕЗ changes намеренно: GitLab для MR определяет «что
+# изменилось» по diff_refs MR, а они при создании MR (особенно через API сразу
+# после push) прогружаются не сразу → changes ложно не матчится и джобы уходят в
+# manual вместо авто. На main changes надёжен (сравнение с предыдущим SHA пуша),
+# поэтому там остаётся как экономия CI-минут на не-кодовых коммитах.
 .backend-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [backend/**, .gitlab-ci.yml]
     - if: $CI_COMMIT_BRANCH == "main"
       changes: [backend/**, .gitlab-ci.yml]
     - if: $CI_COMMIT_TAG
@@ -39,7 +43,6 @@ workflow:
 .frontend-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [frontend/**, .gitlab-ci.yml]
     - if: $CI_COMMIT_BRANCH == "main"
       changes: [frontend/**, .gitlab-ci.yml]
     - if: $CI_COMMIT_TAG
@@ -210,7 +213,6 @@ codegraph:check:
   image: node:20
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [backend/**, frontend/**, .codegraph/**, .gitlab-ci.yml]
     - if: $CI_COMMIT_BRANCH == "main"
       changes: [backend/**, frontend/**, .codegraph/**, .gitlab-ci.yml]
     - when: manual

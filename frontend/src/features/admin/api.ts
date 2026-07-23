@@ -2,6 +2,7 @@
  * CSRF — через отдельную admin_csrf_token (не пользовательскую csrf_token). */
 
 import type {
+  AdminAddDaysResponse,
   AdminPromocode,
   AdminPromocodePayload,
   AdminPromocodesResponse,
@@ -86,5 +87,11 @@ export const adminApi = {
     return adminFetch<{ ok: true }>(`/api/v1/admin/promocodes/${encodeURIComponent(code)}`, {
       method: "DELETE",
     });
+  },
+  addDays(internal_user_id: string, days: number) {
+    return adminFetch<AdminAddDaysResponse>(
+      `/api/v1/admin/users/${encodeURIComponent(internal_user_id)}/add-days`,
+      { method: "POST", body: JSON.stringify({ days }) },
+    );
   },
 };

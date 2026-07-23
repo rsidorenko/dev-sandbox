@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { adminApi } from "@/features/admin/api";
+import { AddDaysModal } from "@/features/admin/AddDaysModal";
+import { StatusLegend } from "@/features/admin/StatusLegend";
 import type { AdminUser } from "@/entities/admin/types";
 import { Alert } from "@/shared/ui/Alert";
 
@@ -15,6 +17,7 @@ export default function AdminUsersPage() {
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [addDaysUser, setAddDaysUser] = useState<AdminUser | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +81,8 @@ export default function AdminUsersPage() {
 
       {error && <Alert className="mb-4">{error}</Alert>}
 
+      <StatusLegend />
+
       <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white dark:border-zinc-700 dark:bg-zinc-800">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-gray-100 text-xs uppercase text-gray-500 dark:border-zinc-700">
@@ -89,18 +94,19 @@ export default function AdminUsersPage() {
               <th className="px-3 py-2">До</th>
               <th className="px-3 py-2">Баланс</th>
               <th className="px-3 py-2">Триал</th>
+              <th className="px-3 py-2">Действия</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-gray-400">
+                <td colSpan={8} className="px-3 py-6 text-center text-gray-400">
                   Загрузка…
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-gray-400">
+                <td colSpan={8} className="px-3 py-6 text-center text-gray-400">
                   Нет пользователей
                 </td>
               </tr>
@@ -118,12 +124,35 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{u.balance_rubles.toFixed(2)} ₽</td>
                   <td className="px-3 py-2 text-gray-500">{u.trial_used ? "исп." : "—"}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      disabled={!u.subscription_state}
+                      title={
+                        u.subscription_state
+                          ? "Добавить дни без смены тарифа"
+                          : "Нет подписки для продления (никогда не активировал)"
+                      }
+                      onClick={() => setAddDaysUser(u)}
+                      className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-30"
+                    >
+                      + Дни
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {addDaysUser && (
+        <AddDaysModal
+          user={addDaysUser}
+          onClose={() => setAddDaysUser(null)}
+          onSaved={() => void load()}
+        />
+      )}
 
       <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
         <span>

@@ -96,7 +96,10 @@ class StubVlessProvider:
     def __init__(self) -> None:
         self._created_users: set[str] = set()
 
-    async def create_user(self, *, internal_user_id: str) -> VlessProviderResult:
+    async def create_user(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
+        del device_count, expiry_days  # stub ignores panel provisioning params
         self._created_users.add(internal_user_id)
         return self._build_config(internal_user_id)
 
@@ -109,7 +112,10 @@ class StubVlessProvider:
         self._created_users.discard(internal_user_id)
         return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
 
-    async def activate_user(self, *, internal_user_id: str) -> VlessProviderResult:
+    async def activate_user(
+        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+    ) -> VlessProviderResult:
+        del device_count, expiry_days  # stub ignores panel provisioning params
         self._created_users.add(internal_user_id)
         return self._build_config(internal_user_id)
 
