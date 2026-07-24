@@ -32,28 +32,19 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
 # ── Шаблоны правил: когда запускать ─────────────────────────────────────────
-# merge_request_event идёт БЕЗ changes намеренно: GitLab для MR определяет «что
-# изменилось» по diff_refs MR, а они при создании MR (особенно через API сразу
-# после push) прогружаются не сразу → changes ложно не матчится и джобы уходят в
-# manual вместо авто. На main changes надёжен (сравнение с предыдущим SHA пуша),
-# поэтому там остаётся как экономия CI-минут на не-кодовых коммитах.
+# Self-hosted runner bravada-ci-eu = безлимитные CI-минуты, поэтому все гейты
+# (backend/frontend/codegraph) идут АВТОМАТИЧЕСКИ в каждом пайплайне, который
+# вообще создаётся (см. workflow:rules выше: MR / main / tag / web / schedule).
+# Никаких `changes`-фильтров и `when: manual`-хвостов: именно они порождали
+# «стену manual/skipped» — в т.ч. на merge-коммитах в main, где changes по
+# diff_refs ненадёжен. Если пайплайн создан — проверки идут сами.
 .backend-rules:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes: [backend/**, .gitlab-ci.yml]
-    - if: $CI_COMMIT_TAG
-    - when: manual
-      allow_failure: true
+    - when: on_success
 
 .frontend-rules:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes: [frontend/**, .gitlab-ci.yml]
-    - if: $CI_COMMIT_TAG
-    - when: manual
-      allow_failure: true
+    - when: on_success
 
 # Тяжёлые проверки (postgres-интеграции, build, Playwright e2e) — ТОЛЬКО вручную,
 # чтобы не сжигать бесплатные CI-минуты (400/мес на private free-неймспейсе).
@@ -218,11 +209,8 @@ codegraph:check:
   stage: lint
   image: node:20
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes: [backend/**, frontend/**, .codegraph/**, .gitlab-ci.yml]
-    - when: manual
-      allow_failure: true
+    # Гейты идут всегда (см. комментарий у .backend-rules).
+    - when: on_success
   interruptible: true
   before_script:
     - npm i -g @colbymchenry/codegraph
