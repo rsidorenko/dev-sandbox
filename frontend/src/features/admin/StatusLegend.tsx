@@ -53,10 +53,10 @@ function toneClass(tone: StatusTone): string {
 
 export function StatusLegend() {
   return (
-    <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 rounded-xl border border-gray-100 bg-gray-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-800/40">
+    <div className="mb-5 flex flex-col gap-2.5 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-800/40 sm:flex-row sm:flex-wrap sm:gap-x-5 sm:gap-y-2">
       {STATUS_DESCRIPTORS.map((s) => (
-        <div key={s.key} className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
-          <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${toneClass(s.tone)}`}>
+        <div key={s.key} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+          <span className={`inline-flex min-w-[3.5rem] items-center justify-center rounded-md px-2 py-0.5 text-xs font-medium ${toneClass(s.tone)}`}>
             {s.badge}
           </span>
           <span>{s.title}</span>
