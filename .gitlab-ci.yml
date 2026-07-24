@@ -20,8 +20,14 @@ variables:
 
 workflow:
   rules:
+    # MR-событие → единый авто-пайплайн (все джобы .frontend-rules/.backend-rules
+    # матчат первое правило и идут сами, без `when: manual`).
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    # main → scoped CI (по changes) + авто-деплой. Только main, НЕ произвольная
+    # ветка: иначе пуш в feature-ветку плодит второй, дублирующий пайплайн, где
+    # джобы падают в `when: manual`/skipped (та самая «стена manual/skipped»).
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "web" # ручной запуск из UI
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
