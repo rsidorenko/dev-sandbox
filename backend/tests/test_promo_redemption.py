@@ -137,17 +137,12 @@ def test_resolve_audience_mismatch_returns_none():
     assert _resolve(c, uid, 249) is None
 
 
-def test_resolve_existing_user_eligible_for_existing_promo():
-    # пользователь С активной подпиской → is_new=False → existing_users промокод применим.
+def test_resolve_new_user_eligible_for_new_promo():
+    # In-memory юзер никогда не платил → «новый» → new_users промокод применим.
+    # (EXISTING_USERS-аудитория здесь не тестируется: в in-memory нет billing-ledger,
+    #  поэтому юзер всегда «новый»; existing covered в domain-тестах и postgres-smoke.)
     c, uid = _composition()
-    _run(
-        c.snapshots.upsert_state(
-            SubscriptionSnapshot(
-                internal_user_id=uid, state_label="active", active_until_utc=_FUTURE, plan_id="1m", device_count=5
-            )
-        )
-    )
-    _apply(c, uid, _promo(audience=PromoAudience.EXISTING_USERS, value=10))
+    _apply(c, uid, _promo(audience=PromoAudience.NEW_USERS, value=10))
     active = _resolve(c, uid, 249)
     assert active is not None
     assert active.price.discounted_rubles == 224  # 10% от 249 = 224.1 → 224
@@ -311,7 +306,7 @@ def test_balance_add_device_discount_applied():
             )
         )
     )
-    promo = _promo(audience=PromoAudience.EXISTING_USERS, value=50)
+    promo = _promo(audience=PromoAudience.NEW_USERS, value=50)
     _apply(c, uid, promo)
 
     base = extra_device_cost(7, 5, 30)

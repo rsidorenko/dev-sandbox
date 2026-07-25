@@ -90,20 +90,11 @@ async def compute_is_new_user(
         )
         if row is None:
             return True  # идентичности нет → пользователь гарантированно новый
-        return is_new_user_eligible(
-            trial_used=bool(row["trial_used"]),
-            has_active_subscription=bool(row["has_active"]),
-            has_accepted_payment=bool(row["has_paid"]),
-        )
+        return is_new_user_eligible(has_accepted_payment=bool(row["has_paid"]))
     if snapshots is None:
         return True
-    snap = await snapshots.get_for_user(internal_user_id)
-    has_active = snap is not None and snap.state_label == "active"
-    return is_new_user_eligible(
-        trial_used=False,
-        has_active_subscription=has_active,
-        has_accepted_payment=False,
-    )
+    # In-memory путь (unit-тесты бота): без БД принимаем «никогда не платил» (True).
+    return is_new_user_eligible(has_accepted_payment=False)
 
 
 async def resolve_active_promo(

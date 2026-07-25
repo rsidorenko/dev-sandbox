@@ -121,22 +121,24 @@ def test_discount_round_trip_consistency_many_plans():
 # --- is_new_user_eligible: корректный предикат «нового» ---
 
 
-def test_new_user_when_never_converted():
-    assert is_new_user_eligible(trial_used=False, has_active_subscription=False, has_accepted_payment=False) is True
+def test_new_user_when_never_paid():
+    assert is_new_user_eligible(has_accepted_payment=False) is True
 
 
 def test_paid_then_expired_is_not_new():
-    # КОРРЕКТНОЕ поведение: юзер платил (картой), подписка истекла -> НЕ новый,
-    # хотя trial_used=False и state_label!='active'. Без признака оплаты прошёл бы как новый.
-    assert is_new_user_eligible(trial_used=False, has_active_subscription=False, has_accepted_payment=True) is False
+    # Юзер хоть раз платил (картой), подписка истекла -> НЕ новый.
+    assert is_new_user_eligible(has_accepted_payment=True) is False
 
 
-def test_trial_used_is_not_new():
-    assert is_new_user_eligible(trial_used=True, has_active_subscription=False, has_accepted_payment=False) is False
+def test_trial_user_is_still_new():
+    # Триал бесплатный — юзер на триале всё ещё «новый» (никогда не платил).
+    # Это намеренное поведение: ранее триал блокировал new-only промокоды почти для всей базы.
+    assert is_new_user_eligible(has_accepted_payment=False) is True
 
 
-def test_active_subscription_is_not_new():
-    assert is_new_user_eligible(trial_used=False, has_active_subscription=True, has_accepted_payment=False) is False
+def test_active_trial_subscription_still_new():
+    # Активная подписка от триала (state_label='active', но без оплаты) — тоже новый.
+    assert is_new_user_eligible(has_accepted_payment=False) is True
 
 
 # --- audience_eligible ---

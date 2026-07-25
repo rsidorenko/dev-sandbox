@@ -152,25 +152,19 @@ def redeem_block_reason(promo: PromoCode, now: datetime | None = None) -> str | 
     return None
 
 
-def is_new_user_eligible(
-    *,
-    trial_used: bool,
-    has_active_subscription: bool,
-    has_accepted_payment: bool,
-) -> bool:
-    """true, если пользователь никогда не конвертировался (не использовал VPN платно).
+def is_new_user_eligible(*, has_accepted_payment: bool) -> bool:
+    """true, если пользователь НИКОГДА не платил — пригоден для new-only промокода.
 
-    Ключевые сигналы (по internal_user_id):
-    - trial_used (user_identities): когда-либо активировал триал;
-    - has_active_subscription (subscription_snapshots.state_label == 'active');
-    - has_accepted_payment (billing_events_ledger status='accepted'): canonical признак оплаты.
+    «Новый» = нет принятых платёжных фактов (billing_events_ledger status='accepted').
+    Триал и активная (триал/бесплатная) подписка НЕ делают пользователя «не новым» —
+    триал бесплатный и не является конверсией: юзер на триале всё ещё потенциальный
+    первый покупатель и должен видеть аквизиционный промокод. Кто хоть раз платил
+    (активная или истёкшая платная подписка) — не новый.
 
-    Только совпадение всех трёх «нет» даёт «нового». Триал опционален/откладываем,
-    поэтому trial_used и state_label по отдельности недостаточны — платный, но
-    истёкший юзер имеет trial_used=False и state_label='expired' и без признака
-    оплаты прошёл бы как «новый».
+    Раньше здесь дополнительно гейтились trial_used и has_active_subscription, но из-за
+    авто-триала это блокировало new-only промокоды почти для всей базы.
     """
-    return not trial_used and not has_active_subscription and not has_accepted_payment
+    return not has_accepted_payment
 
 
 def audience_eligible(audience: PromoAudience, *, is_new_user: bool) -> bool:

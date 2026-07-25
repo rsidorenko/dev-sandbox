@@ -101,9 +101,15 @@ async def _seed_identity(pool: asyncpg.Pool, *, existing: bool = False) -> None:
         _WEB_INTERNAL,
     )
     if existing:
-        # trial_used=True → compute_is_new_user даёт False («существующий» юзер).
+        # «Существующий» = когда-либо платил (billing_events_ledger status='accepted').
+        # Раньше симулировалось trial_used=True, но триал больше не делает юзера «не новым».
         await pool.execute(
-            "UPDATE user_identities SET trial_used = TRUE WHERE internal_user_id = $1",
+            "INSERT INTO billing_events_ledger "
+            "(internal_fact_ref, billing_provider_key, external_event_id, event_type, "
+            " event_effective_at, event_received_at, internal_user_id, status, ingestion_correlation_id) "
+            "VALUES ($1, 'yookassa', 't-ext-1', 'payment.captured', now(), now(), $2, 'accepted', 't-cor') "
+            "ON CONFLICT (internal_fact_ref) DO NOTHING",
+            f"fact-{_WEB_INTERNAL}",
             _WEB_INTERNAL,
         )
 
