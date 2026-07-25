@@ -95,4 +95,14 @@ describe("LoginForm", () => {
       expect(window.location.href).toBe("/dashboard");
     });
   });
+
+  it("marks the OTP input with autocomplete=one-time-code for OS autofill", async () => {
+    authApi.sendCode.mockResolvedValue({ ok: true, data: { ttl_minutes: 10 } });
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText(/Email/i), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Получить код" }));
+    const codeInput = await screen.findByLabelText(/Код подтверждения/i);
+    expect(codeInput.getAttribute("autocomplete")).toBe("one-time-code");
+  });
 });
