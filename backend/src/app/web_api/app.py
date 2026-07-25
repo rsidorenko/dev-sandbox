@@ -44,12 +44,12 @@ from app.web_api.profile import (
     handle_reissue_keys,
     handle_renew_subscription,
 )
-from app.web_api.referral import handle_get_referral_stats
 from app.web_api.promocode import (
     handle_apply_promocode,
     handle_clear_promocode,
     handle_get_promocode,
 )
+from app.web_api.referral import handle_get_referral_stats
 from app.web_api.subscription import handle_subscription
 from app.yookassa.webhook import create_yookassa_webhook_handler
 
