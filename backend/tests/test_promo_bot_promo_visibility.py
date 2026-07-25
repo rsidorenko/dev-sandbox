@@ -262,3 +262,26 @@ def test_promo_offer_preview_per_tariff_has_no_zero():
     assert "0 ₽" not in txt
     assert "0%" not in txt
     assert "тариф" in txt.lower()
+
+
+def test_device_select_shows_promo_discount():
+    # Регресс: после выбора тарифа страница устройств показывала полную цену без промокода.
+    from app.bot_transport.storefront_ui import text_device_select
+
+    promo = _promo(kind=PromoDiscountKind.PERCENT, value=15)  # −15% от 249 → 212
+    txt = text_device_select("1m", 249, 30, 5, promo=promo)
+    assert "212 ₽" in txt
+    assert "вместо 249" in txt
+    # без промокода — обычная цена, без «вместо»
+    plain = text_device_select("1m", 249, 30, 5)
+    assert "вместо" not in plain
+    assert "💳 Итого: 249 ₽" in plain
+
+
+def test_device_select_per_tariff_only_configured_plan():
+    from app.bot_transport.storefront_ui import text_device_select
+
+    promo = _promo(kind=PromoDiscountKind.PERCENT, discounts_by_plan={"1m": 50})
+    # 1m в map → скидка; custom → без скидки (per-tariff исключает «Свой»).
+    assert "вместо" in text_device_select("1m", 249, 30, 5, promo=promo)
+    assert "вместо" not in text_device_select("custom:20", 300, 20, 5, promo=promo)

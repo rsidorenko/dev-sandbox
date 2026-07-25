@@ -294,7 +294,14 @@ def text_buy_vpn_intro(*, promo: PromoCode | None = None) -> str:
     return "\n".join(lines)
 
 
-def text_device_select(plan_id: str, price_rubles: int, duration_days: int, device_count: int) -> str:
+def text_device_select(
+    plan_id: str,
+    price_rubles: int,
+    duration_days: int,
+    device_count: int,
+    *,
+    promo: PromoCode | None = None,
+) -> str:
     from app.domain.devices import extra_device_cost, extra_device_count
 
     extra = extra_device_count(device_count)
@@ -308,7 +315,17 @@ def text_device_select(plan_id: str, price_rubles: int, duration_days: int, devi
     if extra > 0:
         daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
         lines.append(f"  ➕ Доп. устройств: {extra} × {daily_price:.1f} ₽/день × {duration_days} дн = {extra_cost} ₽")
-    lines.append(f"\n💳 Итого: {total} ₽")
+    # Скидка по применённому промокоду действует на весь итог подписки (base + доп. устройства),
+    # т.к. это покупка подписки (is_addon=False), а не add-device к существующей.
+    discounted = total
+    if promo is not None:
+        price = apply_promo_discount(total, promo, plan_id=plan_id)
+        discounted = price.discounted_rubles
+    if discounted < total:
+        lines.append(f"  🎁 Промокод {promo.code if promo else ''}: −{total - discounted} ₽")
+        lines.append(f"\n💳 Итого: <b>{discounted} ₽</b> (вместо {total})")
+    else:
+        lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)
 

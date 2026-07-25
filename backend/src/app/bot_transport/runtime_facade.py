@@ -2265,7 +2265,9 @@ async def _render_storefront_response(
         plan_id = code[len(CB_PLAN) :]
         plan = get_plan(plan_id)
         if plan is not None:
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT)
+            applied = await _active_applied_promo(composition, uid)
+            promo = applied[0] if applied is not None else None
+            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT, promo=promo)
             keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
 
     elif code.startswith(CB_DEVICES):
@@ -2283,7 +2285,9 @@ async def _render_storefront_response(
             device_count = DEVICES_DEFAULT
         plan = get_plan(plan_id)
         if plan is not None:
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, device_count)
+            applied = await _active_applied_promo(composition, uid)
+            promo = applied[0] if applied is not None else None
+            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, device_count, promo=promo)
             keyboard = device_select_keyboard(plan_id, device_count)
 
     elif code.startswith(CB_CONFIRM_PAY):
