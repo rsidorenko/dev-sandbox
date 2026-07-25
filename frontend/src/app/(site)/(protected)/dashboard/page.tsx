@@ -8,6 +8,7 @@ import { normalizePlanId } from "@/entities/tariff/helpers";
 import { useAuth } from "@/shared/lib/auth";
 import { KeysModal } from "@/features/keys/KeysModal";
 import { PromocodeCard } from "@/features/promocode/PromocodeCard";
+import { ReferralCard } from "@/features/referral/ReferralCard";
 import { SubscriptionCard } from "@/features/subscription/SubscriptionCard";
 
 export default function DashboardPage() {
@@ -72,6 +73,8 @@ export default function DashboardPage() {
               router.push(`/payment/${normalizePlanId(sub?.plan_id)}`)
             }
           />
+
+          <ReferralCard />
 
           <PromocodeCard />
 

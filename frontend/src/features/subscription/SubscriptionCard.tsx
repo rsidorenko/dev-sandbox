@@ -5,8 +5,6 @@ import Link from "next/link";
 import { subscriptionApi } from "@/entities/subscription/api";
 import { paymentApi } from "@/entities/payment/api";
 import { calcExtraDeviceCost, getTariffInfo } from "@/entities/payment/calc";
-import { siteConfig } from "@/shared/config/site";
-import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
   PLANS,
   planName,
@@ -66,7 +64,6 @@ export function SubscriptionCard({
   const [selectedDevices, setSelectedDevices] = useState(deviceMin);
   const [actionLoading, setActionLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
-  const { copy, isCopied } = useCopyToClipboard();
   // One idempotency key per mount for the add-device-via-balance button.
   // Lazy-init so crypto.randomUUID() runs ONCE, not on every render.
   const addDeviceIdempotencyRef = useRef<string | null>(null);
@@ -488,66 +485,6 @@ export function SubscriptionCard({
           </div>
         )}
       </div>
-
-      {/* Referral */}
-      {referral && (
-        <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">
-            Реферальная программа
-          </h2>
-          <div className="mt-3 space-y-2">
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              Баланс:{" "}
-              <strong>{referral.balance_rubles.toFixed(2)} ₽</strong>
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              Рефералов: <strong>{referral.referrals_count}</strong>
-            </p>
-            <div className="mt-3 rounded-lg bg-gradient-to-br from-emerald-50 to-green-100/50 p-4 dark:from-emerald-950/30 dark:to-green-900/20">
-              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                Отправьте ссылку другу — получите процент с его оплаты
-              </p>
-              {/* Telegram link */}
-              <div className="mt-3">
-                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  🔗 Для Telegram <span className="font-normal text-gray-400">— друг без сайта</span>
-                </p>
-                <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                  https://t.me/{siteConfig.botUsername}?start=ref_{referral.code}
-                </p>
-                <button
-                  onClick={() =>
-                    copy(
-                      `https://t.me/${siteConfig.botUsername}?start=ref_${referral.code}`,
-                      "ref-tg",
-                    )
-                  }
-                  className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                >
-                  {isCopied("ref-tg") ? "✓ Скопировано!" : "Копировать"}
-                </button>
-              </div>
-              {/* Web link */}
-              {referral.web_referral_link && (
-                <div className="mt-3 border-t border-emerald-200/50 pt-3 dark:border-emerald-800/30">
-                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                    🌐 Для сайта <span className="font-normal text-gray-400">— друг без Telegram</span>
-                  </p>
-                  <p className="mt-1 truncate text-xs font-mono text-gray-600 dark:text-gray-400">
-                    {referral.web_referral_link}
-                  </p>
-                  <button
-                    onClick={() => copy(referral.web_referral_link!, "ref-web")}
-                    className="mt-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                  >
-                    {isCopied("ref-web") ? "✓ Скопировано!" : "Копировать"}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
