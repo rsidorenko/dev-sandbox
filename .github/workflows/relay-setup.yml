@@ -201,7 +201,7 @@ jobs:
               echo "--- curl relay panel :1864 (https, verify on) ---"
               curl --max-time 8 https://89.169.139.153:1864/ -o /dev/null -w "  relay https verify http_code=%{http_code}\n" 2>&1 || echo "  relay https verify FAILED (HTTP panel or cert)"
               echo "--- curl Helsinki panel :2053 (https, verify on) — does the bot's verify pass? ---"
-              curl --max-time 8 https://77.221.159.106:2053/NrCRLHCbX0W1MCVmEH/ -o /dev/null -w "  helsinki https verify http_code=%{http_code}\n" 2>&1 || echo "  helsinki https verify FAILED (self-signed/untrusted -> bot must skip verify)"
+              curl --max-time 8 https://45.137.60.80:2053/NrCRLHCbX0W1MCVmEH/ -o /dev/null -w "  helsinki https verify http_code=%{http_code}\n" 2>&1 || echo "  helsinki https verify FAILED (self-signed/untrusted -> bot must skip verify)"
               echo "=== PORT CHECK COMPLETE ==="
             fi
 
@@ -268,7 +268,7 @@ jobs:
                   ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i "$3" "$2@$1" "echo $SCRIPT_B64 | base64 -d | sudo python3; echo '--- restart x-ui ---'; sudo x-ui restart 2>/dev/null || sudo systemctl restart x-ui; sleep 5; pgrep -f xray >/dev/null && echo 'xray OK' || echo 'xray NOT running'" 2>&1 || echo "  $1 FAILED"
                 fi
               }
-              sync_one "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS"
+              sync_one "45.137.60.80" "root" "__pass__" "$HELSINKI_SSH_PASS"
               sync_one "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS"
               mkdir -p ~/.ssh
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
@@ -294,7 +294,7 @@ jobs:
               }
               case "$UPGRADE_PANEL" in
                 helsinki)
-                  upgrade_panel "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                  upgrade_panel "45.137.60.80" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
                 frankfurt)
                   upgrade_panel "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
                 la)
@@ -346,7 +346,7 @@ jobs:
               }
               case "$RU_EGRESS_PANEL" in
                 helsinki)
-                  ru_run "77.221.159.106" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
+                  ru_run "45.137.60.80" "root" "__pass__" "$HELSINKI_SSH_PASS" ;;
                 frankfurt)
                   ru_run "77.110.100.210" "root" "__pass__" "$FRANKFURT_SSH_PASS" ;;
                 la)
@@ -374,7 +374,7 @@ jobs:
                   sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 \
                     "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  frankfurt FAILED" ;;
                 helsinki)
-                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 \
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@45.137.60.80 \
                     "echo $SCRIPT_B64 | base64 -d | sudo env RELAY_UUID=$UUID RELAY_EMAIL=$EMAIL INBOUND_ID=$INBOUND python3" 2>&1 || echo "  helsinki FAILED" ;;
                 la)
                   mkdir -p ~/.ssh
@@ -435,8 +435,8 @@ jobs:
                   sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.110.100.210:/tmp/pp.py 2>&1
                   sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.110.100.210 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  frankfurt FAILED" ;;
                 helsinki)
-                  sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@77.221.159.106:/tmp/pp.py 2>&1
-                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@77.221.159.106 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  helsinki FAILED" ;;
+                  sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/pp.py root@45.137.60.80:/tmp/pp.py 2>&1
+                  sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@45.137.60.80 "python3 /tmp/pp.py; rm -f /tmp/pp.py" 2>&1 || echo "  helsinki FAILED" ;;
                 la)
                   mkdir -p ~/.ssh
                   printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key

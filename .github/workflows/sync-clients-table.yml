@@ -72,14 +72,14 @@ jobs:
           HELSINKI_PASS: ${{ secrets.HELSINKI_SSH_PASS }}
         run: |
           echo "=== Checking Helsinki for clients table ==="
-          HAS_TABLE=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"import sqlite3; c=sqlite3.connect('/etc/x-ui/x-ui.db').cursor(); c.execute(\\\"SELECT name FROM sqlite_master WHERE type='table' AND name='clients'\\\"); print(c.fetchone() is not None)\"" 2>&1)
+          HAS_TABLE=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "python3 -c \"import sqlite3; c=sqlite3.connect('/etc/x-ui/x-ui.db').cursor(); c.execute(\\\"SELECT name FROM sqlite_master WHERE type='table' AND name='clients'\\\"); print(c.fetchone() is not None)\"" 2>&1)
           echo "Helsinki has clients table: $HAS_TABLE"
           if echo "$HAS_TABLE" | grep -q "True"; then
             SCRIPT_B64=$(base64 -w0 backend/scripts/sync_clients_table.py)
             echo "=== Syncing Helsinki ==="
-            sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
+            sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
             echo "=== Restarting x-ui on Helsinki ==="
-            sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "x-ui restart" 2>&1
+            sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "x-ui restart" 2>&1
             echo "Helsinki sync done"
           else
             echo "Helsinki (v2.9.4) — no clients table, uses inbounds.settings JSON directly. SKIP."
@@ -137,7 +137,7 @@ db.close()
 \"" 2>&1
 
           echo "=== Helsinki webBasePath ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "python3 -c \"
 import sqlite3
 db=sqlite3.connect('/etc/x-ui/x-ui.db')
 c=db.cursor()

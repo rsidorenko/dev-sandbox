@@ -13,11 +13,12 @@ the routing order (after geoip:private, before TikTok/foreign) on each cascade-e
 `domain:X` in xray matches X and all subdomains. Idempotent + backup + xray test +
 restart + verify. Reuses the merge pattern of manage_ru_egress.merge_domain_family_routing.
 
-Runs over SSH (cloudru_key.pem / romtan) on the 3 bare_xray cascade-entries.
-The 4th cascade-entry (89.169.139.153) is a 3x-ui panel — handled separately via
-manage_ru_egress / db-edit (its xray config regenerates from x-ui.db).
+Runs over SSH (cloudru_key.pem / romtan) on the 4 bare_xray cascade-entries
+(YouTube / Lithuania / Frankfurt / Helsinki). The 5th cascade-entry (89.169.139.153, US)
+is a 3x-ui panel — handled separately via manage_ru_egress / db-edit (its xray config
+regenerates from x-ui.db).
 
-Usage: python -m scripts.cascade_apply_banks            # apply on all 3 bare_xray
+Usage: python -m scripts.cascade_apply_banks            # apply on all 4 bare_xray
        python -m scripts.cascade_apply_banks --dry-run   # show diff, no write
 """
 
@@ -104,7 +105,10 @@ class CascadeEntry:
 
 
 BARE_XRAY_ENTRIES = [
-    CascadeEntry("Yandex (yt+lt)", "158.160.166.233"),
+    # YouTube and Lithuania used to share one Yandex entry (158.160.166.233); they were
+    # split onto separate boxes. Both are bare_xray cascade-entries reached via cloudru_key.
+    CascadeEntry("Yandex YouTube-entry", "111.88.146.22"),
+    CascadeEntry("Yandex Lithuania-entry", "89.169.166.161"),
     CascadeEntry("cloud.ru Frankfurt-egress", "85.208.87.187"),
     CascadeEntry("cloud.ru Helsinki-egress", "176.108.250.237"),
 ]

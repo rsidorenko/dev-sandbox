@@ -55,7 +55,7 @@ PANEL_PASS = os.environ.get("RELAY_PANEL_PASS", "")
 # Helsinki relay target. Defaults = migration 027 seeded values (verified current
 # via get_helsinki_keys.py — they back every live Helsinki user link). Overridable
 # through env if the DB diverges.
-HELSINKI_HOST = os.environ.get("HELSINKI_HOST", "77.221.159.106")
+HELSINKI_HOST = os.environ.get("HELSINKI_HOST", "45.137.60.80")
 HELSINKI_PORT = int(os.environ.get("HELSINKI_PORT", "443"))
 HELSINKI_PBK = os.environ.get("HELSINKI_PBK", "f1m7tkhI4Ez7GlRF7k2E55V86XLsu5jzIphl3yhKgyI")
 HELSINKI_SID = os.environ.get("HELSINKI_SID", "37")

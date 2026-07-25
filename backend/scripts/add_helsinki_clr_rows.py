@@ -1,7 +1,7 @@
 """Insert vpn_servers rows for the cloud.ru Helsinki-egress Happ relay entry.
 
 Second bare_xray RU-relay entry (cloud.ru / Sbercloud AS208677, same clean-AS as the Frankfurt
-Cloud.ru entry 85.208.87.187), egressing via Helsinki (77.221.159.106). Gives Happ users a
+Cloud.ru entry 85.208.87.187), egressing via Helsinki (45.137.60.80). Gives Happ users a
 Helsinki-egress variant alongside Cloud.ru's Frankfurt egress (id=26/27). Same architecture:
 bare xray 26.3.27, bravada-camo (clr.mediagenering.online), fp=firefox, 2-hop relay (RU entry →
 Helsinki), live gRPC management (XrayApiClient over SSH + grpcurl).

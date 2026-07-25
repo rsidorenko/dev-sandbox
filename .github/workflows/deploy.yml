@@ -532,8 +532,8 @@ jobs:
               echo "=== CHECK ROUTING ON ALL VPN SERVERS ==="
               mkdir -p ~/.ssh
               # Helsinki (via password from main)
-              echo "--- Helsinki (77.221.159.106) ---"
-              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED (need HELSINKI_SSH_PASS)"
+              echo "--- Helsinki (45.137.60.80) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED (need HELSINKI_SSH_PASS)"
               echo "--- Frankfurt (77.110.100.210) ---"
               sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'bash -s' < backend/scripts/check_routing_blackhole.sh 2>&1 || echo "  SSH FAILED"
               # LA (via key)
@@ -553,7 +553,7 @@ jobs:
               echo "  webBasePath='$FRA_PATH'"
 
               echo "--- Helsinki webBasePath ---"
-              HEL_PATH=$(sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
+              HEL_PATH=$(sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "python3 -c \"import sqlite3; db=sqlite3.connect('/etc/x-ui/x-ui.db'); r=db.execute('SELECT value FROM settings WHERE key=\\\"webBasePath\\\"').fetchone(); print(r[0] if r and r[0] else ''); db.close()\"" 2>&1)
               echo "  webBasePath='$HEL_PATH'"
 
               echo "--- LA webBasePath ---"
@@ -582,9 +582,9 @@ jobs:
               if [ -n "$HEL_PATH" ] && [ "$HEL_PATH" != " " ]; then
                 HEL_NORM="/${HEL_PATH#/}"
                 HEL_NORM="${HEL_NORM%/}/"
-                HEL_NEW="https://77.221.159.106:2053${HEL_NORM}"
+                HEL_NEW="https://45.137.60.80:2053${HEL_NORM}"
                 echo "  Helsinki -> $HEL_NEW"
-                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$HEL_NEW' WHERE server_host = '77.221.159.106' AND is_active = TRUE;" 2>&1
+                docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c "UPDATE vpn_servers SET panel_url = '$HEL_NEW' WHERE server_host = '45.137.60.80' AND is_active = TRUE;" 2>&1
               else
                 echo "  Helsinki: no webBasePath set, skipping"
               fi
@@ -637,9 +637,9 @@ jobs:
               sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.110.100.210:/tmp/sync_clients.py 2>&1 || true
               sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Frankfurt sync FAILED"
 
-              echo "  Helsinki (77.221.159.106)"
-              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.221.159.106:/tmp/sync_clients.py 2>&1 || true
-              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
+              echo "  Helsinki (45.137.60.80)"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@45.137.60.80:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 'python3 /tmp/sync_clients.py; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
 
               echo "  LA (216.227.169.120)"
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key
@@ -663,9 +663,9 @@ jobs:
               sshpass -p "$FRANKFURT_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.110.100.210:/tmp/sync_clients.py 2>&1 || true
               sshpass -p "$FRANKFURT_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 'python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Frankfurt sync FAILED"
 
-              echo "--- Helsinki (77.221.159.106) ---"
-              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@77.221.159.106:/tmp/sync_clients.py 2>&1 || true
-              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 'python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
+              echo "--- Helsinki (45.137.60.80) ---"
+              sshpass -p "$HELSINKI_SSH_PASS" scp -o StrictHostKeyChecking=no backend/scripts/sync_clients_table.py root@45.137.60.80:/tmp/sync_clients.py 2>&1 || true
+              sshpass -p "$HELSINKI_SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 'python3 /tmp/sync_clients.py; echo "--- Restarting x-ui ---"; systemctl restart x-ui 2>/dev/null || x-ui restart 2>/dev/null; sleep 3; echo "--- xray running? ---"; pgrep -f xray && echo "xray OK" || echo "xray NOT running"; rm -f /tmp/sync_clients.py' 2>&1 || echo "  Helsinki sync FAILED"
 
               echo "--- LA (216.227.169.120) ---"
               printf '%s\n' "$LA_SSH_KEY" > ~/.ssh/la-key; chmod 600 ~/.ssh/la-key

@@ -25,7 +25,7 @@ import httpx
 
 RELAY_UUID = "00607f0b-a9e7-4280-abb3-2231e1b9c2ff"
 RELAY_EMAIL = "relay-from-ru-relay"
-HELSINKI_HOST = "77.221.159.106"
+HELSINKI_HOST = "45.137.60.80"
 TARGET_PORT = 443
 
 

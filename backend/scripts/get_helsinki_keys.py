@@ -13,7 +13,7 @@ import os
 import sys
 
 
-HELSINKI_HOST = "77.221.159.106"
+HELSINKI_HOST = "45.137.60.80"
 
 
 async def run():

@@ -26,7 +26,7 @@ db.close()
 
           echo ""
           echo "=== Helsinki webBasePath ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "python3 -c \"
 import sqlite3
 db=sqlite3.connect('/etc/x-ui/x-ui.db')
 c=db.cursor()

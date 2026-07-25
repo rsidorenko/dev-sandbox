@@ -122,7 +122,7 @@ print("iptables (panel/443 rules):", run("sudo iptables -S 2>/dev/null | grep -i
 print("ufw:", run("sudo ufw status 2>/dev/null || echo 'no ufw'").stdout)
 
 section("Helsinki reachability")
-r = run("timeout 4 bash -c 'echo > /dev/tcp/77.221.159.106/443' 2>/dev/null && echo REACHABLE || echo UNREACHABLE")
+r = run("timeout 4 bash -c 'echo > /dev/tcp/45.137.60.80/443' 2>/dev/null && echo REACHABLE || echo UNREACHABLE")
 print(r.stdout)
 
 section("geo files")

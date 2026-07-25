@@ -58,7 +58,7 @@ jobs:
           sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "/usr/local/x-ui/x-ui -v" 2>&1
 
           echo -n "Helsinki: "
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "/usr/local/x-ui/x-ui -v" 2>&1
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "/usr/local/x-ui/x-ui -v" 2>&1
 
           echo -n "LA: "
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "sudo /usr/local/x-ui/x-ui -v" 2>&1
@@ -76,8 +76,8 @@ jobs:
           sshpass -p "$FRANKFURT_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.110.100.210 "x-ui restart" 2>&1
 
           echo "=== Sync Helsinki ==="
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
-          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "x-ui restart" 2>&1
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "echo $SCRIPT_B64 | base64 -d | python3" 2>&1
+          sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "x-ui restart" 2>&1
 
           echo "=== Sync LA ==="
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i ~/.ssh/la-key romtan@216.227.169.120 "echo $SCRIPT_B64 | base64 -d | sudo python3" 2>&1
@@ -89,7 +89,7 @@ jobs:
         run: |
           cd /tmp
           # Get Helsinki inbound Reality settings (pbk, sid, sni)
-          HEL_KEYS=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@77.221.159.106 "python3 -c \"
+          HEL_KEYS=$(sshpass -p "$HELSINKI_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@45.137.60.80 "python3 -c \"
           import sqlite3, json, base64, hashlib
           db = sqlite3.connect('/etc/x-ui/x-ui.db')
           c = db.cursor()
@@ -140,7 +140,7 @@ jobs:
           EOF
           # Helsinki config
           cat > cfg_hel.json <<EOF
-          {"log":{"loglevel":"info"},"inbounds":[{"port":10810,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"77.221.159.106","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"$HEL_SNI","fingerprint":"$HEL_FP","publicKey":"$HEL_PBK","shortId":"$HEL_SID","spiderX":"/"}}}]}
+          {"log":{"loglevel":"info"},"inbounds":[{"port":10810,"listen":"127.0.0.1","protocol":"socks","settings":{"udp":true}}],"outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"45.137.60.80","port":443,"users":[{"id":"fe54c7f1-7a12-44f6-9956-f0578a87fd2f","encryption":"none","flow":""}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"$HEL_SNI","fingerprint":"$HEL_FP","publicKey":"$HEL_PBK","shortId":"$HEL_SID","spiderX":"/"}}}]}
           EOF
           # LA config
           cat > cfg_la.json <<EOF
@@ -160,13 +160,13 @@ jobs:
           FRA=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10808 https://api.ipify.org)
           echo "Frankfurt: ${FRA} (expect 77.110.100.210)"
           HEL=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10810 https://api.ipify.org)
-          echo "Helsinki:  ${HEL} (expect 77.221.159.106)"
+          echo "Helsinki:  ${HEL} (expect 45.137.60.80)"
           LA=$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:10809 https://api.ipify.org)
           echo "LA:        ${LA} (expect 216.227.169.120)"
 
           OK=0
           [ "$FRA" = "77.110.100.210" ] && OK=$((OK+1))
-          [ "$HEL" = "77.221.159.106" ] && OK=$((OK+1))
+          [ "$HEL" = "45.137.60.80" ] && OK=$((OK+1))
           [ "$LA" = "216.227.169.120" ] && OK=$((OK+1))
           echo ""
           echo "${OK}/3 servers working"
