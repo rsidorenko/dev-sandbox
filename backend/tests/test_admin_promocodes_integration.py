@@ -110,6 +110,39 @@ def test_admin_promocode_crud_and_users(pg_url, admin_env):
             assert r.json()["promocode"]["discount_value"] == 25
             assert r.json()["promocode"]["is_active"] is False
 
+            # per-tariff: create + PATCH с discount_value=null (регресс: ранее 400 invalid_discount_value,
+            # т.к. ветка discount_value реагировала на наличие ключа, а не на значение).
+            pt_code = "TESTPTPERPLAN"
+            await pool.execute("DELETE FROM promo_codes WHERE code = $1", pt_code)
+            r = client.post(
+                "/api/v1/admin/promocodes",
+                json={
+                    "code": pt_code,
+                    "audience": "new_users",
+                    "discount_kind": "fixed_rubles",
+                    "discount_value": None,
+                    "discounts_by_plan": {"1d": 1, "1m": 69, "365d": 349},
+                },
+                headers=h,
+            )
+            assert r.status_code == 201, r.text
+            assert r.json()["promocode"]["discounts_by_plan"] == {"1d": 1, "1m": 69, "365d": 349}
+
+            r = client.patch(
+                f"/api/v1/admin/promocodes/{pt_code}",
+                json={
+                    "audience": "new_users",
+                    "discount_kind": "fixed_rubles",
+                    "discount_value": None,
+                    "discounts_by_plan": {"1d": 1, "7d": 24, "14d": 49, "1m": 69, "3m": 119, "6m": 259, "365d": 349},
+                    "is_active": True,
+                },
+                headers=h,
+            )
+            assert r.status_code == 200, r.text
+            assert len(r.json()["promocode"]["discounts_by_plan"]) == 7
+            await pool.execute("DELETE FROM promo_codes WHERE code = $1", pt_code)
+
             # delete
             r = client.delete(f"/api/v1/admin/promocodes/{_CODE}", headers=h)
             assert r.status_code == 200

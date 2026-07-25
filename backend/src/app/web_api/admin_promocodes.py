@@ -246,7 +246,7 @@ async def handle_admin_update_promocode(request: Request) -> JSONResponse:
         else:
             changes["discounts_by_plan"] = None  # явный сброс per-tariff (вкл. пустой {})
 
-    if "discount_value" in data:
+    if data.get("discount_value") not in (None, ""):
         raw_value = data["discount_value"]
         # Строго целое (как в per-tariff): int() молча режет float и принимает bool.
         if isinstance(raw_value, bool) or not isinstance(raw_value, int):
