@@ -45,6 +45,7 @@ def _promo(
     audience: PromoAudience = PromoAudience.NEW_USERS,
     kind: PromoDiscountKind = PromoDiscountKind.PERCENT,
     value: int = 50,
+    discounts_by_plan: dict[str, int] | None = None,
     max_redemptions: int | None = None,
     redemptions_count: int = 0,
     is_active: bool = True,
@@ -64,6 +65,7 @@ def _promo(
         created_at=now,
         updated_at=now,
         created_by="admin",
+        discounts_by_plan=discounts_by_plan,
     )
 
 
@@ -363,3 +365,78 @@ def test_bot_promo_input_rate_limited_after_window():
         assert "Слишком много" not in text
     text, _kb = _run(_handle_promo_code_input(c, 9001, "GHOST"))
     assert "Слишком много" in text
+
+
+# ── per-tariff скидки: resolve_active_promo(plan_id, is_addon) ───────────────
+
+
+def _resolve_plan(c, uid: str, base_rubles: int, *, plan_id: str | None, is_addon: bool = False):
+    return _run(
+        resolve_active_promo(
+            pool=None,
+            promo_applied_repo=c.promo_applied_repo,
+            promo_code_repo=c.promo_code_repo,
+            snapshots=c.snapshots,
+            internal_user_id=uid,
+            base_rubles=base_rubles,
+            plan_id=plan_id,
+            is_addon=is_addon,
+        )
+    )
+
+
+def test_resolve_per_plan_discount_for_configured_plan():
+    # 1m: 10% от 249 → 224.
+    c, uid = _composition()
+    _apply(c, uid, _promo(kind=PromoDiscountKind.PERCENT, value=0, discounts_by_plan={"1m": 10, "3m": 15}))
+    active = _resolve_plan(c, uid, 249, plan_id="1m")
+    assert active is not None
+    assert active.price.discounted_rubles == 224
+    assert active.price.discount_kopecks == 2500
+
+
+def test_resolve_per_plan_no_discount_for_custom_tariff():
+    # «Свой» — промокод валиден, но скидки на этот тариф нет.
+    c, uid = _composition()
+    _apply(c, uid, _promo(discounts_by_plan={"1m": 50}))
+    active = _resolve_plan(c, uid, 300, plan_id="custom:20")
+    assert active is not None
+    assert active.price.discounted_rubles == 300
+    assert active.price.discount_kopecks == 0
+
+
+def test_resolve_per_plan_no_discount_for_unconfigured_plan():
+    c, uid = _composition()
+    _apply(c, uid, _promo(discounts_by_plan={"1m": 50}))
+    active = _resolve_plan(c, uid, 699, plan_id="3m")
+    assert active is not None
+    assert active.price.discounted_rubles == 699
+    assert active.price.discount_kopecks == 0
+
+
+def test_resolve_per_plan_no_discount_for_addon():
+    # add-device → is_addon=True → без скидки даже для тарифа из map.
+    c, uid = _composition()
+    _apply(c, uid, _promo(discounts_by_plan={"1m": 50}))
+    active = _resolve_plan(c, uid, 80, plan_id="1m", is_addon=True)
+    assert active is not None
+    assert active.price.discounted_rubles == 80
+    assert active.price.discount_kopecks == 0
+
+
+def test_balance_subscription_threads_plan_id_for_per_plan_discount():
+    # pay_plan_from_balance → _resolve_balance_discount(plan_id=…) → per-tariff скидка.
+    c, uid = _composition(balance_kopecks=500_00)
+    _apply(c, uid, _promo(kind=PromoDiscountKind.PERCENT, value=0, discounts_by_plan={"1m": 10}))
+    result = _run(
+        pay_plan_from_balance(
+            pool=None,
+            composition=c,
+            internal_user_id=uid,
+            plan_id="1m",
+            device_count=5,
+            vless_provider=StubVlessProvider(),
+        )
+    )
+    assert result.status is BalancePaymentStatus.COMPLETED
+    assert result.amount_kopecks == 224_00  # 249 −10% = 224 рубля

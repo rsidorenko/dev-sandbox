@@ -329,6 +329,7 @@ _PROMO_UPDATABLE: set[str] = {
     "audience",
     "discount_kind",
     "discount_value",
+    "discounts_by_plan",
     "max_redemptions",
     "expires_at",
     "is_active",

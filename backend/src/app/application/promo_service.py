@@ -114,6 +114,8 @@ async def resolve_active_promo(
     snapshots: SubscriptionSnapshotReader | None,
     internal_user_id: str,
     base_rubles: int,
+    plan_id: str | None = None,
+    is_addon: bool = False,
     now: datetime | None = None,
 ) -> ActivePromo | None:
     """Канонически разрешить применённый промокод и посчитать скидку.
@@ -121,6 +123,12 @@ async def resolve_active_promo(
     Возвращает ``ActivePromo`` (code + promo + PromoPrice), либо ``None`` если у
     пользователя нет пригодного промокода. Все причины «нет скидки» дают ``None``
     (fail-closed → пользователь платит полную цену, что безопасно: нет утечки денег).
+
+    plan_id/is_addon пробрасываются в ``apply_promo_discount``: per-tariff промокод
+    на «Свой»/add-device/не заданном тарифе здесь даст ``ActivePromo`` с price == base
+    (скидка 0). Возвращает ``None`` только если промокод неприменим ВООБЩЕ (нет/истёк/
+    лимит/аудитория) — это различие важно: «промокод есть, но на этот тариф без скидки»
+    всё ещё показывает код в сводке, но без скидочной суммы.
     """
     if base_rubles <= 0:
         return None
@@ -141,7 +149,7 @@ async def resolve_active_promo(
     if not audience_eligible(promo.audience, is_new_user=is_new):
         return None
 
-    price = apply_promo_discount(base_rubles, promo)
+    price = apply_promo_discount(base_rubles, promo, plan_id=plan_id, is_addon=is_addon)
     return ActivePromo(code=promo.code, promo=promo, price=price)
 
 

@@ -687,7 +687,7 @@ async def _render_purchase_summary(
     text = text_purchase_summary(summary, promo=promo, promo_note=promo_note)
 
     if promo is not None:
-        price = apply_promo_discount(summary.total_price_rubles, promo)
+        price = apply_promo_discount(summary.total_price_rubles, promo, plan_id=plan_id)
         charge_kopecks = price.discounted_rubles * 100
     else:
         charge_kopecks = summary.total_price_rubles * 100
@@ -1507,6 +1507,7 @@ async def _process_yookassa_payment(
             snapshots=composition.snapshots,
             internal_user_id=internal_user_id,
             base_rubles=total_rubles,
+            plan_id=plan_id,
         )
         if active is not None:
             charge_rubles = active.price.discounted_rubles
@@ -1786,6 +1787,7 @@ async def _process_add_device_yookassa(
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,
+        is_addon=True,
     )
     if active is not None:
         charge_rubles = active.price.discounted_rubles

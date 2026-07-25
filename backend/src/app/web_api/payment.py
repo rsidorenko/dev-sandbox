@@ -113,6 +113,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         snapshots=None,
         internal_user_id=internal_user_id,
         base_rubles=total_rubles,
+        plan_id=plan_id,
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else total_rubles
     charge_kopecks = charge_rubles * 100
@@ -270,6 +271,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         snapshots=None,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,
+        is_addon=True,
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else cost_rubles
     expected_amount_kopecks = active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks

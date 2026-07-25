@@ -190,7 +190,7 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
                 except (ValueError, TypeError):
                     device_count = 5
                 base = calculate_total_price(plan, device_count)
-                price = apply_promo_discount(base, promo)
+                price = apply_promo_discount(base, promo, plan_id=plan_id)
                 body["preview"] = {
                     "plan_id": plan_id,
                     "device_count": device_count,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
@@ -70,13 +71,30 @@ class PromoAppliedRepository(Protocol):
     async def clear(self, internal_user_id: str) -> None: ...
 
 
+def _coerce_discounts_by_plan(raw: Any) -> dict[str, int] | None:
+    """JSONB → dict[str,int] | None. asyncpg без jsonb-кодека отдаёт str; dict — если
+    кодек зарегистрирован; None/пусто — плоская мода."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = json.loads(raw) if raw else None
+    if not raw:
+        return None
+    return {str(k): int(v) for k, v in raw.items()}
+
+
 def record_from_row(row: Any) -> PromoCode:
     """Сборка PromoCode из строки БД (asyncpg Record / dict-like)."""
+    # discounts_by_plan может отсутствовать у старых SELECT — tolerant к KeyError.
+    try:
+        discounts_raw = row["discounts_by_plan"]
+    except KeyError:
+        discounts_raw = None
     return PromoCode(
         code=row["code"],
         audience=PromoAudience(row["audience"]),
         discount_kind=PromoDiscountKind(row["discount_kind"]),
-        discount_value=int(row["discount_value"]),
+        discount_value=int(row["discount_value"]) if row["discount_value"] is not None else 0,
         max_redemptions=None if row["max_redemptions"] is None else int(row["max_redemptions"]),
         redemptions_count=int(row["redemptions_count"]),
         expires_at=row["expires_at"],
@@ -85,6 +103,7 @@ def record_from_row(row: Any) -> PromoCode:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         created_by=row["created_by"],
+        discounts_by_plan=_coerce_discounts_by_plan(discounts_raw),
     )
 
 

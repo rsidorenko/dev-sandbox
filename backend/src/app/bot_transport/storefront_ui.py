@@ -320,7 +320,7 @@ def text_purchase_summary(summary: PurchaseSummary, *, promo: PromoCode | None =
     base = summary.total_price_rubles
     if promo is not None:
         # Скидка канонически считается тем же apply_promo_discount, что и при оплате.
-        price = apply_promo_discount(base, promo)
+        price = apply_promo_discount(base, promo, plan_id=summary.plan_id)
         lines += ["", f"  🎁 Промокод {promo.code}: {promo_badge_label(promo)}"]
         lines.append(f"  Скидка: {base - price.discounted_rubles} ₽")
         lines += [
@@ -2160,7 +2160,9 @@ def promo_offer_preview(promo: PromoCode) -> str:
 
 
 def promo_badge_label(promo: PromoCode) -> str:
-    """Короткая подпись скидки для бейджей/кнопок: «−15%» или «−200 ₽»."""
+    """Короткая подпись скидки для бейджей/кнопок: «−15%», «−200 ₽» или «по тарифам»."""
+    if promo.discounts_by_plan:
+        return "по тарифам"
     if promo.discount_kind == PromoDiscountKind.PERCENT:
         return f"−{promo.discount_value}%"
     return f"−{promo.discount_value} ₽"

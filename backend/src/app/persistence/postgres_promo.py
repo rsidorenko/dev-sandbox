@@ -9,6 +9,7 @@ pool, атомарные операции реализованы как @staticm
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from typing import Any
@@ -24,17 +25,31 @@ from app.persistence.promo_contracts import (
 
 # Стоп-лист колонок, которые админ может менять через update() (защита от SQL-инъекций
 # при динамической генерации SET). redemptions_count/created_at/created_by не входят.
+# discounts_by_plan требует ::jsonb-каста — обрабатывается отдельно в update().
 _UPDATABLE_COLUMNS: frozenset[str] = frozenset(
     {
         "audience",
         "discount_kind",
         "discount_value",
+        "discounts_by_plan",
         "max_redemptions",
         "expires_at",
         "is_active",
         "note",
     }
 )
+
+# Колонки, возвращаемые всеми SELECT/RETURNING — единый список, чтобы не рассинхронить
+# парсинг в record_from_row (там же читается discounts_by_plan).
+_PROMO_SELECT_COLUMNS = (
+    "code, audience, discount_kind, discount_value, discounts_by_plan, max_redemptions, "
+    "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at"
+)
+
+
+def _encode_discounts_by_plan(value: dict[str, int] | None) -> str | None:
+    """dict → JSON-строка для записи в JSONB (кодек не зарегистрирован). None остаётся None."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True) if value else None
 
 
 class PostgresPromoCodeRepository:
@@ -44,27 +59,28 @@ class PostgresPromoCodeRepository:
     async def get(self, code: str) -> PromoCode | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT code, audience, discount_kind, discount_value, max_redemptions, "
-                "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at "
-                "FROM promo_codes WHERE code = $1",
+                f"SELECT {_PROMO_SELECT_COLUMNS} FROM promo_codes WHERE code = $1",  # noqa: S608
                 code,
             )
         return None if row is None else record_from_row(row)
 
     async def create(self, promo: PromoCode) -> PromoCode:
+        # per-tariff промокод хранит скидки в discounts_by_plan, а discount_value = NULL
+        # (CHECK >0 не пустит 0; в домене discount_value=0, в БД пишем NULL).
+        discount_value_db = None if promo.discounts_by_plan else promo.discount_value
         async with self._pool.acquire() as conn:
             try:
                 row = await conn.fetchrow(
-                    "INSERT INTO promo_codes "
-                    "(code, audience, discount_kind, discount_value, max_redemptions, "
+                    "INSERT INTO promo_codes "  # noqa: S608
+                    "(code, audience, discount_kind, discount_value, discounts_by_plan, max_redemptions, "
                     "redemptions_count, expires_at, is_active, note, created_by) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
-                    "RETURNING code, audience, discount_kind, discount_value, max_redemptions, "
-                    "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at",
+                    "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11) "
+                    f"RETURNING {_PROMO_SELECT_COLUMNS}",
                     promo.code,
                     promo.audience.value,
                     promo.discount_kind.value,
-                    promo.discount_value,
+                    discount_value_db,
+                    _encode_discounts_by_plan(promo.discounts_by_plan),
                     promo.max_redemptions,
                     promo.redemptions_count,
                     promo.expires_at,
@@ -82,13 +98,22 @@ class PostgresPromoCodeRepository:
         if not safe:
             return await self.get(code)
         # Колонки SET берутся только из белого списка _UPDATABLE_COLUMNS; значения параметризованы ($N).
-        assignments = [f"{col} = ${i + 2}" for i, col in enumerate(safe.keys())]
+        # discounts_by_plan сериализуется в JSON и кастуется к ::jsonb (кодек не зарегистрирован).
+        params: list[Any] = [code]
+        assignments: list[str] = []
+        for col, value in safe.items():
+            param_value: Any = value
+            suffix = ""
+            if col == "discounts_by_plan":
+                param_value = _encode_discounts_by_plan(value if isinstance(value, dict) else None)
+                suffix = "::jsonb"
+            assignments.append(f"{col} = ${len(params) + 1}{suffix}")
+            params.append(param_value)
         assignments.append("updated_at = now()")
-        params: list[Any] = [code, *safe.values()]
         sql = (
             "UPDATE promo_codes SET "  # noqa: S608 -- белый список _UPDATABLE_COLUMNS, значения параметризованы ($N)
             + ", ".join(assignments)
-            + " WHERE code = $1 RETURNING code, audience, discount_kind, discount_value, max_redemptions, redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at"
+            + f" WHERE code = $1 RETURNING {_PROMO_SELECT_COLUMNS}"
         )
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(sql, *params)
@@ -105,16 +130,14 @@ class PostgresPromoCodeRepository:
         async with self._pool.acquire() as conn:
             if include_inactive:
                 rows = await conn.fetch(
-                    "SELECT code, audience, discount_kind, discount_value, max_redemptions, "
-                    "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at "
+                    f"SELECT {_PROMO_SELECT_COLUMNS} "  # noqa: S608
                     "FROM promo_codes ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                     limit,
                     offset,
                 )
             else:
                 rows = await conn.fetch(
-                    "SELECT code, audience, discount_kind, discount_value, max_redemptions, "
-                    "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at "
+                    f"SELECT {_PROMO_SELECT_COLUMNS} "  # noqa: S608
                     "FROM promo_codes WHERE is_active = TRUE "
                     "ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                     limit,

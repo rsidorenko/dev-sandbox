@@ -128,6 +128,7 @@ async def pay_plan_from_balance(
         composition=composition,
         internal_user_id=internal_user_id,
         base_kopecks=total_kopecks,
+        plan_id=plan_id,
     )
 
     if pool is not None:
@@ -500,6 +501,7 @@ async def _add_device_pg(
                 snapshots=_snap,
                 internal_user_id=internal_user_id,
                 base_rubles=cost_rubles,
+                is_addon=True,
             )
             if active_promo_add is not None:
                 cost_kopecks = active_promo_add.price.discounted_kopecks
@@ -611,6 +613,7 @@ async def _add_device_inmemory(
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,
+        is_addon=True,
     )
     if active_promo_add is not None:
         cost_kopecks = active_promo_add.price.discounted_kopecks
@@ -706,6 +709,7 @@ async def _resolve_balance_discount(
     composition: Slice1Composition | None,
     internal_user_id: str,
     base_kopecks: int,
+    plan_id: str,
 ) -> tuple[Any, int]:
     """Возвращает (ActivePromo | None, charge_kopecks). charge = discounted если промокод пригоден."""
     from app.application.promo_service import resolve_active_promo
@@ -721,6 +725,7 @@ async def _resolve_balance_discount(
         snapshots=snapshots,
         internal_user_id=internal_user_id,
         base_rubles=base_rubles,
+        plan_id=plan_id,
     )
     charge = active.price.discounted_kopecks if active is not None else base_kopecks
     return active, charge

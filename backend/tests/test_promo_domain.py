@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.domain.promo import (
+    FIXED_PLAN_IDS,
     PROMO_APPLIED_TTL_HOURS,
     PromoAudience,
     PromoCode,
@@ -17,6 +18,7 @@ from app.domain.promo import (
     redeem_block_reason,
     validate_code_format,
     validate_discount,
+    validate_discounts_by_plan,
 )
 
 
@@ -26,6 +28,7 @@ def _promo(
     audience: PromoAudience = PromoAudience.NEW_USERS,
     discount_kind: PromoDiscountKind = PromoDiscountKind.PERCENT,
     discount_value: int = 15,
+    discounts_by_plan: dict[str, int] | None = None,
     max_redemptions: int | None = None,
     redemptions_count: int = 0,
     expires_at: datetime | None = None,
@@ -45,6 +48,7 @@ def _promo(
         created_at=now,
         updated_at=now,
         created_by="admin",
+        discounts_by_plan=discounts_by_plan,
     )
 
 
@@ -203,3 +207,103 @@ def test_validate_discount_fixed_positive():
 
 def test_promo_applied_ttl_constant():
     assert PROMO_APPLIED_TTL_HOURS == 24
+
+
+# --- per-tariff скидки: apply_promo_discount(plan_id, is_addon) ---
+
+
+def test_per_plan_discount_applies_for_configured_plan():
+    # 1m: 10% от 249 = 224.1 → round half-up 224.
+    promo = _promo(
+        discount_kind=PromoDiscountKind.PERCENT,
+        discount_value=0,
+        discounts_by_plan={"1m": 10, "3m": 15},
+    )
+    price = apply_promo_discount(249, promo, plan_id="1m")
+    assert price.base_rubles == 249
+    assert price.discounted_rubles == 224
+    assert price.discount_kopecks == (249 - 224) * 100
+
+
+def test_per_plan_discount_different_value_per_plan():
+    promo = _promo(
+        discount_kind=PromoDiscountKind.PERCENT,
+        discounts_by_plan={"1m": 10, "3m": 50},
+    )
+    assert apply_promo_discount(249, promo, plan_id="1m").discounted_rubles == 224  # −10%
+    assert apply_promo_discount(699, promo, plan_id="3m").discounted_rubles == 350  # −50%
+
+
+def test_per_plan_discount_fixed_kind():
+    promo = _promo(
+        discount_kind=PromoDiscountKind.FIXED_RUBLES,
+        discounts_by_plan={"1m": 50},
+    )
+    assert apply_promo_discount(249, promo, plan_id="1m").discounted_rubles == 199
+
+
+def test_per_plan_custom_tariff_no_discount():
+    # «Свой» (custom:*) — промокод не действует: полная цена.
+    promo = _promo(discounts_by_plan={"1m": 50})
+    price = apply_promo_discount(300, promo, plan_id="custom:20")
+    assert price.discounted_rubles == 300
+    assert price.discount_kopecks == 0
+
+
+def test_per_plan_unconfigured_fixed_plan_no_discount():
+    # Тариф есть в системе, но не в map — полная цена.
+    promo = _promo(discounts_by_plan={"1m": 50})
+    price = apply_promo_discount(699, promo, plan_id="3m")
+    assert price.discounted_rubles == 699
+    assert price.discount_kopecks == 0
+
+
+def test_per_plan_addon_no_discount():
+    # Добавление устройств — без скидки для per-tariff промокода.
+    promo = _promo(discounts_by_plan={"1m": 50})
+    price = apply_promo_discount(80, promo, plan_id="1m", is_addon=True)
+    assert price.discounted_rubles == 80
+    assert price.discount_kopecks == 0
+
+
+def test_per_plan_no_plan_id_no_discount():
+    promo = _promo(discounts_by_plan={"1m": 50})
+    price = apply_promo_discount(249, promo, plan_id=None)
+    assert price.discounted_rubles == 249
+    assert price.discount_kopecks == 0
+
+
+def test_per_plan_clamps_to_one_ruble():
+    # 100% на 1m → итог клампится до 1 рубля.
+    promo = _promo(discount_kind=PromoDiscountKind.PERCENT, discounts_by_plan={"1m": 100})
+    price = apply_promo_discount(249, promo, plan_id="1m")
+    assert price.discounted_rubles == 1
+    assert price.discount_kopecks == 24800
+
+
+def test_flat_promo_backward_compat_discounts_addon_and_custom():
+    # Плоский промокод (нет map) — скидка на всё, включая add-device и «Свой».
+    promo = _promo(discount_kind=PromoDiscountKind.PERCENT, discount_value=15)
+    assert apply_promo_discount(249, promo, plan_id="1m").discounted_rubles == 212
+    assert apply_promo_discount(80, promo, is_addon=True).discounted_rubles == 68  # −15% от 80
+    assert apply_promo_discount(300, promo, plan_id="custom:20").discounted_rubles == 255
+
+
+def test_validate_discounts_by_plan_ok():
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {"1m": 10, "3m": 15}) is None
+    assert validate_discounts_by_plan(PromoDiscountKind.FIXED_RUBLES, {"365d": 200}) is None
+
+
+def test_validate_discounts_by_plan_rejects_empty_and_unknown_and_percent():
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, None) is not None
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {}) is not None
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {"custom:5": 10}) is not None
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {"xx": 10}) is not None
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {"1m": 150}) is not None
+    assert validate_discounts_by_plan(PromoDiscountKind.PERCENT, {"1m": 0}) is not None
+
+
+def test_fixed_plan_ids_excludes_custom():
+    assert "1m" in FIXED_PLAN_IDS
+    assert all(not pid.startswith("custom:") for pid in FIXED_PLAN_IDS)
+    assert len(FIXED_PLAN_IDS) == 7

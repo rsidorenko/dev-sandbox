@@ -41,6 +41,11 @@ class PromoDiscountKind(StrEnum):
     FIXED_RUBLES = "fixed_rubles"
 
 
+# Фиксированные тарифы, для которых можно задать per-tariff скидку.
+# «Свой» (custom:*) сюда НЕ входит — на нём per-tariff промокод не действует.
+FIXED_PLAN_IDS: frozenset[str] = frozenset({"1d", "7d", "14d", "1m", "3m", "6m", "365d"})
+
+
 @dataclass(frozen=True, slots=True)
 class PromoCode:
     """Определение промокода (зеркало строки promo_codes)."""
@@ -57,6 +62,10 @@ class PromoCode:
     created_at: datetime
     updated_at: datetime
     created_by: str | None
+    # Per-tariff скидки: {plan_id: value} для фиксированных тарифов. None/пусто —
+    # плоская мода (скидка берётся из discount_value и применяется ко всему).
+    # Непустая — per-tariff: скидка только для тарифов из map (см. apply_promo_discount).
+    discounts_by_plan: dict[str, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +111,21 @@ def validate_discount(kind: PromoDiscountKind, value: int) -> str | None:
         return "Процент скидки не может превышать 100"
     if kind == PromoDiscountKind.FIXED_RUBLES and value < 1:
         return "Фиксированная скидка — минимум 1 рубль"
+    return None
+
+
+def validate_discounts_by_plan(kind: PromoDiscountKind, mapping: dict[str, int] | None) -> str | None:
+    """Валидация per-tariff карты скидок. None/пусто — не per-tariff мода (ошибка,
+    если ожидается per-tariff). Возвращает текст ошибки либо None."""
+    if not mapping:
+        return "Укажите скидку хотя бы для одного тарифа"
+    for plan_id, value in mapping.items():
+        if plan_id not in FIXED_PLAN_IDS:
+            return f"Неизвестный тариф: {plan_id}"
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            return f"Скидка для тарифа {plan_id} должна быть положительным целым"
+        if kind == PromoDiscountKind.PERCENT and value > 100:
+            return f"Процент для тарифа {plan_id} не может превышать 100"
     return None
 
 
@@ -158,8 +182,38 @@ def audience_eligible(audience: PromoAudience, *, is_new_user: bool) -> bool:
     return False
 
 
-def apply_promo_discount(base_rubles: int, promo: PromoCode) -> PromoPrice:
+def _resolve_discount_spec(
+    promo: PromoCode, *, plan_id: str | None, is_addon: bool
+) -> tuple[PromoDiscountKind, int] | None:
+    """Эффективная скидка для данной покупки: (kind, value) либо None (= без скидки).
+
+    - Плоская мода (discounts_by_plan пусто/None): discount_value применяется ко
+      всему — подписки любого тарифа (вкл. «Свой»), add-device. Backward-compat.
+    - Per-tariff мода (discounts_by_plan непусто): скидка только для подписки
+      фиксированного тарифа из map. add-device, «Свой» (custom:*) и тарифы без
+      явной записи → без скидки (None).
+    """
+    if promo.discounts_by_plan:
+        if is_addon or not plan_id or plan_id.startswith("custom:"):
+            return None
+        value = promo.discounts_by_plan.get(plan_id)
+        if value is None:
+            return None
+        return promo.discount_kind, value
+    return promo.discount_kind, promo.discount_value
+
+
+def apply_promo_discount(
+    base_rubles: int,
+    promo: PromoCode,
+    *,
+    plan_id: str | None = None,
+    is_addon: bool = False,
+) -> PromoPrice:
     """Применить скидку промокода к базовой цене (целые рубли).
+
+    plan_id/is_addon определяют, какая скидка актуальна (см. ``_resolve_discount_spec``):
+    per-tariff промокод на «Свой»/add-device/не заданном тарифе → без скидки.
 
     Гарантии:
     - при base_rubles <= 0 скидка не применяется (нечего скидывать — например,
@@ -172,11 +226,20 @@ def apply_promo_discount(base_rubles: int, promo: PromoCode) -> PromoPrice:
     """
     if base_rubles <= 0:
         return PromoPrice(base_rubles=0, discounted_rubles=0, discount_kopecks=0)
-    if promo.discount_kind == PromoDiscountKind.PERCENT:
-        discounted_exact = base_rubles * (100 - promo.discount_value) / 100
+    spec = _resolve_discount_spec(promo, plan_id=plan_id, is_addon=is_addon)
+    if spec is None:
+        # Скидка неприменима (per-tariff: addon/custom/не задан) → полная цена.
+        return PromoPrice(
+            base_rubles=base_rubles,
+            discounted_rubles=base_rubles,
+            discount_kopecks=0,
+        )
+    kind, value = spec
+    if kind == PromoDiscountKind.PERCENT:
+        discounted_exact = base_rubles * (100 - value) / 100
         discounted = _round_half_up(discounted_exact)
     else:  # PromoDiscountKind.FIXED_RUBLES
-        discounted = base_rubles - promo.discount_value
+        discounted = base_rubles - value
     discounted = max(1, min(discounted, base_rubles))
     discount_kopecks = (base_rubles - discounted) * 100
     return PromoPrice(
