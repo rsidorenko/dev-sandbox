@@ -7,7 +7,9 @@ export interface AppliedPromo {
   code: string;
   discount_kind: PromoDiscountKind;
   discount_value: number;
-  /** Человекочитаемая подпись: «−15%» или «−200 ₽». */
+  /** Per-tariff карта {plan_id: value}; null — плоская мода (discount_value). */
+  discounts_by_plan: Record<string, number> | null;
+  /** Человекочитаемая подпись: «−15%», «−200 ₽» или «по тарифам». */
   discount_label: string;
   /** ISO-дата истечения закрепления (now+24ч). */
   expires_at: string;

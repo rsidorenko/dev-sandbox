@@ -156,16 +156,19 @@ _PLAN_EMOJI: dict[str, str] = {
 }
 
 
-def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...]) -> dict[str, Any]:
-    rows = [
-        [
-            {
-                "text": f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {p.price_rubles} ₽",
-                "callback_data": f"{CB_PLAN}{p.plan_id}",
-            }
-        ]
-        for p in plans
-    ]
+def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...], *, promo: PromoCode | None = None) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = []
+    for p in plans:
+        base = p.price_rubles
+        # Скидка по закреплённому промокоду для этого тарифа (per-tariff: только если тариф в map).
+        discounted = (
+            apply_promo_discount(base, promo, plan_id=p.plan_id).discounted_rubles if promo is not None else base
+        )
+        if discounted < base:
+            label = f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {discounted} ₽ вместо {base}"
+        else:
+            label = f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {base} ₽"
+        rows.append([{"text": label, "callback_data": f"{CB_PLAN}{p.plan_id}"}])
     rows.append([{"text": "📦 Свой тариф", "callback_data": CB_CUSTOM_DAYS}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
@@ -271,18 +274,24 @@ def text_main_menu() -> str:
     return "<b>🏠 Главное меню</b>"
 
 
-def text_buy_vpn_intro() -> str:
-    return (
-        "<b>🔑 Выберите тариф VPN-подписки:</b>\n\n"
-        "⚪ — 1 день\n"
-        "🟡 — 7 дней\n"
-        "🟠 — 2 недели\n"
-        "🟢 — 1 месяц\n"
-        "🔵 — 3 месяца\n"
-        "🟣 — 6 месяцев\n"
-        "🏆 — 1 год\n\n"
-        "Или выберите «📦 Свой тариф» для произвольного количества дней."
-    )
+def text_buy_vpn_intro(*, promo: PromoCode | None = None) -> str:
+    lines = [
+        "<b>🔑 Выберите тариф VPN-подписки:</b>",
+        "",
+        "⚪ — 1 день",
+        "🟡 — 7 дней",
+        "🟠 — 2 недели",
+        "🟢 — 1 месяц",
+        "🔵 — 3 месяца",
+        "🟣 — 6 месяцев",
+        "🏆 — 1 год",
+        "",
+        "Или выберите «📦 Свой тариф» для произвольного количества дней.",
+    ]
+    if promo is not None:
+        lines.append("")
+        lines.append(f"🎁 <b>Промокод {promo.code} применён</b> — цены ниже уже со скидкой.")
+    return "\n".join(lines)
 
 
 def text_device_select(plan_id: str, price_rubles: int, duration_days: int, device_count: int) -> str:
@@ -2154,6 +2163,8 @@ def text_promo_rate_limited() -> str:
 
 def promo_offer_preview(promo: PromoCode) -> str:
     """Человекочитаемое описание скидки без привязки к тарифу (тариф ещё не выбран)."""
+    if promo.discounts_by_plan:
+        return "Скидка по тарифам — выберите тариф, цену пересчитаем со скидкой."
     if promo.discount_kind == PromoDiscountKind.PERCENT:
         return f"Скидка: {promo.discount_value}% от стоимости."
     return f"Скидка: {promo.discount_value} ₽ от стоимости."

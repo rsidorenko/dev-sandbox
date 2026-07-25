@@ -6,6 +6,9 @@ import { siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
 import { savingsPctForPlan } from "@/entities/tariff/savings";
 import { Reveal } from "@/shared/ui/Reveal";
+import { usePromocode } from "@/features/promocode/usePromocode";
+import { discountedRubles } from "@/features/promocode/discount";
+import type { AppliedPromo } from "@/features/promocode/api";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
 
@@ -19,6 +22,7 @@ export function TariffsSection() {
   const [selected, setSelected] = useState<string>(tariffs.find((t) => t.popular)?.id ?? tariffs[0].id);
   const [showCustom, setShowCustom] = useState(false);
   const [customDays, setCustomDays] = useState(30);
+  const { applied } = usePromocode();
 
   const activeTariff = tariffs.find((t) => t.id === selected);
 
@@ -75,7 +79,7 @@ export function TariffsSection() {
           {showCustom ? (
             <CustomCard days={customDays} onDaysChange={setCustomDays} />
           ) : activeTariff ? (
-            <TariffCard tariff={activeTariff} />
+            <TariffCard tariff={activeTariff} applied={applied} />
           ) : null}
         </div>
 
@@ -112,9 +116,11 @@ function UpsellHint({ currentId }: { currentId: string }) {
   );
 }
 
-function TariffCard({ tariff }: { tariff: Tariff }) {
+function TariffCard({ tariff, applied }: { tariff: Tariff; applied: AppliedPromo | null }) {
   const sp = savingsPctForPlan(tariff.id);
   const isBest = tariff.id === "365d";
+  const discounted = discountedRubles(applied, tariff.id, tariff.price);
+  const hasDiscount = discounted < tariff.price;
   return (
     <div className="mx-auto mt-8 max-w-md">
       <div className="relative rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-800 dark:shadow-none">
@@ -129,16 +135,31 @@ function TariffCard({ tariff }: { tariff: Tariff }) {
         </h3>
 
         <div className="mt-4 text-center">
-          <span className="text-4xl font-extrabold text-gray-900 dark:text-white">
-            {tariff.priceLabel}
-          </span>
+          {hasDiscount ? (
+            <div className="flex items-baseline justify-center gap-2">
+              <span className="text-2xl font-bold text-gray-400 line-through dark:text-gray-500">
+                {tariff.price} ₽
+              </span>
+              <span className="text-4xl font-extrabold text-brand-600 dark:text-brand-400">
+                {discounted.toLocaleString("ru-RU")} ₽
+              </span>
+            </div>
+          ) : (
+            <span className="text-4xl font-extrabold text-gray-900 dark:text-white">
+              {tariff.priceLabel}
+            </span>
+          )}
           <span className="ml-2 text-sm text-gray-400">{tariff.perDay}</span>
         </div>
-        {sp > 0 && (
+        {hasDiscount && applied ? (
+          <p className="mt-1 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+            🎁 Промокод {applied.code}: скидка {tariff.price - discounted} ₽
+          </p>
+        ) : sp > 0 ? (
           <p className="mt-1 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
             Выгода −{sp}% в пересчёте на день
           </p>
-        )}
+        ) : null}
 
         <ul className="mt-6 flex flex-col gap-2 text-sm text-gray-600 dark:text-gray-300">
           <li className="flex items-center gap-2">

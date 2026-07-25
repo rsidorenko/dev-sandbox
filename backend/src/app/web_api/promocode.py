@@ -43,6 +43,8 @@ _BLOCK_ERROR: dict[str, str] = {
 
 
 def _discount_label(promo: PromoCode) -> str:
+    if promo.discounts_by_plan:
+        return "по тарифам"
     if promo.discount_kind == PromoDiscountKind.PERCENT:
         return f"−{promo.discount_value}%"
     return f"−{promo.discount_value} ₽"
@@ -58,6 +60,7 @@ def _applied_descriptor(promo: PromoCode, *, expires_at: datetime, valid: bool) 
         "code": promo.code,
         "discount_kind": promo.discount_kind.value,
         "discount_value": promo.discount_value,
+        "discounts_by_plan": promo.discounts_by_plan,
         "discount_label": _discount_label(promo),
         "expires_at": expires_at.isoformat(),
         "remaining_hours": _remaining_hours(expires_at),

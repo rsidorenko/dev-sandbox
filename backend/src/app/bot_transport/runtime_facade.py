@@ -1941,7 +1941,9 @@ async def _render_storefront_response(
 
     elif code in (CB_BUY_VPN, "store_plans"):
         plans = get_available_plans()
-        text, keyboard = text_buy_vpn_intro(), buy_vpn_keyboard(plans)
+        applied = await _active_applied_promo(composition, uid)
+        promo = applied[0] if applied is not None else None
+        text, keyboard = text_buy_vpn_intro(promo=promo), buy_vpn_keyboard(plans, promo=promo)
 
     elif code in (CB_HELP, "slice1_help"):
         text, keyboard = text_help(), back_only_keyboard(CB_MAIN_MENU)

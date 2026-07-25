@@ -36,6 +36,7 @@ def _promo(
     audience: PromoAudience = PromoAudience.NEW_USERS,
     value: int = 50,
     kind: PromoDiscountKind = PromoDiscountKind.PERCENT,
+    discounts_by_plan: dict[str, int] | None = None,
     is_active: bool = True,
     expires_at: datetime | None = None,
 ) -> PromoCode:
@@ -53,6 +54,7 @@ def _promo(
         created_at=now,
         updated_at=now,
         created_by="test",
+        discounts_by_plan=discounts_by_plan,
     )
 
 
@@ -205,3 +207,58 @@ def test_promo_text_input_summary_has_html_parse_mode():
         assert "125 ₽" in pkg.message_text  # 50% от 249
     finally:
         _awaiting_promo_code.pop(uid, None)
+
+
+# ── buy_vpn_keyboard: скидочные цены по применённому промокоду ──────────────
+
+from app.application.purchase_handler import get_available_plans  # noqa: E402
+from app.bot_transport.storefront_ui import (  # noqa: E402
+    buy_vpn_keyboard,
+    promo_offer_preview,
+    text_buy_vpn_intro,
+)
+
+
+def _button_text(kb: dict, plan_id: str) -> str:
+    for row in kb["inline_keyboard"]:
+        for btn in row:
+            if btn["callback_data"] == f"plan:{plan_id}":
+                return btn["text"]
+    raise AssertionError(f"no button for {plan_id}")
+
+
+def test_buy_vpn_keyboard_no_promo_plain_prices():
+    kb = buy_vpn_keyboard(get_available_plans())
+    assert "вместо" not in _button_text(kb, "1m")
+    assert _button_text(kb, "1m").endswith("249 ₽")
+
+
+def test_buy_vpn_keyboard_flat_promo_shows_discount():
+    promo = _promo(kind=PromoDiscountKind.PERCENT, value=15)  # −15%
+    kb = buy_vpn_keyboard(get_available_plans(), promo=promo)
+    txt = _button_text(kb, "1m")
+    assert "вместо" in txt  # 249 → 212
+    assert "212 ₽ вместо 249" in txt
+
+
+def test_buy_vpn_keyboard_per_tariff_only_configured_plans():
+    promo = _promo(kind=PromoDiscountKind.PERCENT, discounts_by_plan={"1m": 50})
+    kb = buy_vpn_keyboard(get_available_plans(), promo=promo)
+    assert "вместо" in _button_text(kb, "1m")  # 1m в map → скидка
+    assert "вместо" not in _button_text(kb, "3m")  # 3m не в map → полная
+    assert "вместо" not in _button_text(kb, "365d")
+
+
+def test_buy_vpn_intro_mentions_promo_when_applied():
+    intro = text_buy_vpn_intro(promo=_promo(code="180TEARZ"))
+    assert "180TEARZ" in intro
+    assert "со скидкой" in intro
+    assert "Промокод" not in text_buy_vpn_intro()  # без промокода — нет строки
+
+
+def test_promo_offer_preview_per_tariff_has_no_zero():
+    # Регресс: per-tariff ранее показывал «Скидка: 0 ₽ от стоимости.»
+    txt = promo_offer_preview(_promo(discounts_by_plan={"1m": 50}))
+    assert "0 ₽" not in txt
+    assert "0%" not in txt
+    assert "тариф" in txt.lower()
