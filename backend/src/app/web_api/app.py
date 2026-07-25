@@ -44,6 +44,7 @@ from app.web_api.profile import (
     handle_reissue_keys,
     handle_renew_subscription,
 )
+from app.web_api.referral import handle_get_referral_stats
 from app.web_api.promocode import (
     handle_apply_promocode,
     handle_clear_promocode,
@@ -141,6 +142,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/auth/logout", handle_logout, methods=["POST"]),
         # Profile
         Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
+        # Referral dashboard (stats, conversion, recent transactions)
+        Route("/api/v1/user/referral", _with_auth(handle_get_referral_stats), methods=["GET"]),
         # Keys
         Route("/api/v1/user/keys", _with_auth(handle_get_keys), methods=["GET"]),
         Route("/api/v1/user/keys/reissue", _with_auth(_with_csrf(handle_reissue_keys)), methods=["POST"]),
