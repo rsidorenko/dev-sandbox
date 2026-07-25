@@ -16,6 +16,12 @@ stages:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  # Кэш npm храним как download-кэш (.npm), НЕ node_modules. Тогда `npm ci`
+  # каждый раз собирает node_modules начисто → платформенный SWC-бинарь Next.js
+  # (@next/swc-linux-x64-gnu для `next dev` в e2e) всегда присутствует. Кэш
+  # самого node_modules приводил к intermittent «Failed to load SWC binary»
+  # и падению frontend:e2e.
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/frontend/.npm"
   FF_USE_FASTZIP: "1"
 
 workflow:
@@ -242,8 +248,8 @@ frontend:lint:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: npm-frontend
-    paths: [frontend/node_modules]
+    key: npm-frontend-v2
+    paths: [frontend/.npm]
   script:
     - cd frontend && npm ci && npm run lint
 
@@ -253,8 +259,8 @@ frontend:typecheck:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: npm-frontend
-    paths: [frontend/node_modules]
+    key: npm-frontend-v2
+    paths: [frontend/.npm]
   script:
     - cd frontend && npm ci && npx tsc --noEmit
 
@@ -264,8 +270,8 @@ frontend:unit:
   extends: .frontend-rules
   interruptible: true
   cache:
-    key: npm-frontend
-    paths: [frontend/node_modules]
+    key: npm-frontend-v2
+    paths: [frontend/.npm]
   script:
     - cd frontend && npm ci && npm run test
 
@@ -275,8 +281,8 @@ frontend:build:
   extends: .frontend-rules
   needs: ["frontend:lint", "frontend:typecheck"]
   cache:
-    key: npm-frontend
-    paths: [frontend/node_modules]
+    key: npm-frontend-v2
+    paths: [frontend/.npm]
   script:
     - cd frontend
     - npm ci
@@ -289,8 +295,8 @@ frontend:e2e:
   extends: .frontend-rules
   needs: ["frontend:unit", "frontend:build"]
   cache:
-    key: npm-frontend
-    paths: [frontend/node_modules]
+    key: npm-frontend-v2
+    paths: [frontend/.npm]
   script:
     - cd frontend
     - npm ci
