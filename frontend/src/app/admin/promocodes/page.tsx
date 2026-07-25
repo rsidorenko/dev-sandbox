@@ -110,7 +110,19 @@ export default function AdminPromocodesPage() {
                   <td className={`${adminTd} ${adminMono} font-semibold text-gray-900 dark:text-gray-100`}>{p.code}</td>
                   <td className={adminTd}>{p.audience === "new_users" ? "новые" : "не новые"}</td>
                   <td className={`${adminTd} ${adminNum} text-right`}>
-                    {p.discount_kind === "percent" ? `${p.discount_value}%` : `${p.discount_value} ₽`}
+                    {p.discounts_by_plan && Object.keys(p.discounts_by_plan).length > 0 ? (
+                      <span
+                        title={Object.entries(p.discounts_by_plan)
+                          .map(([pid, v]) => `${pid}: −${v}${p.discount_kind === "percent" ? "%" : "₽"}`)
+                          .join(", ")}
+                      >
+                        по тарифам ({Object.keys(p.discounts_by_plan).length})
+                      </span>
+                    ) : p.discount_kind === "percent" ? (
+                      `${p.discount_value}%`
+                    ) : (
+                      `${p.discount_value} ₽`
+                    )}
                   </td>
                   <td className={`${adminTd} ${adminNum} text-right`}>
                     {p.redemptions_count}

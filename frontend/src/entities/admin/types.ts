@@ -41,6 +41,8 @@ export interface AdminPromocode {
   audience: PromoAudience;
   discount_kind: PromoDiscountKind;
   discount_value: number;
+  /** Per-tariff скидки {plan_id: value}; null — плоская мода (discount_value). */
+  discounts_by_plan: Record<string, number> | null;
   max_redemptions: number | null;
   redemptions_count: number;
   expires_at: string | null;
@@ -61,7 +63,10 @@ export interface AdminPromocodePayload {
   code: string;
   audience: PromoAudience;
   discount_kind: PromoDiscountKind;
-  discount_value: number;
+  /** Плоская мода. mutually exclusive с discounts_by_plan. */
+  discount_value?: number | null;
+  /** Per-tariff мода {plan_id: value}. mutually exclusive с discount_value. */
+  discounts_by_plan?: Record<string, number> | null;
   max_redemptions?: number | null;
   expires_at?: string | null;
   note?: string | null;
