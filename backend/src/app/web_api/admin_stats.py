@@ -102,8 +102,7 @@ _TRIALS_SERIES = (
 )
 
 _TRIALS_KPI = (
-    "SELECT COUNT(*) FROM subscription_snapshots "
-    "WHERE trial_started_at IS NOT NULL AND trial_started_at >= $1"
+    "SELECT COUNT(*) FROM subscription_snapshots WHERE trial_started_at IS NOT NULL AND trial_started_at >= $1"
 )
 
 # Конверсия триал→платный за период: доля юзеров с триалом в окне, у которых есть ≥1 accepted-факт.
@@ -123,10 +122,7 @@ _ACTIVE_BY_PLAN = (
     "GROUP BY plan_id ORDER BY n DESC"
 )
 
-_ACTIVE_TOTAL = (
-    "SELECT COUNT(*) FROM subscription_snapshots "
-    "WHERE state_label = 'active' AND active_until_utc > now()"
-)
+_ACTIVE_TOTAL = "SELECT COUNT(*) FROM subscription_snapshots WHERE state_label = 'active' AND active_until_utc > now()"
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -136,8 +132,7 @@ def _iso(value: datetime | None) -> str | None:
 async def _revenue_series(pool: asyncpg.Pool, trunc: str, tz: str, from_ts: datetime) -> list[dict]:
     rows = await pool.fetch(_REVENUE_SERIES, trunc, tz, from_ts)
     return [
-        {"bucket": _iso(r["bucket"]), "rubles": round(int(r["kopecks"]) / 100, 2), "count": int(r["n"])}
-        for r in rows
+        {"bucket": _iso(r["bucket"]), "rubles": round(int(r["kopecks"]) / 100, 2), "count": int(r["n"])} for r in rows
     ]
 
 

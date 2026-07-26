@@ -86,33 +86,41 @@ def test_admin_stats_aggregates(pg_url, admin_env):
             await _cleanup(pool)
 
             now = datetime.now(UTC)
-            recent = now - timedelta(hours=3)   # в окне 1d/7d/30d/90d
-            old = now - timedelta(days=200)      # вне 7d/30d/90d, внутри 'all'
+            recent = now - timedelta(hours=3)  # в окне 1d/7d/30d/90d
+            old = now - timedelta(days=200)  # вне 7d/30d/90d, внутри 'all'
 
             u_recent, u_old = f"{_U_PREFIX}recent", f"{_U_PREFIX}old"
             async with pool.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
                     "VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-                    _TG_BASE + 1, u_recent, recent,
+                    _TG_BASE + 1,
+                    u_recent,
+                    recent,
                 )
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
                     "VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-                    _TG_BASE + 2, u_old, old,
+                    _TG_BASE + 2,
+                    u_old,
+                    old,
                 )
                 # recent: активный 1m, триал недавно; old: state active, но active_until в прошлом (не «активный»).
                 await conn.execute(
                     "INSERT INTO subscription_snapshots "
                     "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
                     "VALUES ($1,'active','1m',$2,$3) ON CONFLICT DO NOTHING",
-                    u_recent, now + timedelta(days=30), recent,
+                    u_recent,
+                    now + timedelta(days=30),
+                    recent,
                 )
                 await conn.execute(
                     "INSERT INTO subscription_snapshots "
                     "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
                     "VALUES ($1,'active','3m',$2,$3) ON CONFLICT DO NOTHING",
-                    u_old, now - timedelta(days=1), old,
+                    u_old,
+                    now - timedelta(days=1),
+                    old,
                 )
 
                 # Accepted-факт 1000.00 RUB.
