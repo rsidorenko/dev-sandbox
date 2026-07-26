@@ -55,7 +55,7 @@ def test_admin_promocode_crud_and_users(pg_url, admin_env):
     async def _run():
         pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
         try:
-            await apply_postgres_migrations(pool, migrations_directory=str(_MIGRATIONS_DIR))
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
             await _cleanup(pool)
             app = build_web_api_app(pool=pool)
             client = TestClient(app)
