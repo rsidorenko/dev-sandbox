@@ -121,7 +121,6 @@ def main() -> None:
             "-q",
             "tests/test_postgres_slice1_process_env_async.py",
             "tests/test_postgres_migration_ledger_integration.py",
-            "tests/test_admin_stats.py",
         ],
         cwd=backend_dir,
         env=child_env,

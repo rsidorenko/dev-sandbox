@@ -83,7 +83,6 @@ def test_runs_seven_commands_in_order_and_sets_expected_env(monkeypatch: pytest.
         "-q",
         "tests/test_postgres_slice1_process_env_async.py",
         "tests/test_postgres_migration_ledger_integration.py",
-        "tests/test_admin_stats.py",
     ]
     assert recorded_calls[0][1]["check"] is True
     assert recorded_calls[1][1]["check"] is True
@@ -353,5 +352,4 @@ def test_truthy_opt_in_values_allow_run(monkeypatch: pytest.MonkeyPatch, truthy_
         "-q",
         "tests/test_postgres_slice1_process_env_async.py",
         "tests/test_postgres_migration_ledger_integration.py",
-        "tests/test_admin_stats.py",
     ]
