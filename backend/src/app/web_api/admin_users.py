@@ -19,7 +19,7 @@ from app.web_api.helpers import safe_json_error
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_LIMIT = 50
-_MAX_LIMIT = 200
+_MAX_LIMIT = 1000
 
 # Разумные границы админ-гранта дней (без смены тарифа).
 _ADD_DAYS_MIN = 1
