@@ -20,6 +20,7 @@ from app.web_api.admin_promocodes import (
     handle_admin_list_promocodes,
     handle_admin_update_promocode,
 )
+from app.web_api.admin_stats import handle_admin_stats
 from app.web_api.admin_users import (
     handle_admin_add_days,
     handle_admin_get_user,
@@ -204,6 +205,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/admin/promocodes", handle_admin_create_promocode, methods=["POST"]),
         Route("/api/v1/admin/promocodes/{code}", handle_admin_update_promocode, methods=["PATCH"]),
         Route("/api/v1/admin/promocodes/{code}", handle_admin_delete_promocode, methods=["DELETE"]),
+        # Агрегированный дашборд статистики (auth в обработчике; GET — без CSRF).
+        Route("/api/v1/admin/stats", handle_admin_stats, methods=["GET"]),
     ]
 
     app = Starlette(routes=routes)

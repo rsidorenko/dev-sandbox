@@ -100,6 +100,7 @@ function AdminGate({ children }: { children: ReactNode }) {
             <nav className="flex gap-1">
               {navLink("/admin/users", "Пользователи")}
               {navLink("/admin/promocodes", "Промокоды")}
+              {navLink("/admin/stats", "Статистика")}
             </nav>
           </div>
           <div className="flex items-center gap-1.5">

@@ -6,6 +6,8 @@ import type {
   AdminPromocode,
   AdminPromocodePayload,
   AdminPromocodesResponse,
+  AdminStatsPeriod,
+  AdminStatsResponse,
   AdminUsersResponse,
 } from "@/entities/admin/types";
 
@@ -70,6 +72,10 @@ export const adminApi = {
   },
   listPromocodes() {
     return adminFetch<AdminPromocodesResponse>("/api/v1/admin/promocodes");
+  },
+  stats(period: AdminStatsPeriod, tz = "Europe/Moscow") {
+    const q = new URLSearchParams({ period, tz });
+    return adminFetch<AdminStatsResponse>(`/api/v1/admin/stats?${q.toString()}`);
   },
   createPromocode(payload: AdminPromocodePayload) {
     return adminFetch<{ promocode: AdminPromocode }>("/api/v1/admin/promocodes", {

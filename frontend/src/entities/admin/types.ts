@@ -72,3 +72,58 @@ export interface AdminPromocodePayload {
   note?: string | null;
   is_active?: boolean;
 }
+
+// /api/v1/admin/stats — агрегированный дашборд статистики за период.
+
+export type AdminStatsPeriod = "1d" | "7d" | "30d" | "90d" | "all";
+
+export interface AdminStatsPeriodMeta {
+  key: AdminStatsPeriod;
+  /** ISO (UTC) — старт окна. */
+  from: string;
+  /** ISO (UTC) — now на момент запроса. */
+  to: string;
+  /** Бакет группировки рядов: hour | day | month. */
+  bucket: "hour" | "day" | "month";
+}
+
+export interface AdminStatsKpi {
+  revenue_rubles: number;
+  payments_count: number;
+  paying_users: number;
+  new_users: number;
+  trials_started: number;
+  /** Текущий живой gauge, не за период. */
+  active_subscriptions: number;
+  /** Доля триалов за период, дошедших до оплаты; null — если триалов не было. */
+  trial_to_paid_rate: number | null;
+}
+
+export interface AdminStatsRevenuePoint {
+  /** ISO локального бакета (без зоны); формат фронт берёт из period.bucket. */
+  bucket: string;
+  rubles: number;
+  count: number;
+}
+
+export interface AdminStatsCountPoint {
+  bucket: string;
+  count: number;
+}
+
+export interface AdminStatsByPlan {
+  plan_id: string;
+  count: number;
+}
+
+export interface AdminStatsResponse {
+  ok: true;
+  period: AdminStatsPeriodMeta;
+  kpi: AdminStatsKpi;
+  series: {
+    revenue: AdminStatsRevenuePoint[];
+    new_users: AdminStatsCountPoint[];
+    trials: AdminStatsCountPoint[];
+  };
+  by_plan: AdminStatsByPlan[];
+}
