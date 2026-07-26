@@ -67,29 +67,32 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
         auth_result = await require_auth(request)
         if isinstance(auth_result, JSONResponse):
             return auth_result
-        telegram_user_id = auth_result.get("telegram_user_id")
-        if telegram_user_id is None:
-            return _safe_json_error(403, "no_telegram_identity")
+        # The JWT is the source of truth for who the caller is: resolve the
+        # internal_user_id directly from the claim instead of re-looking-up
+        # user_identities by telegram_user_id. Web-only users (synthetic negative
+        # telegram_user_id, internal_user_id "web_…") otherwise risked a 404 here
+        # when their identity row was out of sync, while /profile silently returned
+        # nulls — so the referral dashboard "didn't work" for them.
+        internal_user_id = auth_result.get("internal_user_id")
+        if not internal_user_id:
+            return _safe_json_error(403, "no_identity")
 
         pool: asyncpg.Pool = request.app.state.pool
 
-        row = await pool.fetchrow(
-            """SELECT i.internal_user_id,
-                      rc.referral_code,
-                      COALESCE(rb.balance_kopecks, 0) AS balance_kopecks
-               FROM user_identities i
-               LEFT JOIN referral_codes rc ON rc.internal_user_id = i.internal_user_id
-               LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id
-               WHERE i.telegram_user_id = $1""",
-            telegram_user_id,
+        # Existing referral code + balance (if any), keyed on internal_user_id.
+        referral_code = await pool.fetchval(
+            "SELECT referral_code FROM referral_codes WHERE internal_user_id = $1",
+            internal_user_id,
         )
-        if row is None or row["internal_user_id"] is None:
-            return _safe_json_error(404, "identity_not_found")
-
-        internal_user_id = row["internal_user_id"]
+        balance_kopecks = (
+            await pool.fetchval(
+                "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id = $1",
+                internal_user_id,
+            )
+            or 0
+        )
 
         # Guarantee a referral code exists so the dashboard always has a link to share.
-        referral_code = row["referral_code"]
         if not referral_code:
             referral_code = (await PostgresReferralCodeRepository(pool).get_or_create(internal_user_id)).referral_code
 
@@ -98,7 +101,7 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
 
         total_earned_kopecks = (
             await pool.fetchval(
-                """SELECT COALESCE(SUM(amount_kopecks), 0) FROM referral_transactions
+                """SELECT COALESCE(SUM(amount_kopecks), 0)::bigint FROM referral_transactions
                    WHERE internal_user_id = $1 AND transaction_type = 'referral_credit'""",
                 internal_user_id,
             )
@@ -133,7 +136,7 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
                 "referral": {
                     "code": referral_code,
                     **links,
-                    "balance_rubles": round(rubles_from_kopecks(row["balance_kopecks"]), 2),
+                    "balance_rubles": round(rubles_from_kopecks(balance_kopecks), 2),
                     "stats": {
                         "level1": {"invited": l1_invited, "paid": l1_paid},
                         "level2": {"invited": l2_invited, "paid": l2_paid},

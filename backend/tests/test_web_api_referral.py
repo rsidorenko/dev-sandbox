@@ -1,23 +1,28 @@
 """Интеграционные тесты GET /api/v1/user/referral — реферальный дашборд.
 
-Opt-in via DATABASE_URL: гоняет реальный обработчик против PostgreSQL
-(migrations). Проверяет структуру ответа: код, ссылки, баланс, разбивку
-L1/L2 (invited/paid), всего заработано и историю транзакций. JWT — через
-_issue_jwt + cookie session (эталон test_web_api_promocode).
+Opt-in via DATABASE_URL: гоняет реальный обработчик против PostgreSQL (migrations).
+Проверяет структуру ответа: код, ссылки, баланс, разбивку L1/L2 (invited/paid),
+всего заработано и историю транзакций. Кейс чистого web-юзера («друга»).
+
+Тесты — асинхронные, через httpx.AsyncClient + ASGITransport на едином event-loop:
+общий пул и ASGI-приложение живут на одном loop (pytest-asyncio auto). Раньше
+использовался sync Starlette TestClient поверх asyncio.run(main()) — пул
+создавался на одном loop, а запрос гнался на другом (anyio portal) →
+asyncpg «Future attached to a different loop». Тесты фактически не запускались
+(CI postgres-smoke их не вызывает, full-regression делает unset DATABASE_URL).
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 
 import asyncpg
+import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.web_api.auth import _issue_jwt
-from app.web_api.middleware import generate_csrf_token
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
@@ -34,8 +39,16 @@ _L1B_TG, _L1B_INT = -9_000_000_402, "web_ref_l1b"
 # Приглашённый L2: не оплатил
 _L2_TG, _L2_INT = -9_000_000_403, "web_ref_l2"
 
-_ALL_TG = [_WEB_TG, _L1A_TG, _L1B_TG, _L2_TG]
-_ALL_INT = [_WEB_INTERNAL, _L1A_INT, _L1B_INT, _L2_INT]
+# Web-only user — кейс «друга»: зарегистрирован через web (синтетический
+# отрицательный telegram_user_id, internal_user_id "web_…"), БЕЗ referral-кода,
+# отношений, баланса и транзакций. Эндпоинт должен вернуть 200 с авто-кодом и
+# нулями, а не 404/500.
+_WEB_ONLY_TG = -9_000_000_500
+_WEB_ONLY_INT = "web_ref_only_friend"
+_WEB_ONLY_EMAIL = "friend-ref@example.com"
+
+_ALL_TG = [_WEB_TG, _L1A_TG, _L1B_TG, _L2_TG, _WEB_ONLY_TG]
+_ALL_INT = [_WEB_INTERNAL, _L1A_INT, _L1B_INT, _L2_INT, _WEB_ONLY_INT]
 
 
 def _pg_url() -> str | None:
@@ -67,8 +80,12 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             _ALL_INT,
         )
         await conn.execute(
-            "DELETE FROM referral_codes WHERE internal_user_id = $1",
-            _WEB_INTERNAL,
+            "DELETE FROM referral_codes WHERE internal_user_id = ANY($1::text[])",
+            _ALL_INT,
+        )
+        await conn.execute(
+            "DELETE FROM user_emails WHERE telegram_user_id = ANY($1::bigint[])",
+            _ALL_TG,
         )
         await conn.execute(
             "DELETE FROM billing_events_ledger WHERE internal_user_id = ANY($1::text[])",
@@ -128,11 +145,12 @@ async def _seed(pool: asyncpg.Pool) -> None:
             f"fact-{_L1A_INT}",
             _L1A_INT,
         )
-        # Two commission credits → total_earned = 8715 + 5000 = 13715 kopecks (137.15 ₽)
+        # Two commission credits → total_earned = 8715 + 5000 = 13715 kopecks (137.15 ₽).
+        # Descriptions must differ — uq_referral_tx_user_desc UNIQUE(internal_user_id, description).
         await conn.execute(
             """INSERT INTO referral_transactions
                (transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description)
-               VALUES ($1, $2, 8715, 'referral_credit', $3, '1m', 'L1 commission')""",
+               VALUES ($1, $2, 8715, 'referral_credit', $3, '1m', 'L1 commission · 1m')""",
             "tx-1",
             _WEB_INTERNAL,
             _L1A_INT,
@@ -140,80 +158,138 @@ async def _seed(pool: asyncpg.Pool) -> None:
         await conn.execute(
             """INSERT INTO referral_transactions
                (transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description)
-               VALUES ($1, $2, 5000, 'referral_credit', $3, '7d', 'L1 commission')""",
+               VALUES ($1, $2, 5000, 'referral_credit', $3, '7d', 'L1 commission · 7d')""",
             "tx-2",
             _WEB_INTERNAL,
             _L1B_INT,
         )
 
 
-def _make_authed_client(monkeypatch, pool):
+async def _authed_client(
+    monkeypatch,
+    pool,
+    *,
+    telegram_user_id,
+    internal_user_id,
+    email,
+    with_session: bool = True,
+) -> httpx.AsyncClient:
+    """httpx client wired to the ASGI app on the SAME loop as `pool` — no cross-loop
+    asyncpg errors. Auth via the Authorization: Bearer header (require_auth accepts
+    both cookie and Bearer; the cookie domain "test" is rejected by httpx's jar, so
+    the header is the reliable in-test transport). Same JWT validation either way."""
     monkeypatch.setenv("JWT_SECRET", "test-secret-referral-web")
     monkeypatch.setenv("BOT_USERNAME", "bravadavpn_bot")
-    from starlette.testclient import TestClient
-
     from app.web_api.app import build_web_api_app
 
     app = build_web_api_app(pool=pool)
-    client = TestClient(app)
-    token = _issue_jwt({"telegram_user_id": _WEB_TG, "internal_user_id": _WEB_INTERNAL, "email": _TEST_EMAIL})
-    csrf = generate_csrf_token()
-    client.cookies.set("session", token, domain="testserver")
-    client.cookies.set("csrf_token", csrf, domain="testserver")
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    if with_session:
+        token = _issue_jwt(
+            {
+                "telegram_user_id": telegram_user_id,
+                "internal_user_id": internal_user_id,
+                "email": email,
+            }
+        )
+        client.headers["Authorization"] = f"Bearer {token}"
     return client
 
 
-def test_referral_dashboard_stats_and_conversion(pg_url, monkeypatch):
-    async def main() -> None:
-        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
-        try:
-            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
-            await _cleanup(pool)
-            await _seed(pool)
-            client, _ = _make_authed_client(monkeypatch, pool)
-            resp = client.get("/api/v1/user/referral")
-            assert resp.status_code == 200, resp.text
-            body = resp.json()
-            assert body["ok"] is True
+async def test_referral_dashboard_stats_and_conversion(pg_url, monkeypatch):
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+    try:
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await _cleanup(pool)
+        await _seed(pool)
+        client = await _authed_client(
+            monkeypatch, pool, telegram_user_id=_WEB_TG, internal_user_id=_WEB_INTERNAL, email=_TEST_EMAIL
+        )
+        resp = await client.get("/api/v1/user/referral")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ok"] is True
 
-            referral = body["referral"]
-            assert referral["code"] == _REF_CODE
-            assert referral["web_link"].endswith(f"/?ref={_REF_CODE}")
-            assert referral["telegram_link"] == f"https://t.me/bravadavpn_bot?start=ref_{_REF_CODE}"
-            assert referral["balance_rubles"] == 125.0
+        referral = body["referral"]
+        assert referral["code"] == _REF_CODE
+        assert referral["web_link"].endswith(f"/?ref={_REF_CODE}")
+        assert referral["telegram_link"] == f"https://t.me/bravadavpn_bot?start=ref_{_REF_CODE}"
+        assert referral["balance_rubles"] == 125.0
 
-            stats = referral["stats"]
-            assert stats["level1"] == {"invited": 2, "paid": 1}
-            assert stats["level2"] == {"invited": 1, "paid": 0}
-            assert stats["total_earned_rubles"] == 137.15
+        stats = referral["stats"]
+        assert stats["level1"] == {"invited": 2, "paid": 1}
+        assert stats["level2"] == {"invited": 1, "paid": 0}
+        assert stats["total_earned_rubles"] == 137.15
 
-            txs = referral["recent_transactions"]
-            assert len(txs) == 2
-            assert {t["type"] for t in txs} == {"referral_credit"}
-            assert {t["amount_rubles"] for t in txs} == {87.15, 50.0}
-        finally:
-            await _cleanup(pool)
-            await pool.close()
+        txs = referral["recent_transactions"]
+        assert len(txs) == 2
+        assert {t["type"] for t in txs} == {"referral_credit"}
+        assert {t["amount_rubles"] for t in txs} == {87.15, 50.0}
+        await client.aclose()
+    finally:
+        await _cleanup(pool)
+        await pool.close()
 
-    asyncio.run(main())
+
+async def test_referral_dashboard_requires_auth(pg_url, monkeypatch):
+    client = await _authed_client(
+        monkeypatch,
+        # pool must exist for build_web_api_app; auth is rejected before any DB use.
+        pool=await asyncpg.create_pool(pg_url, min_size=1, max_size=2),
+        telegram_user_id=0,
+        internal_user_id="unused",
+        email="unused@example.com",
+        with_session=False,
+    )
+    try:
+        resp = await client.get("/api/v1/user/referral")
+        assert resp.status_code == 401
+        assert resp.json()["error"] == "unauthorized"
+    finally:
+        await client.aclose()
 
 
-def test_referral_dashboard_requires_auth(pg_url, monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "test-secret-referral-web")
-
-    async def main() -> None:
-        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
-        try:
-            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
-            from starlette.testclient import TestClient
-
-            from app.web_api.app import build_web_api_app
-
-            client = TestClient(build_web_api_app(pool=pool))  # без куки session
-            resp = client.get("/api/v1/user/referral")
-            assert resp.status_code == 401
-            assert resp.json()["error"] == "unauthorized"
-        finally:
-            await pool.close()
-
-    asyncio.run(main())
+async def test_referral_dashboard_web_only_user_empty(pg_url, monkeypatch):
+    """Кейс «друга»: чистый web-only юзер (отрицательный telegram_user_id, internal_user_id
+    'web_…'), БЕЗ referral-кода/отношений/баланса/транзакций. Эндпоинт резолвит
+    internal_user_id из JWT напрямую и возвращает 200 с авто-кодом и нулями — а не 404
+    identity_not_found, как было при lookup по telegram_user_id."""
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+    try:
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await _cleanup(pool)
+        # Сеет ТОЛЬКО identity (как verify_code для нового web-юзера) — без referral-данных.
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                _WEB_ONLY_TG,
+                _WEB_ONLY_INT,
+            )
+            await conn.execute(
+                """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
+                   VALUES ($1, $2, TRUE, now()) ON CONFLICT DO NOTHING""",
+                _WEB_ONLY_TG,
+                _WEB_ONLY_EMAIL,
+            )
+        client = await _authed_client(
+            monkeypatch, pool, telegram_user_id=_WEB_ONLY_TG, internal_user_id=_WEB_ONLY_INT, email=_WEB_ONLY_EMAIL
+        )
+        resp = await client.get("/api/v1/user/referral")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ok"] is True
+        referral = body["referral"]
+        # Код авто-создан (непустой) — дашборд всегда имеет ссылку.
+        assert referral["code"]
+        assert referral["web_link"].endswith(f"/?ref={referral['code']}")
+        assert referral["telegram_link"].endswith(f"?start=ref_{referral['code']}")
+        assert referral["balance_rubles"] == 0.0
+        stats = referral["stats"]
+        assert stats["level1"] == {"invited": 0, "paid": 0}
+        assert stats["level2"] == {"invited": 0, "paid": 0}
+        assert stats["total_earned_rubles"] == 0.0
+        assert referral["recent_transactions"] == []
+        await client.aclose()
+    finally:
+        await _cleanup(pool)
+        await pool.close()

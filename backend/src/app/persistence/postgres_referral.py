@@ -39,19 +39,36 @@ class PostgresReferralCodeRepository:
                     referral_code=existing["referral_code"],
                     created_at=existing["created_at"],
                 )
-            code = _generate_referral_code()
             now = datetime.now(UTC)
-            row = await conn.fetchrow(
-                """
-                INSERT INTO referral_codes (internal_user_id, referral_code, created_at)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (internal_user_id) DO UPDATE SET internal_user_id = EXCLUDED.internal_user_id
-                RETURNING internal_user_id, referral_code, created_at
-                """,
-                internal_user_id,
-                code,
-                now,
-            )
+            # ON CONFLICT covers the internal_user_id PK only; a referral_code UNIQUE
+            # collision would raise UniqueViolationError (no inference for that column).
+            # Regenerate the code and retry — vanishingly rare with the 8-char alphabet
+            # but must not surface as a 500 to the dashboard.
+            row = None
+            for _ in range(5):
+                code = _generate_referral_code()
+                try:
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO referral_codes (internal_user_id, referral_code, created_at)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (internal_user_id) DO UPDATE SET internal_user_id = EXCLUDED.internal_user_id
+                        RETURNING internal_user_id, referral_code, created_at
+                        """,
+                        internal_user_id,
+                        code,
+                        now,
+                    )
+                    break
+                except asyncpg.UniqueViolationError:
+                    continue
+            if row is None:
+                # All attempts collided on referral_code (effectively impossible) — fall
+                # back to whatever row now exists for this internal_user_id.
+                row = await conn.fetchrow(
+                    "SELECT internal_user_id, referral_code, created_at FROM referral_codes WHERE internal_user_id = $1",
+                    internal_user_id,
+                )
             return ReferralCodeRecord(
                 internal_user_id=row["internal_user_id"],
                 referral_code=row["referral_code"],
