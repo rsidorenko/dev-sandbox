@@ -6,9 +6,12 @@ import logging
 import os
 import smtplib
 from dataclasses import dataclass
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, getaddresses, make_msgid
+from pathlib import Path
+from urllib.parse import quote
 
 from app.shared.site_url import get_site_base_url
 
@@ -27,6 +30,19 @@ _DEFAULT_SMTP_USE_TLS = True
 # Display name shown in the recipient's inbox ("Bravada <noreply@…>").
 _SENDER_DISPLAY_NAME = "Bravada"
 _VERIFICATION_EMAIL_SUBJECT = "Код подтверждения Bravada"
+
+# Inline brand logo embedded via Content-ID (multipart/related). sender.py →
+# parents[3] = backend/, so this points at backend/media/logo.jpeg.
+_LOGO_PATH = Path(__file__).resolve().parents[3] / "media" / "logo.jpeg"
+
+
+def _load_logo_bytes() -> bytes | None:
+    """Read the brand logo once; None if absent (HTML falls back to wordmark only)."""
+    try:
+        return _LOGO_PATH.read_bytes()
+    except Exception:
+        _LOGGER.warning("email.sender.logo_missing path=%s", _LOGO_PATH)
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,11 +101,17 @@ def _build_plain_body(code: str, login_url: str) -> str:
     )
 
 
-def _build_html_body(code: str, login_url: str) -> str:
+def _build_html_body(code: str, login_url: str, with_logo: bool) -> str:
     # Inline-only CSS, table-based layout for maximum email-client compatibility
     # (Outlook, mail.ru, Gmail, Apple Mail strip <style> blocks and break flex).
-    # The header SVG is a progressive enhancement — Outlook ignores it but the
-    # "Bravada" wordmark stays readable.
+    # The logo is embedded inline via cid:logo (multipart/related); if the file
+    # is missing at runtime we fall back to the wordmark only (no broken img).
+    logo_html = (
+        '<img src="cid:logo" alt="Bravada" width="32" height="32"'
+        ' style="display:inline-block;vertical-align:middle;border-radius:8px;" />'
+        if with_logo
+        else ""
+    )
     return f"""\
 <!DOCTYPE html>
 <html lang="ru">
@@ -99,7 +121,7 @@ def _build_html_body(code: str, login_url: str) -> str:
     <tr><td align="center">
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
         <tr><td style="background-color:#2563eb;padding:20px 32px;">
-          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;"><path d="M12 2L4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z" fill="none" stroke="#ffffff" stroke-width="1.6"/><path d="M8.5 12l2.2 2.2L15.5 9.5" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Bravada</span>
+          {logo_html}<span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Bravada</span>
         </td></tr>
         <tr><td style="padding:32px;">
           <h1 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111827;">Код подтверждения</h1>
@@ -128,9 +150,28 @@ def _build_html_body(code: str, login_url: str) -> str:
 
 
 def _build_message(config: SmtpConfig, email: str, code: str) -> MIMEMultipart:
-    """Build the multipart (text + html) verification message."""
-    msg = MIMEMultipart("alternative")
+    """Build the verification message — multipart/related when the logo is available
+    (inline image via Content-ID), otherwise a plain multipart/alternative."""
     domain = _domain_from_address(config.from_address)
+    # Carry the recipient email so the CTA lands on the code-entry step with the
+    # email pre-filled (iOS Mail code AutoFill needs the one-time-code input present).
+    login_url = f"{get_site_base_url()}/login?email={quote(email)}"
+
+    logo_bytes = _load_logo_bytes()
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(_build_plain_body(code, login_url), "plain", "utf-8"))
+    alt.attach(MIMEText(_build_html_body(code, login_url, with_logo=logo_bytes is not None), "html", "utf-8"))
+
+    if logo_bytes is None:
+        msg: MIMEMultipart = alt
+    else:
+        msg = MIMEMultipart("related")
+        msg.attach(alt)
+        logo = MIMEImage(logo_bytes, _subtype="jpeg")
+        logo.add_header("Content-ID", "<logo>")
+        logo.add_header("Content-Disposition", "inline", filename="logo.jpeg")
+        msg.attach(logo)
+
     msg["Subject"] = _VERIFICATION_EMAIL_SUBJECT
     msg["From"] = formataddr((_SENDER_DISPLAY_NAME, config.from_address))
     msg["To"] = email
@@ -139,9 +180,6 @@ def _build_message(config: SmtpConfig, email: str, code: str) -> MIMEMultipart:
     msg["Message-ID"] = make_msgid(domain=domain)
     # Transactional reputation signal (Gmail / mail.ru value a real unsubscribe path).
     msg["List-Unsubscribe"] = f"mailto:{config.from_address}?subject=unsubscribe"
-    login_url = f"{get_site_base_url()}/login"
-    msg.attach(MIMEText(_build_plain_body(code, login_url), "plain", "utf-8"))
-    msg.attach(MIMEText(_build_html_body(code, login_url), "html", "utf-8"))
     return msg
 
 

@@ -34,9 +34,38 @@ def _build_msg(code: str = "123456", email: str = "user@example.com"):
     return sender._build_message(config, email, code)
 
 
-def test_message_is_multipart_alternative():
+def _walk_payload(msg, content_type: str):
+    """First sub-part of `content_type` anywhere in the MIME tree (walks related/alternative)."""
+    for part in msg.walk():
+        if part.get_content_type() == content_type:
+            return part
+    return None
+
+
+def test_message_structure_with_inline_logo(monkeypatch):
+    # Deterministic: stub the logo loader so the structure test does not depend on
+    # the binary asset being present at runtime.
+    monkeypatch.setattr(sender, "_load_logo_bytes", lambda: b"\xff\xd8\xff\xe0fake-jpeg")
+    msg = _build_msg()
+    assert msg.get_content_type() == "multipart/related"
+    types = [p.get_content_type() for p in msg.walk()]
+    assert "multipart/alternative" in types
+    assert "text/plain" in types
+    assert "text/html" in types
+    assert "image/jpeg" in types
+    logo = next(p for p in msg.walk() if p.get_content_type() == "image/jpeg")
+    assert logo["Content-ID"] == "<logo>"
+    html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
+    assert "cid:logo" in html
+
+
+def test_message_falls_back_without_logo(monkeypatch):
+    # Missing asset → envelope degrades to multipart/alternative, HTML has no broken cid: img.
+    monkeypatch.setattr(sender, "_load_logo_bytes", lambda: None)
     msg = _build_msg()
     assert msg.get_content_type() == "multipart/alternative"
+    html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
+    assert "cid:logo" not in html
 
 
 def test_message_subject_and_recipient():
@@ -62,14 +91,9 @@ def test_has_deliverability_headers():
 
 def test_parts_contain_code_and_autofill_line():
     msg = _build_msg(code="654321")
-    parts = msg.get_payload()
-    types = [p.get_content_type() for p in parts]
-    assert "text/plain" in types
-    assert "text/html" in types
-
     # utf-8 parts are base64-encoded on the wire → decode before string checks
-    plain = next(p for p in parts if p.get_content_type() == "text/plain").get_payload(decode=True).decode("utf-8")
-    html = next(p for p in parts if p.get_content_type() == "text/html").get_payload(decode=True).decode("utf-8")
+    plain = _walk_payload(msg, "text/plain").get_payload(decode=True).decode("utf-8")
+    html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
 
     # Code present in both parts
     assert "654321" in plain
@@ -79,16 +103,15 @@ def test_parts_contain_code_and_autofill_line():
 
 
 def test_parts_contain_login_cta():
-    # get_site_base_url() falls back to the production domain when no env override is set.
-    login_url = "https://bravada-connect.ru/login"
+    # CTA carries the recipient email so /login lands on the code-entry step pre-filled.
+    login_url = "https://bravada-connect.ru/login?email=user%40example.com"
     msg = _build_msg(code="112233")
-    parts = msg.get_payload()
-    plain = next(p for p in parts if p.get_content_type() == "text/plain").get_payload(decode=True).decode("utf-8")
-    html = next(p for p in parts if p.get_content_type() == "text/html").get_payload(decode=True).decode("utf-8")
+    plain = _walk_payload(msg, "text/plain").get_payload(decode=True).decode("utf-8")
+    html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
 
     # Plain part: a "Войти в кабинет: <url>" line.
     assert f"Войти в кабинет: {login_url}" in plain
-    # HTML part: a bulletproof CTA button linking to /login.
+    # HTML part: a bulletproof CTA button linking to /login?email=.
     assert login_url in html
     assert "Войти в кабинет" in html
 
