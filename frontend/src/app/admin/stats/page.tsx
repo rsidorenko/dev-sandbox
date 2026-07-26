@@ -307,8 +307,9 @@ export default function AdminStatsPage() {
           </div>
 
           <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
-            Источник выручки — платежные факты в ledger (status=accepted). Историческая выручка до
-            внедрения сумм в ledger может быть занижена (дыра не перезалита ретроспективно).
+            Выручка — только реальные платежи через YooKassa (status=accepted в ledger). Внутренние и
+            операторские гранты (grant_subscription, manual_grant) исключены. Историческая выручка до
+            внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита).
           </p>
         </>
       )}

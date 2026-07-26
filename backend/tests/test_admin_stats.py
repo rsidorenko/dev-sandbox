@@ -54,7 +54,12 @@ _TG_BASE = 9_900_001_100  # вне реального диапазона telegra
 
 async def _cleanup(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM billing_events_ledger WHERE internal_fact_ref LIKE 'test-stats-fact%'")
+        await conn.execute(
+            "DELETE FROM billing_events_ledger "
+            "WHERE internal_fact_ref LIKE 'test-stats-fact%' "
+            "OR internal_fact_ref LIKE 'grant:test-stats-%' "
+            "OR internal_fact_ref LIKE 'manual:test-stats-%'"
+        )
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM user_identities WHERE internal_user_id LIKE 'test-stats-u-%'")
 
@@ -67,15 +72,16 @@ def _insert_ledger(
     user_id: str,
     kopecks: int,
     status: str,
+    provider_key: str = "yookassa",
 ) -> str:
     sql = (
         "INSERT INTO billing_events_ledger "
         "(internal_fact_ref, billing_provider_key, external_event_id, event_type, "
         " event_effective_at, event_received_at, internal_user_id, amount_minor_units, "
         " currency_code, status, ingestion_correlation_id) "
-        "VALUES ($1,'yookassa',$2,'payment',$3,$3,$4,$5,'RUB',$6,'cid-test-stats')"
+        "VALUES ($1,$7,$2,'payment',$3,$3,$4,$5,'RUB',$6,'cid-test-stats')"
     )
-    return sql, (fact_ref, external_id, when, user_id, kopecks, status)
+    return sql, (fact_ref, external_id, when, user_id, kopecks, status, provider_key)
 
 
 def test_admin_stats_aggregates(pg_url, admin_env):
@@ -123,11 +129,28 @@ def test_admin_stats_aggregates(pg_url, admin_env):
                     old,
                 )
 
-                # Accepted-факт 1000.00 RUB.
+                # Accepted-факт 1000.00 RUB — реальный платёж (провайдер yookassa).
                 sql, args = _insert_ledger(conn, f"{_FACT_REF}-acc", "ext-acc-1", recent, u_recent, 100000, "accepted")
                 await conn.execute(sql, *args)
-                # Ignored-факт 9999.99 — НЕ должен войти в выручку.
+                # Ignored-факт 9999.99 — НЕ должен войти в выручку (статус).
                 sql, args = _insert_ledger(conn, f"{_FACT_REF}-ign", "ext-ign-1", recent, u_recent, 999999, "ignored")
+                await conn.execute(sql, *args)
+                # Грант оператором через grant_subscription.py: fact_ref 'grant:...', провайдер 'yookassa' — НЕ должен войти.
+                sql, args = _insert_ledger(
+                    conn, "grant:test-stats-grant-yk", "grant-ext-1", recent, u_recent, 50000, "accepted"
+                )
+                await conn.execute(sql, *args)
+                # Ручной грант: provider_key='manual_grant' — НЕ должен войти.
+                sql, args = _insert_ledger(
+                    conn,
+                    "manual:test-stats-grant-mg",
+                    "manual-ext-1",
+                    recent,
+                    u_recent,
+                    30000,
+                    "accepted",
+                    provider_key="manual_grant",
+                )
                 await conn.execute(sql, *args)
 
             app = build_web_api_app(pool=pool)
@@ -146,7 +169,8 @@ def test_admin_stats_aggregates(pg_url, admin_env):
             assert body["ok"] is True
             assert body["period"]["key"] == "7d"
             assert body["period"]["bucket"] == "day"
-            # выручка = только accepted 1000.00 (ignored отсечён статусом)
+            # выручка = только реальный accepted 1000.00: ignored отсечён статусом,
+            # оба гранта (grant:… под yookassa и manual_grant) — исключены как внутренние.
             assert body["kpi"]["revenue_rubles"] == 1000.0
             assert body["kpi"]["payments_count"] == 1
             assert body["kpi"]["paying_users"] == 1

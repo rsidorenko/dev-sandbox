@@ -6,8 +6,11 @@ KPI-карточки, три временных ряда (выручка / но�
 pool из app.state, SQL литералами с $N-параметрами, JSONResponse({"ok": True, ...})).
 
 Источник выручки — billing_events_ledger (status='accepted', amount_minor_units).
-Кавеат: amount_minor_units был NULL до PR #384 и НЕ перезалит → историческая выручка до PR #384
-занижена (вынесено в примечание UI).
+Внутренние/операторские гранты исключены: grant_subscription.py пишет факты с
+internal_fact_ref LIKE 'grant:%' (под provider_key 'yookassa'), ручные гранты —
+provider_key='manual_grant'. Реальные YooKassa-платежи не имеют этих маркеров.
+Кавеат: amount_minor_units был NULL до PR #384 и НЕ перезалит → историческая выручка
+до PR #384 занижена (вынесено в примечание UI).
 """
 
 from __future__ import annotations
@@ -78,13 +81,15 @@ _REVENUE_SERIES = (
     "COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, COUNT(*) AS n "
     "FROM billing_events_ledger "
     "WHERE status = 'accepted' AND event_effective_at >= $3 "
+    "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant' "
     "GROUP BY bucket ORDER BY bucket"
 )
 
 _REVENUE_KPI = (
     "SELECT COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, "
     "COUNT(*) AS payments, COUNT(DISTINCT internal_user_id) AS paying_users "
-    "FROM billing_events_ledger WHERE status = 'accepted' AND event_effective_at >= $1"
+    "FROM billing_events_ledger WHERE status = 'accepted' AND event_effective_at >= $1 "
+    "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant'"
 )
 
 _NEW_USERS_SERIES = (
@@ -110,7 +115,8 @@ _TRIAL_PAID = (
     "SELECT COUNT(*) FILTER (WHERE t.internal_user_id IS NOT NULL) AS trials, "
     "COUNT(*) FILTER (WHERE t.internal_user_id IS NOT NULL AND EXISTS ("
     "SELECT 1 FROM billing_events_ledger b WHERE b.status = 'accepted' "
-    "AND b.internal_user_id = t.internal_user_id"
+    "AND b.internal_user_id = t.internal_user_id "
+    "AND b.internal_fact_ref NOT LIKE 'grant:%' AND b.billing_provider_key <> 'manual_grant'"
     ")) AS converted "
     "FROM subscription_snapshots t "
     "WHERE t.trial_started_at IS NOT NULL AND t.trial_started_at >= $1"
