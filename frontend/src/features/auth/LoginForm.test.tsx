@@ -9,9 +9,15 @@ const { authApi } = vi.hoisted(() => ({
   },
 }));
 
-const { useSearch } = vi.hoisted(() => ({
-  useSearch: () => new URLSearchParams("next=/dashboard"),
-}));
+const { useSearch, setSearch } = vi.hoisted(() => {
+  let qs = "next=/dashboard";
+  return {
+    useSearch: () => new URLSearchParams(qs),
+    setSearch: (next: string) => {
+      qs = next;
+    },
+  };
+});
 
 vi.mock("@/features/auth/api", () => ({ authApi }));
 vi.mock("@/shared/hooks/useCountdown", () => ({
@@ -29,6 +35,7 @@ import { LoginForm } from "./LoginForm";
 const originalLocation = window.location;
 
 beforeEach(() => {
+  setSearch("next=/dashboard");
   authApi.sendCode.mockReset();
   authApi.verifyCode.mockReset();
   Object.defineProperty(window, "location", {
@@ -104,5 +111,20 @@ describe("LoginForm", () => {
     await user.click(screen.getByRole("button", { name: "Получить код" }));
     const codeInput = await screen.findByLabelText(/Код подтверждения/i);
     expect(codeInput.getAttribute("autocomplete")).toBe("one-time-code");
+  });
+
+  it("lands on the code step with a pre-filled email when ?email= is present", async () => {
+    // Email CTA carries ?email= so iOS Mail can AutoFill the code into the
+    // already-present one-time-code input (landing on the email step would leave
+    // no field for iOS to fill).
+    setSearch("email=friend@example.com&next=/dashboard");
+    render(<LoginForm />);
+
+    // The OTP input is shown immediately (email-entry step is skipped).
+    const codeInput = await screen.findByLabelText(/Код подтверждения/i);
+    expect(codeInput.getAttribute("autocomplete")).toBe("one-time-code");
+    expect(screen.queryByRole("button", { name: "Получить код" })).not.toBeInTheDocument();
+    // Email is pre-filled and surfaced in the "sent to" line.
+    expect(screen.getByText((content) => content === "friend@example.com")).toBeInTheDocument();
   });
 });

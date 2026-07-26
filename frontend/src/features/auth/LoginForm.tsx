@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -41,6 +41,19 @@ export function LoginForm() {
     resolver: zodResolver(emailSchema),
     defaultValues: { email: "" },
   });
+
+  // Arriving via the email CTA (?email=…) — pre-fill the email and jump straight to
+  // the code-entry step. iOS Mail surfaces the code as an AutoFill suggestion only
+  // when the one-time-code input is present and focused, so we must land on the code
+  // step instead of the email step. Runs once on mount.
+  useEffect(() => {
+    const emailParam = searchParams.get("email")?.trim() ?? "";
+    if (emailParam && emailSchema.safeParse({ email: emailParam }).success) {
+      emailForm.reset({ email: emailParam });
+      setStep("code");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSendCode = emailForm.handleSubmit(async ({ email }) => {
     setServerError("");
