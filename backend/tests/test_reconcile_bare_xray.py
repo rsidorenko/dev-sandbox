@@ -147,3 +147,32 @@ def test_no_bare_xray_clients_returns_clean_summary():
         "removed": 0,
         "failed_inbounds": 0,
     }
+
+
+def test_reconcile_all_users_provisions_bare_xray_with_no_xui_panels():
+    """Regression: when there are zero xui panels (fleet 100% bare_xray),
+    ``reconcile_all_users`` must still call ``reconcile_bare_xray()``. Before the
+    fix it early-returned on ``not clients`` (xui-only) before reaching the
+    bare_xray reconcile, so startup/scheduler provisioning of bare_xray stopped
+    and only the standalone 3-min timer covered it."""
+    users = [
+        {
+            "internal_user_id": "u1",
+            "state_label": "active",
+            "device_count": 1,
+            "active_until_utc": None,
+        }
+    ]
+    client = _FakeBareXrayClient(server_id=8, tag="in-443-tcp", transport="tcp", present=[])
+    p = _provider(_FakePool(users), [client])
+
+    async def fake_get_clients():
+        return []  # no xui panels
+
+    p._get_clients = fake_get_clients  # type: ignore[method-assign]
+
+    added, failed, total = _run(p.reconcile_all_users())
+
+    assert (added, failed, total) == (0, 0, 1)
+    # bare_xray reconcile still ran despite no xui panels -> user provisioned
+    assert {e for e, _ in client.added} == {"user-u1"}

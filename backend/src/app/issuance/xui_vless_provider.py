@@ -804,7 +804,12 @@ class XuiVlessProvider(VlessProviderPort):
 
         clients = await self._get_clients()
         if not clients:
-            _LOGGER.info("reconcile_start: no active servers")
+            # No xui panels (e.g. fleet is 100% bare_xray). The add-loop below only
+            # covers xui panels, but bare_xray servers still need reconciling — without
+            # this call the startup/scheduler path would stop provisioning bare_xray
+            # entirely, leaving only the standalone reconcile-bare-xray.timer.
+            _LOGGER.info("reconcile_start: no xui panels; bare_xray reconcile only users=%d", len(users))
+            await self.reconcile_bare_xray()
             return 0, 0, len(users)
 
         _LOGGER.info("reconcile_start users=%d servers=%d", len(users), len(clients))
