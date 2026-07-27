@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import types
 
+from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
 from app.issuance.xui_vless_provider import (
     XuiVlessProvider,
     _email_from_internal,
@@ -176,3 +177,65 @@ def test_reconcile_all_users_provisions_bare_xray_with_no_xui_panels():
     assert (added, failed, total) == (0, 0, 1)
     # bare_xray reconcile still ran despite no xui panels -> user provisioned
     assert {e for e, _ in client.added} == {"user-u1"}
+
+
+def test_probe_user_config_serves_bare_xray_with_no_xui_panels():
+    """Regression (READ path / /sub/): when there are zero xui panels (fleet 100%
+    bare_xray), ``_probe_user_config`` must still serve the deterministic bare_xray
+    links — NOT bail with ``None``. ``None`` becomes UNAVAILABLE in _compute_user_config,
+    which makes /sub/ return 503 for EVERY user. Before the fix the method early-returned
+    on ``not clients`` (xui-only) before appending the bare_xray servers."""
+    import app.issuance.xui_vless_provider as mod
+
+    p = XuiVlessProvider(pool=_FakePool([]))
+
+    async def fake_get_clients():
+        return []  # 100% bare_xray fleet — no xui panels
+
+    p._get_clients = fake_get_clients  # type: ignore[method-assign]
+    # bare_xray rows exist (truthy) so the "no servers at all" guard does not fire;
+    # _bare_xray_servers is stubbed to isolate the early-return regression from
+    # link-building internals.
+    p._bare_xray_configs = (types.SimpleNamespace(),)  # type: ignore[assignment]
+    fake_link = VlessServerConfig(
+        server_label="cloudru-tcp",
+        country_code="RU",
+        country_flag="🇷🇺",
+        vless_link="vless://fake@cloudru:443#Cloud.ru",
+        surface="happ",
+    )
+
+    async def fake_bare_servers(_uid):
+        return [fake_link]
+
+    p._bare_xray_servers = fake_bare_servers  # type: ignore[method-assign]
+
+    async def fake_token(_pool, _uid):
+        return "fake-sub-token"
+
+    orig = mod._ensure_subscription_token
+    mod._ensure_subscription_token = fake_token  # type: ignore[assignment]
+    try:
+        result = _run(p._probe_user_config("u1"))
+    finally:
+        mod._ensure_subscription_token = orig  # type: ignore[assignment]
+
+    assert result is not None
+    assert result.outcome == VlessProviderOutcome.SUCCESS
+    assert result.config is not None
+    assert [s.server_label for s in result.config.servers] == ["cloudru-tcp"]
+
+
+def test_probe_user_config_none_only_when_no_servers_at_all():
+    """Guard for the regression fix: ``None`` (→ UNAVAILABLE → /sub/ 503) must happen
+    ONLY when there are zero xui panels AND zero bare_xray rows. An empty xui list with
+    bare_xray rows present must NOT yield None (that was the 503-for-everyone bug)."""
+    p = XuiVlessProvider(pool=_FakePool([]))
+
+    async def fake_get_clients():
+        return []
+
+    p._get_clients = fake_get_clients  # type: ignore[method-assign]
+    p._bare_xray_configs = ()  # truly nothing configured
+
+    assert _run(p._probe_user_config("u1")) is None

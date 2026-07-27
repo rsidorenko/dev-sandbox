@@ -568,48 +568,57 @@ class XuiVlessProvider(VlessProviderPort):
         return await self._compute_user_config(internal_user_id)
 
     async def _probe_user_config(self, internal_user_id: str) -> VlessProviderResult | None:
-        """Probe every active panel for the user's per-transport client uuid and build
-        the link set. Returns the result, or ``None`` when there are no active servers
-        (so the caller can decide the UNAVAILABLE vs NOT_FOUND semantics). Slow — one
-        panel round-trip per active server, parallelised — so always call via the cache.
+        """Probe every active xui panel for the user's per-transport client uuid, then
+        append the deterministic bare_xray links, and build the link set. Returns the
+        result, or ``None`` only when there are NO servers configured at all (no xui
+        panels AND no bare_xray rows) — so the caller can decide UNAVAILABLE vs NOT_FOUND.
+        An empty xui list is NOT "no servers": a 100% bare_xray fleet still serves links
+        here. Slow — one panel round-trip per active xui server, parallelised — so always
+        call via the cache.
         """
         clients = await self._get_clients()
-        if not clients:
+        # "No servers configured at all" = no xui panels AND no bare_xray rows. An empty
+        # xui list alone is NOT that anymore — a 100% bare_xray fleet has zero xui clients
+        # but still serves /sub/ via _bare_xray_servers below. Bailing on `not clients`
+        # alone made /sub/ return 503 for everyone once the last xui panel was retired.
+        if not clients and not self._bare_xray_configs:
             return None
 
-        async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
-            # Existence probe by email (per transport). The link uuid is whatever uuid
-            # the panel actually holds for that email — works under both the legacy
-            # single-uuid scheme and the per-transport scheme (and during migration).
-            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
-            uuid = await client.resolve_client_uuid(email=email)
-            return client, uuid
-
-        results = await asyncio.gather(*[_resolve(c) for c in clients], return_exceptions=True)
-
         servers: list[VlessServerConfig] = []
-        for item in results:
-            if isinstance(item, Exception):
-                _LOGGER.debug("resolve_client_uuid exception: %s", item)
-                continue
-            client, uuid = item
-            if uuid is not None:
-                servers.append(
-                    VlessServerConfig(
-                        server_label=client.server_config.label,
-                        country_code=client.server_config.country_code,
-                        country_flag=client.server_config.country_flag,
-                        vless_link=_build_vless_link(client.server_config, uuid),
-                        surface=client.server_config.client_surface,
-                    )
-                )
+        if clients:
+            async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
+                # Existence probe by email (per transport). The link uuid is whatever uuid
+                # the panel actually holds for that email — works under both the legacy
+                # single-uuid scheme and the per-transport scheme (and during migration).
+                email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+                uuid = await client.resolve_client_uuid(email=email)
+                return client, uuid
 
-        if not servers:
-            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+            results = await asyncio.gather(*[_resolve(c) for c in clients], return_exceptions=True)
+            for item in results:
+                if isinstance(item, Exception):
+                    _LOGGER.debug("resolve_client_uuid exception: %s", item)
+                    continue
+                client, uuid = item
+                if uuid is not None:
+                    servers.append(
+                        VlessServerConfig(
+                            server_label=client.server_config.label,
+                            country_code=client.server_config.country_code,
+                            country_flag=client.server_config.country_flag,
+                            vless_link=_build_vless_link(client.server_config, uuid),
+                            surface=client.server_config.client_surface,
+                        )
+                    )
 
         # Append the bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — they have no
         # panel to probe, so the link is built deterministically for any provisioned user.
+        # MUST run even when `clients` is empty (bare_xray-only fleet) — that is the whole
+        # point of the early-return guard above; otherwise /sub/ 503s for every user.
         servers.extend(await self._bare_xray_servers(internal_user_id))
+
+        if not servers:
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
