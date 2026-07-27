@@ -275,14 +275,9 @@ function UserRow({ u, onAddDays }: { u: AdminUser; onAddDays: () => void }) {
       <td className={`${adminTd} text-right`}>
         <button
           type="button"
-          disabled={!u.subscription_state}
-          title={
-            u.subscription_state
-              ? "Добавить дни без смены тарифа"
-              : "Нет подписки для продления (никогда не активировал)"
-          }
+          title="Грант дней подписки (продлить или создать)"
           onClick={onAddDays}
-          className="text-sm font-semibold text-brand-600 transition hover:text-brand-700 disabled:cursor-not-allowed disabled:text-gray-300 dark:disabled:text-zinc-600"
+          className="text-sm font-semibold text-brand-600 transition hover:text-brand-700"
         >
           + Дни
         </button>

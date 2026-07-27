@@ -1,10 +1,10 @@
-"""Интеграционные тесты операторского гранта дней подписки без смены тарифа.
+"""Интеграционные тесты операторского гранта дней подписки (продление ИЛИ создание).
 
 POST /api/v1/admin/users/{internal_user_id}/add-days — PostgreSQL (opt-in через DATABASE_URL),
 по образцу test_admin_promocodes_integration.py. Покрывает:
   - инвариант: plan_id / device_count НЕ меняются, активная подписка продлевается от текущего срока;
   - математика: expired/cancelled реактивируются от now;
-  - «прочерк» (зарегистрирован, нет подписки) → 409 no_subscription_to_extend;
+  - создание «с нуля» (зарегистрирован, нет подписки) → 200, plan=custom:{days}, device=5, ключи;
   - unknown user → 404; невалидные days → 400; без CSRF → 403; без auth → 401;
   - аудит admin_subscription_actions (бесплатный грант, не в billing).
 """
@@ -200,12 +200,40 @@ def test_admin_add_days(pg_url, admin_env):
             assert snap3["state_label"] == "active"
             assert (snap3["active_until_utc"] - now).total_seconds() > timedelta(days=2).total_seconds()
 
-            # --- «прочерк»: registered, no snapshot → 409 ---
+            # --- registered, NO snapshot → create from scratch (custom:N, 5 devices) ---
             tg4 = _TG_BASE + 3
             uid4 = await _make_user(pool, tg=tg4, state=None)
-            r = client.post(f"/api/v1/admin/users/{uid4}/add-days", json={"days": 5}, headers=h)
-            assert r.status_code == 409
-            assert r.json()["error"] == "no_subscription_to_extend"
+            r = client.post(f"/api/v1/admin/users/{uid4}/add-days", json={"days": 20}, headers=h)
+            assert r.status_code == 200, r.text
+            body_created = r.json()
+            assert body_created["created"] is True
+            assert body_created["plan_unchanged"] == "custom:20"
+            assert body_created["device_count_unchanged"] == 5
+            snap_created = await pool.fetchrow(
+                "SELECT state_label, plan_id, device_count, active_until_utc, "
+                "keys_deactivated_at, keys_deleted_at FROM subscription_snapshots WHERE internal_user_id=$1",
+                uid4,
+            )
+            assert snap_created["state_label"] == "active"
+            assert snap_created["plan_id"] == "custom:20"
+            assert snap_created["device_count"] == 5
+            assert snap_created["keys_deactivated_at"] is None
+            assert snap_created["keys_deleted_at"] is None
+            # created от now: срок ≈ now + 20 дней
+            diff_created = (snap_created["active_until_utc"] - now).total_seconds()
+            assert timedelta(days=19).total_seconds() < diff_created < timedelta(days=20, hours=1).total_seconds()
+            # провижининг отработал (stub → 5 серверов)
+            assert body_created["servers_ok"] == 5
+            assert body_created["provisioning"].startswith("success")
+            # аудит: created → old_active_until IS NULL, plan=custom:20, device=5
+            audit_created = await pool.fetchrow(
+                "SELECT old_active_until, plan_id, device_count FROM admin_subscription_actions "
+                "WHERE internal_user_id=$1 ORDER BY id DESC LIMIT 1",
+                uid4,
+            )
+            assert audit_created["old_active_until"] is None
+            assert audit_created["plan_id"] == "custom:20"
+            assert audit_created["device_count"] == 5
 
             # --- unknown user → 404 ---
             r = client.post("/api/v1/admin/users/does-not-exist/add-days", json={"days": 5}, headers=h)

@@ -11,6 +11,7 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.domain.plans import DEFAULT_DEVICE_LIMIT
 from app.domain.status_view import remaining_days
 from app.issuance.vless_provider import VlessProviderOutcome
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
@@ -173,14 +174,24 @@ async def handle_admin_get_user(request: Request) -> JSONResponse:
 @_with_admin_auth
 @_with_admin_csrf
 async def handle_admin_add_days(request: Request) -> JSONResponse:
-    """Операторский грант дней подписки БЕЗ смены тарифа.
+    """Операторский грант дней подписки: продление ИЛИ создание «с нуля».
 
-    Только продлевает active_until_utc (от текущего срока, либо от now если истекла) и
-    реактивирует подписку (state='active', keys_*_at=NULL). plan_id и device_count НЕ
-    меняются — главное требование: «просто добавить дни, без смены тарифа». После
-    продления перепровижинит VLESS-клиента на всех серверах (идентично платёжной
-    активации, через app.state.vless_provider). Записывает админ-аудит (бесплатный
-    грант оператора — НЕ в billing_events_ledger, чтобы не искажать выручку/сверку).
+    Работает для ЛЮБОГО статуса — главное требование: «ввёл дни → грант, без разницы
+    какой статус, подписка активируется, ключи появляются на всех серверах».
+
+    Два режима:
+      * extend (есть снапшот) — продлевает active_until_utc (от текущего срока, либо
+        от now если истёкла/отменена), реактивирует (state='active', keys_*_at=NULL).
+        ИНВАРИАНТ: plan_id и device_count НЕ меняются.
+      * create (нет снапшота — никогда не активировал) — создаёт подписку с нуля:
+        plan_id = 'custom:{days}' (метка «N дней»), device_count = DEFAULT_DEVICE_LIMIT,
+        state='active', active_until = now + days. Аналог триала /start, но платный срок.
+
+    Оба режима перепровижинят VLESS-клиента на всех серверах (через app.state.vless_provider;
+    create_user идемпотентен и использует детерминированный per-transport UUID —
+    существующие ключи не сбрасываются, отсутствующие создаются). Аудит — в
+    admin_subscription_actions (бесплатный грант оператора, НЕ в billing_events_ledger,
+    чтобы не искажать выручку/сверку).
     """
     pool: asyncpg.Pool = request.app.state.pool
     internal_user_id = request.path_params["internal_user_id"]
@@ -197,7 +208,7 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
     if not (_ADD_DAYS_MIN <= days <= _ADD_DAYS_MAX):
         return safe_json_error(400, "invalid_days", f"days must be between {_ADD_DAYS_MIN} and {_ADD_DAYS_MAX}")
 
-    # Цель должна существовать и иметь снапшот подписки для продления.
+    # Цель должна существовать (снапшот НЕ обязателен — см. режим create ниже).
     ident = await pool.fetchrow(
         "SELECT internal_user_id FROM user_identities WHERE internal_user_id = $1",
         internal_user_id,
@@ -211,41 +222,53 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
         "WHERE internal_user_id = $1",
         internal_user_id,
     )
-    if snap is None:
-        # «Прочерк»: зарегистрирован, но никогда не активировал подписку/триал —
-        # продлевать нечего. Легенда статусов объясняет это в UI.
-        return safe_json_error(
-            409,
-            "no_subscription_to_extend",
-            "У пользователя нет подписки для продления (никогда не активировал)",
-        )
 
     now = datetime.now(UTC)
-    base = snap["active_until_utc"]
-    # Активную — продлеваем от текущего срока; истёкшую — реактивируем от now.
+    created = snap is None
+    if created:
+        # Создание «с нуля»: зарегистрирован, но никогда не активировал подписку/триал.
+        # Даём тариф «N дней» (custom:N) на DEFAULT_DEVICE_LIMIT устройств — аналог
+        # триала /start, но с произвольным сроком.
+        base = None
+        plan_id_for_write = f"custom:{days}"
+        device_count_for_write = DEFAULT_DEVICE_LIMIT
+    else:
+        base = snap["active_until_utc"]
+        # ИНВАРИАНТ: plan_id / device_count существующего НЕ меняем.
+        plan_id_for_write = snap["plan_id"]
+        device_count_for_write = snap["device_count"] or DEFAULT_DEVICE_LIMIT
+
+    # Активную — продлеваем от текущего срока; истёкшую/отменённую/новую — от now.
     start = base if (base is not None and base > now) else now
     new_until = start + timedelta(days=days)
-    device_count = snap["device_count"] or 0
 
-    # ИНВАРИАНТ: меняем ТОЛЬКО срок + реактивацию. plan_id / device_count не трогаем.
-    result = await pool.execute(
-        """UPDATE subscription_snapshots
+    # UPSERT: на INSERT создаёт (custom:N / DEFAULT_DEVICE_LIMIT для нового), на
+    # конфликт — продлевает/реактивирует, СОХРАНЯЯ plan_id/device_count существующего
+    # (ссылки на subscription_snapshots.<col> в DO UPDATE — как в
+    # postgres_subscription_snapshot._UPSERT_STATE).
+    await pool.execute(
+        """INSERT INTO subscription_snapshots
+               (internal_user_id, state_label, active_until_utc, plan_id, device_count)
+           VALUES ($1, 'active', $2, $3, $4)
+           ON CONFLICT (internal_user_id) DO UPDATE
            SET state_label = 'active',
-               active_until_utc = $2,
+               active_until_utc = EXCLUDED.active_until_utc,
                keys_deactivated_at = NULL,
                keys_deleted_at = NULL,
-               updated_at = NOW()
-           WHERE internal_user_id = $1""",
+               plan_id = subscription_snapshots.plan_id,
+               device_count = subscription_snapshots.device_count,
+               updated_at = NOW()""",
         internal_user_id,
         new_until,
+        plan_id_for_write,
+        device_count_for_write,
     )
-    if result == "UPDATE 0":
-        return safe_json_error(404, "user_not_found")
 
     # Перепровижининг VLESS-клиента на всех серверах с новым сроком — идентично
-    # платёжной активации (_ensure_vless_keys_after_payment): create_user если ключи
-    # удалены/активны, activate_user если деактивированы. Best-effort: сбой панели
-    # не откатывает продление в БД (срок уже прошёл) — логируем и возвращаем счётчик.
+    # платёжной активации: create_user если ключей нет/удалены/активны, activate_user
+    # если деактивированы. create_user идемпотентен (add-or-update, детерминированный
+    # per-transport UUID) — существующие ключи не сбрасываются, отсутствующие создаются.
+    # Best-effort: сбой панели не откатывает изменение в БД — логируем и возвращаем счётчик.
     expiry_days = max(1, math.ceil((new_until - now).total_seconds() / 86_400))
     provisioning = "skipped"
     servers_ok = 0
@@ -254,17 +277,17 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
         if vless_provider is None:
             provisioning = "skipped_no_provider"
         else:
-            if snap["keys_deleted_at"] is not None:
+            if created or snap["keys_deleted_at"] is not None or snap["keys_deactivated_at"] is None:
                 pres = await vless_provider.create_user(
-                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
-                )
-            elif snap["keys_deactivated_at"] is not None:
-                pres = await vless_provider.activate_user(
-                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                    internal_user_id=internal_user_id,
+                    device_count=device_count_for_write,
+                    expiry_days=expiry_days,
                 )
             else:
-                pres = await vless_provider.create_user(
-                    internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                pres = await vless_provider.activate_user(
+                    internal_user_id=internal_user_id,
+                    device_count=device_count_for_write,
+                    expiry_days=expiry_days,
                 )
             if pres.outcome == VlessProviderOutcome.SUCCESS:
                 servers_ok = len(pres.config.servers) if pres.config is not None else 0
@@ -276,7 +299,7 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
         provisioning = "failed"
 
     # Аудит бесплатного гранта оператора (отдельно от billing — не искажает выручку).
-    # Фиксируем old/new срок и НЕИЗМЕННЫЙ plan_id/device_count для контрольного следа.
+    # old_active_until=NULL для created; plan_id/device_count — эффективные значения.
     correlation_id = f"add-days-{uuid.uuid4().hex[:12]}"
     try:
         await pool.execute(
@@ -289,8 +312,8 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
             days,
             base,
             new_until,
-            snap["plan_id"],
-            snap["device_count"],
+            plan_id_for_write,
+            device_count_for_write,
             provisioning,
             correlation_id,
         )
@@ -305,11 +328,12 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
         {
             "ok": True,
             "user": user,
+            "created": created,
             "days_added": days,
             "old_active_until": base.isoformat() if base is not None else None,
             "new_active_until": new_until.isoformat(),
-            "plan_unchanged": snap["plan_id"],
-            "device_count_unchanged": snap["device_count"],
+            "plan_unchanged": plan_id_for_write,
+            "device_count_unchanged": device_count_for_write,
             "provisioning": provisioning,
             "servers_ok": servers_ok,
             "correlation_id": correlation_id,

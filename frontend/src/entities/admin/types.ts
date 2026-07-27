@@ -23,6 +23,8 @@ export interface AdminUsersResponse {
 
 export interface AdminAddDaysResponse {
   user: AdminUser;
+  /** true — подписка создана «с нуля» (custom:N, 5 устройств); false — продлена/реактивирована. */
+  created: boolean;
   days_added: number;
   old_active_until: string | null;
   new_active_until: string;

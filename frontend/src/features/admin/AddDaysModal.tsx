@@ -48,8 +48,11 @@ export function AddDaysModal({
       return;
     }
     setResult(
-      `Добавлено ${r.data.days_added} дн. Новый срок: ${fmt(r.data.new_active_until)}. ` +
-        `Тариф без изменений: ${r.data.plan_unchanged ?? "—"}. Серверов синхронизировано: ${r.data.servers_ok}.`,
+      r.data.created
+        ? `Создана подписка на ${r.data.days_added} дн. (5 устройств). ` +
+          `Срок: ${fmt(r.data.new_active_until)}. Серверов синхронизировано: ${r.data.servers_ok}.`
+        : `Добавлено ${r.data.days_added} дн. Новый срок: ${fmt(r.data.new_active_until)}. ` +
+          `Тариф без изменений: ${r.data.plan_unchanged ?? "—"}. Серверов синхронизировано: ${r.data.servers_ok}.`,
     );
     onSaved();
   };
@@ -65,7 +68,8 @@ export function AddDaysModal({
           Telegram ID {user.telegram_user_id} · тариф {user.plan_id ?? "—"} · до {fmt(user.active_until)}
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Тариф и число устройств не меняются — продлевается только срок подписки, ключи синхронизируются на серверах.
+          Если подписки нет — создаётся тариф «{days || "N"} дней» на 5 устройств. Если есть —
+          срок продлевается без смены тарифа. Ключи синхронизируются на всех серверах.
         </p>
 
         {error && <Alert className="mt-4">{error}</Alert>}
@@ -110,8 +114,6 @@ export function AddDaysModal({
 
 function mapError(error: string): string {
   switch (error) {
-    case "no_subscription_to_extend":
-      return "У пользователя нет подписки для продления (никогда не активировал).";
     case "user_not_found":
       return "Пользователь не найден.";
     case "invalid_days":
