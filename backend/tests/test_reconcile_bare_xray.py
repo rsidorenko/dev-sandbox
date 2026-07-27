@@ -239,3 +239,78 @@ def test_probe_user_config_none_only_when_no_servers_at_all():
     p._bare_xray_configs = ()  # truly nothing configured
 
     assert _run(p._probe_user_config("u1")) is None
+
+
+def _bare_xray_only_provider():
+    """Provider with zero xui panels but bare_xray rows configured — the 100% bare_xray
+    fleet state. Returns (provider, lifecycle_calls) so a test can assert _bare_xray_lifecycle ran.
+    Does NOT patch _ensure_subscription_token — only create_user builds a token; patch it in
+    that test to avoid leaking the monkeypatch across tests."""
+    p = XuiVlessProvider(pool=_FakePool([]))
+
+    async def fake_get_clients():
+        return []
+
+    p._get_clients = fake_get_clients  # type: ignore[method-assign]
+    p._bare_xray_configs = (types.SimpleNamespace(),)  # type: ignore[assignment]
+
+    lifecycle: list[tuple[str, str]] = []
+
+    async def fake_lifecycle(uid, action):
+        lifecycle.append((uid, action))
+
+    p._bare_xray_lifecycle = fake_lifecycle  # type: ignore[method-assign]
+
+    async def fake_servers(_uid):
+        return [VlessServerConfig(server_label="cloudru-tcp", country_code="RU",
+                                  country_flag="🇷🇺", vless_link="vless://fake@cloudru:443#C", surface="happ")]
+
+    p._bare_xray_servers = fake_servers  # type: ignore[method-assign]
+    return p, lifecycle
+
+
+def test_create_user_provisions_bare_xray_with_no_xui_panels():
+    """Regression (PROVISIONING / trial / payment / add-days): ``create_user`` must add the
+    user to bare_xray inbounds and return SUCCESS when there are zero xui panels. Before the
+    fix it early-returned UNAVAILABLE on ``not clients`` BEFORE calling _bare_xray_lifecycle,
+    so in a 100% bare_xray fleet NO user could ever get keys (date extended, VPN dead)."""
+    import app.issuance.xui_vless_provider as mod
+
+    p, lifecycle = _bare_xray_only_provider()
+
+    async def fake_token(_pool, _uid):
+        return "tok"
+
+    orig = mod._ensure_subscription_token
+    mod._ensure_subscription_token = fake_token  # type: ignore[assignment]
+    try:
+        res = _run(p.create_user(internal_user_id="u1", device_count=5, expiry_days=14))
+    finally:
+        mod._ensure_subscription_token = orig  # type: ignore[assignment]
+    assert res.outcome == VlessProviderOutcome.SUCCESS, res.outcome
+    assert res.config is not None and len(res.config.servers) == 1
+    # the whole point: bare_xray was live-provisioned (not skipped)
+    assert lifecycle == [("u1", "add")], lifecycle
+
+
+def test_activate_user_provisions_bare_xray_with_no_xui_panels():
+    """Regression (PROVISIONING / re-enable on renewal): ``activate_user`` must re-add the
+    user to bare_xray inbounds and return SUCCESS with zero xui panels (same bug class)."""
+    p, lifecycle = _bare_xray_only_provider()
+    res = _run(p.activate_user(internal_user_id="u2", device_count=5, expiry_days=14))
+    assert res.outcome == VlessProviderOutcome.SUCCESS, res.outcome
+    assert lifecycle == [("u2", "add")], lifecycle
+
+
+def test_revoke_and_delete_bare_xray_with_no_xui_panels():
+    """Regression (lifecycle cleanup): revoke_user / delete_user must remove the user from
+    bare_xray inbounds even with zero xui panels (same bug class — early return skipped it)."""
+    p_rev, life_rev = _bare_xray_only_provider()
+    r1 = _run(p_rev.revoke_user(internal_user_id="u3"))
+    assert r1.outcome == VlessProviderOutcome.SUCCESS, r1.outcome
+    assert life_rev == [("u3", "remove")], life_rev
+
+    p_del, life_del = _bare_xray_only_provider()
+    r2 = _run(p_del.delete_user(internal_user_id="u4"))
+    assert r2.outcome == VlessProviderOutcome.SUCCESS, r2.outcome
+    assert life_del == [("u4", "remove")], life_del

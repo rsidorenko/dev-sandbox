@@ -474,7 +474,9 @@ class XuiVlessProvider(VlessProviderPort):
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
-        if not clients:
+        # 100% bare_xray fleet: no xui panels, but bare_xray inbounds still need provisioning.
+        # Bail ONLY when there are no servers at all (same fix as get_user_config /sub/).
+        if not clients and not self._bare_xray_configs:
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
@@ -497,25 +499,22 @@ class XuiVlessProvider(VlessProviderPort):
             )
             return result, user_uuid
 
-        raw = await _run_sequential_per_panel(clients, _add_or_update)
-
         successes: list[tuple[XuiApiClient, str]] = []
-        for client, item in raw:
-            if isinstance(item, Exception):
-                _LOGGER.warning("xui add_client exception: %s", item)
-                continue
-            result, effective_uuid = item
-            if result.outcome == XuiOutcome.SUCCESS:
-                successes.append((client, effective_uuid))
-            else:
-                _LOGGER.warning(
-                    "xui add_client failed server=%s outcome=%s",
-                    client.server_id,
-                    result.outcome,
-                )
-
-        if not successes:
-            return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+        if clients:
+            raw = await _run_sequential_per_panel(clients, _add_or_update)
+            for client, item in raw:
+                if isinstance(item, Exception):
+                    _LOGGER.warning("xui add_client exception: %s", item)
+                    continue
+                result, effective_uuid = item
+                if result.outcome == XuiOutcome.SUCCESS:
+                    successes.append((client, effective_uuid))
+                else:
+                    _LOGGER.warning(
+                        "xui add_client failed server=%s outcome=%s",
+                        client.server_id,
+                        result.outcome,
+                    )
 
         servers = [
             VlessServerConfig(
@@ -528,9 +527,13 @@ class XuiVlessProvider(VlessProviderPort):
             for c, uuid in successes
         ]
         # Append bare_xray RU-relay entries (e.g. Cloud.ru for Happ) — same set /sub/ serves.
+        # MUST run even when `clients` is empty (bare_xray-only fleet): without this and the
+        # lifecycle call below, create_user can't deliver keys via trial/payment/add-days.
         servers.extend(await self._bare_xray_servers(internal_user_id))
         # Live-provision the user on each bare_xray inbound (xray gRPC, no restart).
         await self._bare_xray_lifecycle(internal_user_id, "add")
+        if not servers:
+            return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
         servers_tuple = tuple(servers)
         token = await _ensure_subscription_token(self._pool, internal_user_id)
         config = VlessUserConfig(
@@ -692,7 +695,7 @@ class XuiVlessProvider(VlessProviderPort):
         expiry = _expiry_timestamp()
 
         clients = await self._get_clients()
-        if not clients:
+        if not clients and not self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         async def _disable(client: XuiApiClient) -> XuiClientResult:
@@ -700,13 +703,15 @@ class XuiVlessProvider(VlessProviderPort):
             user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
-        raw = await _run_sequential_per_panel(clients, _disable)
+        any_disabled = False
+        if clients:
+            raw = await _run_sequential_per_panel(clients, _disable)
+            any_disabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
+        # bare_xray: live remove on every bare_xray inbound (must run even with no xui panels).
         await self._bare_xray_lifecycle(internal_user_id, "remove")
 
-        any_disabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
-
-        if any_disabled:
+        if any_disabled or self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -727,7 +732,7 @@ class XuiVlessProvider(VlessProviderPort):
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()
-        if not clients:
+        if not clients and not self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
@@ -743,13 +748,15 @@ class XuiVlessProvider(VlessProviderPort):
                 limit_ip=limit_ip,
             )
 
-        raw = await _run_sequential_per_panel(clients, _reactivate)
+        any_enabled = False
+        if clients:
+            raw = await _run_sequential_per_panel(clients, _reactivate)
+            any_enabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
 
+        # bare_xray: live re-add on every bare_xray inbound (must run even with no xui panels).
         await self._bare_xray_lifecycle(internal_user_id, "add")
 
-        any_enabled = any(not isinstance(r, Exception) and r.outcome == XuiOutcome.SUCCESS for _, r in raw)
-
-        if any_enabled:
+        if any_enabled or self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
@@ -761,7 +768,7 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def _delete_user_unlocked(self, *, internal_user_id: str) -> VlessProviderResult:
         clients = await self._get_clients()
-        if not clients:
+        if not clients and not self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         async def _delete(client: XuiApiClient) -> XuiClientResult:
@@ -769,15 +776,17 @@ class XuiVlessProvider(VlessProviderPort):
             user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.delete_client(user_uuid=user_uuid)
 
-        raw = await _run_sequential_per_panel(clients, _delete)
+        any_deleted = False
+        if clients:
+            raw = await _run_sequential_per_panel(clients, _delete)
+            any_deleted = any(
+                not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
+            )
 
+        # bare_xray: live remove on every bare_xray inbound (must run even with no xui panels).
         await self._bare_xray_lifecycle(internal_user_id, "remove")
 
-        any_deleted = any(
-            not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
-        )
-
-        if any_deleted:
+        if any_deleted or self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
