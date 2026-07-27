@@ -757,7 +757,19 @@ class XuiVlessProvider(VlessProviderPort):
         await self._bare_xray_lifecycle(internal_user_id, "add")
 
         if any_enabled or self._bare_xray_configs:
-            return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
+            # Build the config (like create_user) so callers (add-days / payment) can report
+            # the synced server count. Without this activate_user returns SUCCESS with no
+            # config and the admin handler shows "0 servers" despite successful provisioning.
+            servers = await self._bare_xray_servers(internal_user_id)
+            token = await _ensure_subscription_token(self._pool, internal_user_id)
+            return VlessProviderResult(
+                outcome=VlessProviderOutcome.SUCCESS,
+                config=VlessUserConfig(
+                    user_uuid=_user_uuid_from_internal(internal_user_id),
+                    subscription_url=_web_sub_url(token),
+                    servers=tuple(servers),
+                ),
+            )
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
     async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:

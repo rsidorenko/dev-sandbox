@@ -29,6 +29,12 @@ class _FakePool:
     async def fetch(self, sql, *args):
         return self._users
 
+    async def fetchrow(self, sql, *args):
+        return None
+
+    async def execute(self, sql, *args):
+        return "OK"
+
 
 class _FakeBareXrayClient:
     """Stand-in for ``XrayApiClient`` over one bare_xray inbound."""
@@ -243,9 +249,7 @@ def test_probe_user_config_none_only_when_no_servers_at_all():
 
 def _bare_xray_only_provider():
     """Provider with zero xui panels but bare_xray rows configured — the 100% bare_xray
-    fleet state. Returns (provider, lifecycle_calls) so a test can assert _bare_xray_lifecycle ran.
-    Does NOT patch _ensure_subscription_token — only create_user builds a token; patch it in
-    that test to avoid leaking the monkeypatch across tests."""
+    fleet state. Returns (provider, lifecycle_calls) so a test can assert _bare_xray_lifecycle ran."""
     p = XuiVlessProvider(pool=_FakePool([]))
 
     async def fake_get_clients():
@@ -274,19 +278,8 @@ def test_create_user_provisions_bare_xray_with_no_xui_panels():
     user to bare_xray inbounds and return SUCCESS when there are zero xui panels. Before the
     fix it early-returned UNAVAILABLE on ``not clients`` BEFORE calling _bare_xray_lifecycle,
     so in a 100% bare_xray fleet NO user could ever get keys (date extended, VPN dead)."""
-    import app.issuance.xui_vless_provider as mod
-
     p, lifecycle = _bare_xray_only_provider()
-
-    async def fake_token(_pool, _uid):
-        return "tok"
-
-    orig = mod._ensure_subscription_token
-    mod._ensure_subscription_token = fake_token  # type: ignore[assignment]
-    try:
-        res = _run(p.create_user(internal_user_id="u1", device_count=5, expiry_days=14))
-    finally:
-        mod._ensure_subscription_token = orig  # type: ignore[assignment]
+    res = _run(p.create_user(internal_user_id="u1", device_count=5, expiry_days=14))
     assert res.outcome == VlessProviderOutcome.SUCCESS, res.outcome
     assert res.config is not None and len(res.config.servers) == 1
     # the whole point: bare_xray was live-provisioned (not skipped)
@@ -295,10 +288,12 @@ def test_create_user_provisions_bare_xray_with_no_xui_panels():
 
 def test_activate_user_provisions_bare_xray_with_no_xui_panels():
     """Regression (PROVISIONING / re-enable on renewal): ``activate_user`` must re-add the
-    user to bare_xray inbounds and return SUCCESS with zero xui panels (same bug class)."""
+    user to bare_xray inbounds and return SUCCESS with a config (server count) even with zero
+    xui panels. Without the config, the add-days handler reports "0 servers" despite success."""
     p, lifecycle = _bare_xray_only_provider()
     res = _run(p.activate_user(internal_user_id="u2", device_count=5, expiry_days=14))
     assert res.outcome == VlessProviderOutcome.SUCCESS, res.outcome
+    assert res.config is not None and len(res.config.servers) == 1, "activate must return config"
     assert lifecycle == [("u2", "add")], lifecycle
 
 
