@@ -86,7 +86,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         await conn.execute("DELETE FROM promo_redemptions WHERE internal_user_id = $1", _WEB_INTERNAL)
         await conn.execute(
             "DELETE FROM promo_codes WHERE code = ANY($1::text[])",
-            ["WEBWELCOME", "WEBFIXED", "WEBEXPIRED", "WEBEXHAUST", "WEBINACTIVE", "WEBEXIST", "WEBNEW"],
+            ["WEBWELCOME", "WEBFIXED", "WEBEXPIRED", "WEBEXHAUST", "WEBINACTIVE", "WEBEXIST", "WEBNEW", "WEBALL"],
         )
         await conn.execute(
             "DELETE FROM user_identities WHERE telegram_user_id = $1",
@@ -367,6 +367,49 @@ def test_apply_wrong_audience_new_promo_for_existing_user_409(pg_url, monkeypatc
             )
             assert resp.status_code == 409
             assert resp.json()["error"] == "wrong_audience"
+        finally:
+            await _cleanup(pool)
+            await pool.close()
+
+    asyncio.run(main())
+
+
+def test_apply_all_users_promo_eligible_for_both_new_and_existing(pg_url, monkeypatch):
+    """ALL_USERS промокод подходит и новому, и «не новому» пользователю (200, valid)."""
+
+    async def main() -> None:
+        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+        try:
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+            await _cleanup(pool)
+            await PostgresPromoCodeRepository(pool).create(_promo(code="WEBALL", audience=PromoAudience.ALL_USERS))
+
+            # 1) Новый пользователь (никогда не платил) — ALL_USERS подходит.
+            await _seed_identity(pool, existing=False)
+            client, csrf = _make_authed_client(monkeypatch, pool)
+            resp = client.post(
+                "/api/v1/user/promocode/apply",
+                json={"code": "WEBALL"},
+                headers={"x-csrf-token": csrf},
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["applied"]["code"] == "WEBALL"
+            assert resp.json()["applied"]["valid"] is True
+
+            # 2) Тот же аккаунт становится «не новым» (появился принятый платёж).
+            # Сбрасываем закрепление и симулируем платный факт → ALL_USERS всё равно подходит.
+            await pool.execute("DELETE FROM promo_applied WHERE internal_user_id = $1", _WEB_INTERNAL)
+            await pool.execute("DELETE FROM promo_redemptions WHERE internal_user_id = $1", _WEB_INTERNAL)
+            await _seed_identity(pool, existing=True)
+            client2, csrf2 = _make_authed_client(monkeypatch, pool)
+            resp2 = client2.post(
+                "/api/v1/user/promocode/apply",
+                json={"code": "WEBALL"},
+                headers={"x-csrf-token": csrf2},
+            )
+            assert resp2.status_code == 200, resp2.text
+            assert resp2.json()["applied"]["code"] == "WEBALL"
+            assert resp2.json()["applied"]["valid"] is True
         finally:
             await _cleanup(pool)
             await pool.close()

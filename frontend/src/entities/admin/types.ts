@@ -35,7 +35,7 @@ export interface AdminAddDaysResponse {
   correlation_id: string;
 }
 
-export type PromoAudience = "new_users" | "existing_users";
+export type PromoAudience = "new_users" | "existing_users" | "all_users";
 export type PromoDiscountKind = "percent" | "fixed_rubles";
 
 export interface AdminPromocode {

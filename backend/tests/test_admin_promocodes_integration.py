@@ -143,6 +143,27 @@ def test_admin_promocode_crud_and_users(pg_url, admin_env):
             assert len(r.json()["promocode"]["discounts_by_plan"]) == 7
             await pool.execute("DELETE FROM promo_codes WHERE code = $1", pt_code)
 
+            # audience=all_users: создание сохраняет категорию «все пользователи»
+            # (регресс CHECK-ограничения audience — ранее БД отвергала значение).
+            all_code = "TESTPALLALL"
+            await pool.execute("DELETE FROM promo_codes WHERE code = $1", all_code)
+            r = client.post(
+                "/api/v1/admin/promocodes",
+                json={
+                    "code": all_code,
+                    "audience": "all_users",
+                    "discount_kind": "percent",
+                    "discount_value": 15,
+                },
+                headers=h,
+            )
+            assert r.status_code == 201, r.text
+            assert r.json()["promocode"]["audience"] == "all_users"
+            # список отдаёт код с новой аудиторией.
+            r = client.get("/api/v1/admin/promocodes")
+            assert all_code in [p["code"] for p in r.json()["promocodes"]]
+            await pool.execute("DELETE FROM promo_codes WHERE code = $1", all_code)
+
             # delete
             r = client.delete(f"/api/v1/admin/promocodes/{_CODE}", headers=h)
             assert r.status_code == 200

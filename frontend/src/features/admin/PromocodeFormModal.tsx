@@ -19,7 +19,7 @@ const schema = z.object({
     .min(3, "Минимум 3 символа")
     .max(32, "Максимум 32 символа")
     .regex(/^[A-Za-z0-9]+$/, "Только латиница и цифры"),
-  audience: z.enum(["new_users", "existing_users"]),
+  audience: z.enum(["new_users", "existing_users", "all_users"]),
   discount_kind: z.enum(["percent", "fixed_rubles"]),
   // Плоская мода; в per-tariff моде поле не используется (опц. в schema, валидация в onSubmit).
   discount_value: z.number().int().min(1, "Минимум 1").optional(),
@@ -198,6 +198,7 @@ export function PromocodeFormModal({
               <select id="audience" className={inputClass} {...form.register("audience")}>
                 <option value="new_users">Только новые</option>
                 <option value="existing_users">Только не новые</option>
+                <option value="all_users">Все пользователи</option>
               </select>
             </div>
             <div>

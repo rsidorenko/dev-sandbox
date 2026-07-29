@@ -589,6 +589,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         servers: list[VlessServerConfig] = []
         if clients:
+
             async def _resolve(client: XuiApiClient) -> tuple[XuiApiClient, str | None]:
                 # Existence probe by email (per transport). The link uuid is whatever uuid
                 # the panel actually holds for that email — works under both the legacy

@@ -155,6 +155,12 @@ def test_audience_existing_users_strict():
     assert audience_eligible(PromoAudience.EXISTING_USERS, is_new_user=True) is False
 
 
+def test_audience_all_users_unrestricted():
+    # all_users = подходит любому аккаунту, независимо от «новизны».
+    assert audience_eligible(PromoAudience.ALL_USERS, is_new_user=True) is True
+    assert audience_eligible(PromoAudience.ALL_USERS, is_new_user=False) is True
+
+
 # --- redeem_block_reason / is_expired ---
 
 

@@ -28,10 +28,11 @@ PROMO_APPLIED_TTL_HOURS = 24
 
 
 class PromoAudience(StrEnum):
-    """Аудитория промокода: только новые или только «не новые» пользователи."""
+    """Аудитория промокода: только новые, только «не новые» или все пользователи."""
 
     NEW_USERS = "new_users"
     EXISTING_USERS = "existing_users"
+    ALL_USERS = "all_users"  # подходит любому аккаунту — и новому, и «не новому»
 
 
 class PromoDiscountKind(StrEnum):
@@ -169,6 +170,8 @@ def is_new_user_eligible(*, has_accepted_payment: bool) -> bool:
 
 def audience_eligible(audience: PromoAudience, *, is_new_user: bool) -> bool:
     """Подходит ли пользователь под аудиторию промокода."""
+    if audience == PromoAudience.ALL_USERS:
+        return True
     if audience == PromoAudience.NEW_USERS:
         return is_new_user
     if audience == PromoAudience.EXISTING_USERS:

@@ -266,8 +266,15 @@ def _bare_xray_only_provider():
     p._bare_xray_lifecycle = fake_lifecycle  # type: ignore[method-assign]
 
     async def fake_servers(_uid):
-        return [VlessServerConfig(server_label="cloudru-tcp", country_code="RU",
-                                  country_flag="🇷🇺", vless_link="vless://fake@cloudru:443#C", surface="happ")]
+        return [
+            VlessServerConfig(
+                server_label="cloudru-tcp",
+                country_code="RU",
+                country_flag="🇷🇺",
+                vless_link="vless://fake@cloudru:443#C",
+                surface="happ",
+            )
+        ]
 
     p._bare_xray_servers = fake_servers  # type: ignore[method-assign]
     return p, lifecycle

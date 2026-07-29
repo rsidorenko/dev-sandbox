@@ -108,7 +108,13 @@ export default function AdminPromocodesPage() {
               items.map((p) => (
                 <tr key={p.code} className={adminRow}>
                   <td className={`${adminTd} ${adminMono} font-semibold text-gray-900 dark:text-gray-100`}>{p.code}</td>
-                  <td className={adminTd}>{p.audience === "new_users" ? "новые" : "не новые"}</td>
+                  <td className={adminTd}>
+                    {p.audience === "new_users"
+                      ? "новые"
+                      : p.audience === "all_users"
+                        ? "все"
+                        : "не новые"}
+                  </td>
                   <td className={`${adminTd} ${adminNum} text-right`}>
                     {p.discounts_by_plan && Object.keys(p.discounts_by_plan).length > 0 ? (
                       <span
