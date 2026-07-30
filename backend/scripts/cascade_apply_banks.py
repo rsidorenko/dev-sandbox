@@ -13,10 +13,15 @@ the routing order (after geoip:private, before TikTok/foreign) on each cascade-e
 `domain:X` in xray matches X and all subdomains. Idempotent + backup + xray test +
 restart + verify. Reuses the merge pattern of manage_ru_egress.merge_domain_family_routing.
 
-Runs over SSH (cloudru_key.pem / romtan) on the 4 bare_xray cascade-entries
-(YouTube / Lithuania / Frankfurt / Helsinki). The 5th cascade-entry (89.169.139.153, US)
-is a 3x-ui panel — handled separately via manage_ru_egress / db-edit (its xray config
-regenerates from x-ui.db).
+Runs over SSH on the 4 bare_xray cascade-entries: DE 85.208.87.57 + FI 85.208.85.117
+(cloudru_key.pem), LT 158.160.80.40 (yandex_new_key), US 89.169.139.153 (yandex-relay) —
+all user romtan. All four are bare_xray now (US was converted from a 3x-ui panel 2026-07-27).
+
+NOTE: routing on these entries was canonicalized in-place on 2026-07-21 (canon_apply.py):
+FOREIGN rules precede the RU banks rule. merge_banks_direct re-inserts the rule right after
+geoip:private, i.e. it would *reposition* the banks rule above the foreign-relay rules.
+Prefer in-place edits (add a domain to the existing banks rule, preserving position) or
+re-run canon_apply after. Used here as the authoritative BANK_DOMAINS list + unit-tested merge.
 
 Usage: python -m scripts.cascade_apply_banks            # apply on all 4 bare_xray
        python -m scripts.cascade_apply_banks --dry-run   # show diff, no write
@@ -58,6 +63,10 @@ BANK_DOMAINS: list[str] = [
     "domain:nspk.ru",  # covers sbp.nspk.ru (NSPK / SBP)
     "domain:gosuslugi.ru",
     "domain:troika.ru", "domain:mos.ru",  # transport.mos.ru covered by mos.ru
+    # --- anti-fraud / security vendors bank apps phone home to (non-.ru) ---
+    # All *.ru bank domains already egress via direct via regexp:.*\.ru$ / geoip:ru below;
+    # the banks rule's real value is these non-.ru endpoints banks' sites/apps contact.
+    "domain:bi.zone",  # BI.ZONE (ex-Сбер subsidiary) AntiFraud/WAF — protects bank apps + payments
 ]
 
 BANK_DOMAINS_SET = frozenset(BANK_DOMAINS)
@@ -105,12 +114,16 @@ class CascadeEntry:
 
 
 BARE_XRAY_ENTRIES = [
-    # YouTube and Lithuania used to share one Yandex entry (158.160.166.233); they were
-    # split onto separate boxes. Both are bare_xray cascade-entries reached via cloudru_key.
-    CascadeEntry("Yandex YouTube-entry", "111.88.146.22"),
-    CascadeEntry("Yandex Lithuania-entry", "89.169.166.161"),
-    CascadeEntry("cloud.ru Frankfurt-egress", "85.208.87.187"),
-    CascadeEntry("cloud.ru Helsinki-egress", "176.108.250.237"),
+    # The 4 cascade-entries (all RU servers: Yandex.Cloud / cloud.ru), each does split-routing
+    # (RU bank/services -> direct RU egress, rest -> foreign relay). Labeled by egress country.
+    # YouTube-only (158.160.82.113) and CDN-bypass (158.160.234.239) are NOT bank-routing targets.
+    # All four are bare_xray now (US converted from x-ui on 2026-07-27).
+    CascadeEntry("DE cascade-entry (Frankfurt egress)", "85.208.87.57"),
+    CascadeEntry("FI cascade-entry (Helsinki egress)", "85.208.85.117"),
+    CascadeEntry("LT cascade-entry (Lithuania egress)", "158.160.80.40",
+                 key="C:/Users/Roman/.ssh/yandex_new_key"),
+    CascadeEntry("US cascade-entry (US egress)", "89.169.139.153",
+                 key="D:/TelegramBotVPN/.ssh/yandex-relay"),
 ]
 
 
