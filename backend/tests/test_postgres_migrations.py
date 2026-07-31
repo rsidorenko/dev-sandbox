@@ -105,6 +105,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "065_promo_codes_per_plan_discounts.sql",
         "066_user_identities_created_at.sql",
         "067_promo_codes_audience_all_users.sql",
+        "068_broadcast_jobs.sql",
     ]
 
 

@@ -14,6 +14,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app.web_api.admin_auth import handle_admin_login, handle_admin_logout
+from app.web_api.admin_broadcast import (
+    handle_admin_broadcast_estimate,
+    handle_admin_broadcast_list,
+    handle_admin_broadcast_send,
+    handle_admin_broadcast_status,
+    handle_admin_broadcast_test,
+)
 from app.web_api.admin_promocodes import (
     handle_admin_create_promocode,
     handle_admin_delete_promocode,
@@ -207,6 +214,16 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/admin/promocodes/{code}", handle_admin_delete_promocode, methods=["DELETE"]),
         # Агрегированный дашборд статистики (auth в обработчике; GET — без CSRF).
         Route("/api/v1/admin/stats", handle_admin_stats, methods=["GET"]),
+        # Рассылка (auth + CSRF в обработчике). estimate/send/test — мутации под CSRF.
+        Route("/api/v1/admin/broadcast/estimate", handle_admin_broadcast_estimate, methods=["POST"]),
+        Route("/api/v1/admin/broadcast/send", handle_admin_broadcast_send, methods=["POST"]),
+        Route("/api/v1/admin/broadcast/test", handle_admin_broadcast_test, methods=["POST"]),
+        Route("/api/v1/admin/broadcast/jobs", handle_admin_broadcast_list, methods=["GET"]),
+        Route(
+            "/api/v1/admin/broadcast/jobs/{job_id}",
+            handle_admin_broadcast_status,
+            methods=["GET"],
+        ),
     ]
 
     app = Starlette(routes=routes)
@@ -248,8 +265,14 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
                 )
 
         app.state.activation_notifier = _WebApiActivationNotifier(_raw_client)
+        # Raw-клиент переиспользуется BroadcastRunner для прямой отправки (parse_mode=HTML).
+        app.state.telegram_raw_client = _raw_client
     else:
         app.state.activation_notifier = None
+        app.state.telegram_raw_client = None
+
+    # Реестр фоновых задач рассылки (держит ссылки, чтобы asyncio не убрал task).
+    app.state.broadcast_tasks = {}
 
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]

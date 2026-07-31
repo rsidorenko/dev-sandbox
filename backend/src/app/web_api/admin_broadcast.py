@@ -1,0 +1,746 @@
+"""Админ-эндпоинты вкладки «Рассылка»: оценка аудитории, запуск фоновой рассылки,
+контроль прогресса и пред-проверка форматирования.
+
+Модель:
+  * оператор выбирает одну или несколько категорий получателей (мн. выбор → UNION)
+    плюс точечные цели (telegram id / email);
+  * сообщение пишется в HTML (parse_mode="HTML"): тулбар фронта оборачивает выделение
+    в <code>/<a href> и т.п. — здесь нужен pre-flight _validate_html, чтобы битая
+    разметка не привела к массовому 400 на всех получателях;
+  * отправка — фоновая BroadcastRunner (последовательная, с троттлингом и обработкой
+    429/403/400). Одна активная рассылка за раз (409 broadcast_in_progress).
+
+Канон admin-handler-а — admin_promocodes.py (@_with_admin_auth + @_with_admin_csrf,
+safe_json_error, _admin_actor). SQL — как в admin_users.py (литералы now()/интервалов,
+единственный параметр $1 = массив явных tg-id).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import uuid
+from html.parser import HTMLParser
+from typing import Any
+from urllib.parse import urlparse
+
+import asyncpg
+import httpx
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
+from app.web_api.helpers import safe_json_error
+
+_LOGGER = logging.getLogger(__name__)
+
+# --- Параметры отправки (env-перекрываемые) ---------------------------------
+_MAX_MESSAGE_LEN = 4096  # лимит Telegram на текст сообщения
+_DEFAULT_MAX_RECIPIENTS = 50_000
+_DEFAULT_THROTTLE_SEC = 0.05  # ~20 msg/s — ниже глобального лимита Bot API
+_LIST_DEFAULT_LIMIT = 50
+_LIST_MAX_LIMIT = 200
+_BATCH_FLUSH_EVERY = 20  # флеш счётчиков в БД каждые N отправок
+
+
+def _max_recipients() -> int:
+    try:
+        return max(1, int(os.environ.get("BROADCAST_MAX_RECIPIENTS", str(_DEFAULT_MAX_RECIPIENTS))))
+    except ValueError:
+        return _DEFAULT_MAX_RECIPIENTS
+
+
+def _throttle_sec() -> float:
+    try:
+        return max(0.0, float(os.environ.get("BROADCAST_THROTTLE_SEC", str(_DEFAULT_THROTTLE_SEC))))
+    except ValueError:
+        return _DEFAULT_THROTTLE_SEC
+
+
+# --- Категории аудитории -----------------------------------------------------
+# Каждый предикат — самодостаточный SELECT telegram_user_id с фильтром > 0
+# (web-only с отрицательным telegram_user_id выкидываются — у них нет TG-чата).
+# now()/интервалы — литералы, единственный параметр $1 (массив явных tg-id)
+# подставляется во внешнем unnest — как в admin_users._LIST_*.
+
+_BASE_FROM = "FROM user_identities i"
+_SNAP_JOIN = "FROM user_identities i JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id"
+
+_CATEGORY_PREDICATES: dict[str, str] = {
+    "all": f"SELECT i.telegram_user_id {_BASE_FROM} WHERE i.telegram_user_id > 0",
+    "active": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 AND ("
+        "(s.plan_id IS NOT NULL AND s.state_label = 'active' AND s.active_until_utc IS NOT NULL AND s.active_until_utc > now())"
+        " OR (s.plan_id IS NULL AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at > now())"
+        ")"
+    ),
+    "expired_0_2d": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
+        "AND s.active_until_utc <= now() AND s.active_until_utc > now() - INTERVAL '3 days'"
+    ),
+    "expired_3_5d": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
+        "AND s.active_until_utc <= now() - INTERVAL '3 days' AND s.active_until_utc > now() - INTERVAL '6 days'"
+    ),
+    "expired_6_7d": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
+        "AND s.active_until_utc <= now() - INTERVAL '6 days' AND s.active_until_utc > now() - INTERVAL '8 days'"
+    ),
+    "expired_8_30d": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
+        "AND s.active_until_utc <= now() - INTERVAL '8 days' AND s.active_until_utc > now() - INTERVAL '31 days'"
+    ),
+    "expired_30plus": (
+        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
+        "AND s.active_until_utc <= now() - INTERVAL '31 days'"
+    ),
+    "dormant": (
+        f"SELECT i.telegram_user_id {_BASE_FROM} WHERE i.telegram_user_id > 0 "
+        "AND COALESCE(i.trial_used, FALSE) = FALSE "
+        "AND NOT EXISTS (SELECT 1 FROM billing_events_ledger b "
+        "WHERE b.internal_user_id = i.internal_user_id AND b.status = 'accepted') "
+        "AND NOT EXISTS (SELECT 1 FROM subscription_snapshots s "
+        "WHERE s.internal_user_id = i.internal_user_id AND s.plan_id IS NOT NULL "
+        "AND s.state_label = 'active' AND s.active_until_utc IS NOT NULL AND s.active_until_utc > now())"
+    ),
+}
+
+_ALLOWED_CATEGORIES = frozenset(_CATEGORY_PREDICATES)
+
+
+def _build_inner_union(categories: list[str]) -> str:
+    """Внутренний UNION ALL выбранных категорий + явные цели (unnest $1)."""
+    arms = [_CATEGORY_PREDICATES[c] for c in categories if c in _CATEGORY_PREDICATES]
+    arms.append("SELECT unnest($1::bigint[]) AS telegram_user_id")
+    return " UNION ALL ".join(arms)
+
+
+def _count_sql(categories: list[str]) -> str:
+    return (
+        "SELECT COUNT(DISTINCT telegram_user_id) AS n "
+        f"FROM ({_build_inner_union(categories)}) t WHERE telegram_user_id > 0"
+    )
+
+
+def _fetch_sql(categories: list[str]) -> str:
+    return (
+        "SELECT DISTINCT telegram_user_id "
+        f"FROM ({_build_inner_union(categories)}) t WHERE telegram_user_id > 0"
+    )
+
+
+async def _count_category(pool: asyncpg.Pool, key: str) -> int:
+    """Счётчик одной категории (без дедупа с другими) — для per_category_counts."""
+    return int(await pool.fetchval(f"SELECT COUNT(*) FROM ({_CATEGORY_PREDICATES[key]}) t") or 0)
+
+
+async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple[list[int], list[str]]:
+    """Числа → telegram id (>0); прочее трактуется как email и резолвится через
+    user_emails (верифицированные). Возвращает (resolved_ids, unresolved_tokens).
+    """
+    resolved: list[int] = []
+    unresolved: list[str] = []
+    email_tokens: list[str] = []
+    for token in raw:
+        t = (token or "").strip()
+        if not t:
+            continue
+        if t.lstrip("+").isdigit():  # telegram id (отрицательные/ноль отбрасываем ниже)
+            try:
+                value = int(t)
+            except ValueError:
+                unresolved.append(t)
+                continue
+            if value > 0:
+                resolved.append(value)
+            else:
+                unresolved.append(t)
+            continue
+        # иначе — считаем email (точное совпадение, case-insensitive)
+        email_tokens.append(t)
+
+    for email in email_tokens:
+        tg = await pool.fetchval(
+            "SELECT telegram_user_id FROM user_emails "
+            "WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE AND telegram_user_id > 0",
+            email,
+        )
+        if tg is not None:
+            resolved.append(int(tg))
+        else:
+            unresolved.append(email)
+
+    return resolved, unresolved
+
+
+def _validate_categories(raw: Any) -> list[str] | None:
+    if not isinstance(raw, list):
+        return None
+    cats = [c for c in ({str(c) for c in raw} if raw else []) if c]
+    bad = [c for c in cats if c not in _ALLOWED_CATEGORIES]
+    if bad:
+        return None
+    return cats
+
+
+# --- Pre-flight валидация HTML ----------------------------------------------
+# Allowlist тегов Telegram HTML + обязательный href для <a>. Ловит битую разметку
+# ДО массовой отправки, чтобы один 400 не повторился на всех получателях.
+
+_ALLOWED_HTML_TAGS = frozenset(
+    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "blockquote", "a"}
+)
+_ALLOWED_HREF_SCHEMES = frozenset({"http", "https", "mailto", "tg"})
+
+
+class _HtmlAudit(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[str] = []
+        self.error: str | None = None
+
+    def _check(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in _ALLOWED_HTML_TAGS:
+            self.error = f"unsupported_tag:{tag}"
+            return
+        if tag == "a":
+            href: str | None = None
+            for k, v in attrs:
+                if k == "href" and v:
+                    href = v
+                    break
+            if not href:
+                self.error = "link_missing_href"
+                return
+            scheme = urlparse(href).scheme.lower()
+            # Относительные ссылки без схемы — запрещены (нечего кликать в Telegram).
+            if scheme not in _ALLOWED_HREF_SCHEMES:
+                self.error = f"link_bad_scheme:{scheme or 'none'}"
+                return
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.error is not None:
+            return
+        self._check(tag, attrs)
+        if self.error is None and tag not in ("br",):
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.error is not None:
+            return
+        self._check(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.error is not None:
+            return
+        if tag in self.stack:
+            while self.stack and self.stack[-1] != tag:
+                self.stack.pop()
+            if self.stack:
+                self.stack.pop()
+
+
+def _validate_html(text: str) -> str | None:
+    """Возвращает код ошибки или None, если HTML валиден."""
+    audit = _HtmlAudit()
+    try:
+        audit.feed(text)
+        audit.close()
+    except Exception:
+        return "malformed_html"
+    if audit.error is not None:
+        return audit.error
+    if audit.stack:
+        return "unclosed_tag:" + audit.stack[-1]
+    return None
+
+
+# --- Reconcile orphan-задач --------------------------------------------------
+# Без правки lifespan: один раз на процесс перевести зависшие running/queued
+# (остались от упавшего процесса) в interrupted.
+
+_RECONCILED_POOLS: set[int] = set()
+_RECONCILE_LOCK = asyncio.Lock()
+
+
+async def _maybe_reconcile_orphan_jobs(pool: asyncpg.Pool) -> None:
+    if id(pool) in _RECONCILED_POOLS:
+        return
+    async with _RECONCILE_LOCK:
+        if id(pool) in _RECONCILED_POOLS:
+            return
+        try:
+            await pool.execute(
+                "UPDATE broadcast_jobs SET status='interrupted', finished_at=NOW(), "
+                "last_error='process_restart' WHERE status IN ('running','queued')"
+            )
+        except Exception:
+            _LOGGER.exception("broadcast orphan reconcile failed")
+        _RECONCILED_POOLS.add(id(pool))
+
+
+# --- Разбор ответа Telegram --------------------------------------------------
+def _response_json(response: httpx.Response) -> dict | None:
+    try:
+        data = response.json()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _extract_retry_after(response: httpx.Response) -> int:
+    params = (_response_json(response) or {}).get("parameters")
+    if isinstance(params, dict):
+        ra = params.get("retry_after")
+        if isinstance(ra, (int, float)) and ra > 0:
+            return int(ra)
+    return 1
+
+
+def _describe_response(response: httpx.Response) -> str:
+    return str((_response_json(response) or {}).get("description") or "")
+
+
+def _classify_bad_request(description: str) -> str:
+    """400 делится на два класса:
+    * content  — битая разметка/длина («can't parse entities», «too long») → повторится
+      на всех получателях, поэтому аварийно стопим всю рассылку;
+    * recipient — «chat not found», «PEER_ID_INVALID» и т.п. → проблема одного чата,
+      помечаем failed и идём дальше.
+    """
+    d = (description or "").lower()
+    if any(k in d for k in ("entit", "parse", "too long", "format", "markdown")):
+        return "bad_request_content"
+    return "bad_request_recipient"
+
+
+# --- Фоновая задача рассылки -------------------------------------------------
+class BroadcastRunner:
+    """Последовательная отправка по списку получателей с троттлингом и обработкой
+    ответов Telegram. Состояние — в broadcast_jobs (счётчики, статус).
+
+    client — HttpxTelegramRawPollingClient (или фейк в тестах). Конструктор НЕ ходит
+    в БД; конфиг задачи (текст/категории/цели) читается из строки в run().
+    """
+
+    def __init__(
+        self,
+        *,
+        pool: asyncpg.Pool,
+        client: Any,
+        job_id: str,
+        sleep: Any = asyncio.sleep,
+    ) -> None:
+        self._pool = pool
+        self._client = client
+        self._job_id = job_id
+        self._sleep = sleep
+        self._throttle = _throttle_sec()
+
+    async def run(self) -> None:
+        # Перевод queued → running (CAS: только если ещё queued; иначе — отмена/уже идёт).
+        flipped = await self._pool.execute(
+            "UPDATE broadcast_jobs SET status='running', started_at=NOW() "
+            "WHERE job_id=$1 AND status='queued'",
+            self._job_id,
+        )
+        if flipped.endswith(" 0"):
+            _LOGGER.info("broadcast job %s preempted before start", self._job_id[:8])
+            return
+
+        job = await self._pool.fetchrow(
+            "SELECT categories, explicit_telegram_ids, message_text, parse_mode, "
+            "disable_web_page_preview FROM broadcast_jobs WHERE job_id=$1",
+            self._job_id,
+        )
+        if job is None:
+            return
+
+        categories = list(job["categories"] or [])
+        explicit_ids = [int(x) for x in (job["explicit_telegram_ids"] or []) if int(x) > 0]
+        text: str = job["message_text"]
+        parse_mode: str = job["parse_mode"] or "HTML"
+        disable_preview: bool = bool(job["disable_web_page_preview"])
+
+        sent = blocked = failed = 0
+        try:
+            recipients = await self._fetch_recipients(categories, explicit_ids)
+            await self._pool.execute(
+                "UPDATE broadcast_jobs SET total_recipients=$2 WHERE job_id=$1",
+                self._job_id,
+                len(recipients),
+            )
+            if not recipients:
+                await self._finish("completed", sent, blocked, failed, None)
+                return
+
+            since_flush = 0
+            for row in recipients:
+                chat_id = int(row["telegram_user_id"])
+                status = await self._send_one(chat_id, text, parse_mode, disable_preview)
+                if status == "ok":
+                    sent += 1
+                elif status == "blocked":
+                    blocked += 1
+                elif status == "bad_request_content":
+                    # Битая разметка/длина — повторится на всех получателях. Аварийный стоп.
+                    failed += 1
+                    await self._finish(
+                        "failed", sent, blocked, failed, "bad_request: abort to avoid mass 400"
+                    )
+                    return
+                else:  # bad_request_recipient / rate_limited / transient — проблема одного чата
+                    failed += 1
+                    if status == "rate_limited":
+                        await self._sleep(5.0)
+
+                since_flush += 1
+                if since_flush >= _BATCH_FLUSH_EVERY:
+                    await self._flush(sent, blocked, failed)
+                    since_flush = 0
+
+                if self._throttle > 0:
+                    await self._sleep(self._throttle)
+
+            await self._flush(sent, blocked, failed)
+            await self._finish("completed", sent, blocked, failed, None)
+
+        except asyncio.CancelledError:
+            await self._finish("interrupted", sent, blocked, failed, "cancelled")
+            raise
+        except Exception as exc:  # noqa: BLE001 — фоновая задача не должна падать молча
+            _LOGGER.exception("broadcast job %s crashed", self._job_id[:8])
+            await self._finish("failed", sent, blocked, failed, str(exc)[:300])
+
+    async def _fetch_recipients(self, categories: list[str], explicit_ids: list[int]) -> list[asyncpg.Record]:
+        sql = _fetch_sql(categories)
+        return await self._pool.fetch(sql, explicit_ids)
+
+    async def _send_one(self, chat_id: int, text: str, parse_mode: str, disable_preview: bool) -> str:
+        """Возвращает 'ok' | 'blocked' | 'bad_request' | 'rate_limited' | 'transient'.
+        429 — ретрай с retry_after (до 2 повторных попыток)."""
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                await self._client.send_text_message(
+                    chat_id=chat_id,
+                    text=text,
+                    correlation_id=f"broadcast-{self._job_id[:8]}",
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=disable_preview,
+                )
+                return "ok"
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                if code == 403:
+                    return "blocked"
+                if code == 400:
+                    return _classify_bad_request(_describe_response(exc.response))
+                if code == 429 and attempts <= 2:
+                    retry_after = _extract_retry_after(exc.response)
+                    await self._sleep(min(max(retry_after, 1), 30) + 0.2)
+                    continue
+                if code == 429:
+                    return "rate_limited"
+                if attempts <= 2:  # прочие 5xx/неожиданные — короткий ретрай
+                    await self._sleep(0.5 * attempts)
+                    continue
+                return "transient"
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteError, httpx.PoolTimeout):
+                if attempts <= 3:
+                    await self._sleep(0.5 * attempts)
+                    continue
+                return "transient"
+            except Exception:  # noqa: BLE001 — любой surprises класса не рвёт весь job
+                if attempts <= 2:
+                    await self._sleep(0.5 * attempts)
+                    continue
+                return "transient"
+
+    async def _flush(self, sent: int, blocked: int, failed: int) -> None:
+        await self._pool.execute(
+            "UPDATE broadcast_jobs SET sent_count=$2, blocked_count=$3, failed_count=$4 WHERE job_id=$1",
+            self._job_id,
+            sent,
+            blocked,
+            failed,
+        )
+
+    async def _finish(
+        self, status: str, sent: int, blocked: int, failed: int, last_error: str | None
+    ) -> None:
+        await self._pool.execute(
+            "UPDATE broadcast_jobs SET status=$2, sent_count=$3, blocked_count=$4, "
+            "failed_count=$5, finished_at=NOW(), last_error=$6 WHERE job_id=$1",
+            self._job_id,
+            status,
+            sent,
+            blocked,
+            failed,
+            last_error,
+        )
+
+
+# --- Сериализация строки задачи ---------------------------------------------
+def _job_to_dict(row: asyncpg.Record) -> dict:
+    return {
+        "job_id": str(row["job_id"]),
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "created_by": row["created_by"],
+        "status": row["status"],
+        "categories": list(row["categories"] or []),
+        "explicit_telegram_ids_count": len(row["explicit_telegram_ids"] or []),
+        "message_text": row["message_text"],
+        "parse_mode": row["parse_mode"],
+        "total_recipients": row["total_recipients"],
+        "sent_count": row["sent_count"],
+        "failed_count": row["failed_count"],
+        "blocked_count": row["blocked_count"],
+        "started_at": row["started_at"].isoformat() if row.get("started_at") else None,
+        "finished_at": row["finished_at"].isoformat() if row.get("finished_at") else None,
+        "last_error": row["last_error"],
+    }
+
+
+# --- Handlers ---------------------------------------------------------------
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_broadcast_estimate(request: Request) -> JSONResponse:
+    """Dry-run: размер аудитории (дедуп) + per-category counts + разрешённые/неразрешённые явные цели."""
+    pool: asyncpg.Pool = request.app.state.pool
+    try:
+        data = await request.json()
+    except Exception:
+        return safe_json_error(400, "invalid_request", "Expected JSON body")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request", "Expected JSON object")
+
+    categories = _validate_categories(data.get("categories"))
+    if categories is None:
+        return safe_json_error(400, "invalid_categories", f"allowed: {sorted(_ALLOWED_CATEGORIES)}")
+
+    raw_targets = data.get("explicit_targets") or []
+    if not isinstance(raw_targets, list):
+        return safe_json_error(400, "invalid_explicit_targets")
+    resolved_ids, unresolved = await _resolve_explicit_targets(pool, [str(t) for t in raw_targets])
+
+    try:
+        total = int(
+            await pool.fetchval(_count_sql(categories), resolved_ids) or 0
+        )
+        per_category: dict[str, int] = {}
+        for key in categories:
+            per_category[key] = await _count_category(pool, key)
+    except Exception:
+        _LOGGER.exception("broadcast estimate sql failed")
+        return safe_json_error(500, "internal_error")
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "total": total,
+            "per_category_counts": per_category,
+            "explicit_resolved": resolved_ids,
+            "explicit_unresolved": unresolved,
+        }
+    )
+
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
+    """Создать задачу рассылки (status='queued') и запустить фоновую BroadcastRunner."""
+    pool: asyncpg.Pool = request.app.state.pool
+    await _maybe_reconcile_orphan_jobs(pool)
+
+    client = getattr(request.app.state, "telegram_raw_client", None)
+    if client is None:
+        return safe_json_error(503, "telegram_not_configured", "BOT_TOKEN is not set")
+
+    try:
+        data = await request.json()
+    except Exception:
+        return safe_json_error(400, "invalid_request", "Expected JSON body")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request", "Expected JSON object")
+
+    categories = _validate_categories(data.get("categories"))
+    if categories is None:
+        return safe_json_error(400, "invalid_categories", f"allowed: {sorted(_ALLOWED_CATEGORIES)}")
+
+    text = str(data.get("message_text") or "")
+    if not text.strip():
+        return safe_json_error(400, "empty_message")
+    if len(text) > _MAX_MESSAGE_LEN:
+        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
+    if (html_err := _validate_html(text)) is not None:
+        return safe_json_error(400, "invalid_html", html_err)
+
+    disable_preview = bool(data.get("disable_web_page_preview", False))
+
+    raw_targets = data.get("explicit_targets") or []
+    if not isinstance(raw_targets, list):
+        return safe_json_error(400, "invalid_explicit_targets")
+    resolved_ids, unresolved = await _resolve_explicit_targets(pool, [str(t) for t in raw_targets])
+
+    try:
+        total = int(await pool.fetchval(_count_sql(categories), resolved_ids) or 0)
+    except Exception:
+        _LOGGER.exception("broadcast send estimate sql failed")
+        return safe_json_error(500, "internal_error")
+
+    if total == 0:
+        return safe_json_error(400, "no_recipients", "Audience is empty")
+    if total > _max_recipients():
+        return safe_json_error(
+            413, "too_many_recipients", f"limit {_max_recipients()} (set BROADCAST_MAX_RECIPIENTS)"
+        )
+
+    # Одна активная рассылка за раз — предсказуемая flood-поверхность.
+    active = await pool.fetchval(
+        "SELECT job_id FROM broadcast_jobs WHERE status IN ('running','queued') LIMIT 1"
+    )
+    if active is not None:
+        return safe_json_error(409, "broadcast_in_progress", str(active))
+
+    job_id = uuid.uuid4()
+    try:
+        await pool.execute(
+            "INSERT INTO broadcast_jobs "
+            "(job_id, created_by, status, categories, explicit_telegram_ids, message_text, "
+            " parse_mode, disable_web_page_preview, total_recipients) "
+            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7)",
+            job_id,
+            _admin_actor(request),
+            categories,
+            resolved_ids,
+            text,
+            disable_preview,
+            total,
+        )
+    except Exception:
+        _LOGGER.exception("broadcast insert failed")
+        return safe_json_error(500, "internal_error")
+
+    runner = BroadcastRunner(pool=pool, client=client, job_id=str(job_id))
+    task = asyncio.create_task(runner.run())
+    tasks: dict = getattr(request.app.state, "broadcast_tasks", {})
+    tasks[str(job_id)] = task
+
+    def _drop(_t: asyncio.Task) -> None:
+        tasks.pop(str(job_id), None)
+
+    task.add_done_callback(_drop)
+
+    return JSONResponse(
+        {"ok": True, "job_id": str(job_id), "total_recipients": total, "explicit_unresolved": unresolved},
+        status_code=201,
+    )
+
+
+@_with_admin_auth
+async def handle_admin_broadcast_status(request: Request) -> JSONResponse:
+    """Прогресс задачи рассылки."""
+    pool: asyncpg.Pool = request.app.state.pool
+    await _maybe_reconcile_orphan_jobs(pool)
+    job_id = request.path_params["job_id"]
+    row = await pool.fetchrow(
+        "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
+        "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
+        "started_at, finished_at, last_error "
+        "FROM broadcast_jobs WHERE job_id=$1",
+        job_id,
+    )
+    if row is None:
+        return safe_json_error(404, "job_not_found")
+    return JSONResponse({"ok": True, "job": _job_to_dict(row)})
+
+
+@_with_admin_auth
+async def handle_admin_broadcast_list(request: Request) -> JSONResponse:
+    """Последние задачи рассылки (новые сверху)."""
+    pool: asyncpg.Pool = request.app.state.pool
+    try:
+        limit = max(1, min(_LIST_MAX_LIMIT, int(request.query_params.get("limit", _LIST_DEFAULT_LIMIT))))
+    except ValueError:
+        limit = _LIST_DEFAULT_LIMIT
+    try:
+        offset = max(0, int(request.query_params.get("offset", "0")))
+    except ValueError:
+        offset = 0
+
+    rows = await pool.fetch(
+        "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
+        "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
+        "started_at, finished_at, last_error "
+        "FROM broadcast_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        limit,
+        offset,
+    )
+    return JSONResponse({"ok": True, "jobs": [_job_to_dict(r) for r in rows], "limit": limit, "offset": offset})
+
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
+    """Пред-флайт: отправить сообщение одному chat_id (себе), чтобы увидеть реальный рендер HTML."""
+    pool: asyncpg.Pool = request.app.state.pool
+    client = getattr(request.app.state, "telegram_raw_client", None)
+    if client is None:
+        return safe_json_error(503, "telegram_not_configured", "BOT_TOKEN is not set")
+
+    try:
+        data = await request.json()
+    except Exception:
+        return safe_json_error(400, "invalid_request", "Expected JSON body")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request", "Expected JSON object")
+
+    raw_chat = data.get("chat_id")
+    try:
+        chat_id = int(raw_chat)
+    except (TypeError, ValueError):
+        return safe_json_error(400, "invalid_chat_id")
+    if chat_id <= 0:
+        return safe_json_error(400, "invalid_chat_id")
+
+    text = str(data.get("message_text") or "")
+    if not text.strip():
+        return safe_json_error(400, "empty_message")
+    if len(text) > _MAX_MESSAGE_LEN:
+        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
+    if (html_err := _validate_html(text)) is not None:
+        return safe_json_error(400, "invalid_html", html_err)
+
+    disable_preview = bool(data.get("disable_web_page_preview", False))
+    try:
+        await client.send_text_message(
+            chat_id=chat_id,
+            text=text,
+            correlation_id=f"broadcast-test-{chat_id}",
+            parse_mode="HTML",
+            disable_web_page_preview=disable_preview,
+        )
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code == 403:
+            return safe_json_error(403, "blocked_by_user", "chat not reachable")
+        detail = ""
+        try:
+            detail = str(exc.response.json().get("description", ""))[:200]
+        except Exception:
+            pass
+        return safe_json_error(400 if code < 500 else 502, "telegram_rejected", detail)
+    except Exception:
+        _LOGGER.exception("broadcast test send failed chat_id=%s", str(chat_id)[:8])
+        return safe_json_error(502, "send_failed")
+
+    return JSONResponse({"ok": True})
