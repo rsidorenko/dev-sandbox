@@ -19,6 +19,7 @@ from app.web_api.admin_broadcast import (
     _decode_buttons,
     _extract_retry_after,
     _fetch_sql,
+    _html_for_telegram,
     _validate_buttons,
     _validate_categories,
     _validate_html,
@@ -46,6 +47,17 @@ from app.web_api.admin_broadcast import (
 )
 def test_validate_html(text, expected):
     assert _validate_html(text) == expected
+
+
+def test_html_for_telegram_converts_br_to_newline():
+    assert _html_for_telegram("a<br>b") == "a\nb"
+    assert _html_for_telegram("a<br/>b") == "a\nb"
+    assert _html_for_telegram("a<BR>b") == "a\nb"
+    assert _html_for_telegram("a<br />b") == "a\nb"
+    # без <br> — без изменений
+    assert _html_for_telegram("обычный <b>текст</b>") == "обычный <b>текст</b>"
+    # несколько <br>
+    assert _html_for_telegram("x<br>y<br>z") == "x\ny\nz"
 
 
 # --- _validate_categories ---------------------------------------------------

@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from html.parser import HTMLParser
 from typing import Any
@@ -280,6 +281,16 @@ def _validate_html(text: str) -> str | None:
     if audit.stack:
         return "unclosed_tag:" + audit.stack[-1]
     return None
+
+
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+def _html_for_telegram(text: str) -> str:
+    """Telegram HTML НЕ поддерживает <br> (→ 'Unsupported start tag \"br\"').
+    Переносы строк в HTML-mode делаются через \\n. Превью/UI оперируют <br>,
+    а перед отправкой конвертируем все варианты <br> в перенос."""
+    return _BR_RE.sub("\n", text)
 
 
 # --- Кнопки под сообщением ---------------------------------------------------
@@ -678,6 +689,7 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
         return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
+    text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
 
     buttons, buttons_err = _validate_buttons(data)
     if buttons_err is not None:
@@ -814,6 +826,7 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
         return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
+    text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
 
     buttons, buttons_err = _validate_buttons(data)
     if buttons_err is not None:
