@@ -402,6 +402,18 @@ def test_validate_buttons_empty_payload_is_empty_list():
     assert err is None and buttons == []
 
 
+def test_validate_buttons_reads_nested_shape_like_frontend():
+    # Регресс: фронт шлёт кнопки ВЛОЖЕННО {buttons:{action_buttons,url_buttons}},
+    # а не верхним уровнем. Хендлер извлекает data["buttons"] перед вызовом.
+    frontend_body = {
+        "message_text": "x",
+        "buttons": {"action_buttons": ["buy_vpn", "main_menu"], "url_buttons": []},
+    }
+    buttons, err = _validate_buttons(frontend_body.get("buttons") or {})
+    assert err is None
+    assert [b["callback_data"] for b in buttons] == ["buy_vpn", "main_menu"]
+
+
 def test_runner_forwards_reply_markup_when_buttons_present():
     buttons = [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
     client = _FakeClient()

@@ -701,7 +701,8 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
         return safe_json_error(400, "invalid_html", html_err)
     text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
 
-    buttons, buttons_err = _validate_buttons(data)
+    # Фронт присылает кнопки вложенно: {buttons:{action_buttons,url_buttons}}.
+    buttons, buttons_err = _validate_buttons(data.get("buttons") or {})
     if buttons_err is not None:
         return buttons_err
 
@@ -838,7 +839,8 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
         return safe_json_error(400, "invalid_html", html_err)
     text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
 
-    buttons, buttons_err = _validate_buttons(data)
+    # Фронт присылает кнопки вложенно: {buttons:{action_buttons,url_buttons}}.
+    buttons, buttons_err = _validate_buttons(data.get("buttons") or {})
     if buttons_err is not None:
         return buttons_err
     reply_markup = _build_reply_markup(buttons)
