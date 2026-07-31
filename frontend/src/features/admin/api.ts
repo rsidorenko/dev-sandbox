@@ -9,6 +9,9 @@ import type {
   AdminStatsPeriod,
   AdminStatsResponse,
   AdminUsersResponse,
+  BroadcastEstimate,
+  BroadcastJobsResponse,
+  BroadcastSendResponse,
 } from "@/entities/admin/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -99,5 +102,40 @@ export const adminApi = {
       `/api/v1/admin/users/${encodeURIComponent(internal_user_id)}/add-days`,
       { method: "POST", body: JSON.stringify({ days }) },
     );
+  },
+  broadcastEstimate(payload: { categories: string[]; explicit_targets?: string[] }) {
+    return adminFetch<{ ok: true } & BroadcastEstimate>("/api/v1/admin/broadcast/estimate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  broadcastSend(payload: {
+    categories: string[];
+    explicit_targets?: string[];
+    message_text: string;
+    disable_web_page_preview?: boolean;
+  }) {
+    return adminFetch<{ ok: true } & BroadcastSendResponse>("/api/v1/admin/broadcast/send", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  broadcastTest(payload: { chat_id: number; message_text: string; disable_web_page_preview?: boolean }) {
+    return adminFetch<{ ok: true }>("/api/v1/admin/broadcast/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  broadcastJobStatus(jobId: string) {
+    return adminFetch<{ ok: true; job: BroadcastJobsResponse["jobs"][number] }>(
+      `/api/v1/admin/broadcast/jobs/${encodeURIComponent(jobId)}`,
+    );
+  },
+  listBroadcastJobs(params: { limit?: number; offset?: number } = {}) {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    const qs = q.toString();
+    return adminFetch<BroadcastJobsResponse>(`/api/v1/admin/broadcast/jobs${qs ? `?${qs}` : ""}`);
   },
 };

@@ -129,3 +129,73 @@ export interface AdminStatsResponse {
   };
   by_plan: AdminStatsByPlan[];
 }
+
+// --- Рассылка (/api/v1/admin/broadcast/*) ---------------------------------
+
+/** Ключи категорий аудитории (множественный выбор → UNION на бэке). */
+export type BroadcastCategory =
+  | "all"
+  | "active"
+  | "expired_0_2d"
+  | "expired_3_5d"
+  | "expired_6_7d"
+  | "expired_8_30d"
+  | "expired_30plus"
+  | "dormant";
+
+/** Человекочитаемые подписи категорий (порядок вывода в UI). */
+export const BROADCAST_CATEGORY_LABELS: { key: BroadcastCategory; label: string }[] = [
+  { key: "all", label: "Все пользователи" },
+  { key: "active", label: "Активные (платные + триал)" },
+  { key: "dormant", label: "Не активировали триал (спящие)" },
+  { key: "expired_0_2d", label: "Подписка истекла 0–2 дня назад" },
+  { key: "expired_3_5d", label: "Подписка истекла 3–5 дней назад" },
+  { key: "expired_6_7d", label: "Подписка истекла 6–7 дней назад" },
+  { key: "expired_8_30d", label: "Подписка истекла 8–30 дней назад" },
+  { key: "expired_30plus", label: "Подписка истекла более 30 дней назад" },
+];
+
+export interface BroadcastEstimate {
+  total: number;
+  per_category_counts: Partial<Record<BroadcastCategory, number>>;
+  explicit_resolved: number[];
+  explicit_unresolved: string[];
+}
+
+export type BroadcastJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "cancelled";
+
+export interface BroadcastJob {
+  job_id: string;
+  created_at: string | null;
+  created_by: string;
+  status: BroadcastJobStatus;
+  categories: BroadcastCategory[];
+  explicit_telegram_ids_count: number;
+  message_text: string;
+  parse_mode: string;
+  total_recipients: number;
+  sent_count: number;
+  failed_count: number;
+  blocked_count: number;
+  started_at: string | null;
+  finished_at: string | null;
+  last_error: string | null;
+}
+
+export interface BroadcastJobsResponse {
+  jobs: BroadcastJob[];
+  limit: number;
+  offset: number;
+}
+
+export interface BroadcastSendResponse {
+  job_id: string;
+  total_recipients: number;
+  explicit_unresolved?: string[];
+}
