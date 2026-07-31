@@ -697,7 +697,7 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
             "INSERT INTO broadcast_jobs "
             "(job_id, created_by, status, categories, explicit_telegram_ids, message_text, "
             " parse_mode, disable_web_page_preview, total_recipients, buttons) "
-            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7,$8)",
+            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7,$8::jsonb)",
             job_id,
             _admin_actor(request),
             categories,
