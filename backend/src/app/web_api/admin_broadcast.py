@@ -435,7 +435,7 @@ class BroadcastRunner:
         text: str = job["message_text"]
         parse_mode: str = job["parse_mode"] or "HTML"
         disable_preview: bool = bool(job["disable_web_page_preview"])
-        reply_markup = _build_reply_markup(list(job["buttons"] or []))
+        reply_markup = _build_reply_markup(_decode_buttons(job["buttons"]))
 
         sent = blocked = failed = 0
         try:
@@ -562,11 +562,26 @@ class BroadcastRunner:
 
 
 # --- Сериализация строки задачи ---------------------------------------------
-def _buttons_view(raw: Any) -> list[dict]:
-    """Кнопки задачи для ответа API: [{text, callback_data? url?}, ...]."""
+def _decode_buttons(raw: Any) -> list[dict]:
+    """JSONB buttons → list[dict]. asyncpg без jsonb-кодека отдаёт str (нужен json.loads);
+    list — если кодек зарегистрирован; None/пусто/битое → []. См. promo_contracts._coerce_discounts_by_plan."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        if not raw.strip():
+            return []
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
     if not isinstance(raw, list):
         return []
-    return [dict(b) for b in raw if isinstance(b, dict) and isinstance(b.get("text"), str)]
+    return [b for b in raw if isinstance(b, dict)]
+
+
+def _buttons_view(raw: Any) -> list[dict]:
+    """Кнопки задачи для ответа API: [{text, callback_data? url?}, ...]."""
+    return [dict(b) for b in _decode_buttons(raw) if isinstance(b.get("text"), str)]
 
 
 def _job_to_dict(row: asyncpg.Record) -> dict:

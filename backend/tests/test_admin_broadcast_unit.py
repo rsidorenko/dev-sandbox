@@ -16,6 +16,7 @@ from app.web_api.admin_broadcast import (
     _build_inner_union,
     _build_reply_markup,
     _count_sql,
+    _decode_buttons,
     _extract_retry_after,
     _fetch_sql,
     _validate_buttons,
@@ -388,3 +389,50 @@ def test_runner_no_markup_without_buttons():
     runner, _pool = _runner(client, [11])
     _run(runner.run())
     assert client.markups == [None]
+
+
+# --- Декодирование JSONB кнопок (asyncpg без кодека отдаёт str) --------------
+
+
+def test_decode_buttons_from_str_list_none():
+    import json
+
+    assert _decode_buttons(None) == []
+    assert _decode_buttons("") == []
+    assert _decode_buttons("[]") == []
+    assert _decode_buttons([{"text": "A", "callback_data": "main_menu"}]) == [
+        {"text": "A", "callback_data": "main_menu"}
+    ]
+    decoded = _decode_buttons(json.dumps([{"text": "A", "callback_data": "main_menu"}]))
+    assert decoded == [{"text": "A", "callback_data": "main_menu"}]
+    # битой JSON-строке не падает, возвращает []
+    assert _decode_buttons("{not json") == []
+
+
+def test_runner_decodes_buttons_from_json_string_like_asyncpg():
+    """Регрессия: asyncpg без jsonb-кодека отдаёт buttons как str. Runner должен
+    json.loads-нуть его, а не list(str) → символы."""
+    import json
+
+    buttons_json = json.dumps([{"text": "🏠 Главное меню", "callback_data": "main_menu"}])
+    pool = _FakePool(
+        job_row={
+            "categories": ["all"],
+            "explicit_telegram_ids": [],
+            "message_text": "<b>hi</b>",
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+            "buttons": buttons_json,  # str, как от реального asyncpg
+        },
+        recipients=[11],
+    )
+    client = _FakeClient()
+    runner = BroadcastRunner(
+        pool=pool,
+        client=client,
+        job_id="22222222-3333-4444-5555-666666666666",
+        sleep=_nosleep,
+    )
+    _run(runner.run())
+    assert len(client.markups) == 1
+    assert client.markups[0] == {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
