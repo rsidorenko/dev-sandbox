@@ -18,6 +18,7 @@ safe_json_error, _admin_actor). SQL — как в admin_users.py (литерал
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -30,6 +31,7 @@ import httpx
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.bot_transport.storefront_ui import CB_BUY_VPN, CB_HELP, CB_MAIN_MENU, CB_MY_SUB, CB_PROMOCODE
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
 from app.web_api.helpers import safe_json_error
 
@@ -42,6 +44,20 @@ _DEFAULT_THROTTLE_SEC = 0.05  # ~20 msg/s — ниже глобального л
 _LIST_DEFAULT_LIMIT = 50
 _LIST_MAX_LIMIT = 200
 _BATCH_FLUSH_EVERY = 20  # флеш счётчиков в БД каждые N отправок
+_MAX_BUTTONS = 8  # суммарный лимит кнопок под сообщением (действия + ссылки)
+
+# Курированные действия бота: callback_data (из storefront_ui.CB_*) → подпись с эмодзи.
+# Клик по такой кнопке открывает экран бота и заменяет текст сообщения рассылки
+# (edit_message_text по этому сообщению — как у lifecycle-уведомлений).
+_ACTION_BUTTONS: dict[str, str] = {
+    CB_BUY_VPN: "🔑 Купить VPN",
+    CB_MAIN_MENU: "🏠 Главное меню",
+    CB_PROMOCODE: "🎟 Ввести промокод",
+    CB_MY_SUB: "📋 Моя подписка",
+    CB_HELP: "❓ Помощь",
+}
+_URL_BUTTON_MAX_LEN = 512
+_BUTTON_LABEL_MAX_LEN = 64  # лимит Telegram на text кнопки
 
 
 def _max_recipients() -> int:
@@ -266,6 +282,54 @@ def _validate_html(text: str) -> str | None:
     return None
 
 
+# --- Кнопки под сообщением ---------------------------------------------------
+def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
+    """Из тела запроса собирает итоговый список кнопок в формате Telegram.
+    actions ({text,callback_data}) идут раньше url-кнопок ({text,url}). Возвращает
+    (buttons, None) при успехе или (None, error_response).
+    """
+    buttons: list[dict] = []
+
+    raw_actions = data.get("action_buttons") or []
+    if not isinstance(raw_actions, list):
+        return [], safe_json_error(400, "invalid_action_buttons")
+    # Дедуп + сохранение порядка, только известные callback_data.
+    seen: set[str] = set()
+    for key in raw_actions:
+        k = str(key)
+        if k in _ACTION_BUTTONS and k not in seen:
+            seen.add(k)
+            buttons.append({"text": _ACTION_BUTTONS[k], "callback_data": k})
+
+    raw_urls = data.get("url_buttons") or []
+    if not isinstance(raw_urls, list):
+        return [], safe_json_error(400, "invalid_url_buttons")
+    for entry in raw_urls:
+        if not isinstance(entry, dict):
+            return [], safe_json_error(400, "invalid_url_buttons")
+        label = str(entry.get("label") or "").strip()
+        url = str(entry.get("url") or "").strip()
+        if not label or not url:
+            return [], safe_json_error(400, "invalid_url_buttons", "label и url обязательны")
+        scheme = urlparse(url).scheme.lower()
+        if scheme not in ("http", "https"):
+            return [], safe_json_error(400, "invalid_button_url", "допустимы только http/https")
+        if len(url) > _URL_BUTTON_MAX_LEN:
+            return [], safe_json_error(400, "invalid_button_url", "url слишком длинный")
+        buttons.append({"text": label[:_BUTTON_LABEL_MAX_LEN], "url": url})
+
+    if len(buttons) > _MAX_BUTTONS:
+        return [], safe_json_error(400, "too_many_buttons", f"максимум {_MAX_BUTTONS} кнопок")
+    return buttons, None
+
+
+def _build_reply_markup(buttons: list[dict] | None) -> dict | None:
+    """Каждая кнопка = отдельная строка inline_keyboard (как в notification_texts)."""
+    if not buttons:
+        return None
+    return {"inline_keyboard": [[dict(b)] for b in buttons]}
+
+
 # --- Reconcile orphan-задач --------------------------------------------------
 # Без правки lifespan: один раз на процесс перевести зависшие running/queued
 # (остались от упавшего процесса) в interrupted.
@@ -360,7 +424,7 @@ class BroadcastRunner:
 
         job = await self._pool.fetchrow(
             "SELECT categories, explicit_telegram_ids, message_text, parse_mode, "
-            "disable_web_page_preview FROM broadcast_jobs WHERE job_id=$1",
+            "disable_web_page_preview, buttons FROM broadcast_jobs WHERE job_id=$1",
             self._job_id,
         )
         if job is None:
@@ -371,6 +435,7 @@ class BroadcastRunner:
         text: str = job["message_text"]
         parse_mode: str = job["parse_mode"] or "HTML"
         disable_preview: bool = bool(job["disable_web_page_preview"])
+        reply_markup = _build_reply_markup(list(job["buttons"] or []))
 
         sent = blocked = failed = 0
         try:
@@ -387,7 +452,7 @@ class BroadcastRunner:
             since_flush = 0
             for row in recipients:
                 chat_id = int(row["telegram_user_id"])
-                status = await self._send_one(chat_id, text, parse_mode, disable_preview)
+                status = await self._send_one(chat_id, text, parse_mode, disable_preview, reply_markup)
                 if status == "ok":
                     sent += 1
                 elif status == "blocked":
@@ -424,9 +489,16 @@ class BroadcastRunner:
         sql = _fetch_sql(categories)
         return await self._pool.fetch(sql, explicit_ids)
 
-    async def _send_one(self, chat_id: int, text: str, parse_mode: str, disable_preview: bool) -> str:
-        """Возвращает 'ok' | 'blocked' | 'bad_request' | 'rate_limited' | 'transient'.
-        429 — ретрай с retry_after (до 2 повторных попыток)."""
+    async def _send_one(
+        self,
+        chat_id: int,
+        text: str,
+        parse_mode: str,
+        disable_preview: bool,
+        reply_markup: dict | None,
+    ) -> str:
+        """Возвращает 'ok' | 'blocked' | 'bad_request_content' | 'bad_request_recipient'
+        | 'rate_limited' | 'transient'. 429 — ретрай с retry_after (до 2 повторных попыток)."""
         attempts = 0
         while True:
             attempts += 1
@@ -437,6 +509,7 @@ class BroadcastRunner:
                     correlation_id=f"broadcast-{self._job_id[:8]}",
                     parse_mode=parse_mode,
                     disable_web_page_preview=disable_preview,
+                    reply_markup=reply_markup,
                 )
                 return "ok"
             except httpx.HTTPStatusError as exc:
@@ -489,6 +562,13 @@ class BroadcastRunner:
 
 
 # --- Сериализация строки задачи ---------------------------------------------
+def _buttons_view(raw: Any) -> list[dict]:
+    """Кнопки задачи для ответа API: [{text, callback_data? url?}, ...]."""
+    if not isinstance(raw, list):
+        return []
+    return [dict(b) for b in raw if isinstance(b, dict) and isinstance(b.get("text"), str)]
+
+
 def _job_to_dict(row: asyncpg.Record) -> dict:
     return {
         "job_id": str(row["job_id"]),
@@ -499,6 +579,7 @@ def _job_to_dict(row: asyncpg.Record) -> dict:
         "explicit_telegram_ids_count": len(row["explicit_telegram_ids"] or []),
         "message_text": row["message_text"],
         "parse_mode": row["parse_mode"],
+        "buttons": _buttons_view(row.get("buttons")),
         "total_recipients": row["total_recipients"],
         "sent_count": row["sent_count"],
         "failed_count": row["failed_count"],
@@ -583,6 +664,10 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
 
+    buttons, buttons_err = _validate_buttons(data)
+    if buttons_err is not None:
+        return buttons_err
+
     disable_preview = bool(data.get("disable_web_page_preview", False))
 
     raw_targets = data.get("explicit_targets") or []
@@ -611,8 +696,8 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
         await pool.execute(
             "INSERT INTO broadcast_jobs "
             "(job_id, created_by, status, categories, explicit_telegram_ids, message_text, "
-            " parse_mode, disable_web_page_preview, total_recipients) "
-            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7)",
+            " parse_mode, disable_web_page_preview, total_recipients, buttons) "
+            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7,$8)",
             job_id,
             _admin_actor(request),
             categories,
@@ -620,6 +705,7 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
             text,
             disable_preview,
             total,
+            json.dumps(buttons) if buttons else "[]",
         )
     except Exception:
         _LOGGER.exception("broadcast insert failed")
@@ -650,7 +736,7 @@ async def handle_admin_broadcast_status(request: Request) -> JSONResponse:
     row = await pool.fetchrow(
         "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
         "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
-        "started_at, finished_at, last_error "
+        "started_at, finished_at, last_error, buttons "
         "FROM broadcast_jobs WHERE job_id=$1",
         job_id,
     )
@@ -675,7 +761,7 @@ async def handle_admin_broadcast_list(request: Request) -> JSONResponse:
     rows = await pool.fetch(
         "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
         "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
-        "started_at, finished_at, last_error "
+        "started_at, finished_at, last_error, buttons "
         "FROM broadcast_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         limit,
         offset,
@@ -714,6 +800,11 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
 
+    buttons, buttons_err = _validate_buttons(data)
+    if buttons_err is not None:
+        return buttons_err
+    reply_markup = _build_reply_markup(buttons)
+
     disable_preview = bool(data.get("disable_web_page_preview", False))
     try:
         await client.send_text_message(
@@ -722,6 +813,7 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
             correlation_id=f"broadcast-test-{chat_id}",
             parse_mode="HTML",
             disable_web_page_preview=disable_preview,
+            reply_markup=reply_markup,
         )
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code

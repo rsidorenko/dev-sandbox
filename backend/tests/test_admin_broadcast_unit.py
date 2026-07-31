@@ -14,9 +14,11 @@ import pytest
 from app.web_api.admin_broadcast import (
     BroadcastRunner,
     _build_inner_union,
+    _build_reply_markup,
     _count_sql,
     _extract_retry_after,
     _fetch_sql,
+    _validate_buttons,
     _validate_categories,
     _validate_html,
 )
@@ -144,11 +146,20 @@ class _FakeClient:
     def __init__(self, behaviors: dict | None = None) -> None:
         self.behaviors = {k: list(v) for k, v in (behaviors or {}).items()}
         self.calls: list[int] = []
+        self.markups: list = []  # reply_markup, переданный в каждый вызов
 
     async def send_text_message(
-        self, *, chat_id, text, correlation_id, parse_mode=None, disable_web_page_preview=False
+        self,
+        *,
+        chat_id,
+        text,
+        correlation_id,
+        parse_mode=None,
+        disable_web_page_preview=False,
+        reply_markup=None,
     ):
         self.calls.append(chat_id)
+        self.markups.append(reply_markup)
         seq = self.behaviors.get(chat_id)
         outcome = seq.pop(0) if seq else "ok"
         if outcome == "ok":
@@ -167,7 +178,12 @@ async def _nosleep(_s: float = 0.0) -> None:
     return None
 
 
-def _runner(client: _FakeClient, recipients: list[int]) -> tuple[BroadcastRunner, _FakePool]:
+def _runner(
+    client: _FakeClient,
+    recipients: list[int],
+    *,
+    buttons: list | None = None,
+) -> tuple[BroadcastRunner, _FakePool]:
     pool = _FakePool(
         job_row={
             "categories": ["all"],
@@ -175,6 +191,7 @@ def _runner(client: _FakeClient, recipients: list[int]) -> tuple[BroadcastRunner
             "message_text": "<b>hi</b>",
             "parse_mode": "HTML",
             "disable_web_page_preview": False,
+            "buttons": list(buttons or []),
         },
         recipients=recipients,
     )
@@ -294,3 +311,80 @@ def test_runner_preempted_queued_cas_exits_silently():
     )
     _run(runner.run())
     assert pool.finish is None  # ничего не финишировал
+
+
+# --- Кнопки под сообщением ---------------------------------------------------
+
+
+def test_build_reply_markup_empty_is_none():
+    assert _build_reply_markup([]) is None
+    assert _build_reply_markup(None) is None
+
+
+def test_build_reply_markup_action_and_url_rows():
+    buttons = [
+        {"text": "🔑 Купить VPN", "callback_data": "buy_vpn"},
+        {"text": "Сайт", "url": "https://example.com"},
+    ]
+    markup = _build_reply_markup(buttons)
+    assert markup == {
+        "inline_keyboard": [
+            [{"text": "🔑 Купить VPN", "callback_data": "buy_vpn"}],
+            [{"text": "Сайт", "url": "https://example.com"}],
+        ]
+    }
+
+
+def test_validate_buttons_actions_known_only_and_dedup():
+    buttons, err = _validate_buttons({"action_buttons": ["buy_vpn", "main_menu", "buy_vpn", "bogus"]})
+    assert err is None
+    # неизвестный отброшен, дубликата нет, порядок сохранён
+    assert buttons == [
+        {"text": "🔑 Купить VPN", "callback_data": "buy_vpn"},
+        {"text": "🏠 Главное меню", "callback_data": "main_menu"},
+    ]
+
+
+def test_validate_buttons_url_requires_http_https():
+    _, err = _validate_buttons({"url_buttons": [{"label": "x", "url": "javascript:alert(1)"}]})
+    assert err is not None and err.status_code == 400
+    buttons, err = _validate_buttons({"url_buttons": [{"label": "Сайт", "url": "https://example.com"}]})
+    assert err is None
+    assert buttons == [{"text": "Сайт", "url": "https://example.com"}]
+
+
+def test_validate_buttons_actions_then_urls_order_and_cap():
+    # 2 действия + 1 url — суммарно в пределах лимита
+    buttons, err = _validate_buttons(
+        {"action_buttons": ["main_menu"], "url_buttons": [{"label": "L", "url": "http://x.io"}]}
+    )
+    assert err is None
+    assert buttons[0]["callback_data"] == "main_menu"
+    assert buttons[1]["url"] == "http://x.io"
+    # превышение лимита (8) → too_many_buttons
+    many = {"action_buttons": ["buy_vpn"], "url_buttons": [{"label": "u", "url": "http://x.io"}] * 8}
+    _, err = _validate_buttons(many)
+    assert err is not None and err.status_code == 400
+
+
+def test_validate_buttons_empty_payload_is_empty_list():
+    buttons, err = _validate_buttons({})
+    assert err is None and buttons == []
+
+
+def test_runner_forwards_reply_markup_when_buttons_present():
+    buttons = [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
+    client = _FakeClient()
+    runner, _pool = _runner(client, [11, 12], buttons=buttons)
+    _run(runner.run())
+    # Каждый вызов получил ненулевой markup с нашей кнопкой
+    assert len(client.markups) == 2
+    for markup in client.markups:
+        assert markup == {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+
+
+def test_runner_no_markup_without_buttons():
+    client = _FakeClient()
+    runner, _pool = _runner(client, [11])
+    _run(runner.run())
+    assert client.markups == [None]
