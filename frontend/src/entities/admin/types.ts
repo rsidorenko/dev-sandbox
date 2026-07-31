@@ -179,6 +179,7 @@ export interface BroadcastJob {
   explicit_telegram_ids_count: number;
   message_text: string;
   parse_mode: string;
+  buttons: BroadcastButtonView[];
   total_recipients: number;
   sent_count: number;
   failed_count: number;
@@ -186,6 +187,40 @@ export interface BroadcastJob {
   started_at: string | null;
   finished_at: string | null;
   last_error: string | null;
+}
+
+/** Кнопка задачи как хранится/возвращается (формат Telegram inline-кнопки). */
+export interface BroadcastButtonView {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+
+/** Курированные действия бота (callback_data) — ключи для выбора в UI. */
+export type BroadcastActionButton =
+  | "buy_vpn"
+  | "main_menu"
+  | "enter_promo"
+  | "my_subscription"
+  | "help";
+
+export const BROADCAST_ACTION_BUTTONS: { key: BroadcastActionButton; label: string }[] = [
+  { key: "buy_vpn", label: "🔑 Купить VPN" },
+  { key: "main_menu", label: "🏠 Главное меню" },
+  { key: "enter_promo", label: "🎟 Ввести промокод" },
+  { key: "my_subscription", label: "📋 Моя подписка" },
+  { key: "help", label: "❓ Помощь" },
+];
+
+export interface BroadcastUrlButton {
+  label: string;
+  url: string;
+}
+
+/** Payload кнопок для send/test. */
+export interface BroadcastButtonsPayload {
+  action_buttons?: BroadcastActionButton[];
+  url_buttons?: BroadcastUrlButton[];
 }
 
 export interface BroadcastJobsResponse {

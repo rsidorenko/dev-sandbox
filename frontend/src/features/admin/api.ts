@@ -9,6 +9,7 @@ import type {
   AdminStatsPeriod,
   AdminStatsResponse,
   AdminUsersResponse,
+  BroadcastButtonsPayload,
   BroadcastEstimate,
   BroadcastJobsResponse,
   BroadcastSendResponse,
@@ -114,13 +115,19 @@ export const adminApi = {
     explicit_targets?: string[];
     message_text: string;
     disable_web_page_preview?: boolean;
+    buttons?: BroadcastButtonsPayload;
   }) {
     return adminFetch<{ ok: true } & BroadcastSendResponse>("/api/v1/admin/broadcast/send", {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
-  broadcastTest(payload: { chat_id: number; message_text: string; disable_web_page_preview?: boolean }) {
+  broadcastTest(payload: {
+    chat_id: number;
+    message_text: string;
+    disable_web_page_preview?: boolean;
+    buttons?: BroadcastButtonsPayload;
+  }) {
     return adminFetch<{ ok: true }>("/api/v1/admin/broadcast/test", {
       method: "POST",
       body: JSON.stringify(payload),

@@ -15,11 +15,14 @@ import {
   adminTableWrap,
 } from "@/features/admin/ui";
 import {
+  BROADCAST_ACTION_BUTTONS,
   BROADCAST_CATEGORY_LABELS,
+  type BroadcastActionButton,
   type BroadcastCategory,
   type BroadcastEstimate,
   type BroadcastJob,
   type BroadcastJobStatus,
+  type BroadcastUrlButton,
 } from "@/entities/admin/types";
 import { Alert } from "@/shared/ui/Alert";
 
@@ -69,6 +72,8 @@ export default function AdminBroadcastPage() {
   const [explicitRaw, setExplicitRaw] = useState("");
   const [message, setMessage] = useState("");
   const [disablePreview, setDisablePreview] = useState(false);
+  const [actionBtns, setActionBtns] = useState<Set<BroadcastActionButton>>(new Set());
+  const [urlButtons, setUrlButtons] = useState<BroadcastUrlButton[]>([]);
 
   const [estimating, setEstimating] = useState(false);
   const [estimate, setEstimate] = useState<BroadcastEstimate | null>(null);
@@ -91,6 +96,35 @@ export default function AdminBroadcastPage() {
         .filter(Boolean),
     [explicitRaw],
   );
+
+  const buttonsPayload = useMemo(() => {
+    const actions = Array.from(actionBtns);
+    const urls = urlButtons.filter((b) => b.label.trim() && b.url.trim());
+    if (actions.length === 0 && urls.length === 0) return undefined;
+    return { action_buttons: actions, url_buttons: urls };
+  }, [actionBtns, urlButtons]);
+
+  const previewButtons = useMemo(() => {
+    const out: { text: string }[] = [];
+    for (const key of Array.from(actionBtns)) {
+      const meta = BROADCAST_ACTION_BUTTONS.find((b) => b.key === key);
+      if (meta) out.push({ text: meta.label });
+    }
+    for (const b of urlButtons) {
+      const t = b.label.trim();
+      if (t) out.push({ text: t });
+    }
+    return out;
+  }, [actionBtns, urlButtons]);
+
+  const toggleActionButton = (key: BroadcastActionButton) => {
+    setActionBtns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const selectedArr = useMemo(() => Array.from(selected), [selected]);
 
@@ -196,7 +230,7 @@ export default function AdminBroadcastPage() {
       return;
     }
     setBusy(true);
-    const r = await adminApi.broadcastTest({ chat_id: chatId, message_text: message, disable_web_page_preview: disablePreview });
+    const r = await adminApi.broadcastTest({ chat_id: chatId, message_text: message, disable_web_page_preview: disablePreview, buttons: buttonsPayload });
     setBusy(false);
     if (r.ok) {
       setActionInfo("Тестовое сообщение отправлено. Проверьте Telegram.");
@@ -234,6 +268,7 @@ export default function AdminBroadcastPage() {
       explicit_targets: explicitTargets,
       message_text: message,
       disable_web_page_preview: disablePreview,
+      buttons: buttonsPayload,
     });
     setBusy(false);
     if (r.ok) {
@@ -247,6 +282,7 @@ export default function AdminBroadcastPage() {
         explicit_telegram_ids_count: explicitTargets.length,
         message_text: message,
         parse_mode: "HTML",
+        buttons: [],
         total_recipients: r.data.total_recipients,
         sent_count: 0,
         failed_count: 0,
@@ -382,6 +418,81 @@ export default function AdminBroadcastPage() {
               </button>
             </div>
           </section>
+
+          {/* Кнопки под сообщением */}
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Кнопки под сообщением
+            </h2>
+            <p className="mb-3 text-xs text-gray-400 dark:text-gray-500">
+              Клик по кнопке-действию откроет экран бота и заменит текст этого сообщения. URL-кнопки открывают ссылку и не меняют сообщение.
+            </p>
+
+            <div className="space-y-2">
+              {BROADCAST_ACTION_BUTTONS.map(({ key, label }) => (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-zinc-700/50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={actionBtns.has(key)}
+                    onChange={() => toggleActionButton(key)}
+                    className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">URL-кнопки</span>
+                <button
+                  type="button"
+                  onClick={() => setUrlButtons((prev) => [...prev, { label: "", url: "" }])}
+                  className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+                >
+                  + добавить ссылку
+                </button>
+              </div>
+              <div className="space-y-2">
+                {urlButtons.length === 0 && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Нет ссылок. Например: «Наш сайт» → https://bravada-connect.ru</p>
+                )}
+                {urlButtons.map((b, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={b.label}
+                      onChange={(e) =>
+                        setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
+                      }
+                      placeholder="Текст"
+                      className={`${adminInput} w-1/3`}
+                    />
+                    <input
+                      type="url"
+                      value={b.url}
+                      onChange={(e) =>
+                        setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
+                      }
+                      placeholder="https://…"
+                      className={`${adminInput} flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setUrlButtons((prev) => prev.filter((_, j) => j !== i))}
+                      className="rounded-lg px-2 text-sm font-semibold text-red-600 transition hover:text-red-700"
+                      aria-label="Удалить ссылку"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
 
         {/* --- Правая колонка: превью + прогресс --- */}
@@ -402,6 +513,18 @@ export default function AdminBroadcastPage() {
                 __html: message.trim() ? renderPreviewHtml(message) : "<span class='text-gray-400'>пусто…</span>",
               }}
             />
+            {previewButtons.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {previewButtons.map((b, i) => (
+                  <span
+                    key={i}
+                    className="cursor-default rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-200"
+                  >
+                    {b.text}
+                  </span>
+                ))}
+              </div>
+            )}
           </section>
 
           {activeJob && (
