@@ -42,7 +42,9 @@ from app.web_api.admin_broadcast import (
         ("<a>no href</a>", "link_missing_href"),
         ('<a href="javascript:alert(1)">x</a>', "link_bad_scheme:javascript"),
         ("<script>x</script>", "unsupported_tag:script"),
-        ("<b>unclosed", "unclosed_tag:b"),
+        # Незакрытые разрешённые теги НЕ блокируются — автозакроются в _html_for_telegram
+        ("<b>unclosed", None),
+        ("<i><b>nested no close", None),
     ],
 )
 def test_validate_html(text, expected):
@@ -54,10 +56,22 @@ def test_html_for_telegram_converts_br_to_newline():
     assert _html_for_telegram("a<br/>b") == "a\nb"
     assert _html_for_telegram("a<BR>b") == "a\nb"
     assert _html_for_telegram("a<br />b") == "a\nb"
-    # без <br> — без изменений
+    assert _html_for_telegram('a<br class="x">b') == "a\nb"  # br с атрибутом
+    # без <br> и без незакрытых — без изменений
     assert _html_for_telegram("обычный <b>текст</b>") == "обычный <b>текст</b>"
     # несколько <br>
     assert _html_for_telegram("x<br>y<br>z") == "x\ny\nz"
+
+
+def test_html_for_telegram_autocloses_unclosed_tags():
+    # один незакрытый
+    assert _html_for_telegram("<b>text") == "<b>text</b>"
+    # вложенные незакрытые — закрываются в обратном порядке
+    assert _html_for_telegram("<b><i>x") == "<b><i>x</i></b>"
+    # br + незакрытый: сначала конвертация, потом автозакрытие
+    assert _html_for_telegram("line1<br><b>bold") == "line1\n<b>bold</b>"
+    # уже сбалансировано — ничего не добавляется
+    assert _html_for_telegram("<b>x</b>") == "<b>x</b>"
 
 
 # --- _validate_categories ---------------------------------------------------

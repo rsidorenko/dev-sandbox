@@ -276,21 +276,31 @@ def _validate_html(text: str) -> str | None:
         audit.close()
     except Exception:
         return "malformed_html"
-    if audit.error is not None:
-        return audit.error
-    if audit.stack:
-        return "unclosed_tag:" + audit.stack[-1]
-    return None
+    # audit.error — неподдерживаемый тег / плохая href (блокируем).
+    # Незакрытые разрешённые теги НЕ блокируем — автозакроются в _html_for_telegram.
+    return audit.error
 
 
-_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_BR_RE = re.compile(r"<br\b[^>]*>", re.IGNORECASE)
 
 
 def _html_for_telegram(text: str) -> str:
-    """Telegram HTML НЕ поддерживает <br> (→ 'Unsupported start tag \"br\"').
-    Переносы строк в HTML-mode делаются через \\n. Превью/UI оперируют <br>,
-    а перед отправкой конвертируем все варианты <br> в перенос."""
-    return _BR_RE.sub("\n", text)
+    """Нормализация HTML под Telegram перед отправкой:
+    * `<br>` (в т.ч. с атрибутами/самозакрывающийся) → `\\n` — Telegram HTML
+      не поддерживает <br> ('Unsupported start tag \"br\"');
+    * автозакрытие незакрытых тегов allowlist'а — Telegram строго требует
+      баланса ('Can't find end tag'); прощаем оператору забытый </b> и т.п.
+    """
+    text = _BR_RE.sub("\n", text)
+    audit = _HtmlAudit()
+    try:
+        audit.feed(text)
+        audit.close()
+    except Exception:
+        return text  # пусть Telegram вернёт свою ошибку
+    if audit.stack:
+        text = text + "".join(f"</{t}>" for t in reversed(audit.stack))
+    return text
 
 
 # --- Кнопки под сообщением ---------------------------------------------------
