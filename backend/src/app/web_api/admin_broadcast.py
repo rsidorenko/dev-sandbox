@@ -215,7 +215,7 @@ def _validate_categories(raw: Any) -> list[str] | None:
 # ДО массовой отправки, чтобы один 400 не повторился на всех получателях.
 
 _ALLOWED_HTML_TAGS = frozenset(
-    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "blockquote", "a"}
+    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "blockquote", "a", "br"}
 )
 _ALLOWED_HREF_SCHEMES = frozenset({"http", "https", "mailto", "tg"})
 

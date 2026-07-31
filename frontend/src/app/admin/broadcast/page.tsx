@@ -215,6 +215,22 @@ export default function AdminBroadcastPage() {
     wrapSelection(`<a href="${safe}">`, "</a>");
   };
 
+  const insertAtCursor = (snippet: string) => {
+    const ta = taRef.current;
+    const value = message;
+    if (!ta) {
+      setMessage(value + snippet);
+      return;
+    }
+    const start = ta.selectionStart ?? value.length;
+    const next = value.slice(0, start) + snippet + value.slice(start);
+    setMessage(next);
+    window.requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + snippet.length, start + snippet.length);
+    });
+  };
+
   const onTest = async () => {
     setActionError("");
     setActionInfo("");
@@ -388,6 +404,7 @@ export default function AdminBroadcastPage() {
               <button type="button" onClick={() => wrapSelection("<i>", "</i>")} className={`${adminBtnSecondary} italic`}>I</button>
               <button type="button" onClick={() => wrapSelection("<code>", "</code>")} className={`${adminBtnSecondary} font-mono`}>Моно</button>
               <button type="button" onClick={insertLink} className={adminBtnSecondary}>Ссылка</button>
+              <button type="button" onClick={() => insertAtCursor("<br>")} className={adminBtnSecondary}>↵ Перенос</button>
             </div>
 
             <textarea
