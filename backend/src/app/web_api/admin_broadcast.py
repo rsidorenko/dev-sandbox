@@ -303,7 +303,7 @@ def _extract_retry_after(response: httpx.Response) -> int:
     params = (_response_json(response) or {}).get("parameters")
     if isinstance(params, dict):
         ra = params.get("retry_after")
-        if isinstance(ra, (int, float)) and ra > 0:
+        if isinstance(ra, int | float) and ra > 0:
             return int(ra)
     return 1
 
