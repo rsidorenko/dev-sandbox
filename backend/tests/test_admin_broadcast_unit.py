@@ -21,8 +21,8 @@ from app.web_api.admin_broadcast import (
     _validate_html,
 )
 
-
 # --- _validate_html ---------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "text,expected",
@@ -44,6 +44,7 @@ def test_validate_html(text, expected):
 
 # --- _validate_categories ---------------------------------------------------
 
+
 def test_validate_categories_accepts_known():
     result = _validate_categories(["all", "active", "dormant"])
     assert set(result) == {"all", "active", "dormant"}
@@ -64,6 +65,7 @@ def test_validate_categories_empty_is_empty_list():
 
 # --- SQL builder ------------------------------------------------------------
 
+
 def test_build_inner_union_only_one_param_token():
     sql = _build_inner_union(["all", "expired_0_2d", "dormant"])
     # Единственный параметр — $1 (массив явных tg-id); интервалы/now() — литералы.
@@ -80,6 +82,7 @@ def test_count_and_fetch_sql_wrap_distinct_and_filter_positive():
 
 
 # --- _extract_retry_after ---------------------------------------------------
+
 
 def _http_response(status: int, body: bytes = b"") -> httpx.Response:
     req = httpx.Request("POST", "https://api.telegram.org/botx/sendMessage")
@@ -102,6 +105,7 @@ def test_extract_retry_after_non_json_defaults_to_one():
 
 
 # --- BroadcastRunner on fakes ----------------------------------------------
+
 
 class _FakePool:
     """Запоминает UPDATE-вызовы и имитирует конфиг задачи + список получателей."""
@@ -141,8 +145,9 @@ class _FakeClient:
         self.behaviors = {k: list(v) for k, v in (behaviors or {}).items()}
         self.calls: list[int] = []
 
-    async def send_text_message(self, *, chat_id, text, correlation_id, parse_mode=None,
-                                disable_web_page_preview=False):
+    async def send_text_message(
+        self, *, chat_id, text, correlation_id, parse_mode=None, disable_web_page_preview=False
+    ):
         self.calls.append(chat_id)
         seq = self.behaviors.get(chat_id)
         outcome = seq.pop(0) if seq else "ok"
@@ -267,9 +272,16 @@ def test_runner_zero_recipients_completes_without_sending():
 
 def test_runner_preempted_queued_cas_exits_silently():
     """Если CAS queued→running не сработал (UPDATE 0) — задача не стартует."""
-    pool = _FakePool(job_row={"categories": [], "explicit_telegram_ids": [],
-                              "message_text": "x", "parse_mode": "HTML",
-                              "disable_web_page_preview": False}, recipients=[1])
+    pool = _FakePool(
+        job_row={
+            "categories": [],
+            "explicit_telegram_ids": [],
+            "message_text": "x",
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+        },
+        recipients=[1],
+    )
 
     async def execute(sql, *args):
         if sql.upper().startswith("UPDATE BROADCAST_JOBS SET STATUS='RUNNING'"):
@@ -277,7 +289,8 @@ def test_runner_preempted_queued_cas_exits_silently():
         return "UPDATE 1"
 
     pool.execute = execute  # type: ignore[method-assign]
-    runner = BroadcastRunner(pool=pool, client=_FakeClient(),
-                             job_id="00000000-0000-0000-0000-000000000000", sleep=_nosleep)
+    runner = BroadcastRunner(
+        pool=pool, client=_FakeClient(), job_id="00000000-0000-0000-0000-000000000000", sleep=_nosleep
+    )
     _run(runner.run())
     assert pool.finish is None  # ничего не финишировал

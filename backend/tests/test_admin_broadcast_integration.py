@@ -164,8 +164,16 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
                 return client.post("/api/v1/admin/broadcast/estimate", json=body, headers=h)
 
             # --- Базовые счета ДО вставки фикстур ---
-            cats = ["all", "active", "expired_0_2d", "expired_3_5d", "expired_6_7d", "expired_8_30d",
-                    "expired_30plus", "dormant"]
+            cats = [
+                "all",
+                "active",
+                "expired_0_2d",
+                "expired_3_5d",
+                "expired_6_7d",
+                "expired_8_30d",
+                "expired_30plus",
+                "dormant",
+            ]
             baseline = {c: estimate([c]).json()["total"] for c in cats}
             baseline_all = baseline["all"]
 

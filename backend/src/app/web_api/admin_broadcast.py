@@ -64,44 +64,53 @@ def _throttle_sec() -> float:
 # now()/интервалы — литералы, единственный параметр $1 (массив явных tg-id)
 # подставляется во внешнем unnest — как в admin_users._LIST_*.
 
-_BASE_FROM = "FROM user_identities i"
-_SNAP_JOIN = "FROM user_identities i JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id"
-
 _CATEGORY_PREDICATES: dict[str, str] = {
-    "all": f"SELECT i.telegram_user_id {_BASE_FROM} WHERE i.telegram_user_id > 0",
+    "all": ("SELECT i.telegram_user_id FROM user_identities i WHERE i.telegram_user_id > 0"),
     "active": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 AND ("
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 AND ("
         "(s.plan_id IS NOT NULL AND s.state_label = 'active' AND s.active_until_utc IS NOT NULL AND s.active_until_utc > now())"
         " OR (s.plan_id IS NULL AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at > now())"
         ")"
     ),
     "expired_0_2d": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() AND s.active_until_utc > now() - INTERVAL '3 days'"
     ),
     "expired_3_5d": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '3 days' AND s.active_until_utc > now() - INTERVAL '6 days'"
     ),
     "expired_6_7d": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '6 days' AND s.active_until_utc > now() - INTERVAL '8 days'"
     ),
     "expired_8_30d": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '8 days' AND s.active_until_utc > now() - INTERVAL '31 days'"
     ),
     "expired_30plus": (
-        f"SELECT i.telegram_user_id {_SNAP_JOIN} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE i.telegram_user_id > 0 "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '31 days'"
     ),
     "dormant": (
-        f"SELECT i.telegram_user_id {_BASE_FROM} WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i WHERE i.telegram_user_id > 0 "
         "AND COALESCE(i.trial_used, FALSE) = FALSE "
         "AND NOT EXISTS (SELECT 1 FROM billing_events_ledger b "
         "WHERE b.internal_user_id = i.internal_user_id AND b.status = 'accepted') "
@@ -122,22 +131,18 @@ def _build_inner_union(categories: list[str]) -> str:
 
 
 def _count_sql(categories: list[str]) -> str:
-    return (
-        "SELECT COUNT(DISTINCT telegram_user_id) AS n "
-        f"FROM ({_build_inner_union(categories)}) t WHERE telegram_user_id > 0"
-    )
+    inner = _build_inner_union(categories)
+    return f"SELECT COUNT(DISTINCT telegram_user_id) AS n FROM ({inner}) t WHERE telegram_user_id > 0"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
 
 
 def _fetch_sql(categories: list[str]) -> str:
-    return (
-        "SELECT DISTINCT telegram_user_id "
-        f"FROM ({_build_inner_union(categories)}) t WHERE telegram_user_id > 0"
-    )
+    inner = _build_inner_union(categories)
+    return f"SELECT DISTINCT telegram_user_id FROM ({inner}) t WHERE telegram_user_id > 0"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
 
 
 async def _count_category(pool: asyncpg.Pool, key: str) -> int:
     """Счётчик одной категории (без дедупа с другими) — для per_category_counts."""
-    return int(await pool.fetchval(f"SELECT COUNT(*) FROM ({_CATEGORY_PREDICATES[key]}) t") or 0)
+    return int(await pool.fetchval(f"SELECT COUNT(*) FROM ({_CATEGORY_PREDICATES[key]}) t") or 0)  # noqa: S608 — key из allowlist, предикат литеральный
 
 
 async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple[list[int], list[str]]:
@@ -346,8 +351,7 @@ class BroadcastRunner:
     async def run(self) -> None:
         # Перевод queued → running (CAS: только если ещё queued; иначе — отмена/уже идёт).
         flipped = await self._pool.execute(
-            "UPDATE broadcast_jobs SET status='running', started_at=NOW() "
-            "WHERE job_id=$1 AND status='queued'",
+            "UPDATE broadcast_jobs SET status='running', started_at=NOW() WHERE job_id=$1 AND status='queued'",
             self._job_id,
         )
         if flipped.endswith(" 0"):
@@ -391,9 +395,7 @@ class BroadcastRunner:
                 elif status == "bad_request_content":
                     # Битая разметка/длина — повторится на всех получателях. Аварийный стоп.
                     failed += 1
-                    await self._finish(
-                        "failed", sent, blocked, failed, "bad_request: abort to avoid mass 400"
-                    )
+                    await self._finish("failed", sent, blocked, failed, "bad_request: abort to avoid mass 400")
                     return
                 else:  # bad_request_recipient / rate_limited / transient — проблема одного чата
                     failed += 1
@@ -414,7 +416,7 @@ class BroadcastRunner:
         except asyncio.CancelledError:
             await self._finish("interrupted", sent, blocked, failed, "cancelled")
             raise
-        except Exception as exc:  # noqa: BLE001 — фоновая задача не должна падать молча
+        except Exception as exc:
             _LOGGER.exception("broadcast job %s crashed", self._job_id[:8])
             await self._finish("failed", sent, blocked, failed, str(exc)[:300])
 
@@ -458,7 +460,7 @@ class BroadcastRunner:
                     await self._sleep(0.5 * attempts)
                     continue
                 return "transient"
-            except Exception:  # noqa: BLE001 — любой surprises класса не рвёт весь job
+            except Exception:
                 if attempts <= 2:
                     await self._sleep(0.5 * attempts)
                     continue
@@ -473,9 +475,7 @@ class BroadcastRunner:
             failed,
         )
 
-    async def _finish(
-        self, status: str, sent: int, blocked: int, failed: int, last_error: str | None
-    ) -> None:
+    async def _finish(self, status: str, sent: int, blocked: int, failed: int, last_error: str | None) -> None:
         await self._pool.execute(
             "UPDATE broadcast_jobs SET status=$2, sent_count=$3, blocked_count=$4, "
             "failed_count=$5, finished_at=NOW(), last_error=$6 WHERE job_id=$1",
@@ -511,6 +511,7 @@ def _job_to_dict(row: asyncpg.Record) -> dict:
 
 # --- Handlers ---------------------------------------------------------------
 
+
 @_with_admin_auth
 @_with_admin_csrf
 async def handle_admin_broadcast_estimate(request: Request) -> JSONResponse:
@@ -533,9 +534,7 @@ async def handle_admin_broadcast_estimate(request: Request) -> JSONResponse:
     resolved_ids, unresolved = await _resolve_explicit_targets(pool, [str(t) for t in raw_targets])
 
     try:
-        total = int(
-            await pool.fetchval(_count_sql(categories), resolved_ids) or 0
-        )
+        total = int(await pool.fetchval(_count_sql(categories), resolved_ids) or 0)
         per_category: dict[str, int] = {}
         for key in categories:
             per_category[key] = await _count_category(pool, key)
@@ -600,14 +599,10 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     if total == 0:
         return safe_json_error(400, "no_recipients", "Audience is empty")
     if total > _max_recipients():
-        return safe_json_error(
-            413, "too_many_recipients", f"limit {_max_recipients()} (set BROADCAST_MAX_RECIPIENTS)"
-        )
+        return safe_json_error(413, "too_many_recipients", f"limit {_max_recipients()} (set BROADCAST_MAX_RECIPIENTS)")
 
     # Одна активная рассылка за раз — предсказуемая flood-поверхность.
-    active = await pool.fetchval(
-        "SELECT job_id FROM broadcast_jobs WHERE status IN ('running','queued') LIMIT 1"
-    )
+    active = await pool.fetchval("SELECT job_id FROM broadcast_jobs WHERE status IN ('running','queued') LIMIT 1")
     if active is not None:
         return safe_json_error(409, "broadcast_in_progress", str(active))
 
@@ -692,7 +687,6 @@ async def handle_admin_broadcast_list(request: Request) -> JSONResponse:
 @_with_admin_csrf
 async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
     """Пред-флайт: отправить сообщение одному chat_id (себе), чтобы увидеть реальный рендер HTML."""
-    pool: asyncpg.Pool = request.app.state.pool
     client = getattr(request.app.state, "telegram_raw_client", None)
     if client is None:
         return safe_json_error(503, "telegram_not_configured", "BOT_TOKEN is not set")
@@ -733,11 +727,7 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
         code = exc.response.status_code
         if code == 403:
             return safe_json_error(403, "blocked_by_user", "chat not reachable")
-        detail = ""
-        try:
-            detail = str(exc.response.json().get("description", ""))[:200]
-        except Exception:
-            pass
+        detail = _describe_response(exc.response)[:200]
         return safe_json_error(400 if code < 500 else 502, "telegram_rejected", detail)
     except Exception:
         _LOGGER.exception("broadcast test send failed chat_id=%s", str(chat_id)[:8])
