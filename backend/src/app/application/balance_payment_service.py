@@ -940,7 +940,9 @@ async def _credit_commissions_inmemory(
     )
     now = datetime.now(UTC)
     for comm in commissions:
-        idempotency_key = f"bal:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+        idempotency_key = (
+            f"bal:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+        )
         inserted = await composition.referral_transaction_repo.append_transaction_if_idempotency_absent(
             ReferralTransactionRecord(
                 transaction_id=f"ref-{uuid.uuid4()}",

@@ -36,9 +36,7 @@ def test_parse_tx_filters_defaults():
 
 
 def test_parse_tx_filters_level_type_caseinsensitive_and_clamping():
-    level, tx_type, limit, offset = _parse_tx_filters(
-        {"level": "2", "type": "CREDIT", "limit": "999", "offset": "5"}
-    )
+    level, tx_type, limit, offset = _parse_tx_filters({"level": "2", "type": "CREDIT", "limit": "999", "offset": "5"})
     assert level == 2
     assert tx_type == "credit"  # accepted case-insensitively
     assert limit == 100  # clamped to max
@@ -46,9 +44,7 @@ def test_parse_tx_filters_level_type_caseinsensitive_and_clamping():
 
 
 def test_parse_tx_filters_rejects_garbage():
-    level, tx_type, limit, offset = _parse_tx_filters(
-        {"level": "3", "type": "bogus", "limit": "abc", "offset": "-7"}
-    )
+    level, tx_type, limit, offset = _parse_tx_filters({"level": "3", "type": "bogus", "limit": "abc", "offset": "-7"})
     assert level is None  # only 1 / 2 accepted
     assert tx_type is None  # only credit / debit accepted
     assert limit == 20  # fallback on parse error
