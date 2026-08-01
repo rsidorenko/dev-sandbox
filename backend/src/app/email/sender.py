@@ -12,8 +12,6 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, getaddresses, make_msgid
 from pathlib import Path
 
-from app.shared.site_url import get_site_base_url
-
 _LOGGER = logging.getLogger(__name__)
 
 ENV_SMTP_HOST = "SMTP_HOST"
@@ -88,19 +86,20 @@ def _domain_from_address(address: str) -> str:
     return "localhost"
 
 
-def _build_plain_body(code: str, login_url: str) -> str:
+def _build_plain_body(code: str) -> str:
     # Plain, machine-friendly layout. The "Ваш код: 123456" line is the pattern
     # iOS Mail / Android autofill recognise to surface the code above the keyboard.
+    # No login link/button: a CTA from a verification email to a /login page is a
+    # phishing-kit shape that tripped Google Safe Browsing. The code is the only CTA.
     return (
         "Bravada — код подтверждения\n\n"
         f"Ваш код: {code}\n\n"
-        f"Войти в кабинет: {login_url}\n\n"
         "Код действителен 10 минут.\n"
         "Если вы не запрашивали код, проигнорируйте это письмо."
     )
 
 
-def _build_html_body(code: str, login_url: str, with_logo: bool) -> str:
+def _build_html_body(code: str, with_logo: bool) -> str:
     # Inline-only CSS, table-based layout for maximum email-client compatibility
     # (Outlook, mail.ru, Gmail, Apple Mail strip <style> blocks and break flex).
     # The logo is embedded inline via cid:logo (multipart/related); if the file
@@ -128,14 +127,7 @@ def _build_html_body(code: str, login_url: str, with_logo: bool) -> str:
           <div style="background-color:#eff6ff;border:1px solid #dbeafe;border-radius:12px;padding:20px;text-align:center;">
             <span style="font-size:34px;font-weight:700;letter-spacing:10px;color:#1d4ed8;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{code}</span>
           </div>
-          <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:24px auto 0;">
-            <tr>
-              <td align="center" style="border-radius:10px;background-color:#2563eb;">
-                <a href="{login_url}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 36px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">Войти в кабинет &rarr;</a>
-              </td>
-            </tr>
-          </table>
-          <p style="margin:20px 0 0;font-size:14px;line-height:20px;color:#6b7280;">Код действителен 10 минут.</p>
+          <p style="margin:24px 0 0;font-size:14px;line-height:20px;color:#6b7280;">Код действителен 10 минут.</p>
           <p style="margin:8px 0 0;font-size:13px;line-height:18px;color:#9ca3af;">Если вы не запрашивали код, просто проигнорируйте это письмо.</p>
         </td></tr>
         <tr><td style="padding:16px 32px 24px;background-color:#f9fafb;border-top:1px solid #f3f4f6;">
@@ -152,18 +144,11 @@ def _build_message(config: SmtpConfig, email: str, code: str) -> MIMEMultipart:
     """Build the verification message — multipart/related when the logo is available
     (inline image via Content-ID), otherwise a plain multipart/alternative."""
     domain = _domain_from_address(config.from_address)
-    # CTA lands on the /login email-entry step. We deliberately do NOT carry the
-    # recipient email in the URL: a personalised "?email=" link to a page that
-    # collects a one-time code is the exact shape phishing kits use, and it tripped
-    # a Google Safe Browsing flag (surfaced by iOS Safari as a "fraudulent website"
-    # warning). iOS Mail OTP AutoFill is unaffected — it reads the "Ваш код: NNNNNN"
-    # line from the plain body and surfaces it on the page's one-time-code input.
-    login_url = f"{get_site_base_url()}/login"
 
     logo_bytes = _load_logo_bytes()
     alt = MIMEMultipart("alternative")
-    alt.attach(MIMEText(_build_plain_body(code, login_url), "plain", "utf-8"))
-    alt.attach(MIMEText(_build_html_body(code, login_url, with_logo=logo_bytes is not None), "html", "utf-8"))
+    alt.attach(MIMEText(_build_plain_body(code), "plain", "utf-8"))
+    alt.attach(MIMEText(_build_html_body(code, with_logo=logo_bytes is not None), "html", "utf-8"))
 
     if logo_bytes is None:
         msg: MIMEMultipart = alt

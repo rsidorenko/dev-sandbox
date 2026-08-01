@@ -102,24 +102,22 @@ def test_parts_contain_code_and_autofill_line():
     assert "Ваш код: 654321" in plain
 
 
-def test_parts_contain_login_cta():
-    # CTA links to /login with NO recipient email in the URL — carrying the email as
-    # "?email=" to a login/OTP page is the phishing-kit shape that trips Safe Browsing.
-    login_url = "https://bravada-connect.ru/login"
+def test_email_has_no_login_cta():
+    # The verification email must NOT contain a "Войти в кабинет" button or any login
+    # URL: a CTA from a verification email to a /login page is a phishing-kit shape
+    # that tripped Google Safe Browsing. The one-time code is the only call to action.
     msg = _build_msg(code="112233", email="user@example.com")
     plain = _walk_payload(msg, "text/plain").get_payload(decode=True).decode("utf-8")
     html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
 
-    # Plain part: a "Войти в кабинет: <url>" line.
-    assert f"Войти в кабинет: {login_url}" in plain
-    # HTML part: a bulletproof CTA button linking to /login.
-    assert login_url in html
-    assert "Войти в кабинет" in html
-    # Regression guard: the recipient email must never leak into the CTA URL.
-    assert "?email=" not in plain
-    assert "?email=" not in html
-    assert "user%40example.com" not in plain
-    assert "user%40example.com" not in html
+    # No login CTA in either part.
+    assert "Войти в кабинет" not in plain
+    assert "Войти в кабинет" not in html
+    assert "/login" not in plain
+    assert "/login" not in html
+    # The one-time code is still the only call to action.
+    assert "112233" in plain
+    assert "112233" in html
 
 
 async def test_send_returns_false_without_config(monkeypatch):
