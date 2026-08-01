@@ -246,8 +246,8 @@ class PostgresReferralTransactionRepository:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO referral_transactions "
-                "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, idempotency_key, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
                 record.transaction_id,
                 record.internal_user_id,
                 record.amount_kopecks,
@@ -255,25 +255,28 @@ class PostgresReferralTransactionRepository:
                 record.related_user_id,
                 record.related_plan_id,
                 record.description,
+                record.idempotency_key,
                 record.created_at,
             )
 
-    async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool:
-        """Atomic dedup: insert only if no row with same (internal_user_id, description) exists. Returns True if inserted."""
+    async def append_transaction_if_idempotency_absent(self, record: ReferralTransactionRecord) -> bool:
+        """Atomic dedup: insert only if no row with same (internal_user_id, idempotency_key)
+        exists. Returns True if inserted. Dedup moved off ``description`` (now a clean,
+        repeatable label) onto the dedicated ``idempotency_key`` — see migration 070."""
         async with self._pool.acquire() as conn:
-            return await self.append_transaction_if_description_absent_in_connection(conn, record)
+            return await self.append_transaction_if_idempotency_absent_in_connection(conn, record)
 
     @staticmethod
-    async def append_transaction_if_description_absent_in_connection(
+    async def append_transaction_if_idempotency_absent_in_connection(
         conn: asyncpg.Connection,
         record: ReferralTransactionRecord,
     ) -> bool:
         result = await conn.execute(
             "INSERT INTO referral_transactions "
-            "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, created_at) "
-            "SELECT $1, $2, $3, $4, $5, $6, $7, $8 "
+            "(transaction_id, internal_user_id, amount_kopecks, transaction_type, related_user_id, related_plan_id, description, idempotency_key, created_at) "
+            "SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 "
             "WHERE NOT EXISTS ("
-            "  SELECT 1 FROM referral_transactions WHERE internal_user_id = $2 AND description = $7"
+            "  SELECT 1 FROM referral_transactions WHERE internal_user_id = $2 AND idempotency_key = $8"
             ")",
             record.transaction_id,
             record.internal_user_id,
@@ -282,6 +285,7 @@ class PostgresReferralTransactionRepository:
             record.related_user_id,
             record.related_plan_id,
             record.description,
+            record.idempotency_key,
             record.created_at,
         )
         return "INSERT 0 1" in result
@@ -290,7 +294,7 @@ class PostgresReferralTransactionRepository:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT transaction_id, internal_user_id, amount_kopecks, transaction_type, "
-                "related_user_id, related_plan_id, description, created_at "
+                "related_user_id, related_plan_id, description, idempotency_key, created_at "
                 "FROM referral_transactions WHERE internal_user_id = $1 "
                 "ORDER BY created_at DESC LIMIT $2",
                 internal_user_id,
@@ -305,6 +309,7 @@ class PostgresReferralTransactionRepository:
                 related_user_id=r["related_user_id"],
                 related_plan_id=r["related_plan_id"],
                 description=r["description"],
+                idempotency_key=r["idempotency_key"],
                 created_at=r["created_at"],
             )
             for r in rows

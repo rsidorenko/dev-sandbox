@@ -191,7 +191,8 @@ async def _pay_plan_pg(
         pre_payment_snap = await PostgresSubscriptionSnapshotReader(pool).get_for_user(internal_user_id)
 
     now = datetime.now(UTC)
-    description = f"{description_prefix}: {plan_id} x {device_count} devices [{correlation_id}]"
+    idempotency_key = f"{description_prefix}: {plan_id} x {device_count} devices [{correlation_id}]"
+    description = f"Оплата подписки · {plan_id}"
     active_until: datetime | None = None
     balance_after: int = 0
 
@@ -204,7 +205,7 @@ async def _pay_plan_pg(
                 )
 
             inserted = (
-                await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
                     conn,
                     ReferralTransactionRecord(
                         transaction_id=f"ref-{uuid.uuid4()}",
@@ -214,6 +215,7 @@ async def _pay_plan_pg(
                         related_user_id=None,
                         related_plan_id=plan_id,
                         description=description,
+                        idempotency_key=idempotency_key,
                         created_at=now,
                     ),
                 )
@@ -276,7 +278,7 @@ async def _pay_plan_pg(
             pre_payment_snap=pre_payment_snap,
             total_kopecks=total_kopecks,
             plan_id=plan_id,
-            description=description,
+            idempotency_key=idempotency_key,
             correlation_id=correlation_id,
         )
         if vless_failed:
@@ -373,7 +375,8 @@ async def _pay_plan_inmemory(
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=plan_id,
-            description=f"{description_prefix}: {plan_id} x {device_count} devices [{correlation_id}]",
+            description=f"Оплата подписки · {plan_id}",
+            idempotency_key=f"{description_prefix}: {plan_id} x {device_count} devices [{correlation_id}]",
             created_at=now,
         )
     )
@@ -440,7 +443,8 @@ async def _add_device_pg(
 ) -> BalancePaymentResult:
     # Description is deterministic in the REQUEST alone so a replayed key matches
     # even after device_count has already been raised.
-    description = f"{description_prefix} → {new_device_count} [{correlation_id}]"
+    idempotency_key = f"{description_prefix} → {new_device_count} [{correlation_id}]"
+    description = f"Добавление устройств · до {new_device_count}"
     now = datetime.now(UTC)
     cost_kopecks = 0
     balance_after: int = 0
@@ -457,9 +461,9 @@ async def _add_device_pg(
             # short-circuit here, otherwise a prior success (device_count already
             # raised) would re-fail `new <= current`.
             already = await conn.fetchval(
-                "SELECT 1 FROM referral_transactions WHERE internal_user_id=$1 AND description=$2",
+                "SELECT 1 FROM referral_transactions WHERE internal_user_id=$1 AND idempotency_key=$2",
                 internal_user_id,
-                description,
+                idempotency_key,
             )
             if already:
                 bal = await PostgresReferralBalanceRepository.get_balance_in_connection(conn, internal_user_id)
@@ -507,7 +511,7 @@ async def _add_device_pg(
                 cost_kopecks = active_promo_add.price.discounted_kopecks
 
             inserted = (
-                await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
                     conn,
                     ReferralTransactionRecord(
                         transaction_id=f"ref-{uuid.uuid4()}",
@@ -517,6 +521,7 @@ async def _add_device_pg(
                         related_user_id=None,
                         related_plan_id=plan_id,
                         description=description,
+                        idempotency_key=idempotency_key,
                         created_at=now,
                     ),
                 )
@@ -644,7 +649,8 @@ async def _add_device_inmemory(
             transaction_type="subscription_payment",
             related_user_id=None,
             related_plan_id=plan_id,
-            description=f"{description_prefix}: {current} → {new_device_count} [{correlation_id}]",
+            description=f"Добавление устройств · до {new_device_count}",
+            idempotency_key=f"{description_prefix}: {current} → {new_device_count} [{correlation_id}]",
             created_at=now,
         )
     )
@@ -766,7 +772,7 @@ async def _ensure_vless_keys_atomic(
     pre_payment_snap: SubscriptionSnapshot | None,
     total_kopecks: int,
     plan_id: str,
-    description: str,
+    idempotency_key: str,
     correlation_id: str,
 ) -> bool:
     """Branch create/activate by keys lifecycle; on failure run atomic 4-step
@@ -814,20 +820,21 @@ async def _ensure_vless_keys_atomic(
                     internal_user_id,
                 )
             await conn.execute(
-                "DELETE FROM referral_transactions WHERE internal_user_id=$1 AND description=$2",
+                "DELETE FROM referral_transactions WHERE internal_user_id=$1 AND idempotency_key=$2",
                 internal_user_id,
-                description,
+                idempotency_key,
             )
             await conn.execute(
                 "INSERT INTO referral_transactions"
                 " (transaction_id, internal_user_id, amount_kopecks, transaction_type,"
-                " related_user_id, related_plan_id, description, created_at)"
-                " VALUES ($1, $2, $3, 'subscription_payment', NULL, $4, $5, now())",
+                " related_user_id, related_plan_id, description, idempotency_key, created_at)"
+                " VALUES ($1, $2, $3, 'subscription_payment', NULL, $4, $5, $6, now())",
                 f"ref-{uuid.uuid4()}",
                 internal_user_id,
                 total_kopecks,
                 plan_id,
-                f"balance refund (vless failed): {plan_id} [{correlation_id}]",
+                f"Возврат · {plan_id}",
+                f"refund:vless-failed:{correlation_id}",
             )
     except Exception:
         _LOGGER.error(
@@ -869,12 +876,12 @@ async def _credit_commissions_best_effort(
             )
             now = datetime.now(UTC)
             for comm in commissions:
-                dedup_desc = (
+                idempotency_key = (
                     f"{prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:"
                     f"{payment_amount_kopecks}:{correlation_id}"
                 )
                 inserted = (
-                    await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                    await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
                         conn,
                         ReferralTransactionRecord(
                             transaction_id=f"ref-{uuid.uuid4()}",
@@ -883,7 +890,8 @@ async def _credit_commissions_best_effort(
                             transaction_type="referral_credit",
                             related_user_id=comm.payer_user_id,
                             related_plan_id=comm.plan_id,
-                            description=dedup_desc,
+                            description=f"Реферальное начисление · уровень {comm.level}",
+                            idempotency_key=idempotency_key,
                             created_at=now,
                         ),
                     )
@@ -932,8 +940,8 @@ async def _credit_commissions_inmemory(
     )
     now = datetime.now(UTC)
     for comm in commissions:
-        dedup_desc = f"bal:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
-        inserted = await composition.referral_transaction_repo.append_transaction_if_description_absent(
+        idempotency_key = f"bal:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+        inserted = await composition.referral_transaction_repo.append_transaction_if_idempotency_absent(
             ReferralTransactionRecord(
                 transaction_id=f"ref-{uuid.uuid4()}",
                 internal_user_id=comm.referrer_user_id,
@@ -941,7 +949,8 @@ async def _credit_commissions_inmemory(
                 transaction_type="referral_credit",
                 related_user_id=comm.payer_user_id,
                 related_plan_id=comm.plan_id,
-                description=dedup_desc,
+                description=f"Реферальное начисление · уровень {comm.level}",
+                idempotency_key=idempotency_key,
                 created_at=now,
             )
         )

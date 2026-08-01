@@ -308,10 +308,10 @@ class InMemoryReferralTransactionRepository:
         async with self._lock:
             self._transactions.append(record)
 
-    async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool:
+    async def append_transaction_if_idempotency_absent(self, record: ReferralTransactionRecord) -> bool:
         async with self._lock:
             if any(
-                t.internal_user_id == record.internal_user_id and t.description == record.description
+                t.internal_user_id == record.internal_user_id and t.idempotency_key == record.idempotency_key
                 for t in self._transactions
             ):
                 return False

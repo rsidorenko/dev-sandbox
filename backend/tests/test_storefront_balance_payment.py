@@ -74,11 +74,11 @@ def test_balance_payment_records_debit_transaction():
 
 def test_balance_payment_description_is_unique_per_payment():
     """Повторный баланс-платёж тем же составом (план+устройства) должен давать ОТЛИЧАЮЩИЙСЯ
-    description. Иначе UNIQUE(internal_user_id, description) на referral_transactions
-    (миграции 048/054) поднимает UniqueViolationError ПОСЛЕ списания и продления —
-    пользователь видит ошибку, а _credit_referral_commissions ниже не выполняется.
-    InMemory не эмулирует UNIQUE, поэтому тест фиксирует регрессию корня: присутствие
-    уникального correlation_id в description каждого debit."""
+    idempotency_key. Иначе UNIQUE(internal_user_id, idempotency_key) на referral_transactions
+    (миграция 070; ранее UNIQUE на description — 048/054) поднимает UniqueViolationError ПОСЛЕ
+    списания и продления — пользователь видит ошибку, а _credit_referral_commissions ниже не
+    выполняется. InMemory не эмулирует UNIQUE, поэтому тест фиксирует регрессию корня:
+    присутствие уникального correlation_id в idempotency_key каждого debit."""
     c, uid = _make_composition_with_balance(user_id=600, balance_kopecks=600_00)
     update1 = _callback_update(user_id=600, callback_data="pay_balance:1m:5")
     pkg1 = _run(handle_slice1_telegram_update_to_rendered_message(update1, c))
@@ -95,10 +95,10 @@ def test_balance_payment_description_is_unique_per_payment():
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=20))
     debit_txs = [t for t in txs if t.transaction_type == "subscription_payment"]
     assert len(debit_txs) == 2
-    descriptions = {t.description for t in debit_txs}
-    assert len(descriptions) == 2  # оба description уникальны
-    for desc in descriptions:
-        assert "[bal-pay-" in desc  # correlation_id включён в каждый debit
+    idempotency_keys = {t.idempotency_key for t in debit_txs}
+    assert len(idempotency_keys) == 2  # оба ключа уникальны
+    for key in idempotency_keys:
+        assert "[bal-pay-" in key  # correlation_id включён в каждый debit
 
 
 def test_balance_payment_double_click_debounced():
@@ -221,14 +221,14 @@ def test_add_device_records_transaction():
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=10))
     debit_txs = [t for t in txs if t.transaction_type == "subscription_payment"]
     assert len(debit_txs) == 1
-    assert "5 → 6" in debit_txs[0].description
+    assert "5 → 6" in debit_txs[0].idempotency_key
 
 
 def test_add_device_balance_description_is_unique_per_payment():
     """Повторный add-device-платёж тем же переходом (current→new) должен давать ОТЛИЧАЮЩИЙСЯ
-    description. Сценарий: пользователь добавил устройства (5→7), затем вернул их обратно
-    (remove, бесплатно), затем снова добавил те же (5→7) — description без correlation_id
-    совпал бы и упал на UNIQUE(internal_user_id, description) после списания."""
+    idempotency_key. Сценарий: пользователь добавил устройства (5→7), затем вернул их обратно
+    (remove, бесплатно), затем снова добавил те же (5→7) — idempotency_key без correlation_id
+    совпал бы и упал на UNIQUE(internal_user_id, idempotency_key) после списания."""
     c, uid = _make_composition_with_balance(user_id=601, balance_kopecks=1000_00)
     _activate_subscription(c, uid, device_count=5)
 
@@ -246,12 +246,12 @@ def test_add_device_balance_description_is_unique_per_payment():
     assert "Готово" in pkg2.message_text
 
     txs = _run(c.referral_transaction_repo.list_by_user(uid, limit=20))
-    add_txs = [t for t in txs if t.transaction_type == "subscription_payment" and "add device" in t.description]
+    add_txs = [t for t in txs if t.transaction_type == "subscription_payment" and "add device" in t.idempotency_key]
     assert len(add_txs) == 2
-    descriptions = {t.description for t in add_txs}
-    assert len(descriptions) == 2  # оба description уникальны
-    for desc in descriptions:
-        assert "[add-dev-" in desc  # correlation_id включён в каждый debit
+    idempotency_keys = {t.idempotency_key for t in add_txs}
+    assert len(idempotency_keys) == 2  # оба ключа уникальны
+    for key in idempotency_keys:
+        assert "[add-dev-" in key  # correlation_id включён в каждый debit
 
 
 def test_add_device_no_subscription():

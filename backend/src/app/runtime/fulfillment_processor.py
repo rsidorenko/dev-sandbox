@@ -273,11 +273,14 @@ async def _process_referral_commissions_best_effort(
         async with pool.acquire() as conn, conn.transaction():
             for comm in commissions:
                 # NOTE: `correlation_id` is fresh per process_fulfillment call, so this
-                # description is NOT a cross-replay dedup key — it only guards the rare
+                # idempotency_key is NOT a cross-replay dedup key — it only guards the rare
                 # within-call double-insert of the same commission. Real replay idempotency
                 # comes from the outer `is_new_active` gate (driven by the ingest-layer
                 # external_event_id dedup): a replayed webhook never reaches this block.
-                dedup_desc = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
+                # The key carries internal refs (payer/amount/correlation_id) but is NEVER
+                # returned to users — the user-facing label is derived by the API from
+                # transaction_type/plan/level (see web_api/referral.py).
+                idempotency_key = f"webhook:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:{payment_amount_kopecks}:{correlation_id}"
                 tx_record = ReferralTransactionRecord(
                     transaction_id=f"ref-{uuid.uuid4()}",
                     internal_user_id=comm.referrer_user_id,
@@ -285,11 +288,12 @@ async def _process_referral_commissions_best_effort(
                     transaction_type="referral_credit",
                     related_user_id=comm.payer_user_id,
                     related_plan_id=comm.plan_id,
-                    description=dedup_desc,
+                    description=f"Реферальное начисление · уровень {comm.level}",
+                    idempotency_key=idempotency_key,
                     created_at=datetime.now(UTC),
                 )
                 inserted = (
-                    await PostgresReferralTransactionRepository.append_transaction_if_description_absent_in_connection(
+                    await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
                         conn, tx_record
                     )
                 )

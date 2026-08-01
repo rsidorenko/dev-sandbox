@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { referralApi } from "@/entities/referral/api";
+import { useCallback, useEffect, useState } from "react";
+import { referralApi, type ReferralTxLevel, type ReferralTxType } from "@/entities/referral/api";
 import type { ReferralStats, ReferralTransaction } from "@/entities/referral/types";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 
@@ -24,21 +24,57 @@ function formatDate(iso: string | null): string {
   }
 }
 
-function txLabel(tx: ReferralTransaction): string {
-  return tx.description || "Реферальное начисление";
-}
+type LevelFilter = "all" | ReferralTxLevel;
+type TypeFilter = "all" | ReferralTxType;
+
+const TX_PAGE = 10;
 
 /**
- * Реферальный дашборд в личном кабинете. Сам тянет GET /api/v1/user/referral
- * (баланс, L1/L2 invited+paid с конверсией, всего заработано, последние начисления)
- * и показывает ссылки для шеринга с копированием. Потребляет rich-эндпоинт
- * (app/web_api/referral.py), отличный от краткого блока в /api/v1/user/profile.
+ * Реферальный дашборд в личном кабинете. Верх (баланс, L1/L2, ссылки) тянет
+ * GET /api/v1/user/referral; история начислений — отдельный расширенный эндпоинт
+ * GET /api/v1/user/referral/transactions с фильтром по уровню/типу и подгрузкой.
+ * История показывает только чистые подписи (label) — никаких внутренних
+ * description/idempotency_key (раньше там светились данные вебхуков).
  */
 export function ReferralCard() {
   const [data, setData] = useState<ReferralStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const { copy, isCopied } = useCopyToClipboard();
+
+  // Extended transaction history (filtered, paginated) — separate from the stats summary.
+  const [txs, setTxs] = useState<ReferralTransaction[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState(false);
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [hasMore, setHasMore] = useState(false);
+
+  const fetchTxs = useCallback(
+    async (level: LevelFilter, type: TypeFilter, offset: number, append: boolean) => {
+      setTxLoading(true);
+      setTxError(false);
+      try {
+        const res = await referralApi.getTransactions({
+          level: level === "all" ? undefined : level,
+          type: type === "all" ? undefined : type,
+          limit: TX_PAGE,
+          offset,
+        });
+        if (!res.ok) {
+          setTxError(true);
+        } else {
+          setTxs((prev) => (append ? [...prev, ...res.data.transactions] : res.data.transactions));
+          setHasMore(res.data.has_more);
+        }
+      } catch {
+        setTxError(true);
+      } finally {
+        setTxLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -59,6 +95,14 @@ export function ReferralCard() {
     };
   }, []);
 
+  // (Re)load the filtered history whenever a filter changes (reset to first page).
+  useEffect(() => {
+    void fetchTxs(levelFilter, typeFilter, 0, false);
+  }, [levelFilter, typeFilter, fetchTxs]);
+
+  const stats = data?.stats;
+  const hasInvited = stats ? stats.level1.invited + stats.level2.invited > 0 : false;
+
   if (loading) {
     return (
       <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
@@ -70,7 +114,7 @@ export function ReferralCard() {
     );
   }
 
-  if (error || !data) {
+  if (error || !data || !stats) {
     return (
       <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">
@@ -82,10 +126,6 @@ export function ReferralCard() {
       </div>
     );
   }
-
-  const s = data.stats;
-  const hasInvited = s.level1.invited + s.level2.invited > 0;
-  const txs = data.recent_transactions ?? [];
 
   return (
     <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
@@ -104,7 +144,7 @@ export function ReferralCard() {
         <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-green-100/50 p-4 text-center dark:from-emerald-950/30 dark:to-green-900/20">
           <p className="text-xs text-emerald-600 dark:text-emerald-400">Всего заработано</p>
           <p className="mt-1 text-xl font-bold text-emerald-800 dark:text-emerald-300">
-            {formatRub(s.total_earned_rubles)} ₽
+            {formatRub(stats.total_earned_rubles)} ₽
           </p>
         </div>
       </div>
@@ -116,10 +156,10 @@ export function ReferralCard() {
             1-й уровень (друзья)
           </p>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
-            {s.level1.invited} приглашено · {s.level1.paid} оплатило
+            {stats.level1.invited} приглашено · {stats.level1.paid} оплатило
           </p>
           <p className="mt-1 text-xs text-gray-400">
-            конверсия: {conversion(s.level1.paid, s.level1.invited)}
+            конверсия: {conversion(stats.level1.paid, stats.level1.invited)}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 p-4 dark:border-zinc-600">
@@ -127,10 +167,10 @@ export function ReferralCard() {
             2-й уровень (их друзья)
           </p>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
-            {s.level2.invited} приглашено · {s.level2.paid} оплатило
+            {stats.level2.invited} приглашено · {stats.level2.paid} оплатило
           </p>
           <p className="mt-1 text-xs text-gray-400">
-            конверсия: {conversion(s.level2.paid, s.level2.invited)}
+            конверсия: {conversion(stats.level2.paid, stats.level2.invited)}
           </p>
         </div>
       </div>
@@ -178,33 +218,91 @@ export function ReferralCard() {
         </div>
       </div>
 
-      {/* Recent credits */}
-      {txs.length > 0 && (
-        <div className="mt-4">
+      {/* Extended transaction history (clean labels only) */}
+      <div className="mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Последние начисления
+            История начислений
           </p>
-          <ul className="mt-2 divide-y divide-gray-100 dark:divide-zinc-700">
-            {txs.map((tx, i) => (
-              <li key={i} className="flex items-center justify-between py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-gray-700 dark:text-gray-200">
-                    {txLabel(tx)}
-                  </p>
-                  {formatDate(tx.created_at) && (
-                    <p className="text-xs text-gray-400">
-                      {formatDate(tx.created_at)}
-                    </p>
-                  )}
-                </div>
-                <span className="ml-3 shrink-0 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                  +{formatRub(tx.amount_rubles)} ₽
-                </span>
-              </li>
+          <div className="flex flex-wrap gap-1.5 text-[11px]">
+            {(["all", "credit", "debit"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`rounded-md px-2 py-1 font-medium ${
+                  typeFilter === t
+                    ? "bg-brand-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-zinc-700 dark:text-gray-300"
+                }`}
+              >
+                {t === "all" ? "Все" : t === "credit" ? "Начисления" : "Списания"}
+              </button>
             ))}
-          </ul>
+            {(["all", 1, 2] as const).map((lv) => (
+              <button
+                key={String(lv)}
+                onClick={() => setLevelFilter(lv)}
+                className={`rounded-md px-2 py-1 font-medium ${
+                  levelFilter === lv
+                    ? "bg-brand-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-zinc-700 dark:text-gray-300"
+                }`}
+              >
+                {lv === "all" ? "Все ур." : `${lv} ур.`}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+
+        {txError ? (
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Не удалось загрузить историю. Попробуйте ещё раз.
+          </p>
+        ) : txs.length === 0 && !txLoading ? (
+          <p className="mt-2 text-sm text-gray-400">Пока пусто.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-gray-100 dark:divide-zinc-700">
+            {txs.map((tx, i) => {
+              const isCredit = tx.type === "referral_credit";
+              return (
+                <li key={i} className="flex items-center justify-between py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-gray-700 dark:text-gray-200">
+                      {tx.label}
+                      {tx.level ? (
+                        <span className="ml-1 text-xs text-gray-400">· {tx.level} ур.</span>
+                      ) : null}
+                    </p>
+                    {formatDate(tx.created_at) && (
+                      <p className="text-xs text-gray-400">{formatDate(tx.created_at)}</p>
+                    )}
+                  </div>
+                  <span
+                    className={`ml-3 shrink-0 text-sm font-semibold ${
+                      isCredit
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  >
+                    {isCredit ? "+" : "−"}
+                    {formatRub(Math.abs(tx.amount_rubles))} ₽
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {hasMore && !txError && (
+          <button
+            onClick={() => void fetchTxs(levelFilter, typeFilter, txs.length, true)}
+            disabled={txLoading}
+            className="mt-2 w-full rounded-lg border border-gray-200 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-600 dark:text-gray-300 dark:hover:bg-zinc-700"
+          >
+            {txLoading ? "Загрузка…" : "Показать ещё"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

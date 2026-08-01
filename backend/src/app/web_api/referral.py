@@ -16,10 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.domain.referral import rubles_from_kopecks
-from app.persistence.postgres_referral import (
-    PostgresReferralCodeRepository,
-    PostgresReferralTransactionRepository,
-)
+from app.persistence.postgres_referral import PostgresReferralCodeRepository
 from app.shared.site_url import get_site_base_url
 from app.web_api.middleware import require_auth
 
@@ -60,6 +57,124 @@ async def _level_stats(pool: asyncpg.Pool, referrer: str, level: int) -> tuple[i
     if row is None:
         return 0, 0
     return row["invited"] or 0, row["paid"] or 0
+
+
+def _tx_label(transaction_type: str, amount_kopecks: int) -> str:
+    """Clean, user-facing label derived from type + amount sign. Never exposes the
+    internal `description`/`idempotency_key` (which historically leaked webhook data)."""
+    if transaction_type == "referral_credit":
+        return "Реферальное начисление"
+    if transaction_type == "subscription_payment":
+        return "Возврат" if amount_kopecks > 0 else "Оплата подписки"
+    return "Операция"
+
+
+_TX_LIMIT_DEFAULT = 20
+_TX_LIMIT_MAX = 100
+
+
+def _parse_tx_filters(query_params) -> tuple[int | None, str | None, int, int]:
+    """(level, tx_type, limit, offset) from the query string with safe bounds."""
+    raw_level = (query_params.get("level") or "").strip()
+    level = int(raw_level) if raw_level in ("1", "2") else None
+    raw_type = (query_params.get("type") or "").strip().lower()
+    tx_type = raw_type if raw_type in ("credit", "debit") else None
+    try:
+        limit = max(1, min(_TX_LIMIT_MAX, int(query_params.get("limit", _TX_LIMIT_DEFAULT))))
+    except (TypeError, ValueError):
+        limit = _TX_LIMIT_DEFAULT
+    try:
+        offset = max(0, int(query_params.get("offset", "0")))
+    except (TypeError, ValueError):
+        offset = 0
+    return level, tx_type, limit, offset
+
+
+async def _fetch_transactions(
+    pool: asyncpg.Pool,
+    internal_user_id: str,
+    *,
+    level: int | None,
+    tx_type: str | None,
+    limit: int,
+    offset: int,
+) -> list[asyncpg.Record]:
+    """Referral transactions for the cabinet, with the referral level derived via LEFT
+    JOIN to referral_relationships (payer = related_user_id). Fetches ``limit + 1`` rows
+    so the caller can signal ``has_more``. Returns clean fields only — never
+    description/idempotency_key/internal ids."""
+    where = ["t.internal_user_id = $1"]
+    args: list = [internal_user_id]
+    idx = 2
+    if tx_type == "credit":
+        where.append(f"t.transaction_type = ${idx}")
+        args.append("referral_credit")
+        idx += 1
+    elif tx_type == "debit":
+        where.append(f"t.transaction_type = ${idx}")
+        args.append("subscription_payment")
+        idx += 1
+    if level in (1, 2):
+        # Only credit rows carry a payer ref; debit rows have related_user_id = NULL
+        # and thus rr.level = NULL, so they are excluded by a level filter (correct).
+        where.append(f"rr.level = ${idx}")
+        args.append(level)
+        idx += 1
+    args.extend([limit + 1, offset])
+    sql = (
+        "SELECT t.transaction_type, t.amount_kopecks, t.related_plan_id, t.created_at, "
+        "rr.level AS ref_level "
+        "FROM referral_transactions t "
+        "LEFT JOIN referral_relationships rr "
+        "  ON rr.referred_user_id = t.related_user_id AND rr.referrer_user_id = t.internal_user_id "
+        "WHERE " + " AND ".join(where) + " "
+        "ORDER BY t.created_at DESC "
+        f"LIMIT ${idx} OFFSET ${idx + 1}"
+    )
+    return await pool.fetch(sql, *args)
+
+
+def _tx_to_dict(r: asyncpg.Record) -> dict:
+    amount = r["amount_kopecks"]
+    return {
+        "label": _tx_label(r["transaction_type"], amount),
+        "type": r["transaction_type"],
+        "amount_rubles": round(rubles_from_kopecks(amount), 2),
+        "level": r["ref_level"],
+        "plan_id": r["related_plan_id"],
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+    }
+
+
+async def handle_get_referral_transactions(request: Request) -> JSONResponse:
+    """Extended, filtered referral-transaction history for the cabinet. Returns ONLY clean
+    fields (label/type/amount_rubles/level/plan_id/created_at) — never the internal
+    description/idempotency_key. Filters: ?level=1|2 &type=credit|debit &limit &offset."""
+    try:
+        auth_result = await require_auth(request)
+        if isinstance(auth_result, JSONResponse):
+            return auth_result
+        internal_user_id = auth_result.get("internal_user_id")
+        if not internal_user_id:
+            return _safe_json_error(403, "no_identity")
+        pool: asyncpg.Pool = request.app.state.pool
+        level, tx_type, limit, offset = _parse_tx_filters(request.query_params)
+        rows = await _fetch_transactions(
+            pool, internal_user_id, level=level, tx_type=tx_type, limit=limit, offset=offset
+        )
+        has_more = len(rows) > limit
+        return JSONResponse(
+            {
+                "ok": True,
+                "transactions": [_tx_to_dict(r) for r in rows[:limit]],
+                "limit": limit,
+                "offset": offset,
+                "has_more": has_more,
+            }
+        )
+    except Exception:
+        _LOGGER.exception("referral_transactions_error")
+        return _safe_json_error(500, "internal_error")
 
 
 async def handle_get_referral_stats(request: Request) -> JSONResponse:
@@ -108,10 +223,6 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
             or 0
         )
 
-        records = await PostgresReferralTransactionRepository(pool).list_by_user(
-            internal_user_id, limit=_RECENT_TX_LIMIT
-        )
-
         site_url = get_site_base_url()
         bot_username = os.environ.get(ENV_BOT_USERNAME, "").strip()
 
@@ -119,16 +230,15 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
         if bot_username:
             links["telegram_link"] = f"https://t.me/{bot_username}?start=ref_{referral_code}"
 
-        recent = [
-            {
-                "type": r.transaction_type,
-                "amount_rubles": round(rubles_from_kopecks(r.amount_kopecks), 2),
-                "plan_id": r.related_plan_id,
-                "description": r.description,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in records
-        ]
+        recent_rows = await _fetch_transactions(
+            pool,
+            internal_user_id,
+            level=None,
+            tx_type=None,
+            limit=_RECENT_TX_LIMIT,
+            offset=0,
+        )
+        recent = [_tx_to_dict(r) for r in recent_rows[:_RECENT_TX_LIMIT]]
 
         return JSONResponse(
             {

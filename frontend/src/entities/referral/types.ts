@@ -11,11 +11,20 @@ export interface ReferralLevelStats {
 }
 
 export interface ReferralTransaction {
-  type: string;
+  label: string;
+  type: string; // "referral_credit" | "subscription_payment"
   amount_rubles: number;
+  level: number | null; // 1 | 2 | null — only referral credits carry a level
   plan_id: string | null;
-  description: string | null;
   created_at: string | null;
+}
+
+export interface ReferralTransactionsResponse {
+  ok: boolean;
+  transactions: ReferralTransaction[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
 export interface ReferralStats {

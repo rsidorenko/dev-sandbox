@@ -106,7 +106,7 @@ def _mock_fulfillment_deps(
     m.setattr(pgref.PostgresReferralRelationshipRepository, "find_referrers", find)
     m.setattr(
         pgref.PostgresReferralTransactionRepository,
-        "append_transaction_if_description_absent_in_connection",
+        "append_transaction_if_idempotency_absent_in_connection",
         AsyncMock(return_value=insert_returns),
     )
     credit = AsyncMock()

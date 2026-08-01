@@ -40,6 +40,10 @@ class ReferralTransactionRecord:
     related_user_id: str | None
     related_plan_id: str | None
     description: str | None
+    # Stable dedup/idempotency key (unique per (internal_user_id, idempotency_key)).
+    # Separated from `description` so the human label can be clean/repeatable without
+    # breaking dedup, and so internal refs (correlation_id etc.) never leak to users.
+    idempotency_key: str
     created_at: datetime
 
 
@@ -69,5 +73,5 @@ class ReferralBalanceRepository(Protocol):
 
 class ReferralTransactionRepository(Protocol):
     async def append_transaction(self, record: ReferralTransactionRecord) -> None: ...
-    async def append_transaction_if_description_absent(self, record: ReferralTransactionRecord) -> bool: ...
+    async def append_transaction_if_idempotency_absent(self, record: ReferralTransactionRecord) -> bool: ...
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]: ...

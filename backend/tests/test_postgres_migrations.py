@@ -107,6 +107,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "067_promo_codes_audience_all_users.sql",
         "068_broadcast_jobs.sql",
         "069_broadcast_jobs_buttons.sql",
+        "070_referral_transactions_idempotency_key.sql",
     ]
 
 

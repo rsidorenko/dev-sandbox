@@ -4,13 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { referralApi } = vi.hoisted(() => ({
   referralApi: {
     getStats: vi.fn(),
+    getTransactions: vi.fn(),
   },
 }));
 
 vi.mock("@/entities/referral/api", () => ({ referralApi }));
 
 import { ReferralCard } from "./ReferralCard";
-import type { ReferralStatsResponse } from "@/entities/referral/types";
+import type {
+  ReferralStatsResponse,
+  ReferralTransaction,
+  ReferralTransactionsResponse,
+} from "@/entities/referral/types";
 
 function statsPayload(overrides: Partial<ReferralStatsResponse["referral"]> = {}): ReferralStatsResponse {
   return {
@@ -25,34 +30,46 @@ function statsPayload(overrides: Partial<ReferralStatsResponse["referral"]> = {}
         level2: { invited: 1, paid: 0 },
         total_earned_rubles: 137.15,
       },
-      recent_transactions: [
-        {
-          type: "referral_credit",
-          amount_rubles: 87.15,
-          plan_id: "1m",
-          description: "L1 commission",
-          created_at: "2026-07-12T10:00:00Z",
-        },
-        {
-          type: "referral_credit",
-          amount_rubles: 50.0,
-          plan_id: "7d",
-          description: "L1 commission",
-          created_at: "2026-07-10T10:00:00Z",
-        },
-      ],
+      // recent_transactions is still returned by the stats endpoint, but the card renders
+      // the extended history from getTransactions() instead. Kept type-correct here.
+      recent_transactions: [],
       ...overrides,
     },
   };
 }
 
+function transactionsPayload(txs: ReferralTransaction[] = []): ReferralTransactionsResponse {
+  return { ok: true, transactions: txs, limit: 10, offset: 0, has_more: false };
+}
+
+const SAMPLE_TXS: ReferralTransaction[] = [
+  {
+    label: "Реферальное начисление",
+    type: "referral_credit",
+    amount_rubles: 87.15,
+    level: 1,
+    plan_id: "1m",
+    created_at: "2026-07-12T10:00:00Z",
+  },
+  {
+    label: "Реферальное начисление",
+    type: "referral_credit",
+    amount_rubles: 50.0,
+    level: 2,
+    plan_id: "7d",
+    created_at: "2026-07-10T10:00:00Z",
+  },
+];
+
 beforeEach(() => {
   referralApi.getStats.mockReset();
+  referralApi.getTransactions.mockReset();
 });
 
 describe("ReferralCard", () => {
-  it("renders balance, L1/L2 stats, links and recent transactions on success", async () => {
+  it("renders balance, L1/L2 stats, links and the transaction history on success", async () => {
     referralApi.getStats.mockResolvedValue({ ok: true, data: statsPayload() });
+    referralApi.getTransactions.mockResolvedValue({ ok: true, data: transactionsPayload(SAMPLE_TXS) });
 
     render(<ReferralCard />);
 
@@ -76,14 +93,15 @@ describe("ReferralCard", () => {
       screen.getByText(/https:\/\/bravada-connect\.ru\/\?ref=TESTREF1/),
     ).toBeInTheDocument();
 
-    // Recent transactions: amounts + descriptions
+    // Transaction history (clean labels, never raw descriptions): amounts + labels
     expect(screen.getAllByText(/\+87\.15/)).toHaveLength(1);
     expect(screen.getAllByText(/\+50\.00/)).toHaveLength(1);
-    // Two "L1 commission" descriptions (one per tx)
-    expect(screen.getAllByText("L1 commission")).toHaveLength(2);
+    expect(screen.getAllByText("Реферальное начисление")).toHaveLength(2);
+    // Security: the raw internal description must NEVER be rendered.
+    expect(screen.queryByText(/webhook:/)).not.toBeInTheDocument();
   });
 
-  it("shows the invite hint and hides the transactions list in empty state", async () => {
+  it("shows the invite hint and an empty history placeholder when there are no transactions", async () => {
     referralApi.getStats.mockResolvedValue({
       ok: true,
       data: statsPayload({
@@ -93,33 +111,31 @@ describe("ReferralCard", () => {
           level2: { invited: 0, paid: 0 },
           total_earned_rubles: 0,
         },
-        recent_transactions: [],
       }),
     });
+    referralApi.getTransactions.mockResolvedValue({ ok: true, data: transactionsPayload([]) });
 
     render(<ReferralCard />);
 
-    expect(
-      await screen.findByText(/Отправьте ссылку другу/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Отправьте ссылку другу/)).toBeInTheDocument();
     // Zero invited on both levels → conversion guarded against div-by-zero ("—").
     expect(screen.getAllByText(/конверсия:/)[0]).toHaveTextContent("—");
     expect(screen.getAllByText(/конверсия:/)[1]).toHaveTextContent("—");
-    // No transactions header when the list is empty.
-    expect(screen.queryByText(/Последние начисления/)).not.toBeInTheDocument();
+    // History header is always present; empty list shows the placeholder.
+    expect(screen.getByText(/История начислений/)).toBeInTheDocument();
+    expect(screen.getByText(/Пока пусто\./)).toBeInTheDocument();
     // Links are still present even with no referrals yet.
     expect(
       screen.getByText(/https:\/\/bravada-connect\.ru\/\?ref=TESTREF1/),
     ).toBeInTheDocument();
   });
 
-  it("renders an error message when the request fails", async () => {
+  it("renders an error message when the stats request fails", async () => {
     referralApi.getStats.mockResolvedValue({ ok: false, error: "internal_error" });
+    referralApi.getTransactions.mockResolvedValue({ ok: true, data: transactionsPayload([]) });
 
     render(<ReferralCard />);
 
-    expect(
-      await screen.findByText(/Не удалось загрузить данные/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Не удалось загрузить данные/)).toBeInTheDocument();
   });
 });

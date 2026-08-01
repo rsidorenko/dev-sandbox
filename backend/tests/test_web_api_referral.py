@@ -225,6 +225,14 @@ async def test_referral_dashboard_stats_and_conversion(pg_url, monkeypatch):
         assert len(txs) == 2
         assert {t["type"] for t in txs} == {"referral_credit"}
         assert {t["amount_rubles"] for t in txs} == {87.15, 50.0}
+        # Security: the cabinet must NEVER expose the raw internal description /
+        # idempotency_key (which historically leaked payer ids + webhook data). Only a
+        # derived clean label + level/type/plan/amount/created_at are returned.
+        for t in txs:
+            assert "description" not in t
+            assert "idempotency_key" not in t
+            assert t["label"] == "Реферальное начисление"
+            assert t["level"] in (1, 2)
         await client.aclose()
     finally:
         await _cleanup(pool)

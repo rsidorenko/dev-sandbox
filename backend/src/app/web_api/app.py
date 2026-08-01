@@ -57,7 +57,7 @@ from app.web_api.promocode import (
     handle_clear_promocode,
     handle_get_promocode,
 )
-from app.web_api.referral import handle_get_referral_stats
+from app.web_api.referral import handle_get_referral_stats, handle_get_referral_transactions
 from app.web_api.subscription import handle_subscription
 from app.yookassa.webhook import create_yookassa_webhook_handler
 
@@ -152,6 +152,12 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
         # Referral dashboard (stats, conversion, recent transactions)
         Route("/api/v1/user/referral", _with_auth(handle_get_referral_stats), methods=["GET"]),
+        # Extended, filtered transaction history (clean fields only — no webhook data)
+        Route(
+            "/api/v1/user/referral/transactions",
+            _with_auth(handle_get_referral_transactions),
+            methods=["GET"],
+        ),
         # Keys
         Route("/api/v1/user/keys", _with_auth(handle_get_keys), methods=["GET"]),
         Route("/api/v1/user/keys/reissue", _with_auth(_with_csrf(handle_reissue_keys)), methods=["POST"]),
