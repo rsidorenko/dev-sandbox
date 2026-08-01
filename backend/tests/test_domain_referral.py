@@ -1,5 +1,7 @@
 """Tests for domain.referral: commission rates and calculations."""
 
+from datetime import UTC, datetime
+
 from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.domain.referral import (
     ReferralCommission,
@@ -10,8 +12,6 @@ from app.domain.referral import (
     resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
-from datetime import UTC, datetime
-
 from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
