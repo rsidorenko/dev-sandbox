@@ -59,6 +59,10 @@ export const metadata: Metadata = {
   // env задан на этапе сборки (метаданные статичны, как NEXT_PUBLIC_YM_ID).
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+    // Подтверждение владения доменом bravada-connect.ru в Yandex 360 (нужно для
+    // подключения корпоративной почты). Токен публичный по дизайну — он виден в
+    // HTML/DNS любому, поэтому хардкод, а не env (как у google).
+    yandex: "4425bf3c40416d41",
   },
 };
 
