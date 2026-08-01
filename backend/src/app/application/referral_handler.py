@@ -9,6 +9,7 @@ from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
     ReferralCodeRepository,
     ReferralRelationshipRepository,
+    ReferralTransactionRepository,
 )
 
 
@@ -18,7 +19,9 @@ class ReferralInfo:
     referral_link: str
     web_referral_link: str
     balance_rubles: float
-    direct_referrals_count: int
+    l1_invited: int
+    l2_invited: int
+    total_earned_rubles: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,7 @@ async def get_referral_info(
     code_repo: ReferralCodeRepository,
     balance_repo: ReferralBalanceRepository,
     relationship_repo: ReferralRelationshipRepository,
+    transaction_repo: ReferralTransactionRepository,
     bot_username: str,
     site_base_url: str,
 ) -> ReferralInfo:
@@ -100,16 +104,18 @@ async def get_referral_info(
     web_link = f"{site_base_url}/?ref={code_record.referral_code}"
     balance_record = await balance_repo.get_balance(internal_user_id)
     balance_kopecks = balance_record.balance_kopecks if balance_record else 0
-    # direct_referrals_count = users THIS user invited (level=1 where they are the
-    # referrer). NOT find_referrers (which returns who referred this user) — that
-    # inverted direction showed referrers (0/1) instead of referrals invited.
-    direct_count = await relationship_repo.count_direct_referrals(internal_user_id)
+    # Invited counts per level — users THIS user referred (not who referred them).
+    l1_invited = await relationship_repo.count_by_level(internal_user_id, 1)
+    l2_invited = await relationship_repo.count_by_level(internal_user_id, 2)
+    total_earned_kopecks = await transaction_repo.sum_credits(internal_user_id)
     return ReferralInfo(
         referral_code=code_record.referral_code,
         referral_link=tg_link,
         web_referral_link=web_link,
         balance_rubles=rubles_from_kopecks(balance_kopecks),
-        direct_referrals_count=direct_count,
+        l1_invited=l1_invited,
+        l2_invited=l2_invited,
+        total_earned_rubles=rubles_from_kopecks(total_earned_kopecks),
     )
 
 

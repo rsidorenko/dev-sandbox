@@ -2156,6 +2156,7 @@ async def _render_storefront_response(
                     code_repo=composition.referral_code_repo,
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
+                    transaction_repo=composition.referral_transaction_repo,
                     bot_username=composition.bot_username,
                     site_base_url=get_site_base_url(),
                 )
@@ -2168,7 +2169,9 @@ async def _render_storefront_response(
                             referral_link="",
                             web_referral_link="",
                             balance_rubles=0.0,
-                            direct_referrals_count=0,
+                            l1_invited=0,
+                            l2_invited=0,
+                            total_earned_rubles=0.0,
                         )
                     ),
                     back_only_keyboard(CB_MAIN_MENU),
@@ -2183,7 +2186,9 @@ async def _render_storefront_response(
                         referral_link="",
                         web_referral_link="",
                         balance_rubles=0.0,
-                        direct_referrals_count=0,
+                        l1_invited=0,
+                        l2_invited=0,
+                        total_earned_rubles=0.0,
                     )
                 ),
                 back_only_keyboard(CB_MAIN_MENU),

@@ -10,11 +10,15 @@ from app.domain.referral import (
     resolve_direct_and_indirect_referrers,
     rubles_from_kopecks,
 )
+from datetime import UTC, datetime
+
 from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
+    InMemoryReferralTransactionRepository,
 )
+from app.persistence.referral_contracts import ReferralTransactionRecord
 from app.shared.test_helpers import run_async as _run
 
 
@@ -303,6 +307,7 @@ def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
         code_repo = InMemoryReferralCodeRepository()
         rel_repo = InMemoryReferralRelationshipRepository()
         bal_repo = InMemoryReferralBalanceRepository()
+        tx_repo = InMemoryReferralTransactionRepository()
 
         # referrer invited two users
         await code_repo.get_or_create("user_referrer")
@@ -319,11 +324,66 @@ def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
             code_repo=code_repo,
             balance_repo=bal_repo,
             relationship_repo=rel_repo,
+            transaction_repo=tx_repo,
             bot_username="bot",
             site_base_url="https://site.example",
         )
         # The referrer invited 2 — must show 2, not 0 (the old find_referrers-based
         # count returned 0 because the referrer was never referred by anyone).
-        assert info.direct_referrals_count == 2
+        assert info.l1_invited == 2
+        assert info.l2_invited == 0
+        assert info.total_earned_rubles == 0.0
+
+    _run(main())
+
+
+def test_get_referral_info_l2_invited_and_total_earned() -> None:
+    async def main() -> None:
+        code_repo = InMemoryReferralCodeRepository()
+        rel_repo = InMemoryReferralRelationshipRepository()
+        bal_repo = InMemoryReferralBalanceRepository()
+        tx_repo = InMemoryReferralTransactionRepository()
+
+        await code_repo.get_or_create("user_referrer")
+        await rel_repo.create_relationship(
+            referred_user_id="friend_a",
+            referrer_user_id="user_referrer",
+            level=1,
+            referrer_of_referrer_user_id=None,
+        )
+        await rel_repo.create_relationship(
+            referred_user_id="friend_of_friend",
+            referrer_user_id="user_referrer",
+            level=2,
+            referrer_of_referrer_user_id="friend_a",
+        )
+        # Two referral credits: 87.15 ₽ + 12.00 ₽ = 99.15 ₽ earned total.
+        now = datetime.now(UTC)
+        for amount, payer in ((8715, "friend_a"), (1200, "friend_of_friend")):
+            await tx_repo.append_transaction(
+                ReferralTransactionRecord(
+                    transaction_id=f"tx-{amount}",
+                    internal_user_id="user_referrer",
+                    amount_kopecks=amount,
+                    transaction_type="referral_credit",
+                    related_user_id=payer,
+                    related_plan_id="1m",
+                    description="x",
+                    created_at=now,
+                )
+            )
+
+        info = await get_referral_info(
+            internal_user_id="user_referrer",
+            code_repo=code_repo,
+            balance_repo=bal_repo,
+            relationship_repo=rel_repo,
+            transaction_repo=tx_repo,
+            bot_username="bot",
+            site_base_url="https://site.example",
+        )
+        assert info.l1_invited == 1
+        assert info.l2_invited == 1
+        assert info.total_earned_rubles == 99.15
 
     _run(main())

@@ -140,6 +140,17 @@ class PostgresReferralRelationshipRepository:
                 )
             )
 
+    async def count_by_level(self, user_id: str, level: int) -> int:
+        """Users this user invited at ``level`` (1 = direct friends, 2 = their friends)."""
+        async with self._pool.acquire() as conn:
+            return int(
+                await conn.fetchval(
+                    "SELECT COUNT(*) FROM referral_relationships WHERE referrer_user_id = $1 AND level = $2",
+                    user_id,
+                    level,
+                )
+            )
+
     @staticmethod
     async def find_referrers_in_connection(
         conn: asyncpg.Connection,
@@ -241,6 +252,18 @@ class PostgresReferralBalanceRepository:
 class PostgresReferralTransactionRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+
+    async def sum_credits(self, internal_user_id: str) -> int:
+        """Total referral credits ever earned by ``internal_user_id`` (kopecks)."""
+        async with self._pool.acquire() as conn:
+            return int(
+                await conn.fetchval(
+                    "SELECT COALESCE(SUM(amount_kopecks), 0)::bigint FROM referral_transactions "
+                    "WHERE internal_user_id = $1 AND transaction_type = 'referral_credit'",
+                    internal_user_id,
+                )
+                or 0
+            )
 
     async def append_transaction(self, record: ReferralTransactionRecord) -> None:
         async with self._pool.acquire() as conn:

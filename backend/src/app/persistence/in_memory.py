@@ -260,6 +260,10 @@ class InMemoryReferralRelationshipRepository:
         async with self._lock:
             return sum(1 for r in self._records if r.referrer_user_id == user_id and r.level == 1)
 
+    async def count_by_level(self, user_id: str, level: int) -> int:
+        async with self._lock:
+            return sum(1 for r in self._records if r.referrer_user_id == user_id and r.level == level)
+
 
 class InMemoryReferralBalanceRepository:
     def __init__(self) -> None:
@@ -303,6 +307,14 @@ class InMemoryReferralTransactionRepository:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._transactions: list[ReferralTransactionRecord] = []
+
+    async def sum_credits(self, internal_user_id: str) -> int:
+        async with self._lock:
+            return sum(
+                t.amount_kopecks
+                for t in self._transactions
+                if t.internal_user_id == internal_user_id and t.transaction_type == "referral_credit"
+            )
 
     async def append_transaction(self, record: ReferralTransactionRecord) -> None:
         async with self._lock:
