@@ -103,17 +103,23 @@ def test_parts_contain_code_and_autofill_line():
 
 
 def test_parts_contain_login_cta():
-    # CTA carries the recipient email so /login lands on the code-entry step pre-filled.
-    login_url = "https://bravada-connect.ru/login?email=user%40example.com"
-    msg = _build_msg(code="112233")
+    # CTA links to /login with NO recipient email in the URL — carrying the email as
+    # "?email=" to a login/OTP page is the phishing-kit shape that trips Safe Browsing.
+    login_url = "https://bravada-connect.ru/login"
+    msg = _build_msg(code="112233", email="user@example.com")
     plain = _walk_payload(msg, "text/plain").get_payload(decode=True).decode("utf-8")
     html = _walk_payload(msg, "text/html").get_payload(decode=True).decode("utf-8")
 
     # Plain part: a "Войти в кабинет: <url>" line.
     assert f"Войти в кабинет: {login_url}" in plain
-    # HTML part: a bulletproof CTA button linking to /login?email=.
+    # HTML part: a bulletproof CTA button linking to /login.
     assert login_url in html
     assert "Войти в кабинет" in html
+    # Regression guard: the recipient email must never leak into the CTA URL.
+    assert "?email=" not in plain
+    assert "?email=" not in html
+    assert "user%40example.com" not in plain
+    assert "user%40example.com" not in html
 
 
 async def test_send_returns_false_without_config(monkeypatch):

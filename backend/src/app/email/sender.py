@@ -11,7 +11,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, getaddresses, make_msgid
 from pathlib import Path
-from urllib.parse import quote
 
 from app.shared.site_url import get_site_base_url
 
@@ -153,9 +152,13 @@ def _build_message(config: SmtpConfig, email: str, code: str) -> MIMEMultipart:
     """Build the verification message — multipart/related when the logo is available
     (inline image via Content-ID), otherwise a plain multipart/alternative."""
     domain = _domain_from_address(config.from_address)
-    # Carry the recipient email so the CTA lands on the code-entry step with the
-    # email pre-filled (iOS Mail code AutoFill needs the one-time-code input present).
-    login_url = f"{get_site_base_url()}/login?email={quote(email)}"
+    # CTA lands on the /login email-entry step. We deliberately do NOT carry the
+    # recipient email in the URL: a personalised "?email=" link to a page that
+    # collects a one-time code is the exact shape phishing kits use, and it tripped
+    # a Google Safe Browsing flag (surfaced by iOS Safari as a "fraudulent website"
+    # warning). iOS Mail OTP AutoFill is unaffected — it reads the "Ваш код: NNNNNN"
+    # line from the plain body and surfaces it on the page's one-time-code input.
+    login_url = f"{get_site_base_url()}/login"
 
     logo_bytes = _load_logo_bytes()
     alt = MIMEMultipart("alternative")
