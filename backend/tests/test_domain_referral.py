@@ -369,6 +369,7 @@ def test_get_referral_info_l2_invited_and_total_earned() -> None:
                     related_user_id=payer,
                     related_plan_id="1m",
                     description="x",
+                    idempotency_key=f"ik-{amount}",
                     created_at=now,
                 )
             )
