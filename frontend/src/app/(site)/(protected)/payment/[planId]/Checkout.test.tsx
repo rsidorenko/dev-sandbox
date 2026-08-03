@@ -132,7 +132,7 @@ describe("Checkout (payment/[planId])", () => {
     await waitFor(() => {
       expect(window.location.href).toBe("https://pay.example/x");
     });
-    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5);
+    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5, "card");
   });
 
   it("shows an Alert when payment is unavailable", async () => {

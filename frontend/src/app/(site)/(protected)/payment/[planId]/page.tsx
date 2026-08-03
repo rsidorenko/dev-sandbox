@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { paymentApi } from "@/entities/payment/api";
+import { paymentApi, type PaymentMethod } from "@/entities/payment/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
 import {
@@ -46,6 +46,7 @@ function PaymentForm() {
     return d ? Math.max(DEFAULT_DEVICES, parseInt(d) || DEFAULT_DEVICES) : DEFAULT_DEVICES;
   });
   const [loading, setLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [errorMsg, setErrorMsg] = useState("");
   const [paymentResult, setPaymentResult] = useState<{
     status: string;
@@ -209,7 +210,7 @@ function PaymentForm() {
     setErrorMsg("");
     setLoading(true);
 
-    const result = await paymentApi.create(planId, deviceCount);
+    const result = await paymentApi.create(planId, deviceCount, paymentMethod);
     setLoading(false);
 
     if (!result.ok) {
@@ -396,12 +397,46 @@ function PaymentForm() {
             </button>
           )}
 
+          {/* Способ оплаты: карта или крипта (CryptoBot). Крипта — способ оплаты, рубль остаётся
+              номиналом (цена та же); после клика бэкенд отдаёт payment_url инвойса CryptoBot. */}
+          <div className="mt-6">
+            <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Способ оплаты</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("card")}
+                className={`rounded-lg border py-2 text-sm font-semibold transition ${
+                  paymentMethod === "card"
+                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+                }`}
+              >
+                💳 Картой
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("crypto")}
+                className={`rounded-lg border py-2 text-sm font-semibold transition ${
+                  paymentMethod === "crypto"
+                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+                }`}
+              >
+                ₮ Криптой
+              </button>
+            </div>
+          </div>
+
           <button
             onClick={handlePay}
             disabled={busy || !!balanceResult}
             className="mt-3 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Обработка..." : `Оплатить картой ${displayTotal.toLocaleString("ru-RU")} ₽`}
+            {loading
+              ? "Обработка..."
+              : paymentMethod === "crypto"
+                ? `Оплатить криптой ${displayTotal.toLocaleString("ru-RU")} ₽`
+                : `Оплатить картой ${displayTotal.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">

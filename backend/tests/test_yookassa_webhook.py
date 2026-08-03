@@ -108,7 +108,7 @@ def test_source_relies_on_api_when_no_forwarded_header() -> None:
 
 
 def test_parse_add_device_metadata_valid() -> None:
-    from app.yookassa.webhook import _parse_add_device_metadata
+    from app.runtime.payment_webhook_helpers import parse_add_device_metadata as _parse_add_device_metadata
 
     assert _parse_add_device_metadata(
         {"telegram_user_id": "123", "new_device_count": "7", "expected_amount_kopecks": "16000"}
@@ -116,7 +116,7 @@ def test_parse_add_device_metadata_valid() -> None:
 
 
 def test_parse_add_device_metadata_rejects_out_of_range_count() -> None:
-    from app.yookassa.webhook import _parse_add_device_metadata
+    from app.runtime.payment_webhook_helpers import parse_add_device_metadata as _parse_add_device_metadata
 
     assert (
         _parse_add_device_metadata({"telegram_user_id": "1", "new_device_count": "0", "expected_amount_kopecks": "100"})
@@ -131,7 +131,7 @@ def test_parse_add_device_metadata_rejects_out_of_range_count() -> None:
 
 
 def test_parse_add_device_metadata_rejects_missing_or_invalid() -> None:
-    from app.yookassa.webhook import _parse_add_device_metadata
+    from app.runtime.payment_webhook_helpers import parse_add_device_metadata as _parse_add_device_metadata
 
     assert _parse_add_device_metadata({}) is None
     assert _parse_add_device_metadata({"telegram_user_id": "1", "new_device_count": "5"}) is None  # no expected amount
@@ -146,7 +146,7 @@ def test_parse_add_device_metadata_rejects_missing_or_invalid() -> None:
 
 
 def test_validate_add_device_amount_matches() -> None:
-    from app.yookassa.webhook import _validate_add_device_amount
+    from app.runtime.payment_webhook_helpers import validate_add_device_amount as _validate_add_device_amount
 
     assert _validate_add_device_amount(16000, 16000) is True
     assert _validate_add_device_amount(16000, 16001) is True  # +1 kop tolerance
@@ -154,7 +154,7 @@ def test_validate_add_device_amount_matches() -> None:
 
 
 def test_validate_add_device_amount_rejects_mismatch() -> None:
-    from app.yookassa.webhook import _validate_add_device_amount
+    from app.runtime.payment_webhook_helpers import validate_add_device_amount as _validate_add_device_amount
 
     assert _validate_add_device_amount(16000, 15000) is False
     assert _validate_add_device_amount(16000, None) is False
@@ -172,7 +172,7 @@ def test_expected_subscription_kopecks_includes_extra_devices() -> None:
     249 RUB) — user charged but not subscribed. Now it expects the full amount.
     """
     from app.domain.plans import get_plan
-    from app.yookassa.webhook import _expected_subscription_kopecks
+    from app.runtime.payment_webhook_helpers import expected_subscription_kopecks as _expected_subscription_kopecks
 
     plan_1m = get_plan("1m")
     # Default 5 devices: no extra -> just the plan price (unchanged behavior).
@@ -210,7 +210,7 @@ def test_amount_value_to_kopecks_is_exact() -> None:
     inputs round HALF_UP; unparseable/missing values return ``None`` so callers
     fall through to their existing amount-mismatch / validation paths.
     """
-    from app.yookassa.webhook import _amount_value_to_kopecks
+    from app.runtime.payment_webhook_helpers import amount_value_to_kopecks as _amount_value_to_kopecks
 
     assert _amount_value_to_kopecks("1099.99") == 109999
     assert _amount_value_to_kopecks("750.00") == 75000
@@ -231,14 +231,18 @@ def test_resolve_internal_user_id_prefers_metadata_for_web_only() -> None:
     """Web-only (email) accounts: metadata carries the real 'web_<hash>' identity,
     which MUST win over the ``f"u{telegram_user_id}"`` derivation (that would yield a
     bogus 'u-1' and credit the subscription to the wrong/nonexistent account)."""
-    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+    from app.runtime.payment_webhook_helpers import (
+        resolve_subscription_internal_user_id as _resolve_subscription_internal_user_id,
+    )
 
     assert _resolve_subscription_internal_user_id({"internal_user_id": "web_abc123"}, -1) == "web_abc123"
 
 
 def test_resolve_internal_user_id_falls_back_to_telegram_convention() -> None:
     """Legacy / Telegram payments without metadata.internal_user_id derive ``f"u{tg}"``."""
-    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+    from app.runtime.payment_webhook_helpers import (
+        resolve_subscription_internal_user_id as _resolve_subscription_internal_user_id,
+    )
 
     assert _resolve_subscription_internal_user_id({}, 123) == "u123"
     assert _resolve_subscription_internal_user_id({"plan_id": "1m"}, 123) == "u123"
@@ -246,6 +250,8 @@ def test_resolve_internal_user_id_falls_back_to_telegram_convention() -> None:
 
 def test_resolve_internal_user_id_ignores_empty_metadata_value() -> None:
     """An empty-string internal_user_id must fall back (truthiness), not yield ''."""
-    from app.yookassa.webhook import _resolve_subscription_internal_user_id
+    from app.runtime.payment_webhook_helpers import (
+        resolve_subscription_internal_user_id as _resolve_subscription_internal_user_id,
+    )
 
     assert _resolve_subscription_internal_user_id({"internal_user_id": ""}, 456) == "u456"

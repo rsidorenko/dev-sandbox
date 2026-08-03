@@ -33,8 +33,11 @@ from app.domain.promo import (
 )
 from app.domain.referral import build_commissions_for_payment
 from app.issuance.vless_provider import StubVlessProvider
+from app.runtime.payment_webhook_helpers import (
+    expected_subscription_kopecks as _expected_subscription_kopecks,
+)
+from app.runtime.payment_webhook_helpers import promo_from_metadata as _promo_from_metadata
 from app.shared.test_helpers import run_async as _run
-from app.yookassa.webhook import _expected_subscription_kopecks, _promo_from_metadata
 
 _FUTURE = datetime(2099, 12, 31, 23, 59, 59, tzinfo=UTC)
 

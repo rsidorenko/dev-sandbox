@@ -24,7 +24,73 @@ _LOGGER = logging.getLogger(__name__)
 
 
 ENV_YOOKASSA_ENABLED = "YOOKASSA_ENABLED"
+ENV_CRYPTOBOT_ENABLED = "CRYPTOBOT_ENABLED"
 ENV_RETURN_URL = "NEXT_PUBLIC_SITE_URL"
+
+
+_VALID_PAYMENT_METHODS = ("card", "crypto")
+
+
+def _parse_payment_method(data: dict[str, Any]) -> str:
+    """Resolve the requested payment method from the request body (default ``card``)."""
+    method = str(data.get("payment_method", "card")).strip().lower()
+    return method if method in _VALID_PAYMENT_METHODS else "card"
+
+
+def _payment_unavailable_response(
+    plan_id: str, device_count: int, total_rubles: int, total_kopecks: int
+) -> JSONResponse:
+    """The 'method disabled' response — same shape the YooKassa-only gate returned."""
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "payment_unavailable",
+            "plan_id": plan_id,
+            "plan_name": plan_display_name_safe(plan_id),
+            "device_count": device_count,
+            "amount_rubles": total_rubles,
+            "amount_kopecks": total_kopecks,
+            "message": (
+                "Для оформления подписки нажмите кнопку ниже. "
+                "После подтверждения оплаты доступ к сервису будет активирован автоматически."
+            ),
+        }
+    )
+
+
+async def _cryptobot_create(
+    *,
+    amount_rubles: int,
+    description: str,
+    context: dict[str, object],
+    return_url: str,
+) -> tuple[str, str] | None:
+    """Create a CryptoBot fiat-RUB invoice for *amount_rubles*, carrying *context* in the
+    invoice payload. Returns ``(invoice_id, pay_url)`` or ``None`` when the client is not
+    configured or creation failed (caller maps None → 502/503).
+    """
+    import os
+
+    from app.cryptobot.client import CryptoBotClient
+    from app.cryptobot.payload import encode_payment_context
+
+    client = CryptoBotClient.from_env()
+    if client is None:
+        _LOGGER.error("cryptobot client not configured")
+        return None
+    ttl = int(os.environ.get("CRYPTOBOT_INVOICE_TTL_SECONDS", "3600"))
+    try:
+        result = await client.create_invoice(
+            amount_rubles=amount_rubles,
+            payload_str=encode_payment_context(context),
+            description=description,
+            paid_btn_url=return_url,
+            expires_in=ttl,
+        )
+    except Exception:
+        _LOGGER.exception("cryptobot create_invoice failed")
+        return None
+    return result.invoice_id, result.pay_url
 
 
 async def handle_create_payment(request: Request) -> JSONResponse:
@@ -55,43 +121,24 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     total_rubles = calculate_total_price(plan, device_count)
     total_kopecks = total_rubles * 100
 
-    yookassa_enabled = truthy(os.environ.get(ENV_YOOKASSA_ENABLED))
+    payment_method = _parse_payment_method(data)
 
-    if not yookassa_enabled:
-        return JSONResponse(
-            {
-                "ok": True,
-                "status": "payment_unavailable",
-                "plan_id": plan_id,
-                "plan_name": plan_display_name_safe(plan_id),
-                "device_count": device_count,
-                "amount_rubles": total_rubles,
-                "amount_kopecks": total_kopecks,
-                "message": (
-                    "Для оформления подписки нажмите кнопку ниже. "
-                    "После подтверждения оплаты доступ к сервису будет активирован автоматически."
-                ),
-            }
-        )
+    # Method availability (checked before any DB work, like the prior YooKassa-only gate).
+    method_enabled = truthy(
+        os.environ.get(ENV_CRYPTOBOT_ENABLED if payment_method == "crypto" else ENV_YOOKASSA_ENABLED)
+    )
+    if not method_enabled:
+        return _payment_unavailable_response(plan_id, device_count, total_rubles, total_kopecks)
 
     return_url = os.environ.get(ENV_RETURN_URL, "").strip()
     if not return_url:
         return_url = "https://bravada-connect.ru"
     return_url = f"{return_url.rstrip('/')}/dashboard"
 
-    from app.security.checkout_reference import create_signed_checkout_reference
-    from app.yookassa.client import YooKassaClient
-
-    client = YooKassaClient.from_env()
-    if client is None:
-        _LOGGER.error("yookassa client not configured")
-        return safe_json_error(503, "payment_provider_not_configured")
-
     # Resolve the real internal_user_id from the identity row. Web-only (email)
     # accounts carry a NON-POSITIVE telegram_user_id and an internal_user_id of
-    # "web_<hash>" (NOT f"u{telegram_user_id}"); the YooKassa webhook must apply
-    # the subscription to that exact identity, so we carry it in the payment
-    # metadata. Mirrors handle_get_keys / handle_activate_trial.
+    # "web_<hash>" (NOT f"u{telegram_user_id}"); the webhook must apply the
+    # subscription to that exact identity, so we carry it in the payment context.
     pool = request.app.state.pool
     identity = await pool.fetchrow(
         "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
@@ -101,8 +148,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         return safe_json_error(404, "identity_not_found")
     internal_user_id = identity["internal_user_id"]
 
-    # Применённый промокод (каноническая re-валидация). Если пригоден — списываем
-    # discounted и кладём discount_kopecks в metadata для сверки вебхуком.
     from app.application.promo_service import resolve_active_promo
     from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
 
@@ -117,6 +162,50 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else total_rubles
     charge_kopecks = charge_rubles * 100
+
+    if payment_method == "crypto":
+        # CryptoBot carries the FULL context in its payload string (no client-side
+        # injection like YooKassa), so include plan/device/telegram identity here.
+        context: dict[str, object] = {
+            "plan_id": plan_id,
+            "device_count": str(device_count),
+            "telegram_user_id": str(telegram_user_id),
+            "internal_user_id": internal_user_id,
+        }
+        if active_promo is not None:
+            context["discount_kopecks"] = str(active_promo.price.discounted_kopecks)
+            context["promo_code"] = active_promo.code
+        created = await _cryptobot_create(
+            amount_rubles=charge_rubles,
+            description=f"Bravada VPN - {plan_display_name_safe(plan_id)}",
+            context=context,
+            return_url=return_url,
+        )
+        if created is None:
+            return safe_json_error(502, "payment_creation_failed")
+        invoice_id, pay_url = created
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "pending",
+                "payment_method": "crypto",
+                "plan_id": plan_id,
+                "plan_name": plan_display_name_safe(plan_id),
+                "device_count": device_count,
+                "amount_rubles": charge_rubles,
+                "amount_kopecks": charge_kopecks,
+                "payment_url": pay_url,
+                "payment_id": invoice_id,
+            }
+        )
+
+    from app.security.checkout_reference import create_signed_checkout_reference
+    from app.yookassa.client import YooKassaClient
+
+    client = YooKassaClient.from_env()
+    if client is None:
+        _LOGGER.error("yookassa client not configured")
+        return safe_json_error(503, "payment_provider_not_configured")
 
     checkout_secret = (
         os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
@@ -159,6 +248,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         {
             "ok": True,
             "status": "pending",
+            "payment_method": "card",
             "plan_id": plan_id,
             "plan_name": plan_display_name_safe(plan_id),
             "device_count": device_count,
@@ -284,10 +374,39 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         add_device_meta["discount_kopecks"] = str(active_promo.price.discount_kopecks)
         add_device_meta["promo_code"] = active_promo.code
 
-    if not truthy(os.environ.get(ENV_YOOKASSA_ENABLED)):
+    payment_method = _parse_payment_method(data)
+    method_enabled = truthy(
+        os.environ.get(ENV_CRYPTOBOT_ENABLED if payment_method == "crypto" else ENV_YOOKASSA_ENABLED)
+    )
+    if not method_enabled:
         return safe_json_error(503, "payment_unavailable")
 
     return_url = os.environ.get(ENV_RETURN_URL, "https://bravada-connect.ru").strip().rstrip("/")
+
+    if payment_method == "crypto":
+        context: dict[str, object] = {**add_device_meta, "telegram_user_id": str(telegram_user_id)}
+        created = await _cryptobot_create(
+            amount_rubles=charge_rubles,
+            description=f"Bravada VPN - add devices ({current}->{new_device_count})",
+            context=context,
+            return_url=f"{return_url}/dashboard",
+        )
+        if created is None:
+            return safe_json_error(502, "payment_creation_failed")
+        invoice_id, pay_url = created
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "pending",
+                "payment_method": "crypto",
+                "device_count": new_device_count,
+                "amount_rubles": charge_rubles,
+                "amount_kopecks": expected_amount_kopecks,
+                "payment_url": pay_url,
+                "payment_id": invoice_id,
+            }
+        )
+
     from app.yookassa.client import YooKassaClient
 
     client = YooKassaClient.from_env()
@@ -312,6 +431,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         {
             "ok": True,
             "status": "pending",
+            "payment_method": "card",
             "device_count": new_device_count,
             "amount_rubles": charge_rubles,
             "amount_kopecks": expected_amount_kopecks,

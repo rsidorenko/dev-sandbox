@@ -37,6 +37,7 @@ CB_CONFIRM_PAY = "confirm_pay:"
 CB_PAY_BALANCE = "pay_balance:"
 CB_ROUTER = "router_config"
 CB_DO_PAY = "do_pay:"
+CB_DO_PAY_CRYPTO = "pay_crypto:"
 CB_ADD_DEVICE = "add_device"
 CB_ADD_DEV = "add_dev:"
 CB_ADD_DEV_BALANCE = "add_dev_bal:"
@@ -187,6 +188,10 @@ def device_select_keyboard(plan_id: str, current: int = DEFAULT_DEVICE_LIMIT) ->
     return _inline_kb(rows)
 
 
+def _cryptobot_enabled() -> bool:
+    return os.environ.get("CRYPTOBOT_ENABLED", "").strip().lower() in ("1", "true", "yes")
+
+
 def confirm_pay_keyboard(
     plan_id: str,
     device_count: int,
@@ -198,6 +203,8 @@ def confirm_pay_keyboard(
     rows: list[list[dict[str, str]]] = [
         [{"text": "💳 Оплатить", "callback_data": f"{CB_DO_PAY}{plan_id}:{device_count}"}],
     ]
+    if _cryptobot_enabled():
+        rows.append([{"text": "₮ Оплатить криптой", "callback_data": f"{CB_DO_PAY_CRYPTO}{plan_id}:{device_count}"}])
     if balance_kopecks >= total_kopecks and total_kopecks > 0:
         rows.append(
             [
@@ -1942,6 +1949,8 @@ def add_device_confirm_keyboard(new_count: int, *, balance_kopecks: int = 0, cos
     rows: list[list[dict[str, str]]] = [
         [{"text": "💳 Оплатить", "callback_data": f"add_dev_pay:{new_count}"}],
     ]
+    if _cryptobot_enabled():
+        rows.append([{"text": "₮ Оплатить криптой", "callback_data": f"add_dev_pay_crypto:{new_count}"}])
     if balance_kopecks >= cost_kopecks and cost_kopecks > 0:
         rows.append(
             [

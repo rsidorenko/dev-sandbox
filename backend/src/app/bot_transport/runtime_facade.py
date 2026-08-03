@@ -52,6 +52,7 @@ from app.bot_transport.storefront_ui import (
     CB_CUSTOM_DAYS,
     CB_DEVICES,
     CB_DO_PAY,
+    CB_DO_PAY_CRYPTO,
     CB_HELP,
     CB_IOS_DID_WORK,
     CB_IOS_HAPP_STEP,
@@ -1561,6 +1562,110 @@ async def _process_yookassa_payment(
     return text, keyboard
 
 
+async def _process_cryptobot_payment(
+    composition: Slice1Composition,
+    uid: int | None,
+    *,
+    plan_id: str,
+    device_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    """Create a CryptoBot fiat-RUB invoice for a subscription purchase (the crypto path).
+
+    Mirrors ``_process_yookassa_payment``: same plan/price/promo resolution, but creates a
+    CryptoBot invoice (user pays the crypto equivalent; RUB face value is fixed by us) and
+    carries the full payment context in the invoice ``payload`` string. The CryptoBot webhook
+    re-fetches the invoice and fulfills identically to a card payment (subscription apply,
+    VLESS, referral commissions, promo redemption).
+    """
+    import logging
+    import os
+
+    from app.cryptobot.client import CryptoBotClient
+    from app.cryptobot.payload import encode_payment_context
+    from app.domain.plans import calculate_total_price, get_plan, plan_display_name
+
+    _logger = logging.getLogger(__name__)
+
+    if uid is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    plan = get_plan(plan_id)
+    if plan is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    total_rubles = calculate_total_price(plan, device_count)
+
+    charge_rubles = total_rubles
+    discount_kopecks = 0
+    # CryptoBot carries the FULL context in its payload (no client-side injection).
+    context: dict[str, object] = {
+        "plan_id": plan_id,
+        "device_count": str(device_count),
+        "telegram_user_id": str(uid),
+    }
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is not None:
+        context["internal_user_id"] = internal_user_id
+        from app.application.promo_service import resolve_active_promo
+
+        active = await resolve_active_promo(
+            pool=_get_pool_from_composition(composition),
+            promo_applied_repo=composition.promo_applied_repo,
+            promo_code_repo=composition.promo_code_repo,
+            snapshots=composition.snapshots,
+            internal_user_id=internal_user_id,
+            base_rubles=total_rubles,
+            plan_id=plan_id,
+        )
+        if active is not None:
+            charge_rubles = active.price.discounted_rubles
+            discount_kopecks = active.price.discounted_kopecks
+            context["discount_kopecks"] = str(discount_kopecks)
+            context["promo_code"] = active.code
+
+    client = CryptoBotClient.from_env()
+    if client is None:
+        _logger.warning("cryptobot not configured, cannot create bot payment")
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
+    ttl = int(os.environ.get("CRYPTOBOT_INVOICE_TTL_SECONDS", "3600"))
+    try:
+        result = await client.create_invoice(
+            amount_rubles=charge_rubles,
+            payload_str=encode_payment_context(context),
+            description=f"Bravada VPN - {plan_display_name(plan_id)}",
+            paid_btn_url=f"{return_url}/dashboard",
+            expires_in=ttl,
+        )
+    except Exception:
+        _logger.exception("cryptobot create_invoice failed in bot flow")
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+
+    from app.bot_transport.payment_message_registry import set_pending_payment_for_user
+
+    set_pending_payment_for_user(uid, result.invoice_id)
+
+    display_name = plan_display_name(plan_id)
+    if discount_kopecks > 0:
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{discount_kopecks // 100} ₽)"
+    else:
+        price_line = f"💰 К оплате: {charge_rubles} ₽"
+    text = (
+        "📋 Оформление подписки\n\n"
+        f"🔹 Тариф: {display_name}\n"
+        f"{price_line}\n\n"
+        "Оплата криптой (USDT, TON и др.). Нажмите кнопку ниже для перехода к оплате 👇"
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "₮ Перейти к оплате", "url": result.pay_url}],
+            [{"text": "↩️ Назад", "callback_data": CB_BUY_VPN}],
+        ],
+    }
+    return text, keyboard
+
+
 async def _process_balance_payment(
     composition: Slice1Composition,
     uid: int | None,
@@ -1833,6 +1938,120 @@ async def _process_add_device_yookassa(
     keyboard = {
         "inline_keyboard": [
             [{"text": "💳 Перейти к оплате", "url": result.confirmation_url}],
+            [{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}],
+        ],
+    }
+    return text, keyboard
+
+
+async def _process_add_device_cryptobot(
+    composition: Slice1Composition,
+    uid: int | None,
+    new_count: int,
+) -> tuple[str, dict[str, Any] | None]:
+    """Create a CryptoBot invoice for adding devices (the crypto path).
+
+    Mirrors ``_process_add_device_yookassa``: same cost/promo resolution, but creates a
+    CryptoBot invoice carrying ``kind=add_device`` context in the payload. The webhook's
+    add-device path raises ``device_count`` without extending the subscription.
+    """
+    import logging
+    import os
+
+    from app.cryptobot.client import CryptoBotClient
+    from app.cryptobot.payload import encode_payment_context
+    from app.domain.devices import extra_device_cost
+    from app.domain.plans import get_plan
+
+    _logger = logging.getLogger(__name__)
+
+    if uid is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    internal_user_id = await _get_internal_user_id(composition, uid)
+    if internal_user_id is None:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    snap = await composition.snapshots.get_for_user(internal_user_id)
+    if snap is None:
+        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
+
+    current = snap.device_count or DEVICES_DEFAULT
+    if new_count <= current:
+        return text_add_device_intro(current), add_device_select_keyboard(current)
+
+    duration_days = 30
+    if snap.plan_id:
+        plan = get_plan(snap.plan_id)
+        if plan is not None:
+            duration_days = plan.duration_days
+
+    cost_rubles = extra_device_cost(new_count, current, duration_days)
+    if cost_rubles <= 0:
+        return text_error_generic(), back_only_keyboard(CB_SETTINGS)
+
+    charge_rubles = cost_rubles
+    expected_amount_kopecks = cost_rubles * 100
+    context: dict[str, object] = {
+        "kind": "add_device",
+        "telegram_user_id": str(uid),
+        "new_device_count": str(new_count),
+        "expected_amount_kopecks": str(expected_amount_kopecks),
+    }
+    from app.application.promo_service import resolve_active_promo
+
+    active = await resolve_active_promo(
+        pool=_get_pool_from_composition(composition),
+        promo_applied_repo=composition.promo_applied_repo,
+        promo_code_repo=composition.promo_code_repo,
+        snapshots=composition.snapshots,
+        internal_user_id=internal_user_id,
+        base_rubles=cost_rubles,
+        is_addon=True,
+    )
+    if active is not None:
+        charge_rubles = active.price.discounted_rubles
+        expected_amount_kopecks = active.price.discounted_kopecks
+        context["expected_amount_kopecks"] = str(expected_amount_kopecks)
+        context["discount_kopecks"] = str(active.price.discounted_kopecks)
+        context["promo_code"] = active.code
+
+    client = CryptoBotClient.from_env()
+    if client is None:
+        _logger.warning("cryptobot not configured, cannot create add-device payment")
+        return text_payment_unavailable(), back_only_keyboard(CB_ADD_DEVICE)
+
+    return_url = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://bravada-connect.ru").strip().rstrip("/")
+    ttl = int(os.environ.get("CRYPTOBOT_INVOICE_TTL_SECONDS", "3600"))
+    try:
+        result = await client.create_invoice(
+            amount_rubles=charge_rubles,
+            payload_str=encode_payment_context(context),
+            description=f"Bravada VPN - add devices ({current}->{new_count})",
+            paid_btn_url=f"{return_url}/dashboard",
+            expires_in=ttl,
+        )
+    except Exception:
+        _logger.exception("cryptobot create_invoice failed in add-device flow")
+        return text_payment_unavailable(), back_only_keyboard(CB_ADD_DEVICE)
+
+    from app.bot_transport.payment_message_registry import set_pending_payment_for_user
+
+    set_pending_payment_for_user(uid, result.invoice_id)
+
+    if active is not None:
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{active.price.discounted_kopecks // 100} ₽)"
+    else:
+        price_line = f"💰 К оплате: {charge_rubles} ₽"
+    text = (
+        "📋 Добавление устройств\n\n"
+        f"📱 Устройств: {current} → {new_count}\n"
+        f"{price_line}\n\n"
+        "Оплата криптой. Нажмите кнопку ниже для перехода к оплате 👇"
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "₮ Перейти к оплате", "url": result.pay_url}],
             [{"text": "↩️ Назад", "callback_data": CB_ADD_DEVICE}],
         ],
     }
@@ -2328,6 +2547,25 @@ async def _render_storefront_response(
             device_count=device_count,
         )
 
+    elif code.startswith(CB_DO_PAY_CRYPTO):
+        rest = code[len(CB_DO_PAY_CRYPTO) :]
+        sep = rest.rfind(":")
+        if sep >= 0:
+            plan_id = rest[:sep]
+            try:
+                device_count = int(rest[sep + 1 :])
+            except ValueError:
+                device_count = DEVICES_DEFAULT
+        else:
+            plan_id = rest
+            device_count = DEVICES_DEFAULT
+        text, keyboard = await _process_cryptobot_payment(
+            composition,
+            uid,
+            plan_id=plan_id,
+            device_count=device_count,
+        )
+
     elif code.startswith(CB_PAY_BALANCE):
         rest = code[len(CB_PAY_BALANCE) :]
         sep = rest.rfind(":")
@@ -2385,6 +2623,15 @@ async def _render_storefront_response(
         try:
             new_count = int(new_count_str)
             text, keyboard = await _process_add_device_yookassa(composition, uid, new_count)
+        except (ValueError, TypeError):
+            text = text_error_generic()
+            keyboard = back_only_keyboard(CB_SETTINGS)
+
+    elif code.startswith("add_dev_pay_crypto:"):
+        new_count_str = code[len("add_dev_pay_crypto:") :]
+        try:
+            new_count = int(new_count_str)
+            text, keyboard = await _process_add_device_cryptobot(composition, uid, new_count)
         except (ValueError, TypeError):
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)

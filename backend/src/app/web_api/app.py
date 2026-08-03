@@ -139,6 +139,21 @@ async def _yookassa_webhook_handler(request: Request) -> JSONResponse:
     return await handler(request)
 
 
+async def _cryptobot_webhook_handler(request: Request) -> JSONResponse:
+    """Thin adapter for the CryptoBot webhook — same shape as the YooKassa one."""
+    from app.cryptobot.webhook import create_cryptobot_webhook_handler
+
+    pool: asyncpg.Pool = request.app.state.pool
+    vless_provider = getattr(request.app.state, "vless_provider", None)
+    notifier = getattr(request.app.state, "activation_notifier", None)
+    handler = create_cryptobot_webhook_handler(
+        pool=pool,
+        activation_telegram_notifier=notifier,
+        vless_provider=vless_provider,
+    )
+    return await handler(request)
+
+
 def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
     cors_origins = os.environ.get("WEB_API_CORS_ORIGINS", "").strip()
 
@@ -203,6 +218,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
         # YooKassa webhook (no auth — signature verified internally)
         Route("/api/v1/payment/yookassa/webhook", _yookassa_webhook_handler, methods=["POST"]),
+        # CryptoBot webhook (no routing auth — HMAC signature verified internally)
+        Route("/api/v1/payment/cryptobot/webhook", _cryptobot_webhook_handler, methods=["POST"]),
         # Admin panel (feature-flagged via WEB_ADMIN_ENABLE; auth via admin_session cookie)
         Route("/api/v1/admin/auth/login", handle_admin_login, methods=["POST"]),
         Route("/api/v1/admin/auth/logout", handle_admin_logout, methods=["POST"]),
