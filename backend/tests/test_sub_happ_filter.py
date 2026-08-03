@@ -73,7 +73,6 @@ def test_entitlement_renewal_after_expiry_serves_keys_again() -> None:
     assert _entitlement_active(_row(state_label="active", plan_id="1m", active_until_utc=_FUTURE), now=_NOW) is True
 
 
-
 def _server(label: str, surface: str = "default") -> VlessServerConfig:
     return VlessServerConfig(
         server_label=label,
