@@ -904,6 +904,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_CONFIRM_PAY,
                     CB_PAY_BALANCE,
                     CB_DO_PAY,
+                    CB_DO_PAY_CRYPTO,
                     CB_ADD_DEV_BALANCE,
                     CB_ADD_DEV,
                     CB_PROMO_AT,
@@ -917,6 +918,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_MAC_HAPP_STEP,
                     CB_ANDROID_HAPP_STEP,
                     "add_dev_pay:",
+                    "add_dev_pay_crypto:",
                     "remove_dev",
                 )
             )
@@ -2559,12 +2561,16 @@ async def _render_storefront_response(
         else:
             plan_id = rest
             device_count = DEVICES_DEFAULT
-        text, keyboard = await _process_cryptobot_payment(
-            composition,
-            uid,
-            plan_id=plan_id,
-            device_count=device_count,
-        )
+        try:
+            text, keyboard = await _process_cryptobot_payment(
+                composition,
+                uid,
+                plan_id=plan_id,
+                device_count=device_count,
+            )
+        except Exception:
+            _LOGGER.exception("cryptobot _process_cryptobot_payment failed plan=%s", plan_id)
+            text, keyboard = text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
     elif code.startswith(CB_PAY_BALANCE):
         rest = code[len(CB_PAY_BALANCE) :]

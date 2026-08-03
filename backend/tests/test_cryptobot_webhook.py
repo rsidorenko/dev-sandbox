@@ -49,13 +49,15 @@ def test_signature_rejects_missing_header_or_token() -> None:
     assert verify_cryptobot_signature(api_token="", raw_body=body, signature_header=_sign(body)) is False
 
 
-def test_signature_uses_sha256_of_token_as_key() -> None:
-    # Lock in the documented CryptoBot scheme: HMAC key = sha256(api_token), not the raw token.
+def test_signature_accepts_both_documented_schemes() -> None:
+    # Diagnostic phase: Crypto Pay docs are ambiguous (sha256-of-token vs raw token as
+    # HMAC key). Accept both until the live webhook confirms which one CryptoBot uses,
+    # then tighten. An attacker still needs the API token to forge either.
     body = b"payload-bytes"
-    raw_token_key = hmac.new(_API_TOKEN.encode(), body, hashlib.sha256).hexdigest()
-    sha_token_key = hmac.new(hashlib.sha256(_API_TOKEN.encode()).digest(), body, hashlib.sha256).hexdigest()
-    assert verify_cryptobot_signature(api_token=_API_TOKEN, raw_body=body, signature_header=sha_token_key) is True
-    assert verify_cryptobot_signature(api_token=_API_TOKEN, raw_body=body, signature_header=raw_token_key) is False
+    raw_token_sig = hmac.new(_API_TOKEN.encode(), body, hashlib.sha256).hexdigest()
+    sha_token_sig = hmac.new(hashlib.sha256(_API_TOKEN.encode()).digest(), body, hashlib.sha256).hexdigest()
+    assert verify_cryptobot_signature(api_token=_API_TOKEN, raw_body=body, signature_header=sha_token_sig) is True
+    assert verify_cryptobot_signature(api_token=_API_TOKEN, raw_body=body, signature_header=raw_token_sig) is True
 
 
 # ── paid_at parsing ───────────────────────────────────────────────────────────

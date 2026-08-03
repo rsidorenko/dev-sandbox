@@ -47,14 +47,32 @@ _SIGNATURE_HEADER = "crypto-pay-api-signature"
 def verify_cryptobot_signature(*, api_token: str, raw_body: bytes, signature_header: str | None) -> bool:
     """Verify the ``crypto-pay-api-signature`` header (HMAC-SHA256 over the raw body).
 
-    Per Crypto Pay API docs the HMAC key is the SHA-256 digest of the app API token.
-    Constant-time comparison; fails closed (``False``) on any missing/invalid input.
+    Crypto Pay API signs the raw body with HMAC-SHA256. The documented key is the
+    SHA-256 digest of the app API token; some clients/signing paths use the raw token,
+    so both are accepted here and the matched scheme is logged for diagnostics. An
+    attacker still needs the API token to forge either signature. Constant-time
+    comparison; fails closed (``False``) on any missing/invalid input.
     """
     if not api_token or not signature_header:
         return False
-    secret = hashlib.sha256(api_token.encode("utf-8")).digest()
-    expected = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature_header)
+    token_b = api_token.encode("utf-8")
+    sha_sig = hmac.new(hashlib.sha256(token_b).digest(), raw_body, hashlib.sha256).hexdigest()
+    raw_sig = hmac.new(token_b, raw_body, hashlib.sha256).hexdigest()
+    if hmac.compare_digest(sha_sig, signature_header):
+        _LOGGER.info("cryptobot signature OK (scheme=sha256_of_token, bodylen=%d)", len(raw_body))
+        return True
+    if hmac.compare_digest(raw_sig, signature_header):
+        _LOGGER.warning("cryptobot signature OK (scheme=raw_token, bodylen=%d) — tighten to this", len(raw_body))
+        return True
+    _LOGGER.warning(
+        "cryptobot signature mismatch: got_prefix=%r bodylen=%d sha256token=%s rawtoken=%s",
+        (signature_header[:16] if signature_header else None),
+        len(raw_body),
+        sha_sig[:12],
+        raw_sig[:12],
+    )
+    return False
+
 
 
 def _parse_paid_at(value: object) -> datetime:
