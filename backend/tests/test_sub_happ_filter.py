@@ -73,6 +73,22 @@ def test_entitlement_renewal_after_expiry_serves_keys_again() -> None:
     assert _entitlement_active(_row(state_label="active", plan_id="1m", active_until_utc=_FUTURE), now=_NOW) is True
 
 
+def test_entitlement_admin_grant_extends_trial_user() -> None:
+    """Admin-panel add-days grants active_until to an existing trial user while keeping
+    plan_id=NULL (it preserves the existing plan_id). So trial_expires_at is in the past
+    but active_until_utc is in the future. This user IS entitled (the grant gave them
+    days) — a plan_id-based "trial vs paid" check would wrongly block them because
+    plan_id is NULL and trial_expires is past."""
+    row = _row(state_label="active", plan_id=None, trial_expires_at=_PAST, active_until_utc=_FUTURE)
+    assert _entitlement_active(row, now=_NOW) is True
+
+
+def test_entitlement_both_expired_blocked() -> None:
+    """plan_id NULL, trial past, active_until past or NULL → not entitled (real expiry)."""
+    assert _entitlement_active(_row(plan_id=None, trial_expires_at=_PAST, active_until_utc=None), now=_NOW) is False
+    assert _entitlement_active(_row(plan_id=None, trial_expires_at=_PAST, active_until_utc=_PAST), now=_NOW) is False
+
+
 def _server(label: str, surface: str = "default") -> VlessServerConfig:
     return VlessServerConfig(
         server_label=label,

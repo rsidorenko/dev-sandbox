@@ -201,7 +201,8 @@ class NotificationScheduler:
                AND s.trial_expires_at IS NOT NULL
                AND s.trial_expires_at <= NOW()
                AND s.plan_id IS NULL
-               AND s.keys_deactivated_at IS NULL""",
+               AND s.keys_deactivated_at IS NULL
+               AND (s.active_until_utc IS NULL OR s.active_until_utc <= NOW())""",
         )
         for row in rows:
             uid = row["internal_user_id"]

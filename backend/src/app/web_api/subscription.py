@@ -106,22 +106,21 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
 
 def _entitlement_active(row, *, now: datetime) -> bool:
     """Whether a ``user_identities`` ⋈ ``subscription_snapshots`` row should be served
-    keys right now: ``state_label='active'``, keys not yet purged, and the trial /
-    subscription hasn't passed its timestamp.
+    keys right now: ``state_label='active'``, keys not yet purged, and the trial OR a
+    paid subscription is currently within its window.
 
-    Mirrors ``XuiVlessProvider.reconcile_bare_xray``'s desired-set, so /sub/ and the
-    reconcile agree on who gets keys. Renewal flips the snapshot back to
-    ``state_label='active'`` with a future ``active_until_utc`` (see the billing apply),
-    so a previously-expired user is entitled again the moment they renew — the gate
-    re-checks the DB on every request, no stale caching of the 403.
+    Entitled if EITHER ``trial_expires_at`` OR ``active_until_utc`` is in the future —
+    we do NOT branch on ``plan_id``. The admin-panel add-days grant extends
+    ``active_until_utc`` of an existing user while preserving their ``plan_id`` (NULL for
+    an ex-trial user), so a plan_id-based "trial vs paid" split would block a granted
+    user whose old ``trial_expires_at`` has passed. Mirrors
+    ``XuiVlessProvider.reconcile_bare_xray``'s desired-set, so /sub/ and reconcile agree.
     """
     if row.get("state_label") != "active" or row.get("keys_deleted_at") is not None:
         return False
-    if row.get("plan_id") is None:  # trial
-        exp = row.get("trial_expires_at")
-        return exp is None or exp > now
-    exp = row.get("active_until_utc")  # paid subscription
-    return exp is None or exp > now
+    trial_ok = row.get("trial_expires_at") is not None and row["trial_expires_at"] > now
+    sub_ok = row.get("active_until_utc") is not None and row["active_until_utc"] > now
+    return trial_ok or sub_ok
 
 
 def _select_servers_for_client(

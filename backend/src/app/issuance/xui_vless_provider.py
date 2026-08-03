@@ -961,9 +961,8 @@ class XuiVlessProvider(VlessProviderPort):
                WHERE s.keys_deleted_at IS NULL
                  AND s.state_label = 'active'
                  AND (
-                   (s.plan_id IS NULL AND (s.trial_expires_at IS NULL OR s.trial_expires_at > NOW()))
-                   OR
-                   (s.plan_id IS NOT NULL AND (s.active_until_utc IS NULL OR s.active_until_utc > NOW()))
+                   (s.trial_expires_at IS NOT NULL AND s.trial_expires_at > NOW())
+                   OR (s.active_until_utc IS NOT NULL AND s.active_until_utc > NOW())
                  )"""
         )
         user_ids = [u["internal_user_id"] for u in users]
