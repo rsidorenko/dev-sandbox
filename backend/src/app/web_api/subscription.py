@@ -68,13 +68,24 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
         )
 
     row = await pool.fetchrow(
-        "SELECT internal_user_id, subscription_token_expires_at FROM user_identities WHERE subscription_token = $1",
+        """SELECT i.internal_user_id, i.subscription_token_expires_at,
+                  s.state_label, s.plan_id, s.trial_expires_at, s.active_until_utc, s.keys_deleted_at
+           FROM user_identities i
+           LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+           WHERE i.subscription_token = $1""",
         token,
     )
     if row is None:
         return PlainTextResponse("not found", status_code=404)
     if row.get("subscription_token_expires_at") and row["subscription_token_expires_at"] < datetime.now(UTC):
         return PlainTextResponse("token expired", status_code=410)
+    # Entitlement gate: serve keys only while the subscription/trial is currently valid.
+    # bare_xray links are built deterministically (no panel probe), so without this gate
+    # /sub/ keeps handing keys to expired users even after reconcile removed them from
+    # the inbounds — the keys are dead but the app still imports them. Mirrors the
+    # reconcile_bare_xray desired-set so /sub/ and reconcile agree on who gets keys.
+    if not _entitlement_active(row, now=datetime.now(UTC)):
+        return PlainTextResponse("subscription expired", status_code=403)
 
     provider = request.app.state.vless_provider
 
@@ -91,6 +102,26 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     links = "\n".join(s.vless_link for s in servers)
     encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
     return PlainTextResponse(encoded, media_type="text/plain")
+
+
+def _entitlement_active(row, *, now: datetime) -> bool:
+    """Whether a ``user_identities`` ⋈ ``subscription_snapshots`` row should be served
+    keys right now: ``state_label='active'``, keys not yet purged, and the trial /
+    subscription hasn't passed its timestamp.
+
+    Mirrors ``XuiVlessProvider.reconcile_bare_xray``'s desired-set, so /sub/ and the
+    reconcile agree on who gets keys. Renewal flips the snapshot back to
+    ``state_label='active'`` with a future ``active_until_utc`` (see the billing apply),
+    so a previously-expired user is entitled again the moment they renew — the gate
+    re-checks the DB on every request, no stale caching of the 403.
+    """
+    if row.get("state_label") != "active" or row.get("keys_deleted_at") is not None:
+        return False
+    if row.get("plan_id") is None:  # trial
+        exp = row.get("trial_expires_at")
+        return exp is None or exp > now
+    exp = row.get("active_until_utc")  # paid subscription
+    return exp is None or exp > now
 
 
 def _select_servers_for_client(

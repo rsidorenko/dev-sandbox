@@ -1,7 +1,9 @@
 """Tests for the Happ/Karing subscription split: UA-aware server selection in /sub/
-and the provider's bare_xray (Cloud.ru) link builder."""
+and the provider's bare_xray (Cloud.ru) link builder, plus the /sub/ entitlement gate."""
 
 from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
 
 from app.issuance.vless_provider import VlessServerConfig
 from app.issuance.xui_client import XuiServerConfig
@@ -10,7 +12,66 @@ from app.issuance.xui_vless_provider import (
     _build_vless_link,
     _vless_uuid_for_transport,
 )
-from app.web_api.subscription import _select_servers_for_client
+from app.web_api.subscription import _entitlement_active, _select_servers_for_client
+
+_NOW = datetime(2026, 8, 3, 12, tzinfo=UTC)
+_FUTURE = _NOW + timedelta(days=10)
+_PAST = _NOW - timedelta(days=1)
+
+
+def _row(**overrides) -> dict:
+    base = {
+        "state_label": "active",
+        "plan_id": None,
+        "trial_expires_at": None,
+        "active_until_utc": None,
+        "keys_deleted_at": None,
+    }
+    base.update(overrides)
+    return base
+
+
+# ---------------------------------------------------------------------------
+# _entitlement_active — /sub/ serves keys only to currently-valid subscriptions
+# ---------------------------------------------------------------------------
+
+
+def test_entitlement_active_trial_valid() -> None:
+    assert _entitlement_active(_row(plan_id=None, trial_expires_at=_FUTURE), now=_NOW) is True
+
+
+def test_entitlement_active_paid_valid() -> None:
+    assert _entitlement_active(_row(plan_id="1m", active_until_utc=_FUTURE), now=_NOW) is True
+
+
+def test_entitlement_expired_trial_blocked() -> None:
+    assert _entitlement_active(_row(plan_id=None, trial_expires_at=_PAST), now=_NOW) is False
+
+
+def test_entitlement_expired_paid_blocked() -> None:
+    assert _entitlement_active(_row(plan_id="1m", active_until_utc=_PAST), now=_NOW) is False
+
+
+def test_entitlement_expired_state_blocked_even_with_future_ts() -> None:
+    """state_label='expired' wins — a flipped state blocks /sub/ even if a timestamp
+    is oddly in the future (defensive; reconcile/remove already happened on expiry)."""
+    assert _entitlement_active(_row(state_label="expired", plan_id="1m", active_until_utc=_FUTURE), now=_NOW) is False
+
+
+def test_entitlement_keys_deleted_blocked() -> None:
+    assert _entitlement_active(_row(plan_id="1m", active_until_utc=_FUTURE, keys_deleted_at=_NOW), now=_NOW) is False
+
+
+def test_entitlement_renewal_after_expiry_serves_keys_again() -> None:
+    """Renewal flips the snapshot back to state='active' with a future active_until
+    (fulfillment sets both in one transaction right after the UC-05 apply that would
+    otherwise clobber them). A previously-expired user is entitled again on renewal —
+    the gate re-checks the DB every request, no stale 403."""
+    # before renewal: expired, blocked
+    assert _entitlement_active(_row(state_label="expired", plan_id="1m", active_until_utc=_PAST), now=_NOW) is False
+    # after renewal: active + future — keys served again
+    assert _entitlement_active(_row(state_label="active", plan_id="1m", active_until_utc=_FUTURE), now=_NOW) is True
+
 
 
 def _server(label: str, surface: str = "default") -> VlessServerConfig:
