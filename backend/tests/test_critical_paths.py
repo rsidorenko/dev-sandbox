@@ -467,8 +467,20 @@ def test_subscription_endpoint_no_expiry_check():
             )
 
     pool = _FakePool()
-    # Token exists but with expired date — endpoint should still serve
-    pool.set_fetch_result("subscription_token", [_Record(internal_user_id="u1")])
+    # Token exists; user has a valid active-trial entitlement so the /sub/ gate serves keys.
+    pool.set_fetch_result(
+        "subscription_token",
+        [
+            _Record(
+                internal_user_id="u1",
+                state_label="active",
+                plan_id=None,
+                trial_expires_at=datetime.now(UTC) + timedelta(days=1),
+                active_until_utc=None,
+                keys_deleted_at=None,
+            )
+        ],
+    )
 
     app = Starlette(routes=[Route("/sub/{token}", handle_subscription, methods=["GET"])])
     app.state.pool = pool
