@@ -74,7 +74,6 @@ def verify_cryptobot_signature(*, api_token: str, raw_body: bytes, signature_hea
     return False
 
 
-
 def _parse_paid_at(value: object) -> datetime:
     if not isinstance(value, str) or not value:
         return datetime.now(UTC)
