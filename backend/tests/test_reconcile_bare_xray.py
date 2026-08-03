@@ -25,8 +25,10 @@ class _FakePool:
 
     def __init__(self, users):
         self._users = users
+        self.last_fetch_sql = ""
 
     async def fetch(self, sql, *args):
+        self.last_fetch_sql = sql
         return self._users
 
     async def fetchrow(self, sql, *args):
@@ -154,6 +156,26 @@ def test_no_bare_xray_clients_returns_clean_summary():
         "removed": 0,
         "failed_inbounds": 0,
     }
+
+
+def test_reconcile_bare_xray_desired_set_excludes_expired_users():
+    """Regression (trial/subscription expiry leak): the desired-set query must NOT
+    include expired users. bare_xray is raw xray — a client is either present (carries
+    traffic) or removed, there is no 'disabled' state — so an expired user kept in the
+    desired set is re-added every ~3 min right after revoke_user removes them on expiry,
+    and an expired trial/subscription keeps working indefinitely. The query must require
+    state='active' AND a not-yet-expired entitlement timestamp (so reconcile enforces
+    expiry on its own ~3-min cadence, not only after the hourly scheduler flips state)."""
+    pool = _FakePool([{"internal_user_id": "u1"}])
+    client = _FakeBareXrayClient(server_id=2, tag="cloudru-tcp", transport="tcp", present=[])
+    p = _provider(pool, [client])
+    _run(p.reconcile_bare_xray())
+
+    sql = pool.last_fetch_sql.lower()
+    assert "expired" not in sql  # expired users must NOT be in the desired set
+    assert "state_label = 'active'" in sql
+    assert "trial_expires_at" in sql and "active_until_utc" in sql  # entitlement-timestamp guard
+    assert "now()" in sql
 
 
 def test_reconcile_all_users_provisions_bare_xray_with_no_xui_panels():

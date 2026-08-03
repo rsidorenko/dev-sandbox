@@ -927,10 +927,20 @@ class XuiVlessProvider(VlessProviderPort):
 
         For each bare_xray server (raw xray box managed via xray's gRPC
         ``HandlerService``), makes the live client list equal the desired set of
-        active + expired-in-grace users (keys not yet purged): adds missing clients
-        and removes orphans. Uses ``AlterInbound`` over gRPC, which is
+        users whose entitlement is currently valid (``state_label='active'`` and
+        trial/subscription not yet past its timestamp): adds missing clients and
+        removes orphans. Uses ``AlterInbound`` over gRPC, which is
         **non-disruptive** — it never restarts xray and never drops existing
         connections, so this is safe to run on a fast timer (~minutes).
+
+        Unlike the 3x-ui reconcile (which keeps expired-in-grace users present but
+        ``enable=False``), bare_xray is raw xray — a client is either present (carries
+        traffic) or removed; there is no "disabled" state. So expired users MUST be
+        absent from the desired set, otherwise this reconcile re-adds them every ~3 min
+        right after ``revoke_user`` removes them on expiry — and an expired trial or
+        subscription keeps working indefinitely. ``keys_deleted_at IS NULL`` keeps
+        never-purged users in scope for orphan accounting; the ``state_label='active'``
+        + timestamp guard is what excludes the expired ones.
 
         Resilient: a hard failure on one inbound (unexpected raise) skips only that
         inbound and logs; the rest of the pass still completes. An empty live list is
@@ -945,11 +955,16 @@ class XuiVlessProvider(VlessProviderPort):
              "inbounds": {<id/tag>: {present, desired, added, removed, status}}}
         """
         users = await self._pool.fetch(
-            "SELECT i.internal_user_id "
-            "FROM user_identities i "
-            "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-            "WHERE s.state_label IN ('active', 'expired') "
-            "  AND s.keys_deleted_at IS NULL"
+            """SELECT i.internal_user_id
+               FROM user_identities i
+               JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+               WHERE s.keys_deleted_at IS NULL
+                 AND s.state_label = 'active'
+                 AND (
+                   (s.plan_id IS NULL AND (s.trial_expires_at IS NULL OR s.trial_expires_at > NOW()))
+                   OR
+                   (s.plan_id IS NOT NULL AND (s.active_until_utc IS NULL OR s.active_until_utc > NOW()))
+                 )"""
         )
         user_ids = [u["internal_user_id"] for u in users]
 
