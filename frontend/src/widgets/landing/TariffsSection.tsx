@@ -166,7 +166,7 @@ function TariffCard({ tariff, applied }: { tariff: Tariff; applied: AppliedPromo
             <Check /> Шифрование соединения
           </li>
           <li className="flex items-center gap-2">
-            <Check /> Доступ к сервисам без ограничений
+            <Check /> Защита трафика в публичных сетях
           </li>
           <li className="flex items-center gap-2">
             <Check /> До {DEFAULT_DEVICES} устройств

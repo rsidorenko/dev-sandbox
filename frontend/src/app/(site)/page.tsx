@@ -1,9 +1,9 @@
 import { siteConfig } from "@/shared/config/site";
 import { HeroSection } from "@/widgets/landing/HeroSection";
+import { TrustBar } from "@/widgets/landing/TrustBar";
 import { FeaturesSection } from "@/widgets/landing/FeaturesSection";
 import { HowItWorks } from "@/widgets/landing/HowItWorks";
 import { TariffsSection } from "@/widgets/landing/TariffsSection";
-import { DeliverySection } from "@/widgets/landing/DeliverySection";
 import { FaqSection } from "@/widgets/landing/FaqSection";
 import { ReferralSection } from "@/widgets/landing/ReferralSection";
 import { CtaSection } from "@/widgets/landing/CtaSection";
@@ -12,11 +12,11 @@ export default function HomePage() {
   return (
     <>
       <HeroSection />
+      <TrustBar />
       <FeaturesSection />
       <HowItWorks steps={siteConfig.howItWorks} />
       <TariffsSection />
       <ReferralSection />
-      <DeliverySection />
       <FaqSection faq={siteConfig.faq} />
       <CtaSection />
     </>
