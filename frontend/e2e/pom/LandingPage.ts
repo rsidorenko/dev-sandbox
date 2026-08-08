@@ -9,7 +9,7 @@ export class LandingPage {
   }
 
   heroHeading(): Locator {
-    return this.page.getByRole("heading", { name: /Свободный интернет/ });
+    return this.page.getByRole("heading", { name: /Защищённое соединение/ });
   }
 
   /** Кнопка-таб тарифа (по части подписи, устойчиво к бейджам «−N%»/«Лучшая цена»). */
