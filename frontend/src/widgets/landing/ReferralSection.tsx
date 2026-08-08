@@ -6,9 +6,9 @@ import { Reveal } from "@/shared/ui/Reveal";
 
 /**
  * Секция реферальной программы на лендинге.
- * Программа реализована в боте/ЛК (features/subscription/SubscriptionCard.tsx);
- * входящие ?ref= обрабатываются в shared/lib/referralCapture.tsx.
- * Условия: L1 — до 35% с оплат приглашённого, L2 — до 5% с оплат его друзей.
+ * Ведущий оффер — «бесплатный месяц за друга» (+30 дней за каждого оплатившего друга,
+ * тариф от 1 месяца); кешбэк L1/L2 — дополнительная выгода.
+ * Программа реализована в боте/ЛК (features/referral/ReferralCard.tsx).
  */
 export function ReferralSection() {
   return (
@@ -17,24 +17,30 @@ export function ReferralSection() {
         <Reveal>
         <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 to-brand-900 px-6 py-12 text-center text-white shadow-lg sm:px-12">
           <h2 className="text-3xl font-bold tracking-tight">
-            Приведи друга — получай до 35%
+            Приведи друга — получи месяц бесплатно
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-brand-100">
-            Поделитесь личной ссылкой. Вы зарабатываете с каждой оплаты друга —
-            и продолжаете зарабатывать, когда он приглашает своих.
+            За каждого друга, который оплатит подписку от 1 месяца, вы получаете{" "}
+            <b className="text-white">+30 дней</b> к своей подписке. Плюс кешбэк с оплат друзей.
           </p>
 
-          <div className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
+          <div className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl bg-white/15 p-6 text-left ring-2 ring-white/40">
+              <p className="text-3xl font-extrabold text-white">🎁 +30 дней</p>
+              <p className="mt-1 text-sm text-brand-100">
+                за каждого оплатившего друга (от 1 месяца)
+              </p>
+            </div>
             <div className="rounded-2xl bg-white/10 p-6 text-left">
               <p className="text-3xl font-extrabold text-brand-300">до 35%</p>
               <p className="mt-1 text-sm text-brand-100">
-                с каждой оплаты приглашённого вами друга (1-й уровень)
+                кешбэк с оплат приглашённого (1-й уровень)
               </p>
             </div>
             <div className="rounded-2xl bg-white/10 p-6 text-left">
               <p className="text-3xl font-extrabold text-brand-300">до 5%</p>
               <p className="mt-1 text-sm text-brand-100">
-                с оплат тех, кого пригласил ваш друг (2-й уровень)
+                кешбэк с оплат друзей друга (2-й уровень)
               </p>
             </div>
           </div>
@@ -45,10 +51,10 @@ export function ReferralSection() {
               onClick={() => reachGoal("referral_open")}
               className="inline-block rounded-xl bg-white px-8 py-3.5 text-sm font-bold text-brand-800 shadow-lg transition hover:bg-brand-50"
             >
-              Открыть реферальную программу
+              Получить реферальную ссылку
             </Link>
             <p className="mt-3 text-xs text-brand-200">
-              Накопленный баланс можно потратить на оплату подписки
+              Подаренные дни и кешбэк зачисляются автоматически
             </p>
           </div>
         </div>

@@ -36,6 +36,7 @@ export interface ReferralStats {
     level1: ReferralLevelStats;
     level2: ReferralLevelStats;
     total_earned_rubles: number;
+    bonus_days_awarded: number;
   };
   recent_transactions: ReferralTransaction[];
 }

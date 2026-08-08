@@ -133,6 +133,22 @@ export function ReferralCard() {
         Реферальная программа
       </h2>
 
+      {/* Free month per friend — leading offer + counter */}
+      <div className="mt-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-100/60 p-4 dark:from-amber-950/30 dark:to-orange-900/20">
+        <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+          🎁 Бесплатный месяц за друга
+        </p>
+        <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
+          +30 дней за каждого друга, который оплатит подписку от 1 месяца. Бонус суммируется с кешбеком.
+        </p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Подарено дней за друзей:{" "}
+          <span className="font-semibold text-amber-700 dark:text-amber-400">
+            {stats.bonus_days_awarded}
+          </span>
+        </p>
+      </div>
+
       {/* Balance + total earned */}
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-gradient-to-br from-brand-50 to-brand-100/50 p-4 text-center dark:from-brand-950/30 dark:to-brand-900/20">

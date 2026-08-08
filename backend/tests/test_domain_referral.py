@@ -4,9 +4,13 @@ from datetime import UTC, datetime
 
 from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.domain.referral import (
+    REFERRAL_BONUS_DAYS,
+    REFERRAL_BONUS_LEVEL,
+    REFERRAL_BONUS_QUALIFYING_PLANS,
     ReferralCommission,
     build_commissions_for_payment,
     calculate_commission_kopecks,
+    is_qualifying_plan_for_bonus,
     level1_commission_rate,
     level2_commission_rate,
     resolve_direct_and_indirect_referrers,
@@ -14,11 +18,12 @@ from app.domain.referral import (
 )
 from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
+    InMemoryReferralBonusAwardRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
     InMemoryReferralTransactionRepository,
 )
-from app.persistence.referral_contracts import ReferralTransactionRecord
+from app.persistence.referral_contracts import ReferralBonusAwardRecord, ReferralTransactionRecord
 from app.shared.test_helpers import run_async as _run
 
 
@@ -325,6 +330,7 @@ def test_get_referral_info_direct_count_is_invited_not_referrers() -> None:
             balance_repo=bal_repo,
             relationship_repo=rel_repo,
             transaction_repo=tx_repo,
+            bonus_repo=InMemoryReferralBonusAwardRepository(),
             bot_username="bot",
             site_base_url="https://site.example",
         )
@@ -380,11 +386,73 @@ def test_get_referral_info_l2_invited_and_total_earned() -> None:
             balance_repo=bal_repo,
             relationship_repo=rel_repo,
             transaction_repo=tx_repo,
+            bonus_repo=InMemoryReferralBonusAwardRepository(),
             bot_username="bot",
             site_base_url="https://site.example",
         )
         assert info.l1_invited == 1
         assert info.l2_invited == 1
         assert info.total_earned_rubles == 99.15
+
+    _run(main())
+
+
+# --- 'Free month per friend' bonus: qualifying gate + idempotent award ledger ---
+
+
+def test_bonus_constants() -> None:
+    assert REFERRAL_BONUS_DAYS == 30
+    assert REFERRAL_BONUS_LEVEL == 1
+    assert REFERRAL_BONUS_QUALIFYING_PLANS == frozenset({"1m", "3m", "6m", "365d"})
+
+
+def test_is_qualifying_plan_for_bonus() -> None:
+    # Only plans >= 1 month qualify (avoids 1-day/12₽ abuse → 30 free days).
+    for plan in ("1m", "3m", "6m", "365d"):
+        assert is_qualifying_plan_for_bonus(plan) is True
+    for plan in ("1d", "7d", "14d"):
+        assert is_qualifying_plan_for_bonus(plan) is False
+    # Unknown / custom plans do not qualify.
+    assert is_qualifying_plan_for_bonus("custom:30") is False
+    assert is_qualifying_plan_for_bonus("nonsense") is False
+
+
+def _bonus_record(*, referrer: str, payer: str) -> ReferralBonusAwardRecord:
+    return ReferralBonusAwardRecord(
+        award_id=f"award-{payer}",
+        referrer_user_id=referrer,
+        payer_user_id=payer,
+        level=REFERRAL_BONUS_LEVEL,
+        days_awarded=REFERRAL_BONUS_DAYS,
+        related_plan_id="1m",
+        correlation_id="cid",
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_bonus_award_idempotent_once_per_friend() -> None:
+    async def main() -> None:
+        repo = InMemoryReferralBonusAwardRepository()
+        # First qualifying payment by friend → award granted.
+        assert await repo.award_if_absent(_bonus_record(referrer="ref", payer="friend")) is True
+        # Same friend pays again → idempotent no-op (UNIQUE referrer+payer).
+        assert await repo.award_if_absent(_bonus_record(referrer="ref", payer="friend")) is False
+        # A different friend → separate award.
+        assert await repo.award_if_absent(_bonus_record(referrer="ref", payer="friend2")) is True
+
+    _run(main())
+
+
+def test_bonus_sum_awarded_days() -> None:
+    async def main() -> None:
+        repo = InMemoryReferralBonusAwardRepository()
+        assert await repo.sum_awarded_days("ref") == 0
+        await repo.award_if_absent(_bonus_record(referrer="ref", payer="f1"))
+        await repo.award_if_absent(_bonus_record(referrer="ref", payer="f2"))
+        await repo.award_if_absent(_bonus_record(referrer="ref", payer="f1"))  # dup → ignored
+        # 2 distinct friends × 30 days = 60.
+        assert await repo.sum_awarded_days("ref") == 60
+        # Isolated per referrer.
+        assert await repo.sum_awarded_days("other") == 0
 
     _run(main())
