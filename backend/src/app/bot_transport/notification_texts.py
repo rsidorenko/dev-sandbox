@@ -10,6 +10,7 @@ from typing import Any
 from app.bot_transport.storefront_ui import (
     CB_BUY_VPN,
     CB_MAIN_MENU,
+    CB_REFERRAL,
     _inline_kb,
 )
 
@@ -89,4 +90,28 @@ def text_keys_deleted() -> tuple[str, dict[str, Any]]:
             [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ]
     )
+    return text, keyboard
+
+
+def text_referral_offer_trial() -> tuple[str, dict[str, Any]]:
+    """Реферальный оффер после оформления триала (once-ever)."""
+    text = (
+        "🎁 Пока вы пробуете Bravada\n\n"
+        "Получите **бесплатный месяц** за каждого друга, который оформит подписку от 1 месяца.\n"
+        "1 друг = **+30 дней** к вашей подписке.\n\n"
+        "Нажмите кнопку ниже, чтобы получить свою ссылку:"
+    )
+    keyboard = _inline_kb([[{"text": "🎁 Получить реферальную ссылку", "callback_data": CB_REFERRAL}]])
+    return text, keyboard
+
+
+def text_referral_offer_paid() -> tuple[str, dict[str, Any]]:
+    """Реферальный оффер после первой оплаты (once-ever). Другой текст — не повтор trial-оффера."""
+    text = (
+        "🎁 Спасибо за подписку!\n\n"
+        "Пригласите друга — и получите **бесплатный месяц** за его подписку от 1 месяца.\n"
+        "1 друг = **+30 дней** к вашей подписке.\n\n"
+        "Нажмите кнопку ниже, чтобы получить свою ссылку:"
+    )
+    keyboard = _inline_kb([[{"text": "🎁 Получить реферальную ссылку", "callback_data": CB_REFERRAL}]])
     return text, keyboard

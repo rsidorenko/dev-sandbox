@@ -22,6 +22,8 @@ import httpx
 
 from app.bot_transport.notification_texts import (
     text_keys_deleted,
+    text_referral_offer_paid,
+    text_referral_offer_trial,
     text_subscription_expired,
     text_subscription_expiring,
     text_trial_expired,
@@ -35,6 +37,15 @@ _CHECK_INTERVAL_SECONDS = int(os.environ.get("NOTIFICATION_CHECK_INTERVAL_SECOND
 _EXPIRY_WARNING_HOURS = int(os.environ.get("NOTIFICATION_EXPIRY_WARNING_HOURS", "72"))
 _GRACE_PERIOD_DAYS = int(os.environ.get("NOTIFICATION_GRACE_PERIOD_DAYS", "20"))
 _ADVISORY_LOCK_ID = 20260608
+# Окно «недавней активации» для реферального оффера: 25 ч > 24 ч каденции тиков,
+# чтобы каждого недавно активировавшего пользователя (триал или оплата) поймал хотя бы один тик.
+_REFERRAL_OFFER_RECENT_HOURS = 25
+
+
+def _referral_offer_enabled(env_getter=os.environ.get) -> bool:
+    """Referral offer push kill-switch. Default ON (empty/missing → True); explicit false-y → OFF."""
+    raw = (env_getter("REFERRAL_OFFER_ENABLE") or "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 class NotificationScheduler:
@@ -102,6 +113,9 @@ class NotificationScheduler:
         await self._check_subscription_expiring(now)
         await self._check_subscription_expired(now)
         await self._check_keys_grace_period_expired(now)
+        if _referral_offer_enabled():
+            await self._check_referral_offer_trial(now)
+            await self._check_referral_offer_paid(now)
 
     async def _send_notification(
         self,
@@ -324,6 +338,77 @@ class NotificationScheduler:
                 text=text,
                 keyboard=keyboard,
             )
+
+    async def _check_referral_offer_trial(self, now: datetime) -> None:
+        """Recent TRIAL activations: send the referral offer once per user (once-ever via NOT EXISTS).
+
+        Window = _REFERRAL_OFFER_RECENT_HOURS (>1 tick cadence) so each freshly-activated trial user is
+        caught by at least one hourly tick. Web-only users (no positive telegram_user_id) are filtered out."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id
+                FROM subscription_snapshots s
+                JOIN user_identities u ON u.internal_user_id = s.internal_user_id
+                WHERE s.state_label = 'active'
+                AND s.plan_id IS NULL
+                AND s.trial_expires_at IS NOT NULL
+                AND s.updated_at > NOW() - make_interval(hours => $1)
+                AND u.telegram_user_id > 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM notification_log nl
+                    WHERE nl.internal_user_id = s.internal_user_id
+                    AND nl.notification_type = 'referral_offer_trial'
+                )""",
+            _REFERRAL_OFFER_RECENT_HOURS,
+        )
+        if not rows:
+            return
+        text, keyboard = text_referral_offer_trial()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="referral_offer_trial",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
+
+    async def _check_referral_offer_paid(self, now: datetime) -> None:
+        """Recent PAID activations (first payment or renewal): send the referral offer once per user.
+
+        Different text from the trial offer, so a trial→paid user gets TWO distinct pushes, never a repeat.
+        Once-ever via NOT EXISTS (renewal/reactivation won't re-send)."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id
+                FROM subscription_snapshots s
+                JOIN user_identities u ON u.internal_user_id = s.internal_user_id
+                WHERE s.state_label = 'active'
+                AND s.plan_id IS NOT NULL
+                AND s.updated_at > NOW() - make_interval(hours => $1)
+                AND u.telegram_user_id > 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM notification_log nl
+                    WHERE nl.internal_user_id = s.internal_user_id
+                    AND nl.notification_type = 'referral_offer_paid'
+                )""",
+            _REFERRAL_OFFER_RECENT_HOURS,
+        )
+        if not rows:
+            return
+        text, keyboard = text_referral_offer_paid()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="referral_offer_paid",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
 
 
 def start_notification_scheduler(
