@@ -29,6 +29,7 @@ function statsPayload(overrides: Partial<ReferralStatsResponse["referral"]> = {}
         level1: { invited: 2, paid: 1 },
         level2: { invited: 1, paid: 0 },
         total_earned_rubles: 137.15,
+        bonus_days_awarded: 30,
       },
       // recent_transactions is still returned by the stats endpoint, but the card renders
       // the extended history from getTransactions() instead. Kept type-correct here.
@@ -110,6 +111,7 @@ describe("ReferralCard", () => {
           level1: { invited: 0, paid: 0 },
           level2: { invited: 0, paid: 0 },
           total_earned_rubles: 0,
+          bonus_days_awarded: 0,
         },
       }),
     });
