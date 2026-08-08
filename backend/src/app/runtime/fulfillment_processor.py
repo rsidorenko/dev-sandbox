@@ -371,6 +371,129 @@ async def _notify_referrers_of_commission_best_effort(
             continue
 
 
+@dataclass(frozen=True, slots=True)
+class BonusAward:
+    """A 'free month per friend' bonus actually granted: the direct (L1) referrer earned
+    +REFERRAL_BONUS_DAYS because this payer made a first qualifying (>= 1 month) payment.
+    Distinct from cashback — both rewards apply on the same payment."""
+
+    referrer_internal_user_id: str
+    payer_internal_user_id: str
+    days_awarded: int
+
+
+async def award_referral_bonus_month_best_effort(
+    *,
+    pool: asyncpg.Pool,
+    vless_provider: Any | None,
+    payer_internal_user_id: str,
+    plan_id: str,
+    correlation_id: str,
+) -> BonusAward | None:
+    """Grant the 'free month per friend' bonus to the payer's DIRECT (L1) referrer on the friend's
+    FIRST qualifying payment (plan >= 1 month: 1m/3m/6m/365d). Idempotent once per (referrer, payer)
+    via referral_bonus_awards UNIQUE. Returns the award if newly granted (→ notify), else None.
+
+    Coexists with the L1/L2 percent cashback (credited separately in
+    _process_referral_commissions_best_effort). Best-effort: any error is swallowed and None
+    returned so fulfillment never breaks; a failed grant after a recorded award is a logged
+    incident (operator can manually add days via the admin tool)."""
+    try:
+        from datetime import UTC, datetime
+
+        from app.application.subscription_grant import grant_subscription_days
+        from app.domain.referral import (
+            REFERRAL_BONUS_DAYS,
+            REFERRAL_BONUS_LEVEL,
+            is_qualifying_plan_for_bonus,
+            resolve_direct_and_indirect_referrers,
+        )
+        from app.persistence.postgres_referral import (
+            PostgresReferralBonusAwardRepository,
+            PostgresReferralRelationshipRepository,
+        )
+        from app.persistence.referral_contracts import ReferralBonusAwardRecord
+
+        if not is_qualifying_plan_for_bonus(plan_id):
+            return None
+
+        direct_referrer, _indirect = resolve_direct_and_indirect_referrers(
+            await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id),
+        )
+        if direct_referrer is None or direct_referrer == payer_internal_user_id:
+            return None
+
+        # Idempotency gate: UNIQUE (referrer, payer) — at most one bonus per friend.
+        inserted = await PostgresReferralBonusAwardRepository(pool).award_if_absent(
+            ReferralBonusAwardRecord(
+                award_id=f"bonus-{uuid.uuid4()}",
+                referrer_user_id=direct_referrer,
+                payer_user_id=payer_internal_user_id,
+                level=REFERRAL_BONUS_LEVEL,
+                days_awarded=REFERRAL_BONUS_DAYS,
+                related_plan_id=plan_id,
+                correlation_id=correlation_id,
+                created_at=datetime.now(UTC),
+            )
+        )
+        if not inserted:
+            return None  # already awarded for this (referrer, payer) — idempotent no-op.
+
+        # Grant the days (extend/create subscription + VLESS re-provisioning + audit, actor=referral_bonus).
+        await grant_subscription_days(
+            pool=pool,
+            vless_provider=vless_provider,
+            internal_user_id=direct_referrer,
+            days=REFERRAL_BONUS_DAYS,
+            actor="referral_bonus",
+            correlation_id=correlation_id,
+        )
+        return BonusAward(
+            referrer_internal_user_id=direct_referrer,
+            payer_internal_user_id=payer_internal_user_id,
+            days_awarded=REFERRAL_BONUS_DAYS,
+        )
+    except Exception:
+        _LOGGER.exception(
+            "referral bonus month award failed (best-effort); payer=%s cid=%s",
+            payer_internal_user_id[:8],
+            correlation_id,
+        )
+        return None
+
+
+async def _notify_referrer_of_bonus_best_effort(
+    *,
+    notifier: FulfillmentActivationTelegramNotifier,
+    bonus: BonusAward,
+    correlation_id: str,
+) -> None:
+    """Best-effort: tell the referrer they earned a free month. Skips web users (no Telegram chat)."""
+    try:
+        tg_id = telegram_user_id_from_internal(bonus.referrer_internal_user_id)
+        if tg_id is None or tg_id <= 0:
+            return
+        text = (
+            "🎁 Реферальная программа\n\n"
+            "Ваш друг оплатил подписку — вам начислен бесплатный месяц!\n"
+            f"+{bonus.days_awarded} дней к вашей подписке.\n\n"
+            "Продолжайте делиться ссылкой — за каждого оплатившего друга вы получаете месяц бесплатно."
+        )
+        await notifier.send_subscription_activated_notice(
+            telegram_user_id=tg_id,
+            text=text,
+            reply_markup=None,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        _LOGGER.debug(
+            "referrer bonus notice failed (best-effort); referrer=%s cid=%s",
+            bonus.referrer_internal_user_id,
+            correlation_id,
+            exc_info=True,
+        )
+
+
 async def process_fulfillment(
     *,
     pool: asyncpg.Pool,
@@ -508,6 +631,21 @@ async def process_fulfillment(
                     pool=pool,
                     notifier=notify_activation,
                     credited=credited,
+                    correlation_id=correlation_id,
+                )
+            # 'Free month per friend': +30 days to the direct referrer on the friend's first
+            # qualifying (>= 1 month) payment. Coexists with the cashback above. Idempotent.
+            bonus = await award_referral_bonus_month_best_effort(
+                pool=pool,
+                vless_provider=vless_provider,
+                payer_internal_user_id=inp.internal_user_id,
+                plan_id=_plan_id_from_period_days(inp.period_days),
+                correlation_id=correlation_id,
+            )
+            if bonus is not None and notify_activation is not None:
+                await _notify_referrer_of_bonus_best_effort(
+                    notifier=notify_activation,
+                    bonus=bonus,
                     correlation_id=correlation_id,
                 )
         if should_ensure_vless:

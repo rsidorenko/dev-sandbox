@@ -29,6 +29,29 @@ _LEVEL2_RATES: dict[str, float] = {
 }
 
 
+# --- "Free month per friend" bonus (coexists with cashback) ------------------
+# When an invited user makes their FIRST payment of a qualifying plan (>= 1 month),
+# the direct (L1) referrer is granted REFERRAL_BONUS_DAYS of subscription. This is a
+# separate reward from the percent cashback above — both apply. Bonus days are granted
+# via grant_subscription_days() and tracked in referral_bonus_awards (idempotent once
+# per (referrer, payer)). See docs/superpowers/specs/2026-08-08-referral-free-month-design.md.
+REFERRAL_BONUS_DAYS: int = 30
+REFERRAL_BONUS_LEVEL: int = 1
+REFERRAL_BONUS_QUALIFYING_PLANS: frozenset[str] = frozenset(
+    {
+        PlanId.ONE_MONTH,
+        PlanId.THREE_MONTHS,
+        PlanId.SIX_MONTHS,
+        PlanId.ONE_YEAR,
+    }
+)
+
+
+def is_qualifying_plan_for_bonus(plan_id: str) -> bool:
+    """A plan that, on the friend's first payment, grants the referrer a free month."""
+    return plan_id in REFERRAL_BONUS_QUALIFYING_PLANS
+
+
 @dataclass(frozen=True, slots=True)
 class ReferralCommission:
     referrer_user_id: str

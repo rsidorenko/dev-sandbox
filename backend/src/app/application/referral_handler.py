@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from app.domain.referral import rubles_from_kopecks
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
+    ReferralBonusAwardRepository,
     ReferralCodeRepository,
     ReferralRelationshipRepository,
     ReferralTransactionRepository,
@@ -22,6 +23,7 @@ class ReferralInfo:
     l1_invited: int
     l2_invited: int
     total_earned_rubles: float
+    bonus_days_awarded: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +98,7 @@ async def get_referral_info(
     balance_repo: ReferralBalanceRepository,
     relationship_repo: ReferralRelationshipRepository,
     transaction_repo: ReferralTransactionRepository,
+    bonus_repo: ReferralBonusAwardRepository,
     bot_username: str,
     site_base_url: str,
 ) -> ReferralInfo:
@@ -108,6 +111,7 @@ async def get_referral_info(
     l1_invited = await relationship_repo.count_by_level(internal_user_id, 1)
     l2_invited = await relationship_repo.count_by_level(internal_user_id, 2)
     total_earned_kopecks = await transaction_repo.sum_credits(internal_user_id)
+    bonus_days_awarded = await bonus_repo.sum_awarded_days(internal_user_id)
     return ReferralInfo(
         referral_code=code_record.referral_code,
         referral_link=tg_link,
@@ -116,6 +120,7 @@ async def get_referral_info(
         l1_invited=l1_invited,
         l2_invited=l2_invited,
         total_earned_rubles=rubles_from_kopecks(total_earned_kopecks),
+        bonus_days_awarded=bonus_days_awarded,
     )
 
 

@@ -48,6 +48,7 @@ from app.persistence.in_memory import (
     InMemoryPromoCodeRepository,
     InMemoryPromoRedemptionRepository,
     InMemoryReferralBalanceRepository,
+    InMemoryReferralBonusAwardRepository,
     InMemoryReferralCodeRepository,
     InMemoryReferralRelationshipRepository,
     InMemoryReferralTransactionRepository,
@@ -61,6 +62,7 @@ from app.persistence.promo_contracts import (
 )
 from app.persistence.referral_contracts import (
     ReferralBalanceRepository,
+    ReferralBonusAwardRepository,
     ReferralCodeRepository,
     ReferralRelationshipRepository,
     ReferralTransactionRepository,
@@ -85,6 +87,7 @@ class Slice1Composition:
     referral_code_repo: ReferralCodeRepository
     referral_relationship_repo: ReferralRelationshipRepository
     referral_balance_repo: ReferralBalanceRepository
+    referral_bonus_repo: ReferralBonusAwardRepository
     referral_transaction_repo: ReferralTransactionRepository
     promo_code_repo: PromoCodeRepository
     promo_redemption_repo: PromoRedemptionRepository
@@ -113,6 +116,7 @@ def build_slice1_composition(
     referral_code_repo: ReferralCodeRepository | None = None,
     referral_relationship_repo: ReferralRelationshipRepository | None = None,
     referral_balance_repo: ReferralBalanceRepository | None = None,
+    referral_bonus_repo: ReferralBonusAwardRepository | None = None,
     referral_transaction_repo: ReferralTransactionRepository | None = None,
     promo_code_repo: PromoCodeRepository | None = None,
     promo_redemption_repo: PromoRedemptionRepository | None = None,
@@ -149,6 +153,7 @@ def build_slice1_composition(
     ref_code = referral_code_repo or InMemoryReferralCodeRepository()
     ref_rel = referral_relationship_repo or InMemoryReferralRelationshipRepository()
     ref_bal = referral_balance_repo or InMemoryReferralBalanceRepository()
+    ref_bonus = referral_bonus_repo or InMemoryReferralBonusAwardRepository()
     ref_tx = referral_transaction_repo or InMemoryReferralTransactionRepository()
     promo_codes = promo_code_repo or InMemoryPromoCodeRepository()
     promo_redemptions = promo_redemption_repo or InMemoryPromoRedemptionRepository()
@@ -182,6 +187,7 @@ def build_slice1_composition(
         referral_code_repo=ref_code,
         referral_relationship_repo=ref_rel,
         referral_balance_repo=ref_bal,
+        referral_bonus_repo=ref_bonus,
         referral_transaction_repo=ref_tx,
         promo_code_repo=promo_codes,
         promo_redemption_repo=promo_redemptions,

@@ -16,7 +16,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.domain.referral import rubles_from_kopecks
-from app.persistence.postgres_referral import PostgresReferralCodeRepository
+from app.persistence.postgres_referral import (
+    PostgresReferralBonusAwardRepository,
+    PostgresReferralCodeRepository,
+)
 from app.shared.site_url import get_site_base_url
 from app.web_api.middleware import require_auth
 
@@ -214,6 +217,9 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
         l1_invited, l1_paid = await _level_stats(pool, internal_user_id, 1)
         l2_invited, l2_paid = await _level_stats(pool, internal_user_id, 2)
 
+        # 'Free month per friend' bonus days earned (separate from cashback kopecks above).
+        bonus_days_awarded = await PostgresReferralBonusAwardRepository(pool).sum_awarded_days(internal_user_id)
+
         total_earned_kopecks = (
             await pool.fetchval(
                 """SELECT COALESCE(SUM(amount_kopecks), 0)::bigint FROM referral_transactions
@@ -251,6 +257,7 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
                         "level1": {"invited": l1_invited, "paid": l1_paid},
                         "level2": {"invited": l2_invited, "paid": l2_paid},
                         "total_earned_rubles": round(rubles_from_kopecks(total_earned_kopecks), 2),
+                        "bonus_days_awarded": bonus_days_awarded,
                     },
                     "recent_transactions": recent,
                 },

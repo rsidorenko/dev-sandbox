@@ -23,6 +23,7 @@ from app.persistence.promo_contracts import (
 )
 from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
+    ReferralBonusAwardRecord,
     ReferralCodeRecord,
     ReferralRelationshipRecord,
     ReferralTransactionRecord,
@@ -335,6 +336,26 @@ class InMemoryReferralTransactionRepository:
             user_tx = [t for t in self._transactions if t.internal_user_id == internal_user_id]
             user_tx.sort(key=lambda t: t.created_at, reverse=True)
             return tuple(user_tx[:limit])
+
+
+class InMemoryReferralBonusAwardRepository:
+    """In-memory 'free month per friend' bonus awards (mirrors the Postgres ledger)."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._awards: list[ReferralBonusAwardRecord] = []
+
+    async def award_if_absent(self, record: ReferralBonusAwardRecord) -> bool:
+        async with self._lock:
+            for a in self._awards:
+                if a.referrer_user_id == record.referrer_user_id and a.payer_user_id == record.payer_user_id:
+                    return False
+            self._awards.append(record)
+            return True
+
+    async def sum_awarded_days(self, referrer_user_id: str) -> int:
+        async with self._lock:
+            return sum(a.days_awarded for a in self._awards if a.referrer_user_id == referrer_user_id)
 
 
 _PROMO_UPDATABLE: set[str] = {

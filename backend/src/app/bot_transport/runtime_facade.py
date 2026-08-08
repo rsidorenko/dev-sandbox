@@ -2378,6 +2378,7 @@ async def _render_storefront_response(
                     balance_repo=composition.referral_balance_repo,
                     relationship_repo=composition.referral_relationship_repo,
                     transaction_repo=composition.referral_transaction_repo,
+                    bonus_repo=composition.referral_bonus_repo,
                     bot_username=composition.bot_username,
                     site_base_url=get_site_base_url(),
                 )
@@ -2393,6 +2394,7 @@ async def _render_storefront_response(
                             l1_invited=0,
                             l2_invited=0,
                             total_earned_rubles=0.0,
+                            bonus_days_awarded=0,
                         )
                     ),
                     back_only_keyboard(CB_MAIN_MENU),
@@ -2410,6 +2412,7 @@ async def _render_storefront_response(
                         l1_invited=0,
                         l2_invited=0,
                         total_earned_rubles=0.0,
+                        bonus_days_awarded=0,
                     )
                 ),
                 back_only_keyboard(CB_MAIN_MENU),

@@ -77,3 +77,26 @@ class ReferralTransactionRepository(Protocol):
     async def append_transaction_if_idempotency_absent(self, record: ReferralTransactionRecord) -> bool: ...
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[ReferralTransactionRecord, ...]: ...
     async def sum_credits(self, internal_user_id: str) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ReferralBonusAwardRecord:
+    award_id: str
+    referrer_user_id: str
+    payer_user_id: str
+    level: int
+    days_awarded: int
+    related_plan_id: str
+    correlation_id: str | None
+    created_at: datetime
+
+
+class ReferralBonusAwardRepository(Protocol):
+    async def award_if_absent(self, record: ReferralBonusAwardRecord) -> bool:
+        """Insert the award idempotently. Returns True if newly inserted (bonus granted),
+        False if an award for (referrer_user_id, payer_user_id) already existed."""
+        ...
+
+    async def sum_awarded_days(self, referrer_user_id: str) -> int:
+        """Total bonus DAYS awarded to the referrer (sum of days_awarded)."""
+        ...

@@ -25,6 +25,7 @@ from app.persistence.postgres_promo import (
 )
 from app.persistence.postgres_referral import (
     PostgresReferralBalanceRepository,
+    PostgresReferralBonusAwardRepository,
     PostgresReferralCodeRepository,
     PostgresReferralRelationshipRepository,
     PostgresReferralTransactionRepository,
@@ -108,6 +109,7 @@ async def resolve_slice1_composition_for_runtime(
         referral_code_repo=PostgresReferralCodeRepository(pool),
         referral_relationship_repo=PostgresReferralRelationshipRepository(pool),
         referral_balance_repo=PostgresReferralBalanceRepository(pool),
+        referral_bonus_repo=PostgresReferralBonusAwardRepository(pool),
         referral_transaction_repo=PostgresReferralTransactionRepository(pool),
         promo_code_repo=PostgresPromoCodeRepository(pool),
         promo_redemption_repo=PostgresPromoRedemptionRepository(pool),

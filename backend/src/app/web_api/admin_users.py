@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import logging
-import math
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.domain.plans import DEFAULT_DEVICE_LIMIT
+from app.application.subscription_grant import grant_subscription_days
 from app.domain.status_view import remaining_days
-from app.issuance.vless_provider import VlessProviderOutcome
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
 from app.web_api.helpers import safe_json_error
 
@@ -216,109 +213,13 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
     if ident is None:
         return safe_json_error(404, "user_not_found")
 
-    snap = await pool.fetchrow(
-        "SELECT state_label, plan_id, device_count, active_until_utc, "
-        "keys_deactivated_at, keys_deleted_at FROM subscription_snapshots "
-        "WHERE internal_user_id = $1",
-        internal_user_id,
+    result = await grant_subscription_days(
+        pool=pool,
+        vless_provider=getattr(request.app.state, "vless_provider", None),
+        internal_user_id=internal_user_id,
+        days=days,
+        actor=_admin_actor(request),
     )
-
-    now = datetime.now(UTC)
-    created = snap is None
-    if created:
-        # Создание «с нуля»: зарегистрирован, но никогда не активировал подписку/триал.
-        # Даём тариф «N дней» (custom:N) на DEFAULT_DEVICE_LIMIT устройств — аналог
-        # триала /start, но с произвольным сроком.
-        base = None
-        plan_id_for_write = f"custom:{days}"
-        device_count_for_write = DEFAULT_DEVICE_LIMIT
-    else:
-        base = snap["active_until_utc"]
-        # ИНВАРИАНТ: plan_id / device_count существующего НЕ меняем.
-        plan_id_for_write = snap["plan_id"]
-        device_count_for_write = snap["device_count"] or DEFAULT_DEVICE_LIMIT
-
-    # Активную — продлеваем от текущего срока; истёкшую/отменённую/новую — от now.
-    start = base if (base is not None and base > now) else now
-    new_until = start + timedelta(days=days)
-
-    # UPSERT: на INSERT создаёт (custom:N / DEFAULT_DEVICE_LIMIT для нового), на
-    # конфликт — продлевает/реактивирует, СОХРАНЯЯ plan_id/device_count существующего
-    # (ссылки на subscription_snapshots.<col> в DO UPDATE — как в
-    # postgres_subscription_snapshot._UPSERT_STATE).
-    await pool.execute(
-        """INSERT INTO subscription_snapshots
-               (internal_user_id, state_label, active_until_utc, plan_id, device_count)
-           VALUES ($1, 'active', $2, $3, $4)
-           ON CONFLICT (internal_user_id) DO UPDATE
-           SET state_label = 'active',
-               active_until_utc = EXCLUDED.active_until_utc,
-               keys_deactivated_at = NULL,
-               keys_deleted_at = NULL,
-               plan_id = subscription_snapshots.plan_id,
-               device_count = subscription_snapshots.device_count,
-               updated_at = NOW()""",
-        internal_user_id,
-        new_until,
-        plan_id_for_write,
-        device_count_for_write,
-    )
-
-    # Перепровижининг VLESS-клиента на всех серверах с новым сроком — идентично
-    # платёжной активации: create_user если ключей нет/удалены/активны, activate_user
-    # если деактивированы. create_user идемпотентен (add-or-update, детерминированный
-    # per-transport UUID) — существующие ключи не сбрасываются, отсутствующие создаются.
-    # Best-effort: сбой панели не откатывает изменение в БД — логируем и возвращаем счётчик.
-    expiry_days = max(1, math.ceil((new_until - now).total_seconds() / 86_400))
-    provisioning = "skipped"
-    servers_ok = 0
-    vless_provider = getattr(request.app.state, "vless_provider", None)
-    try:
-        if vless_provider is None:
-            provisioning = "skipped_no_provider"
-        else:
-            if created or snap["keys_deleted_at"] is not None or snap["keys_deactivated_at"] is None:
-                pres = await vless_provider.create_user(
-                    internal_user_id=internal_user_id,
-                    device_count=device_count_for_write,
-                    expiry_days=expiry_days,
-                )
-            else:
-                pres = await vless_provider.activate_user(
-                    internal_user_id=internal_user_id,
-                    device_count=device_count_for_write,
-                    expiry_days=expiry_days,
-                )
-            if pres.outcome == VlessProviderOutcome.SUCCESS:
-                servers_ok = len(pres.config.servers) if pres.config is not None else 0
-                provisioning = f"success servers={servers_ok}"
-            else:
-                provisioning = f"outcome={pres.outcome}"
-    except Exception:
-        _LOGGER.exception("admin_add_days provisioning failed user=%s", internal_user_id[:8])
-        provisioning = "failed"
-
-    # Аудит бесплатного гранта оператора (отдельно от billing — не искажает выручку).
-    # old_active_until=NULL для created; plan_id/device_count — эффективные значения.
-    correlation_id = f"add-days-{uuid.uuid4().hex[:12]}"
-    try:
-        await pool.execute(
-            """INSERT INTO admin_subscription_actions
-               (actor, internal_user_id, action, days, old_active_until, new_active_until,
-                plan_id, device_count, provisioning, correlation_id)
-               VALUES ($1,$2,'add_days',$3,$4,$5,$6,$7,$8,$9)""",
-            _admin_actor(request),
-            internal_user_id,
-            days,
-            base,
-            new_until,
-            plan_id_for_write,
-            device_count_for_write,
-            provisioning,
-            correlation_id,
-        )
-    except Exception:
-        _LOGGER.exception("admin_add_days audit insert failed user=%s", internal_user_id[:8])
 
     # Свежее состояние для ответа (remaining_days / is_active пересчитаны).
     row = await pool.fetchrow(_GET_BY_ID, internal_user_id)
@@ -328,14 +229,14 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
         {
             "ok": True,
             "user": user,
-            "created": created,
-            "days_added": days,
-            "old_active_until": base.isoformat() if base is not None else None,
-            "new_active_until": new_until.isoformat(),
-            "plan_unchanged": plan_id_for_write,
-            "device_count_unchanged": device_count_for_write,
-            "provisioning": provisioning,
-            "servers_ok": servers_ok,
-            "correlation_id": correlation_id,
+            "created": result.created,
+            "days_added": result.days,
+            "old_active_until": result.old_active_until.isoformat() if result.old_active_until is not None else None,
+            "new_active_until": result.new_active_until.isoformat(),
+            "plan_unchanged": result.plan_id,
+            "device_count_unchanged": result.device_count,
+            "provisioning": result.provisioning,
+            "servers_ok": result.servers_ok,
+            "correlation_id": result.correlation_id,
         }
     )

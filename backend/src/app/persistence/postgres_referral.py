@@ -10,6 +10,7 @@ import asyncpg
 
 from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
+    ReferralBonusAwardRecord,
     ReferralCodeRecord,
     ReferralRelationshipRecord,
     ReferralTransactionRecord,
@@ -337,3 +338,52 @@ class PostgresReferralTransactionRepository:
             )
             for r in rows
         )
+
+
+class PostgresReferralBonusAwardRepository:
+    """Persistence for the 'free month per friend' bonus awards (separate ledger from cashback).
+
+    Idempotency rests on the UNIQUE (referrer_user_id, payer_user_id) constraint (migration 071):
+    a bonus is granted at most once per (referrer, friend) pair — ON CONFLICT DO NOTHING."""
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def award_if_absent(self, record: ReferralBonusAwardRecord) -> bool:
+        async with self._pool.acquire() as conn:
+            return await self.award_if_absent_in_connection(conn, record)
+
+    @staticmethod
+    async def award_if_absent_in_connection(
+        conn: asyncpg.Connection,
+        record: ReferralBonusAwardRecord,
+    ) -> bool:
+        """Insert the award idempotently. True if newly inserted (bonus granted), False if an
+        award for (referrer, payer) already existed. Call inside the caller's transaction so the
+        award and its idempotency commit atomically with the surrounding fulfillment work."""
+        result = await conn.execute(
+            "INSERT INTO referral_bonus_awards "
+            "(award_id, referrer_user_id, payer_user_id, level, days_awarded, related_plan_id, correlation_id, created_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+            "ON CONFLICT (referrer_user_id, payer_user_id) DO NOTHING",
+            record.award_id,
+            record.referrer_user_id,
+            record.payer_user_id,
+            record.level,
+            record.days_awarded,
+            record.related_plan_id,
+            record.correlation_id,
+            record.created_at,
+        )
+        return "INSERT 0 1" in result
+
+    async def sum_awarded_days(self, referrer_user_id: str) -> int:
+        """Total bonus DAYS awarded to the referrer (sum of days_awarded)."""
+        async with self._pool.acquire() as conn:
+            return int(
+                await conn.fetchval(
+                    "SELECT COALESCE(SUM(days_awarded), 0)::int FROM referral_bonus_awards WHERE referrer_user_id = $1",
+                    referrer_user_id,
+                )
+                or 0
+            )
