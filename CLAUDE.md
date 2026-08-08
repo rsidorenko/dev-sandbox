@@ -182,6 +182,22 @@ cd backend && python scripts/reconcile_expired_access.py  # destructive — requ
 
 ---
 
+## Spec-Driven Development (superpowers)
+
+Non-trivial features start with a **spec → plan** before code, following the SDD pattern via the
+**superpowers** framework. OpenSpec is **not** used (it was never present in this repo) — this is a
+fresh adoption; superpowers was chosen because its skills are plain markdown the harness loads
+on any model, including GLM-5.2.
+
+- **Authoritative guide (read this):** [`docs/superpowers/README.md`](docs/superpowers/README.md)
+- **Spec template → output:** `docs/superpowers/_templates/spec.md` → `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+- **Plan template → output:** `docs/superpowers/_templates/plan.md` → `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`
+- **Local skill** (orients any session, incl. GLM-5.2, without the plugin): `.claude/skills/sdd/SKILL.md`
+- **Flow:** `brainstorm → spec → review → plan → tasks → implement → finish`
+- **Integration with `/deliver`:** spec/plan are written **before/at branch creation**; `/deliver`
+  then implements the plan's tasks. One feature = one spec + one plan + one short-lived branch + one PR.
+- Optional full plugin (advanced subagent skills): `/plugin marketplace add obra/superpowers`.
+
 ## Trunk Based Development workflow
 
 This project follows **Trunk Based Development** (TBD). See `/deliver` skill for the full step-by-step cycle.
