@@ -379,7 +379,15 @@ class NotificationScheduler:
         """Recent PAID activations (first payment or renewal): send the referral offer once per user.
 
         Different text from the trial offer, so a trial→paid user gets TWO distinct pushes, never a repeat.
-        Once-ever via NOT EXISTS (renewal/reactivation won't re-send)."""
+        Once-ever via NOT EXISTS (renewal/reactivation won't re-send).
+
+        Excludes users whose most recent snapshot update was a «free month per friend» referral bonus
+        (grant_subscription_days, actor=referral_bonus). A bonus bumps ``updated_at`` and sets/keeps
+        ``plan_id`` exactly like a real payment, but the user did NOT pay — so the «Спасибо за подписку»
+        offer must not fire for a bonus grant. Detected via a referral_bonus_awards row whose referrer is
+        this user and whose ``created_at`` coincides with ``updated_at`` (award_if_absent runs immediately
+        before grant_subscription_days). A later genuine payment re-sets ``updated_at`` past the bonus
+        time, so the offer correctly fires again — the filter is not an across-the-board block."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id
                 FROM subscription_snapshots s
@@ -392,6 +400,12 @@ class NotificationScheduler:
                     SELECT 1 FROM notification_log nl
                     WHERE nl.internal_user_id = s.internal_user_id
                     AND nl.notification_type = 'referral_offer_paid'
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM referral_bonus_awards b
+                    WHERE b.referrer_user_id = s.internal_user_id
+                    AND b.created_at >= s.updated_at - INTERVAL '5 minutes'
+                    AND b.created_at <= s.updated_at + INTERVAL '5 minutes'
                 )""",
             _REFERRAL_OFFER_RECENT_HOURS,
         )
