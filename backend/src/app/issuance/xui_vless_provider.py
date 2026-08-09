@@ -158,11 +158,17 @@ def _build_vless_link(
 
     if server.transport_type == "xhttp":
         path = server.ws_path.strip("/")
+        # Pin packet-up: the fleet's xhttp inbounds run mode='auto' (verified on the Cloud.ru and
+        # Yandex entries), which accepts it. packet-up multiplexes upstream over HTTP and beats the
+        # stream default on lossy RU consumer links (matching what the CDN-bypass link_template and
+        # competing VPNs already ship). `mode` is honoured by sing-box clients; `extra` carries the
+        # same for xray-based clients (Karing) that only read streamSettings from the JSON blob.
         return (
             f"vless://{user_uuid}@{host}:{port}"
             f"?type=xhttp&security=reality&path=%2F{path}"
             f"&pbk={server.reality_pbk}&fp={fp}&sni={server.reality_sni}"
             f"&sid={server.reality_sid}&spx=%2F"
+            f"&mode=packet-up&extra=%7B%22mode%22%3A%22packet-up%22%7D"
             f"#{label}"
         )
 

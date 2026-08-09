@@ -67,6 +67,12 @@ async def test_bare_xray_servers_emits_tcp_and_xhttp_links() -> None:
     assert xhttp_link.startswith(f"vless://{xhttp_uuid}@85.208.87.187:8443?")
     assert "type=xhttp" in xhttp_link and "flow=" not in xhttp_link
     assert "path=%2Fbravada-xhttp" in xhttp_link
+    # xhttp must pin packet-up (the fleet's xhttp inbounds run mode='auto', which accepts it;
+    # packet-up multiplexes upstream over HTTP and is markedly faster than the stream default on
+    # lossy RU links — same shape the CDN-bypass link_template already ships). `mode` is read by
+    # sing-box clients, `extra={"mode":"packet-up"}` by xray-based ones (Karing).
+    assert "mode=packet-up" in xhttp_link
+    assert "extra=%7B%22mode%22%3A%22packet-up%22%7D" in xhttp_link
 
 
 async def test_bare_xray_servers_empty_when_no_bare_xray() -> None:
