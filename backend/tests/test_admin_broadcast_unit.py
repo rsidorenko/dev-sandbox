@@ -11,7 +11,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.bot_transport.storefront_ui import CB_BROADCAST_DAYS
+from app.bot_transport.storefront_ui import CB_BROADCAST_DAYS, CB_BROADCAST_PROMO
 from app.web_api.admin_broadcast import (
     BroadcastRunner,
     _build_inner_union,
@@ -24,6 +24,7 @@ from app.web_api.admin_broadcast import (
     _fetch_sql,
     _html_for_telegram,
     _validate_bonus_config,
+    _validate_bonus_promo_exists,
     _validate_buttons,
     _validate_categories,
     _validate_html,
@@ -535,7 +536,10 @@ def test_validate_bonus_config_respects_explicit_ttl():
 @pytest.mark.parametrize(
     "raw",
     [
-        {"type": "promo", "days": 5, "label": "x"},  # неподдерживаемый type
+        {"type": "other", "label": "x"},  # неподдерживаемый type
+        {"type": "promo", "label": "x"},  # promo без code
+        {"type": "promo", "code": "ab", "label": "x"},  # code короче 3 символов
+        {"type": "promo", "code": "bad space", "label": "x"},  # code с пробелом
         {"type": "days", "label": "x"},  # нет days
         {"type": "days", "days": 2, "label": "x"},  # < min (3)
         {"type": "days", "days": 31, "label": "x"},  # > max (30)
@@ -569,9 +573,10 @@ def test_decode_bonus_from_dict_and_str_like_asyncpg():
     assert _decode_bonus(json.dumps(expected)) == expected
 
 
-def test_decode_bonus_ignores_non_days_type_and_bad_shape():
-    assert _decode_bonus({"type": "promo", "days": 5, "label": "x"}) is None
+def test_decode_bonus_ignores_unknown_type_and_bad_shape():
+    assert _decode_bonus({"type": "other", "label": "x"}) is None  # неизвестный type
     assert _decode_bonus({"type": "days", "label": "x"}) is None  # days не int
+    assert _decode_bonus({"type": "promo", "label": "x"}) is None  # promo без code
     assert _decode_bonus("{not json") is None
     assert _decode_bonus(["not", "a", "dict"]) is None
 
@@ -668,3 +673,203 @@ def test_runner_bonus_zero_recipients_seeds_nothing():
     _run(runner.run())
     assert client.calls == []
     assert pool.bonus_seed_rows is None
+
+
+# --- Бонус-кнопка рассылки (промокод) ---------------------------------------
+
+
+def test_validate_bonus_config_promo_happy_path_normalizes_defaults():
+    bonus, err = _validate_bonus_config({"type": "promo", "code": "  summer25  ", "label": "  Забрать скидку  "})
+    assert err is None
+    assert bonus == {"type": "promo", "code": "SUMMER25", "label": "Забрать скидку", "ttl_days": 30}
+
+
+def test_validate_bonus_config_promo_respects_explicit_ttl():
+    bonus, err = _validate_bonus_config({"type": "promo", "code": "SUMMER25", "label": "L", "ttl_days": 60})
+    assert err is None
+    assert bonus["ttl_days"] == 60
+
+
+def test_validate_bonus_config_promo_truncates_label():
+    long_label = "Й" * 100  # 100 chars, > _BUTTON_LABEL_MAX_LEN (64)
+    bonus, err = _validate_bonus_config({"type": "promo", "code": "SUMMER25", "label": long_label})
+    assert err is None
+    assert len(bonus["label"]) == 64
+
+
+def test_decode_bonus_promo_from_dict_and_str_like_asyncpg():
+    import json
+
+    expected = {"type": "promo", "code": "SUMMER25", "label": "Скидка", "ttl_days": 30}
+    assert _decode_bonus({"type": "promo", "code": "SUMMER25", "label": "Скидка"}) == expected
+    assert _decode_bonus(json.dumps(expected)) == expected
+
+
+def test_decode_bonus_promo_tolerates_bad_ttl_without_crash():
+    base = {"type": "promo", "code": "X", "label": "L"}
+    assert _decode_bonus({**base, "ttl_days": "abc"})["ttl_days"] == 30
+    assert _decode_bonus({**base, "ttl_days": None})["ttl_days"] == 30
+    assert _decode_bonus({**base})["ttl_days"] == 30
+    assert _decode_bonus({**base, "ttl_days": 14})["ttl_days"] == 14
+
+
+def test_runner_promo_appends_promo_button_and_seeds_claims():
+    """При promo-бонусе: markup получает кнопку с bc_promo:<job_id>, а для каждого получателя
+    сеется реестр broadcast_promo_claims (ДО цикла отправки)."""
+    client = _FakeClient()
+    bonus = {"type": "promo", "code": "SUMMER25", "label": "🎟 Забрать скидку", "ttl_days": 14}
+    runner, pool = _runner(client, [11, 12, 13], bonus=bonus)
+    _run(runner.run())
+
+    expected_cb = _cb(CB_BROADCAST_PROMO, _JOB_UUID)
+    assert len(client.markups) == 3
+    for markup in client.markups:
+        last_row = markup["inline_keyboard"][-1]
+        assert last_row == [{"text": "🎟 Забрать скидку", "callback_data": expected_cb}]
+
+    # Реестр посеян строго для реальных получателей: (job_id, tg, code, ttl_days).
+    assert pool.bonus_seed_rows is not None
+    seeded_tg = {row[1] for row in pool.bonus_seed_rows}
+    assert seeded_tg == {11, 12, 13}
+    assert all(row[2] == "SUMMER25" and row[3] == 14 for row in pool.bonus_seed_rows)
+
+
+def test_runner_promo_decoded_from_json_string_like_asyncpg():
+    import json
+
+    client = _FakeClient()
+    bonus_str = json.dumps({"type": "promo", "code": "X", "label": "Бонус"})
+    runner, pool = _runner(client, [11], bonus=bonus_str)
+    _run(runner.run())
+    expected_cb = _cb(CB_BROADCAST_PROMO, _JOB_UUID)
+    assert client.markups[0]["inline_keyboard"][-1] == [{"text": "Бонус", "callback_data": expected_cb}]
+    assert pool.bonus_seed_rows is not None and pool.bonus_seed_rows[0][2] == "X"
+
+
+def test_runner_promo_seeds_claims_before_send_loop():
+    """Инвариант: реестр promo-claims посеян ДО первой отправки (как у дней)."""
+    calls_at_seed: list[int] = []
+    client = _FakeClient()
+
+    class _ObservingConn(_FakeConn):
+        async def executemany(self, sql, rows):
+            calls_at_seed.append(len(client.calls))
+            await super().executemany(sql, rows)
+
+    runner, pool = _runner(
+        client, [11, 12, 13], bonus={"type": "promo", "code": "X", "label": "L"}
+    )
+    pool.acquire = lambda: _ObservingConn(pool)  # type: ignore[method-assign]
+    _run(runner.run())
+    assert calls_at_seed == [0]
+    assert pool.bonus_seed_rows is not None and len(pool.bonus_seed_rows) == 3
+
+
+def test_runner_promo_zero_recipients_seeds_nothing():
+    client = _FakeClient()
+    runner, pool = _runner(client, [], bonus={"type": "promo", "code": "X", "label": "L"})
+    _run(runner.run())
+    assert client.calls == []
+    assert pool.bonus_seed_rows is None
+
+
+# --- _validate_bonus_promo_exists (send/test gate) --------------------------
+
+
+class _PromoExistsPool:
+    """Фейк-пул для _validate_bonus_promo_exists: единственный запрос — SELECT promo_codes."""
+
+    def __init__(self, row: dict | None) -> None:
+        self._row = row
+
+    async def fetchrow(self, sql: str, *args):
+        return self._row
+
+
+def _promo_row(
+    *,
+    audience: str = "all_users",
+    is_active: bool = True,
+    expires_at=None,
+    max_redemptions=None,
+    redemptions_count: int = 0,
+) -> dict:
+    return {
+        "audience": audience,
+        "is_active": is_active,
+        "expires_at": expires_at,
+        "max_redemptions": max_redemptions,
+        "redemptions_count": redemptions_count,
+    }
+
+
+def test_validate_bonus_promo_exists_skips_when_no_promo_bonus():
+    from datetime import UTC, datetime, timedelta
+
+    pool = _PromoExistsPool(_promo_row())  # не должно вызываться
+    # bonus=None и type!="promo" → (None, []) без обращения к БД.
+    assert _run(_validate_bonus_promo_exists(pool, None)) == (None, [])
+    assert _run(_validate_bonus_promo_exists(pool, {"type": "days", "days": 3, "label": "x"})) == (None, [])
+
+
+def test_validate_bonus_promo_exists_not_found_or_inactive():
+    pool_missing = _PromoExistsPool(None)
+    err, warnings = _run(_validate_bonus_promo_exists(pool_missing, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is not None and err.status_code == 400 and warnings == []
+
+    pool_inactive = _PromoExistsPool(_promo_row(is_active=False))
+    err, warnings = _run(_validate_bonus_promo_exists(pool_inactive, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is not None and err.status_code == 400 and warnings == []
+
+
+def test_validate_bonus_promo_exists_expired():
+    from datetime import UTC, datetime, timedelta
+
+    pool = _PromoExistsPool(_promo_row(expires_at=datetime.now(UTC) - timedelta(days=1)))
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is not None and err.status_code == 400 and warnings == []
+
+
+def test_validate_bonus_promo_exists_exhausted():
+    pool = _PromoExistsPool(_promo_row(max_redemptions=10, redemptions_count=10))
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is not None and err.status_code == 400 and warnings == []
+
+
+def test_validate_bonus_promo_exists_ok_no_warnings():
+    """Валидный all_users промокод без срока → нет ошибки, нет предупреждений."""
+    pool = _PromoExistsPool(_promo_row())  # all_users, expires_at=None
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is None and warnings == []
+
+
+def test_validate_bonus_promo_exists_warns_on_audience_mismatch():
+    """audience != all_users → non-blocking warning (часть получателей увидит «недоступен»)."""
+    pool = _PromoExistsPool(_promo_row(audience="new_users"))
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is None
+    assert len(warnings) == 1
+    assert "new_users" in warnings[0]
+
+
+def test_validate_bonus_promo_exists_warns_on_expires_within_ttl():
+    """promo.expires_at в пределах ttl кнопки → warning о поздних нажатиях."""
+    from datetime import UTC, datetime, timedelta
+
+    expires_soon = datetime.now(UTC) + timedelta(days=5)
+    pool = _PromoExistsPool(_promo_row(expires_at=expires_soon))
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is None
+    assert len(warnings) == 1
+    assert "истекает" in warnings[0]
+
+
+def test_validate_bonus_promo_exists_no_warning_when_expires_far():
+    """promo.expires_at далеко за пределами ttl кнопки → warning не нужен."""
+    from datetime import UTC, datetime, timedelta
+
+    expires_far = datetime.now(UTC) + timedelta(days=100)
+    pool = _PromoExistsPool(_promo_row(expires_at=expires_far))
+    err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
+    assert err is None and warnings == []
+
