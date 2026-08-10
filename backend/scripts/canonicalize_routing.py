@@ -334,7 +334,7 @@ TARGETS: list[RoutingTarget] = [
     RoutingTarget(
         "CDN-LT",
         "158.160.40.11",  # CDN-bypass origin, egress Lithuania-exit
-        key="C:/Users/Roman/.ssh/yandex_new_key",
+        key="D:/tmp/lt_origin_key",
     ),
     RoutingTarget(
         "CDN-DE",
@@ -476,8 +476,9 @@ def _persist_users(cli, config: dict) -> tuple[int, int]:
         req = json.dumps({"tag": tag})
         rc, out, _ = _run(
             cli,
-            f"sudo grpcurl -plaintext -d {json.dumps(req)!r} {GRPC_API} "
-            f"xray.app.proxyman.command.HandlerService/GetInboundUsers",
+            # `req` is already a JSON string; quote it as one shell arg (NOT json.dumps again —
+            # double-encoding makes grpcurl reject the payload with "expecting start of JSON object").
+            f"sudo grpcurl -plaintext -d {req!r} {GRPC_API} xray.app.proxyman.command.HandlerService/GetInboundUsers",
             timeout=15,
         )
         if rc != 0 or not out.strip():
