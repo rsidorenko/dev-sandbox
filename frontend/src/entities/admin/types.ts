@@ -226,12 +226,9 @@ export interface BroadcastButtonsPayload {
 
 /** Бонус-кнопка рассылки (MVP: только бесплатные дни, type="days"; type="promo" зарезервирован
  * под следующий PR). При нажатении получателю начисляются дни подписки. */
-export interface BroadcastBonusConfig {
-  type: "days";
-  days: number; // 3..30
-  label: string;
-  ttl_days?: number; // срок годности кнопки, по умолчанию 30 дней
-}
+export type BroadcastBonusConfig =
+  | { type: "days"; days: number; label: string; ttl_days?: number } // дни 3..30
+  | { type: "promo"; code: string; label: string; ttl_days?: number }; // авто-применение промокода
 
 export interface BroadcastJobsResponse {
   jobs: BroadcastJob[];
@@ -243,4 +240,5 @@ export interface BroadcastSendResponse {
   job_id: string;
   total_recipients: number;
   explicit_unresolved?: string[];
+  bonus_warnings?: string[]; // non-blocking подсказки админу (audience/TTL промокода)
 }

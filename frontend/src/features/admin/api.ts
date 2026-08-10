@@ -131,10 +131,13 @@ export const adminApi = {
     buttons?: BroadcastButtonsPayload;
     bonus?: BroadcastBonusConfig | null;
   }) {
-    return adminFetch<{ ok: true }>("/api/v1/admin/broadcast/test", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    return adminFetch<{ ok: true } & Pick<BroadcastSendResponse, "bonus_warnings">>(
+      "/api/v1/admin/broadcast/test",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
   },
   broadcastJobStatus(jobId: string) {
     return adminFetch<{ ok: true; job: BroadcastJobsResponse["jobs"][number] }>(
