@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import re
 import textwrap
 from pathlib import Path
 
@@ -15,6 +16,12 @@ from app.persistence import postgres_migrations as pm
 
 def _utf8_sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _squash_ws(text: str) -> str:
+    """Схлопнуть множественные пробелы/переводы строк в один пробел — для сопоставления
+    SQL с выравниванием колонок (CREATE TABLE с padding)."""
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def test_sorted_migration_sql_paths_orders_by_filename(tmp_path: Path) -> None:
@@ -109,6 +116,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "069_broadcast_jobs_buttons.sql",
         "070_referral_transactions_idempotency_key.sql",
         "071_referral_bonus_awards.sql",
+        "072_broadcast_bonus.sql",
     ]
 
 
@@ -396,5 +404,33 @@ def test_access_reconcile_runs_migration_contract_safe_additive_table() -> None:
         " delete from ",
         "alter table issuance_state",
         "alter table subscription_snapshots",
+    ):
+        assert forbidden not in lowered
+
+
+def test_broadcast_bonus_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "072_broadcast_bonus.sql").read_text(
+        encoding="utf-8"
+    )
+    # Нормализуем whitespace (выравнивание колонок в SQL даёт множественные пробелы).
+    lowered = _squash_ws(migration).lower()
+
+    # additive: новая nullable-колонка + новая таблица
+    assert "alter table broadcast_jobs add column if not exists bonus jsonb null" in lowered
+    assert "create table if not exists broadcast_bonus_claims" in lowered
+    assert "job_id uuid not null references broadcast_jobs(job_id) on delete cascade" in lowered
+    assert "telegram_user_id bigint not null" in lowered
+    assert "status text not null default 'eligible' check (status in ('eligible', 'claimed'))" in lowered
+    assert "days integer not null check (days between 3 and 30)" in lowered
+    assert "expires_at timestamptz not null" in lowered
+    assert "primary key (job_id, telegram_user_id)" in lowered
+    assert "create index if not exists idx_broadcast_bonus_claims_status" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
     ):
         assert forbidden not in lowered

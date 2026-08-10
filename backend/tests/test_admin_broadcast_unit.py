@@ -11,15 +11,19 @@ import asyncio
 import httpx
 import pytest
 
+from app.bot_transport.storefront_ui import CB_BROADCAST_DAYS
 from app.web_api.admin_broadcast import (
     BroadcastRunner,
     _build_inner_union,
     _build_reply_markup,
+    _cb,
     _count_sql,
+    _decode_bonus,
     _decode_buttons,
     _extract_retry_after,
     _fetch_sql,
     _html_for_telegram,
+    _validate_bonus_config,
     _validate_buttons,
     _validate_categories,
     _validate_html,
@@ -139,6 +143,27 @@ def test_extract_retry_after_non_json_defaults_to_one():
 # --- BroadcastRunner on fakes ----------------------------------------------
 
 
+class _FakeConn:
+    """Соединение из pool.acquire(): поддерживает transaction() + executemany()
+    (нужно BroadcastRunner._seed_bonus_claims). Записывает посеянные claim-rows в пул."""
+
+    def __init__(self, pool: _FakePool) -> None:
+        self._pool = pool
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def transaction(self):
+        return self  # сам выступает async-context-менеджером транзакции
+
+    async def executemany(self, sql: str, rows):
+        # rows: list of (job_id, telegram_user_id, days, ttl_days)
+        self._pool.bonus_seed_rows = list(rows)
+
+
 class _FakePool:
     """Запоминает UPDATE-вызовы и имитирует конфиг задачи + список получателей."""
 
@@ -147,6 +172,11 @@ class _FakePool:
         self._recipients = [{"telegram_user_id": r} for r in recipients]
         self.total_recipients_written: int | None = None
         self.finish: tuple | None = None  # (status, sent, blocked, failed, last_error)
+        # Записанные _seed_bonus_claims строки (job_id, tg, days, ttl); None если не вызывалось.
+        self.bonus_seed_rows: list | None = None
+
+    def acquire(self):
+        return _FakeConn(self)
 
     async def execute(self, sql: str, *args):
         s = sql.upper()
@@ -213,6 +243,7 @@ def _runner(
     recipients: list[int],
     *,
     buttons: list | None = None,
+    bonus: dict | str | None = None,
 ) -> tuple[BroadcastRunner, _FakePool]:
     pool = _FakePool(
         job_row={
@@ -222,6 +253,7 @@ def _runner(
             "parse_mode": "HTML",
             "disable_web_page_preview": False,
             "buttons": list(buttons or []),
+            "bonus": bonus,
         },
         recipients=recipients,
     )
@@ -477,3 +509,157 @@ def test_runner_decodes_buttons_from_json_string_like_asyncpg():
     _run(runner.run())
     assert len(client.markups) == 1
     assert client.markups[0] == {"inline_keyboard": [[{"text": "🏠 Главное меню", "callback_data": "main_menu"}]]}
+
+
+# --- Бонус-кнопка рассылки (бесплатные дни) ---------------------------------
+
+
+def test_validate_bonus_config_none_and_empty_are_valid_none():
+    bonus, err = _validate_bonus_config(None)
+    assert err is None and bonus is None
+    bonus, err = _validate_bonus_config({})
+    assert err is None and bonus is None
+
+
+def test_validate_bonus_config_happy_path_normalizes_defaults():
+    bonus, err = _validate_bonus_config({"type": "days", "days": 7, "label": "  Получить 7 дней  "})
+    assert err is None
+    assert bonus == {"type": "days", "days": 7, "label": "Получить 7 дней", "ttl_days": 30}
+
+
+def test_validate_bonus_config_respects_explicit_ttl():
+    bonus, err = _validate_bonus_config(
+        {"type": "days", "days": 5, "label": "x", "ttl_days": 14}
+    )
+    assert err is None and bonus["ttl_days"] == 14
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"type": "promo", "days": 5, "label": "x"},  # неподдерживаемый type
+        {"type": "days", "label": "x"},  # нет days
+        {"type": "days", "days": 2, "label": "x"},  # < min (3)
+        {"type": "days", "days": 31, "label": "x"},  # > max (30)
+        {"type": "days", "days": 5, "label": "   "},  # пустой label
+        {"type": "days", "days": 5, "label": "x", "ttl_days": 0},  # ttl < 1
+        {"type": "days", "days": 5, "label": "x", "ttl_days": 366},  # ttl > 365
+    ],
+)
+def test_validate_bonus_config_rejects_invalid(raw):
+    bonus, err = _validate_bonus_config(raw)
+    assert err is not None and err.status_code == 400
+    assert bonus is None
+
+
+def test_validate_bonus_config_rejects_non_dict():
+    _, err = _validate_bonus_config([1, 2, 3])
+    assert err is not None and err.status_code == 400
+
+
+def test_decode_bonus_none_and_empty():
+    assert _decode_bonus(None) is None
+    assert _decode_bonus("") is None
+    assert _decode_bonus("{}") is None
+
+
+def test_decode_bonus_from_dict_and_str_like_asyncpg():
+    import json
+
+    expected = {"type": "days", "days": 5, "label": "Получить", "ttl_days": 30}
+    assert _decode_bonus({"type": "days", "days": 5, "label": "Получить"}) == expected
+    assert _decode_bonus(json.dumps(expected)) == expected
+
+
+def test_decode_bonus_ignores_non_days_type_and_bad_shape():
+    assert _decode_bonus({"type": "promo", "days": 5, "label": "x"}) is None
+    assert _decode_bonus({"type": "days", "label": "x"}) is None  # days не int
+    assert _decode_bonus("{not json") is None
+    assert _decode_bonus(["not", "a", "dict"]) is None
+
+
+# --- Runner: бонус-кнопка в markup + seed claims ----------------------------
+
+
+_JOB_UUID = "11111111-2222-3333-4444-555555555555"
+
+
+def test_runner_bonus_appends_days_button_and_seeds_claims():
+    """При бонусе в задаче: markup получает бонус-кнопку с bc_days:<job_id>,
+    а для каждого получателя сеется eligible-claim (ДО цикла отправки)."""
+    client = _FakeClient()
+    bonus = {"type": "days", "days": 5, "label": "🎁 Получить 5 дней", "ttl_days": 14}
+    runner, pool = _runner(client, [11, 12, 13], bonus=bonus)
+    _run(runner.run())
+
+    # Кнопка присутствует в каждом отправленном сообщении (последней строкой).
+    expected_cb = _cb(CB_BROADCAST_DAYS, _JOB_UUID)
+    assert len(client.markups) == 3
+    for markup in client.markups:
+        last_row = markup["inline_keyboard"][-1]
+        assert last_row == [{"text": "🎁 Получить 5 дней", "callback_data": expected_cb}]
+
+    # Claims посеяны строго для реальных получателей, с правильными днями/ttl.
+    assert pool.bonus_seed_rows is not None
+    seeded_tg = {row[1] for row in pool.bonus_seed_rows}
+    assert seeded_tg == {11, 12, 13}
+    # (job_id, tg, days, ttl_days)
+    assert all(row[2] == 5 and row[3] == 14 for row in pool.bonus_seed_rows)
+
+
+def test_runner_bonus_decoded_from_json_string_like_asyncpg():
+    """asyncpg без jsonb-кодека отдаёт bonus как str — runner должен json.loads-нуть."""
+    import json
+
+    client = _FakeClient()
+    bonus_str = json.dumps({"type": "days", "days": 3, "label": "Бонус"})
+    runner, pool = _runner(client, [11], bonus=bonus_str)
+    _run(runner.run())
+    expected_cb = _cb(CB_BROADCAST_DAYS, _JOB_UUID)
+    assert client.markups[0]["inline_keyboard"][-1] == [
+        {"text": "Бонус", "callback_data": expected_cb}
+    ]
+    assert pool.bonus_seed_rows is not None and pool.bonus_seed_rows[0][2] == 3
+
+
+def test_runner_without_bonus_has_no_days_button_and_no_claims():
+    """bonus отсутствует → нет бонус-кнопки, _seed_bonus_claims не вызывался."""
+    client = _FakeClient()
+    runner, pool = _runner(client, [11, 12])
+    _run(runner.run())
+    for markup in client.markups:
+        # markup=None (нет кнопок) — тоже означает отсутствие бонус-кнопки.
+        if markup is None:
+            continue
+        flat_cbs = [b.get("callback_data") for row in markup["inline_keyboard"] for b in row]
+        assert all(not cb.startswith("bc_days:") for cb in flat_cbs if cb)
+    assert pool.bonus_seed_rows is None
+
+
+def test_runner_bonus_seeds_claims_before_send_loop():
+    """Инвариант: eligible-claims посеяны ДО первой отправки (получатель не может
+    нажать кнопку раньше, чем claim записан). Проверяем число уже отправленных к моменту
+    executemany."""
+    calls_at_seed: list[int] = []
+    client = _FakeClient()
+
+    class _ObservingConn(_FakeConn):
+        async def executemany(self, sql, rows):
+            calls_at_seed.append(len(client.calls))
+            await super().executemany(sql, rows)
+
+    runner, pool = _runner(client, [11, 12, 13], bonus={"type": "days", "days": 3, "label": "x"})
+    pool.acquire = lambda: _ObservingConn(pool)  # type: ignore[method-assign]
+    _run(runner.run())
+    # На момент посева claims отправок ещё не было (seed строго до send-loop).
+    assert calls_at_seed == [0]
+    assert pool.bonus_seed_rows is not None and len(pool.bonus_seed_rows) == 3
+
+
+def test_runner_bonus_zero_recipients_seeds_nothing():
+    """Пустая аудитория + бонус → claims не сеются, кнопка не отправлялась."""
+    client = _FakeClient()
+    runner, pool = _runner(client, [], bonus={"type": "days", "days": 3, "label": "x"})
+    _run(runner.run())
+    assert client.calls == []
+    assert pool.bonus_seed_rows is None

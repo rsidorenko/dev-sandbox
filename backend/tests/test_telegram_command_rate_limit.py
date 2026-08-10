@@ -58,3 +58,23 @@ async def test_default_access_resend_limit_is_three_per_window() -> None:
     for _ in range(3):
         assert await limiter.allow(telegram_user_id=8, command_key=TelegramCommandRateLimitKey.ACCESS_RESEND) is True
     assert await limiter.allow(telegram_user_id=8, command_key=TelegramCommandRateLimitKey.ACCESS_RESEND) is False
+
+
+@pytest.mark.asyncio
+async def test_default_broadcast_claim_limit_is_ten_per_window() -> None:
+    # Бонус-кнопка рассылки: soft anti-spam (корректность выдачи = atomic claim в БД).
+    limiter = InMemoryTelegramCommandRateLimiter(now_seconds=lambda: 0.0)
+    for _ in range(10):
+        assert await limiter.allow(telegram_user_id=9, command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM) is True
+    assert await limiter.allow(telegram_user_id=9, command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM) is False
+
+
+@pytest.mark.asyncio
+async def test_broadcast_claim_is_command_scoped() -> None:
+    # Исчерпание BROADCAST_CLAIM не блокирует другие команды того же пользователя.
+    limiter = InMemoryTelegramCommandRateLimiter(
+        broadcast_claim_limit=1, broadcast_claim_window_seconds=60.0, now_seconds=lambda: 0.0
+    )
+    assert await limiter.allow(telegram_user_id=11, command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM) is True
+    assert await limiter.allow(telegram_user_id=11, command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM) is False
+    assert await limiter.allow(telegram_user_id=11, command_key=TelegramCommandRateLimitKey.STATUS) is True
