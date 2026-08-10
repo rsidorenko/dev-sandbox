@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import uuid
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
@@ -34,6 +35,7 @@ from starlette.responses import JSONResponse
 
 from app.bot_transport.storefront_ui import (
     CB_BROADCAST_DAYS,
+    CB_BROADCAST_PROMO,
     CB_BUY_VPN,
     CB_HELP,
     CB_MAIN_MENU,
@@ -41,6 +43,7 @@ from app.bot_transport.storefront_ui import (
     CB_PROMOCODE,
     _cb,
 )
+from app.domain.promo import normalize_code, validate_code_format
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
 from app.web_api.helpers import safe_json_error
 
@@ -368,27 +371,23 @@ def _build_reply_markup(buttons: list[dict] | None) -> dict | None:
 
 # --- Бонус-кнопка (бесплатные дни) -------------------------------------------
 def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
-    """bonus = {type:"days", days:3..30, label, ttl_days?}. Пока поддерживается только type="days"
-    (type="promo" зарезервирован под следующий PR). Возвращает нормализованный словарь или
+    """bonus = {type:"days", days:3..30, label, ttl_days?} | {type:"promo", code, label, ttl_days?}.
+    Чистая (без DB): формат-валидация. Существование/активность промокода проверяется отдельно
+    (_validate_bonus_promo_exists в send/test). Возвращает нормализованный словарь или
     (None, error_response). (None, None) — бонуса нет, это валидно.
     """
     if raw is None or raw == {}:
         return None, None
     if not isinstance(raw, dict):
         return None, safe_json_error(400, "invalid_bonus")
-    if str(raw.get("type") or "").strip() != "days":
-        return None, safe_json_error(400, "invalid_bonus_type", "поддерживается только type=days")
-    try:
-        days = int(raw.get("days"))
-    except (TypeError, ValueError):
-        return None, safe_json_error(400, "invalid_bonus_days")
-    if not (_BONUS_DAYS_MIN <= days <= _BONUS_DAYS_MAX):
-        return None, safe_json_error(
-            400, "invalid_bonus_days", f"days должен быть {_BONUS_DAYS_MIN}..{_BONUS_DAYS_MAX}"
-        )
+    btype = str(raw.get("type") or "").strip()
+    if btype not in ("days", "promo"):
+        return None, safe_json_error(400, "invalid_bonus_type", "поддерживается type=days|promo")
+
     label = str(raw.get("label") or "").strip()
     if not label:
         return None, safe_json_error(400, "invalid_bonus_label", "label обязателен")
+
     ttl_days = _BONUS_DEFAULT_TTL_DAYS
     raw_ttl = raw.get("ttl_days")
     if raw_ttl is not None:
@@ -398,19 +397,77 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
             return None, safe_json_error(400, "invalid_bonus_ttl")
         if not (_BONUS_TTL_MIN <= ttl_days <= _BONUS_TTL_MAX):
             return None, safe_json_error(400, "invalid_bonus_ttl")
+
+    if btype == "days":
+        try:
+            days = int(raw.get("days"))
+        except (TypeError, ValueError):
+            return None, safe_json_error(400, "invalid_bonus_days")
+        if not (_BONUS_DAYS_MIN <= days <= _BONUS_DAYS_MAX):
+            return None, safe_json_error(
+                400, "invalid_bonus_days", f"days должен быть {_BONUS_DAYS_MIN}..{_BONUS_DAYS_MAX}"
+            )
+        return (
+            {"type": "days", "days": days, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days},
+            None,
+        )
+
+    # type == "promo": формат кода (существование/активность — в _validate_bonus_promo_exists).
+    code = normalize_code(str(raw.get("code") or ""))
+    fmt_err = validate_code_format(code)
+    if fmt_err is not None:
+        return None, safe_json_error(400, "invalid_bonus_code", fmt_err)
     return (
-        {
-            "type": "days",
-            "days": days,
-            "label": label[:_BUTTON_LABEL_MAX_LEN],
-            "ttl_days": ttl_days,
-        },
+        {"type": "promo", "code": code, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days},
         None,
     )
 
 
+async def _validate_bonus_promo_exists(
+    pool: asyncpg.Pool, bonus: dict | None
+) -> tuple[JSONResponse | None, list[str]]:
+    """Для bonus.type="promo": проверить существование/активность/не-истечение/не-исчерпание кода.
+    Возвращает (error_response|None, warnings). warnings — non-blocking подсказки админу
+    (audience≠all_users / promo.expires_at в пределах TTL кнопки). Best-effort: redemptions_count
+    растёт между send и кликом — финальную проверку делает redeem_block_reason при клике и
+    resolve_active_promo при оплате. Для bonus=None или type!="promo" — (None, []).
+    """
+    if bonus is None or bonus.get("type") != "promo":
+        return None, []
+    code = str(bonus.get("code") or "")
+    ttl_days = int(bonus.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
+    row = await pool.fetchrow(
+        "SELECT audience, is_active, expires_at, max_redemptions, redemptions_count "
+        "FROM promo_codes WHERE code = $1",
+        code,
+    )
+    if row is None or not bool(row["is_active"]):
+        return safe_json_error(400, "bonus_promo_not_found", "Промокод не найден или неактивен"), []
+    expires_at = row["expires_at"]
+    if expires_at is not None and expires_at <= datetime.now(UTC):
+        return safe_json_error(400, "bonus_promo_expired", "Срок действия промокода истёк"), []
+    max_red = row["max_redemptions"]
+    if max_red is not None and int(row["redemptions_count"]) >= int(max_red):
+        return safe_json_error(400, "bonus_promo_exhausted", "Лимит погашений промокода исчерпан"), []
+
+    warnings: list[str] = []
+    if str(row["audience"]) != "all_users":
+        warnings.append(
+            f"Аудитория промокода — {row['audience']}: часть получателей (не подходящих) увидит «промокод недоступен»."
+        )
+    if expires_at is not None:
+        days_left = (expires_at - datetime.now(UTC)).days
+        if 0 <= days_left <= ttl_days:
+            warnings.append(
+                f"Срок промокода истекает через ~{days_left} дн., а кнопка активна {ttl_days} дн.: "
+                f"часть получателей нажмёт уже после истечения."
+            )
+    return None, warnings
+
+
 def _decode_bonus(raw: Any) -> dict | None:
-    """JSONB bonus из строки broadcast_jobs → dict {type,days,label,ttl_days} или None.
+    """JSONB bonus из строки broadcast_jobs → dict или None. Поддерживает type="days" и "promo".
+    Используется в Runner.run(), а также в /status и /list API (видимость промокода на рассылке).
     asyncpg без jsonb-кодека отдаёт str (нужен json.loads). См. _decode_buttons.
     """
     if raw is None:
@@ -424,24 +481,27 @@ def _decode_bonus(raw: Any) -> dict | None:
             return None
     if not isinstance(raw, dict):
         return None
-    if raw.get("type") != "days":
-        return None
-    days = raw.get("days")
+    btype = raw.get("type")
     label = raw.get("label")
-    if not isinstance(days, int) or not isinstance(label, str):
+    if not isinstance(label, str):
         return None
-    # ttl_days защищаем от битого JSONB (как days): иначе int("abc") роняет Runner.run()
-    # и /status API. Запись всегда валидна через _validate_bonus_config — это defense-in-depth.
+    # ttl_days защищаем от битого JSONB: иначе int("abc") роняет Runner.run() и /status API.
+    # Запись всегда валидна через _validate_bonus_config — это defense-in-depth.
     try:
         ttl_days = int(raw.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
     except (TypeError, ValueError):
         ttl_days = _BONUS_DEFAULT_TTL_DAYS
-    return {
-        "type": "days",
-        "days": days,
-        "label": label,
-        "ttl_days": ttl_days,
-    }
+    if btype == "days":
+        days = raw.get("days")
+        if not isinstance(days, int):
+            return None
+        return {"type": "days", "days": days, "label": label, "ttl_days": ttl_days}
+    if btype == "promo":
+        code = raw.get("code")
+        if not isinstance(code, str):
+            return None
+        return {"type": "promo", "code": code, "label": label, "ttl_days": ttl_days}
+    return None
 
 
 # --- Reconcile orphan-задач --------------------------------------------------
@@ -553,9 +613,10 @@ class BroadcastRunner:
         buttons = _decode_buttons(job["buttons"])
         if bonus is not None:
             # Бонус-кнопка добавляется последней строкой; callback_data несёт только job_id —
-            # параметры бонуса (дни) лежат в broadcast_bonus_claims, а не в callback (приватность
-            # + укладывается в 64-байт лимит Telegram: "bc_days:" + UUID = 44 байта).
-            buttons.append({"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, self._job_id)})
+            # параметры бонуса (дни/код) лежат в claims-таблице, а не в callback (приватность
+            # + укладывается в 64-байт лимит Telegram: "bc_days:"/"bc_promo:" + UUID ≤ 45 байт).
+            cb_prefix = CB_BROADCAST_PROMO if bonus["type"] == "promo" else CB_BROADCAST_DAYS
+            buttons.append({"text": bonus["label"], "callback_data": _cb(cb_prefix, self._job_id)})
         reply_markup = _build_reply_markup(buttons)
 
         sent = blocked = failed = 0
@@ -570,12 +631,17 @@ class BroadcastRunner:
                 await self._finish("completed", sent, blocked, failed, None)
                 return
 
-            # Бонус: заполняем eligible-claims СТРОГО для реальных получателей и ДО цикла
-            # отправки (инвариант: получатель не может нажать раньше, чем claim записан).
-            # Этим обеспечивается «только получатели» + идемпотентность (atomic UPDATE
-            # eligible→claimed в обработчике кнопки).
+            # Бонус: заполняем claims СТРОГО для реальных получателей и ДО цикла отправки
+            # (инвариант: получатель не может нажать раньше, чем claim записан). Этим
+            # обеспечивается «только получатели» + срок годности. Идемпотентность дней —
+            # atomic UPDATE eligible→claimed в обработчике; промокод — apply идемпотентен
+            # через promo_applied PK=internal_user_id (см. _handle_broadcast_promo_claim).
             if bonus is not None:
-                await self._seed_bonus_claims(bonus, [int(r["telegram_user_id"]) for r in recipients])
+                tg_ids = [int(r["telegram_user_id"]) for r in recipients]
+                if bonus["type"] == "promo":
+                    await self._seed_promo_claims(bonus, tg_ids)
+                else:
+                    await self._seed_bonus_claims(bonus, tg_ids)
 
             since_flush = 0
             for row in recipients:
@@ -633,6 +699,26 @@ class BroadcastRunner:
             "ON CONFLICT (job_id, telegram_user_id) DO NOTHING"
         )
         rows = [(self._job_id, tg, days, ttl_days) for tg in tg_ids]
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(sql, rows)
+
+    async def _seed_promo_claims(self, bonus: dict, tg_ids: list[int]) -> None:
+        """Bulk-INSERT реестра получателей промокода (одна транзакция, ON CONFLICT DO NOTHING —
+        страховка от re-run того же job_id). Без status-машины: apply промокода идемпотентен сам
+        по себе (promo_applied PK=internal_user_id). expires_at = NOW()+ttl_days (срок годности кнопки).
+        """
+        if not tg_ids:
+            return
+        code = str(bonus["code"])
+        ttl_days = int(bonus.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
+        sql = (
+            "INSERT INTO broadcast_promo_claims "
+            "(job_id, telegram_user_id, code, expires_at) "
+            "VALUES ($1, $2, $3, NOW() + make_interval(days => $4)) "
+            "ON CONFLICT (job_id, telegram_user_id) DO NOTHING"
+        )
+        rows = [(self._job_id, tg, code, ttl_days) for tg in tg_ids]
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.executemany(sql, rows)
@@ -838,6 +924,11 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     if bonus_err is not None:
         return bonus_err
 
+    # Для promo: проверить существование/активность/не-истечение/не-исчерпание кода (best-effort).
+    bonus_promo_err, bonus_warnings = await _validate_bonus_promo_exists(pool, bonus)
+    if bonus_promo_err is not None:
+        return bonus_promo_err
+
     disable_preview = bool(data.get("disable_web_page_preview", False))
 
     raw_targets = data.get("explicit_targets") or []
@@ -893,7 +984,13 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     task.add_done_callback(_drop)
 
     return JSONResponse(
-        {"ok": True, "job_id": str(job_id), "total_recipients": total, "explicit_unresolved": unresolved},
+        {
+            "ok": True,
+            "job_id": str(job_id),
+            "total_recipients": total,
+            "explicit_unresolved": unresolved,
+            "bonus_warnings": bonus_warnings,
+        },
         status_code=201,
     )
 
@@ -979,10 +1076,16 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
     bonus, bonus_err = _validate_bonus_config(data.get("bonus"))
     if bonus_err is not None:
         return bonus_err
+    # Для promo: проверить существование/активность кода (best-effort) — как в send.
+    pool: asyncpg.Pool = request.app.state.pool
+    bonus_promo_err, bonus_warnings = await _validate_bonus_promo_exists(pool, bonus)
+    if bonus_promo_err is not None:
+        return bonus_promo_err
     if bonus is not None:
         # Предпросмотр бонус-кнопки. job_id="preview" — нажатие в тесте не найдёт claim и
         # безопасно завершится отказом (это только визуальный предпросмотр для оператора).
-        buttons.append({"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, "preview")})
+        cb_prefix = CB_BROADCAST_PROMO if bonus["type"] == "promo" else CB_BROADCAST_DAYS
+        buttons.append({"text": bonus["label"], "callback_data": _cb(cb_prefix, "preview")})
     reply_markup = _build_reply_markup(buttons)
 
     disable_preview = bool(data.get("disable_web_page_preview", False))
@@ -1005,4 +1108,4 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
         _LOGGER.exception("broadcast test send failed chat_id=%s", str(chat_id)[:8])
         return safe_json_error(502, "send_failed")
 
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "bonus_warnings": bonus_warnings})

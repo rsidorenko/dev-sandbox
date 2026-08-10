@@ -40,6 +40,7 @@ from app.bot_transport.storefront_ui import (
     CB_ANDROID_YES,
     CB_BALANCE,
     CB_BROADCAST_DAYS,
+    CB_BROADCAST_PROMO,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
     CB_CONNECT_ANDROID,
@@ -703,6 +704,62 @@ async def _render_purchase_summary(
     return text, keyboard
 
 
+async def _apply_promo_to_user(
+    composition: Slice1Composition,
+    internal_user_id: str,
+    raw_code: str,
+    *,
+    now: datetime | None = None,
+) -> tuple[str, str | None, Any | None]:
+    """Apply-ядро промокода: normalize → get → redeem_block_reason → audience → upsert.
+
+    Переиспользуется текстовым вводом (_handle_promo_code_input) и кнопкой рассылки
+    (_handle_broadcast_promo_claim). НЕ трогает rate-limit / FSM / return_target / render —
+    это остаётся в вызывающем коде. Принимает уже-resolved internal_user_id.
+
+    Возвращает (status, code, promo):
+      status ∈ {"ok", "invalid", "not_found", "inactive", "ineligible"};
+      promo — PromoCode при not_found-кроме (None только для invalid/not_found).
+    Скидка канонически пере-валидируется при оплате (resolve_active_promo), поэтому
+    здесь сохраняется лишь «намерение» (promo_applied, TTL 24ч).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.application.promo_service import compute_is_new_user
+    from app.domain.promo import (
+        PROMO_APPLIED_TTL_HOURS,
+        audience_eligible,
+        normalize_code,
+        redeem_block_reason,
+        validate_code_format,
+    )
+
+    code = normalize_code(raw_code)
+    if validate_code_format(code) is not None:
+        return "invalid", code, None
+
+    promo = await composition.promo_code_repo.get(code)
+    if promo is None:
+        return "not_found", code, None
+
+    now = now or datetime.now(UTC)
+    if redeem_block_reason(promo, now) is not None:
+        # inactive/expired/exhausted — вызывающий решает, как показать (обычно «не найден»).
+        return "inactive", code, promo
+
+    is_new = await compute_is_new_user(
+        pool=_get_pool_from_composition(composition),
+        snapshots=composition.snapshots,
+        internal_user_id=internal_user_id,
+    )
+    if not audience_eligible(promo.audience, is_new_user=is_new):
+        return "ineligible", code, promo
+
+    expires_at = now + timedelta(hours=PROMO_APPLIED_TTL_HOURS)
+    await composition.promo_applied_repo.upsert(internal_user_id, code, expires_at)
+    return "ok", code, promo
+
+
 async def _handle_promo_code_input(
     composition: Slice1Composition,
     uid: int | None,
@@ -718,17 +775,9 @@ async def _handle_promo_code_input(
     пере-валидируется при оплате (resolve_active_promo), поэтому здесь сохраняется лишь
     «намерение». Флаг FSM сбрасывается только при успехе (retry по опечатке).
     """
-    from datetime import UTC, datetime, timedelta
+    from datetime import UTC, datetime
 
-    from app.application.promo_service import compute_is_new_user
     from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
-    from app.domain.promo import (
-        PROMO_APPLIED_TTL_HOURS,
-        audience_eligible,
-        normalize_code,
-        redeem_block_reason,
-        validate_code_format,
-    )
 
     prompt_keyboard = promo_prompt_keyboard(back_callback=return_target)
     if uid is None:
@@ -742,31 +791,15 @@ async def _handle_promo_code_input(
     if not allowed:
         return text_promo_rate_limited(), prompt_keyboard
 
-    code = normalize_code(user_text)
-    if validate_code_format(code) is not None:
-        return text_promo_code_invalid(user_text), prompt_keyboard
-
-    promo = await composition.promo_code_repo.get(code)
-    if promo is None:
-        return text_promo_not_found(), prompt_keyboard
-
-    now = datetime.now(UTC)
-    if redeem_block_reason(promo, now) is not None:
-        # inactive/expired/exhausted — для пользователя единое «не найден/неактивен».
-        return text_promo_not_found(), prompt_keyboard
-
     internal_user_id = await _get_internal_user_id(composition, uid)
     resolved_iid = internal_user_id or f"u{uid}"
-    is_new = await compute_is_new_user(
-        pool=_get_pool_from_composition(composition),
-        snapshots=composition.snapshots,
-        internal_user_id=resolved_iid,
-    )
-    if not audience_eligible(promo.audience, is_new_user=is_new):
+    status, code, promo = await _apply_promo_to_user(composition, resolved_iid, user_text)
+    if status == "invalid":
+        return text_promo_code_invalid(user_text), prompt_keyboard
+    if status in ("not_found", "inactive"):
+        return text_promo_not_found(), prompt_keyboard
+    if status == "ineligible":
         return text_promo_ineligible(), prompt_keyboard
-
-    expires_at = now + timedelta(hours=PROMO_APPLIED_TTL_HOURS)
-    await composition.promo_applied_repo.upsert(resolved_iid, code, expires_at)
 
     # Успех — сбрасываем флаг FSM (до этого повторный ввод был возможен).
     _awaiting_promo_code.pop(uid, None)
@@ -901,6 +934,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
             code.startswith(
                 (
                     CB_BROADCAST_DAYS,
+                    CB_BROADCAST_PROMO,
                     CB_PLAN,
                     CB_DEVICES,
                     CB_CONFIRM_PAY,
@@ -1179,6 +1213,79 @@ async def _handle_broadcast_days_claim(
             f"в течение 30 минут — мы сгенерируем их автоматически.\n\n" + text_main_menu()
         )
     return text, main_menu_keyboard()
+
+
+async def _handle_broadcast_promo_claim(
+    composition: Slice1Composition,
+    uid: int | None,
+    job_id: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Обработчик кнопки промокода из рассылки.
+
+    Реестр ``broadcast_promo_claims`` (заполнен строго реальными получателями при отправке)
+    + gate ``expires_at>NOW()`` дают одновременно: «только получатели» (не-получатель
+    отсутствует в таблице → gate None) и срок годности кнопки. Применение промокода
+    идемпотентно (``promo_applied`` PK=internal_user_id), поэтому TOCTOU между gate и upsert
+    доброкачественна — НЕ делаем atomic UPDATE…RETURNING как у дней.
+    """
+    if uid is None or not job_id:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    from datetime import UTC, datetime
+
+    from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
+
+    try:
+        allowed = await composition.command_rate_limiter.allow(
+            telegram_user_id=uid,
+            command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM,
+        )
+    except Exception:
+        allowed = True  # fail-open: сбой лимитера не должен блокировать применение
+    if not allowed:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    pool = _get_pool_from_composition(composition)
+    if pool is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Gate: только получатели + срок годности. None → единый отказ (не раскрываем причину).
+    row = await pool.fetchrow(
+        "SELECT code FROM broadcast_promo_claims "
+        "WHERE job_id=$1 AND telegram_user_id=$2 AND expires_at > NOW()",
+        job_id,
+        uid,
+    )
+    if row is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    code = str(row["code"])
+    now = datetime.now(UTC)
+
+    # Pre-check «уже применён»: экономит audience-чек/запросы и даёт дружеложелательный
+    # отклик на повторный клик (apply идемпотентен, но так дешевле).
+    existing = await composition.promo_applied_repo.get(id_rec.internal_user_id)
+    if existing is not None and not existing.is_expired(now) and existing.code == code:
+        promo = await composition.promo_code_repo.get(code)
+        offer = promo_offer_preview(promo) if promo is not None else ""
+        return text_promo_applied(code, offer_text=offer), main_menu_keyboard()
+
+    status, resolved_code, promo = await _apply_promo_to_user(
+        composition, id_rec.internal_user_id, code, now=now
+    )
+    if status in ("not_found", "inactive", "invalid"):
+        return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
+    if status == "ineligible":
+        return text_promo_ineligible(), back_only_keyboard(CB_MAIN_MENU)
+    # ok
+    return (
+        text_promo_applied(resolved_code, offer_text=promo_offer_preview(promo)),
+        main_menu_keyboard(),
+    )
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -2311,6 +2418,12 @@ async def _render_storefront_response(
         # в broadcast_bonus_claims, не в callback. job_id определяет, какой бонус выдать.
         job_id = code[len(CB_BROADCAST_DAYS) :]
         text, keyboard = await _handle_broadcast_days_claim(composition, uid, job_id)
+
+    elif code.startswith(CB_BROADCAST_PROMO):
+        # Кнопка промокода из рассылки: "bc_promo:{job_id}". Код хранится в
+        # broadcast_promo_claims, не в callback (приватность + 64-байт лимит).
+        job_id = code[len(CB_BROADCAST_PROMO) :]
+        text, keyboard = await _handle_broadcast_promo_claim(composition, uid, job_id)
 
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
         text, keyboard = await _render_subscription_status(composition, uid, cid)

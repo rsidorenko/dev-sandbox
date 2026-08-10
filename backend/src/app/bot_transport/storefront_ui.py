@@ -64,6 +64,9 @@ CB_PROMO_AT = "enter_promo:"
 # Бонус-кнопка рассылки: callback_data = "bc_days:{job_id}". Несёт только job_id —
 # параметры бонуса (дни) хранятся в broadcast_bonus_claims, не в callback (приватность + 64-байт лимит).
 CB_BROADCAST_DAYS = "bc_days:"
+# Кнопка промокода в рассылке: callback_data = "bc_promo:{job_id}". Несёт только job_id —
+# код хранится в broadcast_promo_claims, не в callback (приватность + 64-байт лимит: 9 + UUID = 45 байт).
+CB_BROADCAST_PROMO = "bc_promo:"
 CB_IOS_STEP = "ios_step:"
 CB_IOS_YES = "ios_yes"
 CB_IOS_NO = "ios_no"
