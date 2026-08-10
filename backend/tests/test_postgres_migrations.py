@@ -117,6 +117,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "070_referral_transactions_idempotency_key.sql",
         "071_referral_bonus_awards.sql",
         "072_broadcast_bonus.sql",
+        "073_broadcast_promo.sql",
     ]
 
 
@@ -425,6 +426,32 @@ def test_broadcast_bonus_migration_contract_safe_additive() -> None:
     assert "expires_at timestamptz not null" in lowered
     assert "primary key (job_id, telegram_user_id)" in lowered
     assert "create index if not exists idx_broadcast_bonus_claims_status" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
+    ):
+        assert forbidden not in lowered
+
+
+def test_broadcast_promo_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "073_broadcast_promo.sql").read_text(
+        encoding="utf-8"
+    )
+    # Нормализуем whitespace (выравнивание колонок в SQL даёт множественные пробелы).
+    lowered = _squash_ws(migration).lower()
+
+    # additive: новая таблица реестра получателей промокода (без status-машины — apply идемпотентен).
+    assert "create table if not exists broadcast_promo_claims" in lowered
+    assert "job_id uuid not null references broadcast_jobs(job_id) on delete cascade" in lowered
+    assert "telegram_user_id bigint not null" in lowered
+    assert "code text not null" in lowered
+    assert "expires_at timestamptz not null" in lowered
+    assert "primary key (job_id, telegram_user_id)" in lowered
+    assert "create index if not exists idx_broadcast_promo_claims_expires" in lowered
 
     for forbidden in (
         "drop table",
