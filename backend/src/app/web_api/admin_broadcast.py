@@ -549,9 +549,7 @@ class BroadcastRunner:
             # Бонус-кнопка добавляется последней строкой; callback_data несёт только job_id —
             # параметры бонуса (дни) лежат в broadcast_bonus_claims, а не в callback (приватность
             # + укладывается в 64-байт лимит Telegram: "bc_days:" + UUID = 44 байта).
-            buttons.append(
-                {"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, self._job_id)}
-            )
+            buttons.append({"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, self._job_id)})
         reply_markup = _build_reply_markup(buttons)
 
         sent = blocked = failed = 0
@@ -571,9 +569,7 @@ class BroadcastRunner:
             # Этим обеспечивается «только получатели» + идемпотентность (atomic UPDATE
             # eligible→claimed в обработчике кнопки).
             if bonus is not None:
-                await self._seed_bonus_claims(
-                    bonus, [int(r["telegram_user_id"]) for r in recipients]
-                )
+                await self._seed_bonus_claims(bonus, [int(r["telegram_user_id"]) for r in recipients])
 
             since_flush = 0
             for row in recipients:

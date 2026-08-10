@@ -528,9 +528,7 @@ def test_validate_bonus_config_happy_path_normalizes_defaults():
 
 
 def test_validate_bonus_config_respects_explicit_ttl():
-    bonus, err = _validate_bonus_config(
-        {"type": "days", "days": 5, "label": "x", "ttl_days": 14}
-    )
+    bonus, err = _validate_bonus_config({"type": "days", "days": 5, "label": "x", "ttl_days": 14})
     assert err is None and bonus["ttl_days"] == 14
 
 
@@ -616,9 +614,7 @@ def test_runner_bonus_decoded_from_json_string_like_asyncpg():
     runner, pool = _runner(client, [11], bonus=bonus_str)
     _run(runner.run())
     expected_cb = _cb(CB_BROADCAST_DAYS, _JOB_UUID)
-    assert client.markups[0]["inline_keyboard"][-1] == [
-        {"text": "Бонус", "callback_data": expected_cb}
-    ]
+    assert client.markups[0]["inline_keyboard"][-1] == [{"text": "Бонус", "callback_data": expected_cb}]
     assert pool.bonus_seed_rows is not None and pool.bonus_seed_rows[0][2] == 3
 
 

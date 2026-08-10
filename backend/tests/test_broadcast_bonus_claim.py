@@ -86,12 +86,11 @@ def test_claim_refuses_when_job_id_empty() -> None:
 
 def test_claim_refuses_when_rate_limited() -> None:
     """Soft anti-spam: лимитер блокит спам-клики до обращения к БД."""
+
     async def main() -> None:
         c = dataclasses.replace(
             build_slice1_composition(),
-            command_rate_limiter=InMemoryTelegramCommandRateLimiter(
-                broadcast_claim_limit=0, now_seconds=lambda: 100.0
-            ),
+            command_rate_limiter=InMemoryTelegramCommandRateLimiter(broadcast_claim_limit=0, now_seconds=lambda: 100.0),
         )
         await _register(c, uid=42)
         text, _kb = await _handle_broadcast_days_claim(c, 42, _JOB_ID)
@@ -102,6 +101,7 @@ def test_claim_refuses_when_rate_limited() -> None:
 
 def test_claim_refuses_when_identity_not_found() -> None:
     """Юзер не зарегистрирован → нет identity → отказ тем же текстом."""
+
     async def main() -> None:
         c = build_slice1_composition()
         # не регистрируем uid=77
@@ -113,6 +113,7 @@ def test_claim_refuses_when_identity_not_found() -> None:
 
 def test_claim_refuses_when_pool_missing() -> None:
     """In-memory composition без postgres-пула → отказ (бонус требует БД)."""
+
     async def main() -> None:
         c = build_slice1_composition()
         await _register(c, uid=42)
@@ -124,6 +125,7 @@ def test_claim_refuses_when_pool_missing() -> None:
 
 def test_claim_refuses_when_no_eligible_row() -> None:
     """UPDATE 0 — единый отказ для всех причин: уже claimed / не получатель / TTL истёк."""
+
     async def main() -> None:
         c = build_slice1_composition()
         await _register(c, uid=42)

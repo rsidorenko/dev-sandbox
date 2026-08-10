@@ -2309,7 +2309,7 @@ async def _render_storefront_response(
     elif code.startswith(CB_BROADCAST_DAYS):
         # Бонус-кнопка из рассылки: "bc_days:{job_id}". Параметры бонуса (дни) хранятся
         # в broadcast_bonus_claims, не в callback. job_id определяет, какой бонус выдать.
-        job_id = code[len(CB_BROADCAST_DAYS):]
+        job_id = code[len(CB_BROADCAST_DAYS) :]
         text, keyboard = await _handle_broadcast_days_claim(composition, uid, job_id)
 
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
