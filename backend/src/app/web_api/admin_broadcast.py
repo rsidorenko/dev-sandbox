@@ -430,11 +430,17 @@ def _decode_bonus(raw: Any) -> dict | None:
     label = raw.get("label")
     if not isinstance(days, int) or not isinstance(label, str):
         return None
+    # ttl_days защищаем от битого JSONB (как days): иначе int("abc") роняет Runner.run()
+    # и /status API. Запись всегда валидна через _validate_bonus_config — это defense-in-depth.
+    try:
+        ttl_days = int(raw.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
+    except (TypeError, ValueError):
+        ttl_days = _BONUS_DEFAULT_TTL_DAYS
     return {
         "type": "days",
         "days": days,
         "label": label,
-        "ttl_days": int(raw.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS)),
+        "ttl_days": ttl_days,
     }
 
 

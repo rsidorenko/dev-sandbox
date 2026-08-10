@@ -231,6 +231,23 @@ def test_claim_rate_limiter_fail_open_on_exception(monkeypatch) -> None:
     assert "+3 дн. бесплатно" in text
 
 
+def test_callback_bc_days_routes_through_pipeline_to_handler() -> None:
+    """Регресс routing: callback 'bc_days:{job_id}' проходит gate+dispatcher до обработчика.
+    In-memory composition без postgres-пула → единый текст отказа (как во всех путях отказа)."""
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await _register(c, uid=42)
+        raw = {
+            "update_id": 2,
+            "callback_query": {"id": "cq1", "from": {"id": 42}, "data": f"bc_days:{_JOB_ID}"},
+        }
+        pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=new_correlation_id())
+        return pkg.message_text
+
+    assert _run(main()) == _broadcast_bonus_unavailable_text()
+
+
 async def _noop_grant(**kw):
     return GrantResult(
         created=True,

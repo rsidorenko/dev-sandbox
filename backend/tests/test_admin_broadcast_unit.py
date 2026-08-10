@@ -576,6 +576,15 @@ def test_decode_bonus_ignores_non_days_type_and_bad_shape():
     assert _decode_bonus(["not", "a", "dict"]) is None
 
 
+def test_decode_bonus_tolerates_bad_ttl_without_crash():
+    """Битый ttl_days (defense-in-depth) не должен ронять Runner.run()/API — fallback на дефолт."""
+    base = {"type": "days", "days": 5, "label": "x"}
+    assert _decode_bonus({**base, "ttl_days": "abc"})["ttl_days"] == 30
+    assert _decode_bonus({**base, "ttl_days": None})["ttl_days"] == 30
+    assert _decode_bonus({**base})["ttl_days"] == 30  # ttl отсутствует — дефолт
+    assert _decode_bonus({**base, "ttl_days": 14})["ttl_days"] == 14  # валидный — как есть
+
+
 # --- Runner: бонус-кнопка в markup + seed claims ----------------------------
 
 
