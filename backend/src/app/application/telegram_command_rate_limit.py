@@ -14,6 +14,7 @@ class TelegramCommandRateLimitKey(StrEnum):
     ACCESS_RESEND = "access_resend"
     SUPPORT = "support"
     PROMOCODE = "promocode"
+    BROADCAST_CLAIM = "broadcast_claim"
 
 
 class TelegramCommandRateLimiter(Protocol):
@@ -45,6 +46,8 @@ class InMemoryTelegramCommandRateLimiter:
         support_window_seconds: float = 60.0,
         promocode_limit: int = 5,
         promocode_window_seconds: float = 60.0,
+        broadcast_claim_limit: int = 10,
+        broadcast_claim_window_seconds: float = 60.0,
         now_seconds: Callable[[], float] = time.time,
     ) -> None:
         self._rules: dict[TelegramCommandRateLimitKey, _FixedWindowRule] = {
@@ -66,6 +69,14 @@ class InMemoryTelegramCommandRateLimiter:
             TelegramCommandRateLimitKey.PROMOCODE: _FixedWindowRule(
                 max_requests=int(promocode_limit),
                 window_seconds=float(promocode_window_seconds),
+            ),
+            # Бонус-кнопка рассылки: storefront-колбэк идёт в обход диспетчерского лимитера,
+            # поэтому soft-анти-спам ставится явно в _handle_broadcast_days_claim. Корректность
+            # выдачи и так гарантирует atomic UPDATE eligible→claimed — это только защита от
+            # спам-кликов, грузящих БД.
+            TelegramCommandRateLimitKey.BROADCAST_CLAIM: _FixedWindowRule(
+                max_requests=int(broadcast_claim_limit),
+                window_seconds=float(broadcast_claim_window_seconds),
             ),
         }
         self._state: dict[tuple[int, TelegramCommandRateLimitKey], tuple[float, int]] = {}

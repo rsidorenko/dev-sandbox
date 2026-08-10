@@ -61,6 +61,9 @@ CB_CUSTOM_DAYS = "custom_days"
 CB_PROMOCODE = "enter_promo"
 # Ввод промокода ИЗ сводки покупки (несёт plan:devices, чтобы после ввода вернуться к заказу).
 CB_PROMO_AT = "enter_promo:"
+# Бонус-кнопка рассылки: callback_data = "bc_days:{job_id}". Несёт только job_id —
+# параметры бонуса (дни) хранятся в broadcast_bonus_claims, не в callback (приватность + 64-байт лимит).
+CB_BROADCAST_DAYS = "bc_days:"
 CB_IOS_STEP = "ios_step:"
 CB_IOS_YES = "ios_yes"
 CB_IOS_NO = "ios_no"

@@ -39,6 +39,7 @@ from app.bot_transport.storefront_ui import (
     CB_ANDROID_STEP,
     CB_ANDROID_YES,
     CB_BALANCE,
+    CB_BROADCAST_DAYS,
     CB_BUY_VPN,
     CB_CONFIRM_PAY,
     CB_CONNECT_ANDROID,
@@ -899,6 +900,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
         and (
             code.startswith(
                 (
+                    CB_BROADCAST_DAYS,
                     CB_PLAN,
                     CB_DEVICES,
                     CB_CONFIRM_PAY,
@@ -1074,6 +1076,109 @@ async def _handle_trial_activation(
         "Ключи сгенерированы. Откройте «🔐 Мои ключи» или «📱 Подключить устройство».\n\n" + text_main_menu(),
         main_menu_keyboard(),
     )
+
+
+def _broadcast_bonus_unavailable_text() -> str:
+    """Единый текст отказа для бонус-кнопки. Не различает причины (уже получено / не получатель
+    рассылки / истёк срок) — чтобы не раскрывать деталей. См. _handle_broadcast_days_claim."""
+    return (
+        "🎁 <b>Бонус недоступен</b>\n\n"
+        "Эта кнопка уже использована, была адресована другому аккаунту "
+        "или срок её действия истёк."
+    )
+
+
+async def _handle_broadcast_days_claim(
+    composition: Slice1Composition,
+    uid: int | None,
+    job_id: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Обработчик кнопки «бесплатные дни» из рассылки.
+
+    Atomic claim eligible→claimed в broadcast_bonus_claims (WHERE status='eligible' AND
+    expires_at>NOW()) даёт одновременно: идемпотентность (двойной клик → UPDATE 0), «только
+    получатели» (не-получатель отсутствует в таблице → UPDATE 0) и срок годности (старая
+    рассылка → expires_at истёк → UPDATE 0). Затем — grant_subscription_days и закрытие
+    триала.
+    """
+    if uid is None or not job_id:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Soft anti-spam (storefront-колбэки обходят диспетчерский лимитер — проверяем явно).
+    from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
+
+    try:
+        allowed = await composition.command_rate_limiter.allow(
+            telegram_user_id=uid,
+            command_key=TelegramCommandRateLimitKey.BROADCAST_CLAIM,
+        )
+    except Exception:
+        allowed = True  # fail-open: сбой лимитера не должен блокировать выдачу бонуса
+    if not allowed:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    pool = _get_pool_from_composition(composition)
+    if pool is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Atomic claim. UPDATE 0 покрывает все причины отказа — единый текст ниже.
+    row = await pool.fetchrow(
+        "UPDATE broadcast_bonus_claims SET status='claimed', claimed_at=NOW() "
+        "WHERE job_id=$1 AND telegram_user_id=$2 AND status='eligible' AND expires_at > NOW() "
+        "RETURNING days",
+        job_id,
+        uid,
+    )
+    if row is None:
+        return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    days = int(row["days"])
+    from app.application.subscription_grant import grant_subscription_days
+
+    result = await grant_subscription_days(
+        pool=pool,
+        vless_provider=composition.vless_provider,
+        internal_user_id=id_rec.internal_user_id,
+        days=days,
+        actor=f"broadcast_claim:{job_id}",
+        correlation_id=f"bc_claim:{job_id[:8]}:{uid}",
+    )
+
+    # Закрыть триал-квоту: иначе юзер сможет активировать 3-дневный триал, который
+    # перезапишет active_until и сожжёт бонус. Минимум бонуса = 3 = триал, поэтому это
+    # никогда не делает положение юзера хуже (бонус ≥ триала по длительности).
+    try:
+        await pool.execute(
+            "UPDATE user_identities SET trial_used = TRUE "
+            "WHERE internal_user_id = $1 AND (trial_used IS NULL OR trial_used = FALSE)",
+            id_rec.internal_user_id,
+        )
+    except Exception:
+        _LOGGER.exception(
+            "broadcast claim: failed to close trial_used user=%s job=%s",
+            id_rec.internal_user_id[:8],
+            job_id[:8],
+        )
+
+    new_until = result.new_active_until.date().isoformat()
+    if result.provisioning.startswith("success"):
+        text = (
+            f"🎁 <b>Бонус активирован: +{days} дн. бесплатно!</b>\n\n"
+            f"Подписка продлена до <b>{new_until}</b>. Ключи готовы — "
+            f"откройте «🔐 Мои ключи» или «📱 Подключить устройство».\n\n" + text_main_menu()
+        )
+    else:
+        # VLESS-провайдер отсутствует/сбойнул — снапшот продлён, ключи добьёт reconcile-таймер.
+        text = (
+            f"🎁 <b>Бонус активирован: +{days} дн. бесплатно!</b>\n\n"
+            f"Подписка продлена до <b>{new_until}</b>. Ключи будут готовы "
+            f"в течение 30 минут — мы сгенерируем их автоматически.\n\n" + text_main_menu()
+        )
+    return text, main_menu_keyboard()
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -2200,6 +2305,12 @@ async def _render_storefront_response(
 
     elif code == CB_TRIAL:
         text, keyboard = await _handle_trial_activation(composition, uid)
+
+    elif code.startswith(CB_BROADCAST_DAYS):
+        # Бонус-кнопка из рассылки: "bc_days:{job_id}". Параметры бонуса (дни) хранятся
+        # в broadcast_bonus_claims, не в callback. job_id определяет, какой бонус выдать.
+        job_id = code[len(CB_BROADCAST_DAYS):]
+        text, keyboard = await _handle_broadcast_days_claim(composition, uid, job_id)
 
     elif code in (CB_MY_SUB, "store_success", "store_success_active"):
         text, keyboard = await _render_subscription_status(composition, uid, cid)

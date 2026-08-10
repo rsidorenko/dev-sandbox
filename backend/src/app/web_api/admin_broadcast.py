@@ -32,7 +32,15 @@ import httpx
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.bot_transport.storefront_ui import CB_BUY_VPN, CB_HELP, CB_MAIN_MENU, CB_MY_SUB, CB_PROMOCODE
+from app.bot_transport.storefront_ui import (
+    CB_BROADCAST_DAYS,
+    CB_BUY_VPN,
+    CB_HELP,
+    CB_MAIN_MENU,
+    CB_MY_SUB,
+    CB_PROMOCODE,
+    _cb,
+)
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
 from app.web_api.helpers import safe_json_error
 
@@ -46,6 +54,13 @@ _LIST_DEFAULT_LIMIT = 50
 _LIST_MAX_LIMIT = 200
 _BATCH_FLUSH_EVERY = 20  # флеш счётчиков в БД каждые N отправок
 _MAX_BUTTONS = 8  # суммарный лимит кнопок под сообщением (действия + ссылки)
+
+# --- Бонус-кнопка рассылки (бесплатные дни) ---------------------------------
+_BONUS_DAYS_MIN = 3  # = длительность триала: бонус никогда не «хуже» триала
+_BONUS_DAYS_MAX = 30
+_BONUS_TTL_MIN = 1
+_BONUS_TTL_MAX = 365
+_BONUS_DEFAULT_TTL_DAYS = 30  # срок годности eligible-claim (anti-abuse: старая кнопка протухает)
 
 # Курированные действия бота: callback_data (из storefront_ui.CB_*) → подпись с эмодзи.
 # Клик по такой кнопке открывает экран бота и заменяет текст сообщения рассылки
@@ -351,6 +366,78 @@ def _build_reply_markup(buttons: list[dict] | None) -> dict | None:
     return {"inline_keyboard": [[dict(b)] for b in buttons]}
 
 
+# --- Бонус-кнопка (бесплатные дни) -------------------------------------------
+def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
+    """bonus = {type:"days", days:3..30, label, ttl_days?}. Пока поддерживается только type="days"
+    (type="promo" зарезервирован под следующий PR). Возвращает нормализованный словарь или
+    (None, error_response). (None, None) — бонуса нет, это валидно.
+    """
+    if raw is None or raw == {}:
+        return None, None
+    if not isinstance(raw, dict):
+        return None, safe_json_error(400, "invalid_bonus")
+    if str(raw.get("type") or "").strip() != "days":
+        return None, safe_json_error(400, "invalid_bonus_type", "поддерживается только type=days")
+    try:
+        days = int(raw.get("days"))
+    except (TypeError, ValueError):
+        return None, safe_json_error(400, "invalid_bonus_days")
+    if not (_BONUS_DAYS_MIN <= days <= _BONUS_DAYS_MAX):
+        return None, safe_json_error(
+            400, "invalid_bonus_days", f"days должен быть {_BONUS_DAYS_MIN}..{_BONUS_DAYS_MAX}"
+        )
+    label = str(raw.get("label") or "").strip()
+    if not label:
+        return None, safe_json_error(400, "invalid_bonus_label", "label обязателен")
+    ttl_days = _BONUS_DEFAULT_TTL_DAYS
+    raw_ttl = raw.get("ttl_days")
+    if raw_ttl is not None:
+        try:
+            ttl_days = int(raw_ttl)
+        except (TypeError, ValueError):
+            return None, safe_json_error(400, "invalid_bonus_ttl")
+        if not (_BONUS_TTL_MIN <= ttl_days <= _BONUS_TTL_MAX):
+            return None, safe_json_error(400, "invalid_bonus_ttl")
+    return (
+        {
+            "type": "days",
+            "days": days,
+            "label": label[:_BUTTON_LABEL_MAX_LEN],
+            "ttl_days": ttl_days,
+        },
+        None,
+    )
+
+
+def _decode_bonus(raw: Any) -> dict | None:
+    """JSONB bonus из строки broadcast_jobs → dict {type,days,label,ttl_days} или None.
+    asyncpg без jsonb-кодека отдаёт str (нужен json.loads). См. _decode_buttons.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.strip():
+            return None
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("type") != "days":
+        return None
+    days = raw.get("days")
+    label = raw.get("label")
+    if not isinstance(days, int) or not isinstance(label, str):
+        return None
+    return {
+        "type": "days",
+        "days": days,
+        "label": label,
+        "ttl_days": int(raw.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS)),
+    }
+
+
 # --- Reconcile orphan-задач --------------------------------------------------
 # Без правки lifespan: один раз на процесс перевести зависшие running/queued
 # (остались от упавшего процесса) в interrupted.
@@ -445,7 +532,7 @@ class BroadcastRunner:
 
         job = await self._pool.fetchrow(
             "SELECT categories, explicit_telegram_ids, message_text, parse_mode, "
-            "disable_web_page_preview, buttons FROM broadcast_jobs WHERE job_id=$1",
+            "disable_web_page_preview, buttons, bonus FROM broadcast_jobs WHERE job_id=$1",
             self._job_id,
         )
         if job is None:
@@ -456,7 +543,16 @@ class BroadcastRunner:
         text: str = job["message_text"]
         parse_mode: str = job["parse_mode"] or "HTML"
         disable_preview: bool = bool(job["disable_web_page_preview"])
-        reply_markup = _build_reply_markup(_decode_buttons(job["buttons"]))
+        bonus = _decode_bonus(job.get("bonus"))
+        buttons = _decode_buttons(job["buttons"])
+        if bonus is not None:
+            # Бонус-кнопка добавляется последней строкой; callback_data несёт только job_id —
+            # параметры бонуса (дни) лежат в broadcast_bonus_claims, а не в callback (приватность
+            # + укладывается в 64-байт лимит Telegram: "bc_days:" + UUID = 44 байта).
+            buttons.append(
+                {"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, self._job_id)}
+            )
+        reply_markup = _build_reply_markup(buttons)
 
         sent = blocked = failed = 0
         try:
@@ -469,6 +565,15 @@ class BroadcastRunner:
             if not recipients:
                 await self._finish("completed", sent, blocked, failed, None)
                 return
+
+            # Бонус: заполняем eligible-claims СТРОГО для реальных получателей и ДО цикла
+            # отправки (инвариант: получатель не может нажать раньше, чем claim записан).
+            # Этим обеспечивается «только получатели» + идемпотентность (atomic UPDATE
+            # eligible→claimed в обработчике кнопки).
+            if bonus is not None:
+                await self._seed_bonus_claims(
+                    bonus, [int(r["telegram_user_id"]) for r in recipients]
+                )
 
             since_flush = 0
             for row in recipients:
@@ -509,6 +614,26 @@ class BroadcastRunner:
     async def _fetch_recipients(self, categories: list[str], explicit_ids: list[int]) -> list[asyncpg.Record]:
         sql = _fetch_sql(categories)
         return await self._pool.fetch(sql, explicit_ids)
+
+    async def _seed_bonus_claims(self, bonus: dict, tg_ids: list[int]) -> None:
+        """Bulk-INSERT eligible-claims для реальных получателей (одна транзакция, ON CONFLICT
+        DO NOTHING — страховка от теоретического re-run того же job_id: уже-claimed строки не
+        повреждаются). expires_at = NOW()+ttl_days (anti-abuse: старая кнопка протухает).
+        """
+        if not tg_ids:
+            return
+        days = int(bonus["days"])
+        ttl_days = int(bonus.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
+        sql = (
+            "INSERT INTO broadcast_bonus_claims "
+            "(job_id, telegram_user_id, status, days, expires_at) "
+            "VALUES ($1, $2, 'eligible', $3, NOW() + make_interval(days => $4)) "
+            "ON CONFLICT (job_id, telegram_user_id) DO NOTHING"
+        )
+        rows = [(self._job_id, tg, days, ttl_days) for tg in tg_ids]
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(sql, rows)
 
     async def _send_one(
         self,
@@ -616,6 +741,7 @@ def _job_to_dict(row: asyncpg.Record) -> dict:
         "message_text": row["message_text"],
         "parse_mode": row["parse_mode"],
         "buttons": _buttons_view(row.get("buttons")),
+        "bonus": _decode_bonus(row.get("bonus")),
         "total_recipients": row["total_recipients"],
         "sent_count": row["sent_count"],
         "failed_count": row["failed_count"],
@@ -706,6 +832,10 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     if buttons_err is not None:
         return buttons_err
 
+    bonus, bonus_err = _validate_bonus_config(data.get("bonus"))
+    if bonus_err is not None:
+        return bonus_err
+
     disable_preview = bool(data.get("disable_web_page_preview", False))
 
     raw_targets = data.get("explicit_targets") or []
@@ -734,8 +864,8 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
         await pool.execute(
             "INSERT INTO broadcast_jobs "
             "(job_id, created_by, status, categories, explicit_telegram_ids, message_text, "
-            " parse_mode, disable_web_page_preview, total_recipients, buttons) "
-            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7,$8::jsonb)",
+            " parse_mode, disable_web_page_preview, total_recipients, buttons, bonus) "
+            "VALUES ($1,$2,'queued',$3,$4,$5,'HTML',$6,$7,$8::jsonb,$9::jsonb)",
             job_id,
             _admin_actor(request),
             categories,
@@ -744,6 +874,7 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
             disable_preview,
             total,
             json.dumps(buttons) if buttons else "[]",
+            json.dumps(bonus) if bonus else None,
         )
     except Exception:
         _LOGGER.exception("broadcast insert failed")
@@ -774,7 +905,7 @@ async def handle_admin_broadcast_status(request: Request) -> JSONResponse:
     row = await pool.fetchrow(
         "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
         "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
-        "started_at, finished_at, last_error, buttons "
+        "started_at, finished_at, last_error, buttons, bonus "
         "FROM broadcast_jobs WHERE job_id=$1",
         job_id,
     )
@@ -799,7 +930,7 @@ async def handle_admin_broadcast_list(request: Request) -> JSONResponse:
     rows = await pool.fetch(
         "SELECT job_id, created_at, created_by, status, categories, explicit_telegram_ids, "
         "message_text, parse_mode, total_recipients, sent_count, failed_count, blocked_count, "
-        "started_at, finished_at, last_error, buttons "
+        "started_at, finished_at, last_error, buttons, bonus "
         "FROM broadcast_jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         limit,
         offset,
@@ -843,6 +974,13 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
     buttons, buttons_err = _validate_buttons(data.get("buttons") or {})
     if buttons_err is not None:
         return buttons_err
+    bonus, bonus_err = _validate_bonus_config(data.get("bonus"))
+    if bonus_err is not None:
+        return bonus_err
+    if bonus is not None:
+        # Предпросмотр бонус-кнопки. job_id="preview" — нажатие в тесте не найдёт claim и
+        # безопасно завершится отказом (это только визуальный предпросмотр для оператора).
+        buttons.append({"text": bonus["label"], "callback_data": _cb(CB_BROADCAST_DAYS, "preview")})
     reply_markup = _build_reply_markup(buttons)
 
     disable_preview = bool(data.get("disable_web_page_preview", False))
