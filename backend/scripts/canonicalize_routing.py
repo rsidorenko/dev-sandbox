@@ -66,40 +66,89 @@ _LOGGER = logging.getLogger(__name__)
 # vkvideo.com -> DE/SEDO (foreign), vkuserapi.com -> Cloudflare (foreign),
 # vkcompany.com -> AWS, vk-cdn.com -> US: these MUST be explicit or they leak past geoip:ru.
 VK_DOMAINS: list[str] = [
-    "domain:vk.com", "domain:vk.ru", "domain:vk.me", "domain:vk.org", "domain:vk.cc",
-    "domain:vkontakte.ru", "domain:vkontakte.com", "domain:vk.link", "domain:vk.design",
-    "domain:vk.company", "domain:vkcompany.com", "domain:vk-portal.net",
-    "domain:userapi.com", "domain:vkuserapi.com", "domain:mycdn.me", "domain:vk-cdn.com",
-    "domain:vkuservideo.net", "domain:vkuservideo.com", "domain:vkuservideo.ru",
-    "domain:vkuseraudio.net", "domain:vkuseraudio.com", "domain:vkuseraudio.ru",
-    "domain:vkuserlive.net", "domain:vkuserlive.com", "domain:vkuserlive.ru",
-    "domain:vk.video", "domain:vkvideo.ru", "domain:vkvideo.com",
-    "domain:mvk.ru", "domain:mvk.com",
+    "domain:vk.com",
+    "domain:vk.ru",
+    "domain:vk.me",
+    "domain:vk.org",
+    "domain:vk.cc",
+    "domain:vkontakte.ru",
+    "domain:vkontakte.com",
+    "domain:vk.link",
+    "domain:vk.design",
+    "domain:vk.company",
+    "domain:vkcompany.com",
+    "domain:vk-portal.net",
+    "domain:userapi.com",
+    "domain:vkuserapi.com",
+    "domain:mycdn.me",
+    "domain:vk-cdn.com",
+    "domain:vkuservideo.net",
+    "domain:vkuservideo.com",
+    "domain:vkuservideo.ru",
+    "domain:vkuseraudio.net",
+    "domain:vkuseraudio.com",
+    "domain:vkuseraudio.ru",
+    "domain:vkuserlive.net",
+    "domain:vkuserlive.com",
+    "domain:vkuserlive.ru",
+    "domain:vk.video",
+    "domain:vkvideo.ru",
+    "domain:vkvideo.com",
+    "domain:mvk.ru",
+    "domain:mvk.com",
 ]
 
 # Supercell games (Brawl Stars / Clash / Hay Day ...) -> foreign egress (game servers abroad).
 SUPERCELL_DOMAINS: list[str] = [
-    "domain:boombeach.com", "domain:brawlstars.com", "domain:brawlstarsgame.com",
-    "domain:clash.com", "domain:clashmini.com", "domain:clashofclans.com",
-    "domain:clashroyale.com", "domain:clashroyaleapp.com", "domain:gamesfirsthelsinki.com",
-    "domain:hayday.com", "domain:haydaygame.com", "domain:mo.co", "domain:seeurlpcl.com",
-    "domain:squadbusters.com", "domain:supercell.com", "domain:supercell.net",
-    "domain:supercellcreators.com", "domain:supercellgames.com", "domain:supercellid.com",
-    "domain:supercellstore.com", "domain:supr.cl",
+    "domain:boombeach.com",
+    "domain:brawlstars.com",
+    "domain:brawlstarsgame.com",
+    "domain:clash.com",
+    "domain:clashmini.com",
+    "domain:clashofclans.com",
+    "domain:clashroyale.com",
+    "domain:clashroyaleapp.com",
+    "domain:gamesfirsthelsinki.com",
+    "domain:hayday.com",
+    "domain:haydaygame.com",
+    "domain:mo.co",
+    "domain:seeurlpcl.com",
+    "domain:squadbusters.com",
+    "domain:supercell.com",
+    "domain:supercell.net",
+    "domain:supercellcreators.com",
+    "domain:supercellgames.com",
+    "domain:supercellid.com",
+    "domain:supercellstore.com",
+    "domain:supr.cl",
 ]
 
 # ByteDance / TikTok -> foreign egress.
 TIKTOK_DOMAINS: list[str] = [
-    "domain:bytefcdn-oversea.com", "domain:byteoversea.com", "domain:ibytedtos.com",
-    "domain:ibyteimg.com", "domain:musical.ly", "domain:tiktok.com", "domain:tiktok.ru",
-    "domain:tiktokcdn.com", "domain:tiktokv.com",
+    "domain:bytefcdn-oversea.com",
+    "domain:byteoversea.com",
+    "domain:ibytedtos.com",
+    "domain:ibyteimg.com",
+    "domain:musical.ly",
+    "domain:tiktok.com",
+    "domain:tiktok.ru",
+    "domain:tiktokcdn.com",
+    "domain:tiktokv.com",
 ]
 
 # ggsel + 2ip (store / IP-info) -> foreign egress.
 GGSEL_DOMAINS: list[str] = [
-    "domain:2ip.io", "domain:2ip.ru", "domain:ggsel.cc", "domain:ggsel.com",
-    "domain:ggsel.info", "domain:ggsel.io", "domain:ggsel.me", "domain:ggsel.net",
-    "domain:ggsel.org", "domain:ggsel.pro", "domain:ggsel.ru",
+    "domain:2ip.io",
+    "domain:2ip.ru",
+    "domain:ggsel.cc",
+    "domain:ggsel.com",
+    "domain:ggsel.info",
+    "domain:ggsel.io",
+    "domain:ggsel.me",
+    "domain:ggsel.net",
+    "domain:ggsel.org",
+    "domain:ggsel.pro",
+    "domain:ggsel.ru",
 ]
 
 GRIFFINY_DOMAINS: list[str] = ["domain:griffiny.ru"]
@@ -111,16 +160,44 @@ YANDEX_DOMAINS: list[str] = ["domain:yandex.com", "domain:yandex.net", "domain:y
 # Russian services on non-.ru TLDs (the .ru ones are already caught by regexp/geoip below);
 # listing them makes egress deterministic regardless of DNS.
 RU_SERVICES_DOMAINS: list[str] = [
-    "domain:2gis.com", "domain:avito.com", "domain:avito.st", "domain:beget.com",
-    "domain:bookmate.com", "domain:cdnvideohub.com", "domain:delivery-club.com",
-    "domain:dodois.com", "domain:dodois.io", "domain:dodopizza.com", "domain:dodostatic.net",
-    "domain:eadaily.com", "domain:fix-price.com", "domain:habr.com", "domain:habracdn.net",
-    "domain:ivi.tv", "domain:jetbrains.com", "domain:kaspersky-labs.com", "domain:kaspersky.com",
-    "domain:kinorium.com", "domain:lenta.com", "domain:litres.com", "domain:moex.com",
-    "domain:netmonet.co", "domain:ozon.com", "domain:ozon.dev", "domain:ozon.tech",
-    "domain:ozon.travel", "domain:ozonusercontent.com", "domain:promodj.com", "domain:rt.com",
-    "domain:sputniknews.com", "domain:t1.cloud", "domain:timeweb.cloud", "domain:timeweb.com",
-    "domain:tips.tips", "domain:trbcdn.net", "domain:wildberries.com",
+    "domain:2gis.com",
+    "domain:avito.com",
+    "domain:avito.st",
+    "domain:beget.com",
+    "domain:bookmate.com",
+    "domain:cdnvideohub.com",
+    "domain:delivery-club.com",
+    "domain:dodois.com",
+    "domain:dodois.io",
+    "domain:dodopizza.com",
+    "domain:dodostatic.net",
+    "domain:eadaily.com",
+    "domain:fix-price.com",
+    "domain:habr.com",
+    "domain:habracdn.net",
+    "domain:ivi.tv",
+    "domain:jetbrains.com",
+    "domain:kaspersky-labs.com",
+    "domain:kaspersky.com",
+    "domain:kinorium.com",
+    "domain:lenta.com",
+    "domain:litres.com",
+    "domain:moex.com",
+    "domain:netmonet.co",
+    "domain:ozon.com",
+    "domain:ozon.dev",
+    "domain:ozon.tech",
+    "domain:ozon.travel",
+    "domain:ozonusercontent.com",
+    "domain:promodj.com",
+    "domain:rt.com",
+    "domain:sputniknews.com",
+    "domain:t1.cloud",
+    "domain:timeweb.cloud",
+    "domain:timeweb.com",
+    "domain:tips.tips",
+    "domain:trbcdn.net",
+    "domain:wildberries.com",
 ]
 
 # Foreign families route to the egress relay; RU families route to direct.
@@ -136,8 +213,7 @@ GRPC_API = "localhost:10085"
 DEFAULT_SSH_KEY = os.environ.get("CLOUDRU_SSH_KEY", "D:/tmp/cloudru_key.pem")
 DEFAULT_SSH_USER = "romtan"
 
-_UUID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def detect_egress_tag(config: dict) -> str:
@@ -153,9 +229,7 @@ def detect_egress_tag(config: dict) -> str:
     raise ValueError("no vless outbound found — cannot determine foreign egress tag")
 
 
-def build_canonical_rules(
-    *, egress_tag: str, has_api: bool, trailing_rules: list[dict] | None = None
-) -> list[dict]:
+def build_canonical_rules(*, egress_tag: str, has_api: bool, trailing_rules: list[dict] | None = None) -> list[dict]:
     """Pure builder: returns the canonical routing.rules list for one server.
 
     Deterministic from the module constants + the per-server egress_tag / has_api / trailing
@@ -165,15 +239,10 @@ def build_canonical_rules(
     if has_api:
         rules.append({"type": "field", "inboundTag": ["api"], "outboundTag": "api"})
     rules.append({"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"})
-    rules.extend({"type": "field", "domain": list(fam), "outboundTag": egress_tag}
-                 for fam in _FOREIGN_FAMILIES)
-    rules.extend({"type": "field", "domain": list(fam), "outboundTag": "direct"}
-                 for fam in _RU_FAMILIES)
+    rules.extend({"type": "field", "domain": list(fam), "outboundTag": egress_tag} for fam in _FOREIGN_FAMILIES)
+    rules.extend({"type": "field", "domain": list(fam), "outboundTag": "direct"} for fam in _RU_FAMILIES)
     rules.append({"type": "field", "domain": ["regexp:.*\\.ru$"], "outboundTag": "direct"})
-    rules.append(
-        {"type": "field", "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"],
-         "outboundTag": "direct"}
-    )
+    rules.append({"type": "field", "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"})
     rules.append({"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"})
     if trailing_rules:
         rules.extend(copy.deepcopy(trailing_rules))
@@ -191,8 +260,7 @@ def rebuild_config_routing(config: dict) -> dict:
     egress_tag = detect_egress_tag(cfg)
     has_api = any(ib.get("tag") == "api" for ib in cfg.get("inbounds", []))
     trailing = [
-        r for r in cfg.get("routing", {}).get("rules", [])
-        if r.get("inboundTag") and r.get("inboundTag") != ["api"]
+        r for r in cfg.get("routing", {}).get("rules", []) if r.get("inboundTag") and r.get("inboundTag") != ["api"]
     ]
     cfg.setdefault("routing", {})["rules"] = build_canonical_rules(
         egress_tag=egress_tag, has_api=has_api, trailing_rules=trailing
@@ -232,18 +300,33 @@ class RoutingTarget:
 
 
 TARGETS: list[RoutingTarget] = [
-    RoutingTarget("DE", "85.208.87.57"),                       # cloud.ru, egress Frankfurt
-    RoutingTarget("FI", "85.208.85.117"),                      # cloud.ru, egress Helsinki
-    RoutingTarget("LT", "158.160.80.40",                       # Yandex, egress Lithuania
-                  key="C:/Users/Roman/.ssh/yandex_new_key"),
-    RoutingTarget("US", "89.169.139.153",                      # Yandex, egress US
-                  key="D:/TelegramBotVPN/.ssh/yandex-relay"),
-    RoutingTarget("YT", "158.160.82.113",                      # Yandex, YouTube-ad-free, egress Albania
-                  key="C:/Users/Roman/.ssh/yt_new_key.pem"),
-    RoutingTarget("CDN-LT", "158.160.40.11",                   # CDN-bypass origin, egress Lithuania-exit
-                  key="C:/Users/Roman/.ssh/yandex_new_key"),
-    RoutingTarget("CDN-DE", "158.160.234.239",                 # CDN-bypass origin, egress Frankfurt-exit
-                  key="D:/tmp/origin_new_key"),
+    RoutingTarget("DE", "85.208.87.57"),  # cloud.ru, egress Frankfurt
+    RoutingTarget("FI", "85.208.85.117"),  # cloud.ru, egress Helsinki
+    RoutingTarget(
+        "LT",
+        "158.160.80.40",  # Yandex, egress Lithuania
+        key="C:/Users/Roman/.ssh/yandex_new_key",
+    ),
+    RoutingTarget(
+        "US",
+        "89.169.139.153",  # Yandex, egress US
+        key="D:/TelegramBotVPN/.ssh/yandex-relay",
+    ),
+    RoutingTarget(
+        "YT",
+        "158.160.82.113",  # Yandex, YouTube-ad-free, egress Albania
+        key="C:/Users/Roman/.ssh/yt_new_key.pem",
+    ),
+    RoutingTarget(
+        "CDN-LT",
+        "158.160.40.11",  # CDN-bypass origin, egress Lithuania-exit
+        key="C:/Users/Roman/.ssh/yandex_new_key",
+    ),
+    RoutingTarget(
+        "CDN-DE",
+        "158.160.234.239",  # CDN-bypass origin, egress Frankfurt-exit
+        key="D:/tmp/origin_new_key",
+    ),
 ]
 
 
@@ -264,8 +347,15 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        cli.connect(target.host, port=22, username=target.user, key_filename=target.key,
-                    look_for_keys=False, allow_agent=False, timeout=15)
+        cli.connect(
+            target.host,
+            port=22,
+            username=target.user,
+            key_filename=target.key,
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=15,
+        )
     except Exception as exc:
         print(f"[{target.name}] SSH connect FAILED: {exc!r}", file=sys.stderr)
         return False
@@ -290,56 +380,70 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
         if dry_run:
             egress = detect_egress_tag(config)
             has_api = any(ib.get("tag") == "api" for ib in config.get("inbounds", []))
-            same = config.get("routing", {}).get("rules") == rebuilt["routing"]["rules"] and \
-                config.get("routing", {}).get("domainStrategy") == "IPIfNonMatch"
-            print(f"[{target.name}] DRY-RUN: egress={egress} api={has_api} "
-                  f"rules={len(rebuilt['routing']['rules'])} "
-                  f"({'no-op (already canonical)' if same else 'WOULD REBUILD'})")
+            same = (
+                config.get("routing", {}).get("rules") == rebuilt["routing"]["rules"]
+                and config.get("routing", {}).get("domainStrategy") == "IPIfNonMatch"
+            )
+            print(
+                f"[{target.name}] DRY-RUN: egress={egress} api={has_api} "
+                f"rules={len(rebuilt['routing']['rules'])} "
+                f"({'no-op (already canonical)' if same else 'WOULD REBUILD'})"
+            )
             return True
 
         # geoip pre-flight: canonical rules use geoip:private / geoip:ru.
         rc, _, _ = _run(cli, f"sudo test -f {GEOIP_PATH} && echo ok")
         if rc != 0:
-            print(f"[{target.name}] ABORT: {GEOIP_PATH} missing — canonical rules need geoip. "
-                  f"Install first:\n"
-                  f"  sudo mkdir -p {os.path.dirname(GEOIP_PATH)} && "
-                  f"sudo curl -L -o {GEOIP_PATH} "
-                  f"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
-                  file=sys.stderr)
+            print(
+                f"[{target.name}] ABORT: {GEOIP_PATH} missing — canonical rules need geoip. "
+                f"Install first:\n"
+                f"  sudo mkdir -p {os.path.dirname(GEOIP_PATH)} && "
+                f"sudo curl -L -o {GEOIP_PATH} "
+                f"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+                file=sys.stderr,
+            )
             return False
 
         # persist live gRPC users into settings.clients so the restart does not drop them.
         persisted, persist_failed = _persist_users(cli, config)
         if persist_failed:
-            print(f"[{target.name}] ABORT: gRPC persist failed on {persist_failed} inbound(s); "
-                  f"no write, no restart", file=sys.stderr)
+            print(
+                f"[{target.name}] ABORT: gRPC persist failed on {persist_failed} inbound(s); no write, no restart",
+                file=sys.stderr,
+            )
             return False
         # re-derive canonical on the config that now carries persisted clients
         rebuilt = rebuild_config_routing(config)
 
         # backup + write
         _run(cli, f"sudo cp {target.config} {target.config}{BACKUP_SUFFIX}")
-        _run(cli, f"sudo tee {target.config} > /dev/null <<'__CFG__'\n"
-                  f"{json.dumps(rebuilt, ensure_ascii=False, indent=2)}\n__CFG__")
+        _run(
+            cli,
+            f"sudo tee {target.config} > /dev/null <<'__CFG__'\n"
+            f"{json.dumps(rebuilt, ensure_ascii=False, indent=2)}\n__CFG__",
+        )
 
         # test (auto-restore on failure)
         rc, _, test_err = _run(cli, f"sudo {XRAY_BIN} run -test -config {target.config}")
         if rc != 0:
             _run(cli, f"sudo cp {target.config}{BACKUP_SUFFIX} {target.config}")
-            print(f"[{target.name}] xray test FAILED (restored backup): {test_err.strip()[:300]}",
-                  file=sys.stderr)
+            print(f"[{target.name}] xray test FAILED (restored backup): {test_err.strip()[:300]}", file=sys.stderr)
             return False
 
         # restart + verify
         _run(cli, "sudo systemctl restart xray")
         rc, active, _ = _run(cli, "systemctl is-active xray")
-        vk = next((r for r in rebuilt["routing"]["rules"]
-                   if "domain:vk.com" in (r.get("domain") or [])), {})
-        vk_ok = (active.strip() == "active" and vk.get("outboundTag") == "direct"
-                 and "domain:vkvideo.com" in (vk.get("domain") or []))
-        print(f"[{target.name}] {'OK' if vk_ok else 'VERIFY-WARN'}: xray={active.strip()} "
-              f"rules={len(rebuilt['routing']['rules'])} persisted={persisted} "
-              f"VK->direct dom={len(vk.get('domain') or [])}")
+        vk = next((r for r in rebuilt["routing"]["rules"] if "domain:vk.com" in (r.get("domain") or [])), {})
+        vk_ok = (
+            active.strip() == "active"
+            and vk.get("outboundTag") == "direct"
+            and "domain:vkvideo.com" in (vk.get("domain") or [])
+        )
+        print(
+            f"[{target.name}] {'OK' if vk_ok else 'VERIFY-WARN'}: xray={active.strip()} "
+            f"rules={len(rebuilt['routing']['rules'])} persisted={persisted} "
+            f"VK->direct dom={len(vk.get('domain') or [])}"
+        )
         return vk_ok
     finally:
         cli.close()
@@ -373,8 +477,7 @@ def _persist_users(cli, config: dict) -> tuple[int, int]:
 
 def main() -> int:
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="show planned canonical rules, no write")
     ap.add_argument("--entry", default="", help="apply only to targets whose name contains this")
     ap.add_argument("--list", action="store_true", help="list targets and exit")
