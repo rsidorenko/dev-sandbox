@@ -53,7 +53,7 @@ import logging
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # BANK_DOMAINS is the authoritative bank/payment list, owned by cascade_apply_banks.
 from scripts.cascade_apply_banks import BANK_DOMAINS
@@ -165,10 +165,10 @@ def build_canonical_rules(
     if has_api:
         rules.append({"type": "field", "inboundTag": ["api"], "outboundTag": "api"})
     rules.append({"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"})
-    for fam in _FOREIGN_FAMILIES:
-        rules.append({"type": "field", "domain": list(fam), "outboundTag": egress_tag})
-    for fam in _RU_FAMILIES:
-        rules.append({"type": "field", "domain": list(fam), "outboundTag": "direct"})
+    rules.extend({"type": "field", "domain": list(fam), "outboundTag": egress_tag}
+                 for fam in _FOREIGN_FAMILIES)
+    rules.extend({"type": "field", "domain": list(fam), "outboundTag": "direct"}
+                 for fam in _RU_FAMILIES)
     rules.append({"type": "field", "domain": ["regexp:.*\\.ru$"], "outboundTag": "direct"})
     rules.append(
         {"type": "field", "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"],

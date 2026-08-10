@@ -11,7 +11,6 @@ import copy
 import json
 
 import pytest
-
 from scripts.canonicalize_routing import (
     BANK_DOMAINS,  # re-exported sanity check
     GGSEL_DOMAINS,
@@ -28,7 +27,6 @@ from scripts.canonicalize_routing import (
     rebuild_config_routing,
 )
 from scripts.cascade_apply_banks import BANK_DOMAINS as REPO_BANK_DOMAINS
-
 
 # --- fixtures -----------------------------------------------------------------
 
