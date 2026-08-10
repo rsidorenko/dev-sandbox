@@ -68,7 +68,8 @@ def test_bank_domains_match_repo_authority():
         (TIKTOK_DOMAINS, 9, "domain:tiktok.com"),
         (GGSEL_DOMAINS, 11, "domain:ggsel.com"),
         (GRIFFINY_DOMAINS, 1, "domain:griffiny.ru"),
-        (MAX_DOMAINS, 2, "domain:max.ru"),
+        (MAX_DOMAINS, 4, "domain:max.ru"),
+        (MAX_DOMAINS, 4, "domain:okcdn.ru"),
         (YANDEX_DOMAINS, 3, "domain:yandex.com"),
         (RU_SERVICES_DOMAINS, 30, "domain:ozon.com"),
     ],
@@ -140,6 +141,7 @@ def test_ru_families_route_to_direct():
     assert "domain:vkvideo.com" in flat  # foreign-IP VK CDN must be explicit-direct
     assert "domain:vkuserapi.com" in flat  # Cloudflare-IP VK media
     assert "domain:max.ru" in flat
+    assert "domain:okcdn.ru" in flat  # MAX shared VK/OK CDN (separate apex from mycdn.me)
     assert "domain:yandex.com" in flat
     assert "domain:ozon.com" in flat
     # .ru regexp + tld catch-all

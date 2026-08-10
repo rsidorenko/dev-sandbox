@@ -153,7 +153,21 @@ GGSEL_DOMAINS: list[str] = [
 
 GRIFFINY_DOMAINS: list[str] = ["domain:griffiny.ru"]
 
-MAX_DOMAINS: list[str] = ["domain:max.ru", "domain:oneme.ru"]
+# MAX (VK super-app "MAX", ex-Одноклассники+VK мессенджер, обязательный пресет с 2025-09).
+# Все домены сайта/приложения/авторизации/контента под max.ru + oneme.ru: одно правило
+# `domain:X` покрывает X + ВСЕ поддомены (web./st./download./help./api-calls./platform-api.max.ru,
+# i./web./ws-api(-tg)./video-callback./vk-notify./api-test-gost*.oneme.ru и т.д.) — cert-SAN *.max.ru
+# подтверждает. okcdn.ru = общий VK/OK CDN (тот же TLS-cert что mycdn.me) — MAX зовёт calls./iv.
+# okcdn.ru; НЕ покрывается domain:mycdn.me. apptracer.ru = телеметрия-SDK приложения (sdk-api.).
+# Все резолвятся в AS47764 LLC VK (RU: 155.212.204.x edge, 217.20.x OK-net), значит geoip:ru тоже
+# ловит, но явные правила = детерминированно-direct ДО IP-резолва + согласованность с VK-паттерном.
+# Источники: Минпросвещения ТСПУ приказ №8329, zapret-openwrt #747, cert-SAN/DNS recon.
+MAX_DOMAINS: list[str] = [
+    "domain:max.ru",
+    "domain:oneme.ru",
+    "domain:okcdn.ru",
+    "domain:apptracer.ru",
+]
 
 YANDEX_DOMAINS: list[str] = ["domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"]
 
