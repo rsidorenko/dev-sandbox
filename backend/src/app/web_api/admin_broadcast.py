@@ -423,9 +423,7 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
     )
 
 
-async def _validate_bonus_promo_exists(
-    pool: asyncpg.Pool, bonus: dict | None
-) -> tuple[JSONResponse | None, list[str]]:
+async def _validate_bonus_promo_exists(pool: asyncpg.Pool, bonus: dict | None) -> tuple[JSONResponse | None, list[str]]:
     """Для bonus.type="promo": проверить существование/активность/не-истечение/не-исчерпание кода.
     Возвращает (error_response|None, warnings). warnings — non-blocking подсказки админу
     (audience≠all_users / promo.expires_at в пределах TTL кнопки). Best-effort: redemptions_count
@@ -437,8 +435,7 @@ async def _validate_bonus_promo_exists(
     code = str(bonus.get("code") or "")
     ttl_days = int(bonus.get("ttl_days", _BONUS_DEFAULT_TTL_DAYS))
     row = await pool.fetchrow(
-        "SELECT audience, is_active, expires_at, max_redemptions, redemptions_count "
-        "FROM promo_codes WHERE code = $1",
+        "SELECT audience, is_active, expires_at, max_redemptions, redemptions_count FROM promo_codes WHERE code = $1",
         code,
     )
     if row is None or not bool(row["is_active"]):

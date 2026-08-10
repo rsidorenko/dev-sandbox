@@ -24,7 +24,7 @@ from app.bot_transport.runtime_facade import (
     handle_slice1_telegram_update_to_rendered_message,
 )
 from app.domain.promo import PromoAudience, PromoCode, PromoDiscountKind
-from app.persistence.in_memory import InMemoryPromoAppliedRepository, InMemoryPromoCodeRepository
+from app.persistence.in_memory import InMemoryPromoAppliedRepository
 from app.persistence.promo_contracts import PromoAppliedRecord
 from app.shared.correlation import new_correlation_id
 from app.shared.test_helpers import run_async as _run

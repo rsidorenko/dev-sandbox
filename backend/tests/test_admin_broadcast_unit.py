@@ -756,9 +756,7 @@ def test_runner_promo_seeds_claims_before_send_loop():
             calls_at_seed.append(len(client.calls))
             await super().executemany(sql, rows)
 
-    runner, pool = _runner(
-        client, [11, 12, 13], bonus={"type": "promo", "code": "X", "label": "L"}
-    )
+    runner, pool = _runner(client, [11, 12, 13], bonus={"type": "promo", "code": "X", "label": "L"})
     pool.acquire = lambda: _ObservingConn(pool)  # type: ignore[method-assign]
     _run(runner.run())
     assert calls_at_seed == [0]
@@ -804,8 +802,6 @@ def _promo_row(
 
 
 def test_validate_bonus_promo_exists_skips_when_no_promo_bonus():
-    from datetime import UTC, datetime, timedelta
-
     pool = _PromoExistsPool(_promo_row())  # не должно вызываться
     # bonus=None и type!="promo" → (None, []) без обращения к БД.
     assert _run(_validate_bonus_promo_exists(pool, None)) == (None, [])
@@ -872,4 +868,3 @@ def test_validate_bonus_promo_exists_no_warning_when_expires_far():
     pool = _PromoExistsPool(_promo_row(expires_at=expires_far))
     err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
     assert err is None and warnings == []
-

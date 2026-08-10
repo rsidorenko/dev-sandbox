@@ -12,7 +12,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.application.bootstrap import Slice1Composition
 from app.application.purchase_handler import (
@@ -283,6 +283,11 @@ from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
+
+if TYPE_CHECKING:
+    # Только для аннотаций (from __future__ import annotations): datetime импортируется
+    # локально внутри функций, но встречается в сигнатуре _apply_promo_to_user.
+    from datetime import datetime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -775,8 +780,6 @@ async def _handle_promo_code_input(
     пере-валидируется при оплате (resolve_active_promo), поэтому здесь сохраняется лишь
     «намерение». Флаг FSM сбрасывается только при успехе (retry по опечатке).
     """
-    from datetime import UTC, datetime
-
     from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
 
     prompt_keyboard = promo_prompt_keyboard(back_callback=return_target)
@@ -1255,8 +1258,7 @@ async def _handle_broadcast_promo_claim(
 
     # Gate: только получатели + срок годности. None → единый отказ (не раскрываем причину).
     row = await pool.fetchrow(
-        "SELECT code FROM broadcast_promo_claims "
-        "WHERE job_id=$1 AND telegram_user_id=$2 AND expires_at > NOW()",
+        "SELECT code FROM broadcast_promo_claims WHERE job_id=$1 AND telegram_user_id=$2 AND expires_at > NOW()",
         job_id,
         uid,
     )
@@ -1274,9 +1276,7 @@ async def _handle_broadcast_promo_claim(
         offer = promo_offer_preview(promo) if promo is not None else ""
         return text_promo_applied(code, offer_text=offer), main_menu_keyboard()
 
-    status, resolved_code, promo = await _apply_promo_to_user(
-        composition, id_rec.internal_user_id, code, now=now
-    )
+    status, resolved_code, promo = await _apply_promo_to_user(composition, id_rec.internal_user_id, code, now=now)
     if status in ("not_found", "inactive", "invalid"):
         return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
     if status == "ineligible":
