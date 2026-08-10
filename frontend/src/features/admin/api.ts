@@ -9,6 +9,7 @@ import type {
   AdminStatsPeriod,
   AdminStatsResponse,
   AdminUsersResponse,
+  BroadcastBonusConfig,
   BroadcastButtonsPayload,
   BroadcastEstimate,
   BroadcastJobsResponse,
@@ -116,6 +117,7 @@ export const adminApi = {
     message_text: string;
     disable_web_page_preview?: boolean;
     buttons?: BroadcastButtonsPayload;
+    bonus?: BroadcastBonusConfig | null;
   }) {
     return adminFetch<{ ok: true } & BroadcastSendResponse>("/api/v1/admin/broadcast/send", {
       method: "POST",
@@ -127,6 +129,7 @@ export const adminApi = {
     message_text: string;
     disable_web_page_preview?: boolean;
     buttons?: BroadcastButtonsPayload;
+    bonus?: BroadcastBonusConfig | null;
   }) {
     return adminFetch<{ ok: true }>("/api/v1/admin/broadcast/test", {
       method: "POST",

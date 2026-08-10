@@ -18,6 +18,7 @@ import {
   BROADCAST_ACTION_BUTTONS,
   BROADCAST_CATEGORY_LABELS,
   type BroadcastActionButton,
+  type BroadcastBonusConfig,
   type BroadcastCategory,
   type BroadcastEstimate,
   type BroadcastJob,
@@ -75,6 +76,13 @@ export default function AdminBroadcastPage() {
   const [actionBtns, setActionBtns] = useState<Set<BroadcastActionButton>>(new Set());
   const [urlButtons, setUrlButtons] = useState<BroadcastUrlButton[]>([]);
 
+  // Бонус-кнопка: получатель жмёт → бесплатно получает N дней (3..30).
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+  const [bonusDaysRaw, setBonusDaysRaw] = useState("3");
+  const [bonusLabel, setBonusLabel] = useState("");
+  const [showBonusAdvanced, setShowBonusAdvanced] = useState(false);
+  const [bonusTtlRaw, setBonusTtlRaw] = useState("30");
+
   const [estimating, setEstimating] = useState(false);
   const [estimate, setEstimate] = useState<BroadcastEstimate | null>(null);
   const [estimateError, setEstimateError] = useState("");
@@ -104,6 +112,17 @@ export default function AdminBroadcastPage() {
     return { action_buttons: actions, url_buttons: urls };
   }, [actionBtns, urlButtons]);
 
+  // Бонус-конфиг для send/test. null, если выключено или невалидно — тогда кнопка не отправляется.
+  const bonusPayload = useMemo<BroadcastBonusConfig | null>(() => {
+    if (!bonusEnabled) return null;
+    const days = Number.parseInt(bonusDaysRaw, 10);
+    if (!Number.isFinite(days) || days < 3 || days > 30) return null;
+    const label = bonusLabel.trim();
+    if (!label || label.length > 64) return null;
+    const ttl = Number.parseInt(bonusTtlRaw, 10);
+    return { type: "days", days, label, ttl_days: Number.isFinite(ttl) && ttl >= 1 ? ttl : 30 };
+  }, [bonusEnabled, bonusDaysRaw, bonusLabel, bonusTtlRaw]);
+
   const previewButtons = useMemo(() => {
     const out: { text: string }[] = [];
     for (const key of Array.from(actionBtns)) {
@@ -114,8 +133,9 @@ export default function AdminBroadcastPage() {
       const t = b.label.trim();
       if (t) out.push({ text: t });
     }
+    if (bonusPayload) out.push({ text: bonusPayload.label });
     return out;
-  }, [actionBtns, urlButtons]);
+  }, [actionBtns, urlButtons, bonusPayload]);
 
   const toggleActionButton = (key: BroadcastActionButton) => {
     setActionBtns((prev) => {
@@ -246,7 +266,7 @@ export default function AdminBroadcastPage() {
       return;
     }
     setBusy(true);
-    const r = await adminApi.broadcastTest({ chat_id: chatId, message_text: message, disable_web_page_preview: disablePreview, buttons: buttonsPayload });
+    const r = await adminApi.broadcastTest({ chat_id: chatId, message_text: message, disable_web_page_preview: disablePreview, buttons: buttonsPayload, bonus: bonusPayload });
     setBusy(false);
     if (r.ok) {
       setActionInfo("Тестовое сообщение отправлено. Проверьте Telegram.");
@@ -272,6 +292,10 @@ export default function AdminBroadcastPage() {
       setActionError("Выберите хотя бы одну категорию или укажите явных получателей.");
       return;
     }
+    if (bonusEnabled && !bonusPayload) {
+      setActionError("Бонус-кнопка включена, но заполнена неверно: дней 3–30 и непустой текст кнопки.");
+      return;
+    }
     const total = estimate?.total ?? 0;
     if (total === 0) {
       setActionError("Аудитория пуста — некому отправлять.");
@@ -285,6 +309,7 @@ export default function AdminBroadcastPage() {
       message_text: message,
       disable_web_page_preview: disablePreview,
       buttons: buttonsPayload,
+      bonus: bonusPayload,
     });
     setBusy(false);
     if (r.ok) {
@@ -299,6 +324,7 @@ export default function AdminBroadcastPage() {
         message_text: message,
         parse_mode: "HTML",
         buttons: [],
+        bonus: bonusPayload,
         total_recipients: r.data.total_recipients,
         sent_count: 0,
         failed_count: 0,
@@ -509,6 +535,91 @@ export default function AdminBroadcastPage() {
                 ))}
               </div>
             </div>
+          </section>
+
+          {/* Бонус-кнопка (бесплатные дни) */}
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Бонус-кнопка
+                </h2>
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  Кнопка «получить дни»: нажавший получает N дней подписки (3–30). Срабатывает один раз и только у реальных получателей рассылки.
+                </p>
+              </div>
+              <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={bonusEnabled}
+                  onChange={(e) => setBonusEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                />
+                Вкл.
+              </label>
+            </div>
+
+            {bonusEnabled && (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Дней (3–30)</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={30}
+                      value={bonusDaysRaw}
+                      onChange={(e) => setBonusDaysRaw(e.target.value)}
+                      className={`${adminInput} w-24`}
+                    />
+                  </label>
+                  <label className="block flex-1 min-w-[12rem]">
+                    <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Текст кнопки</span>
+                    <input
+                      type="text"
+                      value={bonusLabel}
+                      onChange={(e) => setBonusLabel(e.target.value)}
+                      maxLength={64}
+                      placeholder="🎁 Получить 3 дня бесплатно"
+                      className={`${adminInput} w-full`}
+                    />
+                  </label>
+                </div>
+                {(() => {
+                  const d = Number.parseInt(bonusDaysRaw, 10);
+                  if (bonusDaysRaw !== "" && (!Number.isFinite(d) || d < 3 || d > 30)) {
+                    return <p className="text-xs text-amber-600 dark:text-amber-400">Число дней должно быть от 3 до 30.</p>;
+                  }
+                  return null;
+                })()}
+                <button
+                  type="button"
+                  onClick={() => setShowBonusAdvanced((v) => !v)}
+                  className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+                >
+                  {showBonusAdvanced ? "Скрыть" : "Показать"} расширенные настройки
+                </button>
+                {showBonusAdvanced && (
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Срок годности кнопки, дней (после срока нажатие игнорируется)
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={bonusTtlRaw}
+                      onChange={(e) => setBonusTtlRaw(e.target.value)}
+                      className={`${adminInput} w-24`}
+                    />
+                  </label>
+                )}
+                {bonusEnabled && !bonusPayload && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Заполните дней (3–30) и непустой текст кнопки — иначе бонус не отправится.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </div>
 

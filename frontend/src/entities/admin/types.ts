@@ -180,6 +180,7 @@ export interface BroadcastJob {
   message_text: string;
   parse_mode: string;
   buttons: BroadcastButtonView[];
+  bonus: BroadcastBonusConfig | null;
   total_recipients: number;
   sent_count: number;
   failed_count: number;
@@ -221,6 +222,15 @@ export interface BroadcastUrlButton {
 export interface BroadcastButtonsPayload {
   action_buttons?: BroadcastActionButton[];
   url_buttons?: BroadcastUrlButton[];
+}
+
+/** Бонус-кнопка рассылки (MVP: только бесплатные дни, type="days"; type="promo" зарезервирован
+ * под следующий PR). При нажатении получателю начисляются дни подписки. */
+export interface BroadcastBonusConfig {
+  type: "days";
+  days: number; // 3..30
+  label: string;
+  ttl_days?: number; // срок годности кнопки, по умолчанию 30 дней
 }
 
 export interface BroadcastJobsResponse {
