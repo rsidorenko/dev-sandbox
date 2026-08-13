@@ -128,12 +128,15 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
         rows.append([{"text": "🎁 Забрать 3 дня бесплатно", "callback_data": CB_TRIAL}])
     rows.extend(
         [
-            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
+            # style — нативное поле Telegram Bot API (InlineKeyboardButton.style):
+            # "success"=зелёная, "primary"=синяя, "danger"=красная. Выделяем целевые
+            # действия. На старых клиентах поле игнорируется — кнопка остаётся рабочей.
+            [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
             # «Мои ключи», «Настройки подписки», «Привязать email» перенесены в
             # подменю «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
             # с этих экранов (контекстный возврат «откуда пришёл»).
             [{"text": "📋 Моя подписка", "callback_data": CB_MY_SUB}],
-            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
+            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE, "style": "primary"}],
             [
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
