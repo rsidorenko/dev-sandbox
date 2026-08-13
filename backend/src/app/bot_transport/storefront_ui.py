@@ -129,27 +129,39 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
     rows.extend(
         [
             [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN}],
-            [
-                {"text": "📋 Моя подписка", "callback_data": CB_MY_SUB},
-                {"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS},
-            ],
+            # «Мои ключи», «Настройки подписки», «Привязать email» перенесены в
+            # подменю «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
+            # с этих экранов (контекстный возврат «откуда пришёл»).
+            [{"text": "📋 Моя подписка", "callback_data": CB_MY_SUB}],
             [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE}],
             [
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
             ],
             [
-                {"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL},
                 {"text": "🌐 Наш сайт", "url": "https://bravada-connect.ru/"},
-            ],
-            [
-                {"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS},
                 {"text": "❓ Помощь", "callback_data": CB_HELP},
             ],
             [{"text": "🎟️ Ввести промокод", "callback_data": CB_PROMOCODE}],
         ]
     )
     return _inline_kb(rows)
+
+
+def my_subscription_keyboard() -> dict[str, Any]:
+    """Подменю «Моя подписка»: ключи / настройки / email + Назад в главное меню.
+
+    Кнопки «Мои ключи», «Настройки подписки», «Привязать email» живут здесь (а не в
+    главном меню); их Назад ведёт обратно сюда (контекстный возврат «откуда пришёл»).
+    """
+    return _inline_kb(
+        [
+            [{"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS}],
+            [{"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS}],
+            [{"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 _PLAN_EMOJI: dict[str, str] = {
@@ -258,7 +270,8 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
         if device_count is not None and device_count > DEFAULT_DEVICE_LIMIT:
             rows.append([{"text": "➖ Убрать устройство (до 5)", "callback_data": CB_REMOVE_DEVICE}])
     rows.append([{"text": "📶 Конфиг для роутера (Скоро)", "callback_data": CB_ROUTER}])
-    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MY_SUB}])
     return _inline_kb(rows)
 
 
@@ -461,7 +474,8 @@ def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, A
             server_row = []
     if server_row:
         rows.append(server_row)
-    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MY_SUB}])
     return _inline_kb(rows)
 
 
@@ -2039,14 +2053,16 @@ def text_remove_device_success(new_count: int) -> str:
 
 
 def link_email_keyboard() -> dict[str, Any]:
-    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}]])
+    # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MY_SUB}]])
 
 
 def link_email_code_keyboard() -> dict[str, Any]:
+    # Экран кода предшествует вводу email: Назад возвращает к экрану ввода (откуда пришли).
     return _inline_kb(
         [
             [{"text": "📧 Отправить код повторно", "callback_data": CB_RESEND_EMAIL_CODE}],
-            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+            [{"text": "↩️ Назад", "callback_data": CB_LINK_EMAIL}],
         ]
     )
 

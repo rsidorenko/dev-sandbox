@@ -194,6 +194,7 @@ from app.bot_transport.storefront_ui import (
     mac_step_6_text,
     main_menu_keyboard,
     my_keys_menu_keyboard,
+    my_subscription_keyboard,
     no_subscription_keyboard,
     promo_badge_label,
     promo_menu_badge,
@@ -1324,13 +1325,30 @@ async def _render_subscription_status(
                 device_count = snap.device_count
         if device_count is None:
             device_count = DEVICES_DEFAULT
+        # Ссылка подписки показывается прямо в подменю «Моя подписка» (тот же вызов
+        # get_user_config, что и в обработчике CB_MY_KEYS). Без vless_provider / identity —
+        # подменю без блока ссылки (функционал экранов от этого не страдает).
+        subscription_url: str | None = None
+        if composition.vless_provider is not None and uid is not None:
+            from app.issuance.vless_provider import VlessProviderOutcome
+
+            id_rec = await composition.identity.find_by_telegram_user_id(uid)
+            if id_rec is not None:
+                vless_result = await composition.vless_provider.get_user_config(
+                    internal_user_id=id_rec.internal_user_id,
+                )
+                if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
+                    subscription_url = vless_result.config.subscription_url
         text = text_subscription_active(
             active_until,
             plan_name,
             device_count,
             remaining_days=remaining_days,
-        ) + await _promo_menu_badge(composition, uid)
-        return text, await _main_menu_keyboard(composition, uid)
+        )
+        if subscription_url:
+            text += "\n\n🔗 Ссылка для подписки:\n" f"<code>{subscription_url}</code>"
+        text += await _promo_menu_badge(composition, uid)
+        return text, my_subscription_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
         return text_subscription_expired(), no_subscription_keyboard()
     return text_no_subscription(), no_subscription_keyboard()
