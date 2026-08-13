@@ -135,7 +135,7 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
             # «Мои ключи», «Настройки подписки», «Привязать email» перенесены в
             # подменю «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
             # с этих экранов (контекстный возврат «откуда пришёл»).
-            [{"text": "📋 Моя подписка", "callback_data": CB_MY_SUB}],
+            [{"text": "📋 Моя подписка", "callback_data": CB_MY_SUB, "style": "danger"}],
             [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE, "style": "primary"}],
             [
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
