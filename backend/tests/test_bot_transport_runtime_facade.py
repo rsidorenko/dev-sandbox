@@ -374,7 +374,6 @@ def test_subscription_screens_back_returns_to_my_subscription() -> None:
     assert email_buttons[-1] == CB_MY_SUB
 
 
-
 def test_facade_start_offer_unchanged_two_buttons() -> None:
     """/start keeps the 2-button offer (trial + Главное меню)."""
 

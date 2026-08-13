@@ -1346,7 +1346,7 @@ async def _render_subscription_status(
             remaining_days=remaining_days,
         )
         if subscription_url:
-            text += "\n\n🔗 Ссылка для подписки:\n" f"<code>{subscription_url}</code>"
+            text += f"\n\n🔗 Ссылка для подписки:\n<code>{subscription_url}</code>"
         text += await _promo_menu_badge(composition, uid)
         return text, my_subscription_keyboard()
     if result.safe_status == SafeUserStatusCategory.SUBSCRIPTION_EXPIRED:
