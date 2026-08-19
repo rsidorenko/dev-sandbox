@@ -149,12 +149,17 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     internal_user_id = identity["internal_user_id"]
 
     from app.application.promo_service import resolve_active_promo
-    from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
+    from app.persistence.postgres_promo import (
+        PostgresPromoAppliedRepository,
+        PostgresPromoCodeRepository,
+        PostgresPromoRedemptionRepository,
+    )
 
     active_promo = await resolve_active_promo(
         pool=pool,
         promo_applied_repo=PostgresPromoAppliedRepository(pool),
         promo_code_repo=PostgresPromoCodeRepository(pool),
+        promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
         snapshots=None,
         internal_user_id=internal_user_id,
         base_rubles=total_rubles,
@@ -352,12 +357,17 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     # Применённый промокод: cost_rubles И expected_amount_kopecks скидываются синхронно,
     # т.к. add-device вебхук сверяет платёж именно по expected_amount_kopecks из metadata.
     from app.application.promo_service import resolve_active_promo
-    from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
+    from app.persistence.postgres_promo import (
+        PostgresPromoAppliedRepository,
+        PostgresPromoCodeRepository,
+        PostgresPromoRedemptionRepository,
+    )
 
     active_promo = await resolve_active_promo(
         pool=pool,
         promo_applied_repo=PostgresPromoAppliedRepository(pool),
         promo_code_repo=PostgresPromoCodeRepository(pool),
+        promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
         snapshots=None,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,

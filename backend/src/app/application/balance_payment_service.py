@@ -497,11 +497,12 @@ async def _add_device_pg(
             # advisory lock сериализует per-user операции, рассинхрона current здесь быть не может).
             from app.application.promo_service import resolve_active_promo
 
-            applied_repo, code_repo, _red, _snap = _balance_promo_repos(pool, None)
+            applied_repo, code_repo, redemption_repo, _snap = _balance_promo_repos(pool, None)
             active_promo_add = await resolve_active_promo(
                 pool=pool,
                 promo_applied_repo=applied_repo,
                 promo_code_repo=code_repo,
+                promo_redemption_repo=redemption_repo,
                 snapshots=_snap,
                 internal_user_id=internal_user_id,
                 base_rubles=cost_rubles,
@@ -615,6 +616,7 @@ async def _add_device_inmemory(
         pool=None,
         promo_applied_repo=composition.promo_applied_repo,
         promo_code_repo=composition.promo_code_repo,
+        promo_redemption_repo=composition.promo_redemption_repo,
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,
@@ -723,11 +725,12 @@ async def _resolve_balance_discount(
     base_rubles = base_kopecks // 100
     if base_rubles <= 0:
         return None, base_kopecks
-    applied, code_repo, _redemption, snapshots = _balance_promo_repos(pool, composition)
+    applied, code_repo, redemption_repo, snapshots = _balance_promo_repos(pool, composition)
     active = await resolve_active_promo(
         pool=pool,
         promo_applied_repo=applied,
         promo_code_repo=code_repo,
+        promo_redemption_repo=redemption_repo,
         snapshots=snapshots,
         internal_user_id=internal_user_id,
         base_rubles=base_rubles,

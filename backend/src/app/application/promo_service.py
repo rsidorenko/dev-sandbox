@@ -8,9 +8,11 @@
 к моменту погашения деньги и fulfillment уже прошли, поэтому любая ошибка лишь логируется
 (аудиторский пробел, но не потеря денег).
 
-Идемпотентность погашения опирается на два UNIQUE-констрейнта ``promo_redemptions``:
-``idempotency_key`` (повтор вебхука/двойной клик) и ``(code, internal_user_id)`` (один код
-на пользователя). Повторная попытка погасить тот же платёж — no-op без повторного инкремента.
+Идемпотентность погашения опирается на UNIQUE-констрейнт ``promo_redemptions(idempotency_key)``
+(повтор вебхука/двойной клик). Лимит «максимум погашений кода одним пользователем»
+(``promo_codes.max_redemptions_per_user``) инфорсируется count-гейтом под advisory-локом:
+режим «единожды» (limit=1) даёт no-op без повторного инкремента, «неограничено» (NULL) —
+строка журнала и +1 на каждое погашение.
 
 Функции принимают репозитории явно (а не весь composition): web-обработчики работают с
 ``pool`` напрямую и composition не имеют (как balance_payment_service), а bot/balance
@@ -33,6 +35,7 @@ from app.domain.promo import (
     apply_promo_discount,
     audience_eligible,
     is_new_user_eligible,
+    per_user_exhausted,
     redeem_block_reason,
 )
 from app.persistence.postgres_promo import (
@@ -102,6 +105,7 @@ async def resolve_active_promo(
     pool: asyncpg.Pool | None,
     promo_applied_repo: PromoAppliedRepository,
     promo_code_repo: PromoCodeRepository,
+    promo_redemption_repo: PromoRedemptionRepository,
     snapshots: SubscriptionSnapshotReader | None,
     internal_user_id: str,
     base_rubles: int,
@@ -114,6 +118,10 @@ async def resolve_active_promo(
     Возвращает ``ActivePromo`` (code + promo + PromoPrice), либо ``None`` если у
     пользователя нет пригодного промокода. Все причины «нет скидки» дают ``None``
     (fail-closed → пользователь платит полную цену, что безопасно: нет утечки денег).
+
+    Включая исчерпание per-user лимита: код с ``max_redemptions_per_user=1``, уже
+    погашенный этим пользователем, здесь и далее не даёт скидку (стена против
+    повторного применения после оплаты).
 
     plan_id/is_addon пробрасываются в ``apply_promo_discount``: per-tariff промокод
     на «Свой»/add-device/не заданном тарифе здесь даст ``ActivePromo`` с price == base
@@ -134,6 +142,10 @@ async def resolve_active_promo(
         return None
 
     if redeem_block_reason(promo, moment) is not None:
+        return None
+
+    used = await promo_redemption_repo.count_for_user(promo.code, internal_user_id)
+    if per_user_exhausted(promo, used):
         return None
 
     is_new = await compute_is_new_user(pool=pool, snapshots=snapshots, internal_user_id=internal_user_id)
@@ -206,7 +218,8 @@ async def redeem_promo_on_success(
 
     # Очистка «намерения» — после погашения. Даже если она упадёт, деньги в безопасности:
     # скидка уже погашена, а повторно применить тот же код пользователю не даст
-    # UNIQUE(code, internal_user_id). Сбой очистки лишь оставит «висящее» намерение.
+    # per-user лимит (resolve_active_promo/_apply_promo_to_user читают журнал погашений).
+    # Сбой очистки лишь оставит «висящее» намерение.
     try:
         await promo_applied_repo.clear(internal_user_id)
     except Exception:
@@ -225,21 +238,35 @@ async def _redeem_atomic(
     """Платформо-специфичная часть погашения. Возвращает True при freshly вставленной записи."""
     # max_redemptions берём одним чтением (best-effort); инкремент дополнительно защищён
     # на уровне БД (WHERE redemptions_count < max), поэтому рассинхронизация чтения не даёт
-    # превысить лимит.
+    # превысить лимит. per-user лимит проверяется count-гейтом ПОД advisory-локом —
+    # критическая секция COUNT→INSERT→INCREMENT сериализована на пользователя.
     promo = await promo_code_repo.get(code)
     max_redemptions = promo.max_redemptions if promo is not None else None
+    per_user_limit = promo.max_redemptions_per_user if promo is not None else None
 
     if pool is not None:
         async with pool.acquire() as conn, conn.transaction():
             locked = await conn.fetchval("SELECT pg_try_advisory_xact_lock(hashtext($1))", record.internal_user_id)
             if not locked:
                 return False  # другая транзакция погашения в полёте — идемпотентность доберёт
+            if per_user_limit is not None:
+                used = await PostgresPromoRedemptionRepository.count_for_user_in_connection(
+                    conn, record.code, record.internal_user_id
+                )
+                if used >= per_user_limit:
+                    # Лимит погашений кода этим пользователем исчерпан — no-op
+                    # (без строки журнала и инкремента, как раньше при UNIQUE).
+                    return False
             inserted = await PostgresPromoRedemptionRepository.redeem_in_connection(conn, record)
             if inserted and promo is not None:
                 await PostgresPromoCodeRepository.increment_redemptions_in_connection(conn, code, max_redemptions)
             return inserted
 
-    # in-memory путь (unit-тесты бота): instance-метод redeem вместо *_in_connection staticmethod.
+    # in-memory путь (unit-тесты бота): instance-методы вместо *_in_connection staticmethod'ов.
+    if per_user_limit is not None:
+        used = await promo_redemption_repo.count_for_user(record.code, record.internal_user_id)
+        if used >= per_user_limit:
+            return False
     inserted = await promo_redemption_repo.redeem(record)
     if inserted and promo is not None:
         await promo_code_repo.increment_redemptions(code, max_redemptions)  # type: ignore[attr-defined]

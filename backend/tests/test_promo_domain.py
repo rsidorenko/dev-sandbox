@@ -15,6 +15,7 @@ from app.domain.promo import (
     is_expired,
     is_new_user_eligible,
     normalize_code,
+    per_user_exhausted,
     redeem_block_reason,
     validate_code_format,
     validate_discount,
@@ -30,6 +31,7 @@ def _promo(
     discount_value: int = 15,
     discounts_by_plan: dict[str, int] | None = None,
     max_redemptions: int | None = None,
+    max_redemptions_per_user: int | None = None,
     redemptions_count: int = 0,
     expires_at: datetime | None = None,
     is_active: bool = True,
@@ -49,6 +51,7 @@ def _promo(
         updated_at=now,
         created_by="admin",
         discounts_by_plan=discounts_by_plan,
+        max_redemptions_per_user=max_redemptions_per_user,
     )
 
 
@@ -185,6 +188,30 @@ def test_block_reason_none_for_redeemable():
 def test_is_expired_none_means_never():
     assert is_expired(None) is False
     assert is_expired(datetime.now(UTC) + timedelta(days=1)) is False
+
+
+# --- per_user_exhausted: лимит активаций одним пользователем ---
+
+
+def test_per_user_exhausted_none_limit_is_unlimited():
+    promo = _promo()
+    assert promo.max_redemptions_per_user is None  # дефолт для legacy-конструкций
+    assert per_user_exhausted(promo, 0) is False
+    assert per_user_exhausted(promo, 5) is False
+    assert per_user_exhausted(promo, 1000) is False
+
+
+def test_per_user_exhausted_once_mode():
+    promo = _promo(max_redemptions_per_user=1)
+    assert per_user_exhausted(promo, 0) is False  # ещё не погашал
+    assert per_user_exhausted(promo, 1) is True  # уже погасил единожды
+
+
+def test_per_user_exhausted_n_mode_boundary():
+    # int-лимит допускает будущее N-на-юзера: исчерпание строго на used >= limit.
+    promo = _promo(max_redemptions_per_user=3)
+    assert per_user_exhausted(promo, 2) is False
+    assert per_user_exhausted(promo, 3) is True
 
 
 # --- validation ---

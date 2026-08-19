@@ -50,6 +50,7 @@ def _promo(
     value: int = 50,
     discounts_by_plan: dict[str, int] | None = None,
     max_redemptions: int | None = None,
+    max_redemptions_per_user: int | None = None,
     redemptions_count: int = 0,
     is_active: bool = True,
     expires_at: datetime | None = None,
@@ -69,6 +70,7 @@ def _promo(
         updated_at=now,
         created_by="admin",
         discounts_by_plan=discounts_by_plan,
+        max_redemptions_per_user=max_redemptions_per_user,
     )
 
 
@@ -94,6 +96,7 @@ def _resolve(c, uid: str, base_rubles: int):
             pool=None,
             promo_applied_repo=c.promo_applied_repo,
             promo_code_repo=c.promo_code_repo,
+            promo_redemption_repo=c.promo_redemption_repo,
             snapshots=c.snapshots,
             internal_user_id=uid,
             base_rubles=base_rubles,
@@ -208,6 +211,81 @@ def test_redeem_exhausted_guard_records_but_does_not_overincrement():
 def test_redeem_empty_code_is_noop():
     c, uid = _composition()
     assert _redeem(c, uid, code="", payment_ref="pay") is False
+
+
+# ── per-user лимит: «единожды» (limit=1) и «неограничено» (limit=None) ───────
+
+
+def test_redeem_once_mode_second_redemption_is_noop():
+    # limit=1: второе погашение (другой платёж!) — count-гейт под advisory-локом,
+    # без строки журнала и без инкремента (семантика бывшего UNIQUE(code, user)).
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions=100, max_redemptions_per_user=1))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-2") is False
+    promo = _run(c.promo_code_repo.get("WELCOME"))
+    assert promo is not None and promo.redemptions_count == 1
+    assert len(_run(c.promo_redemption_repo.list_by_user(uid))) == 1
+
+
+def test_redeem_unlimited_mode_counts_every_redemption():
+    # limit=None: каждое погашение — строка журнала и +1 к счётчику.
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions_per_user=None))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-2") is True
+    promo = _run(c.promo_code_repo.get("WELCOME"))
+    assert promo is not None and promo.redemptions_count == 2
+    assert len(_run(c.promo_redemption_repo.list_by_user(uid))) == 2
+
+
+def test_redeem_unlimited_mode_still_respects_global_max():
+    # Глобальный max_redemptions остаётся потолком СУММАРНЫХ погашений (вкл. повторы).
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions=1, max_redemptions_per_user=None))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-2") is True  # аудит-строка есть
+    promo = _run(c.promo_code_repo.get("WELCOME"))
+    assert promo is not None and promo.redemptions_count == 1  # guarded-инкремент не превысил max
+
+
+def test_resolve_once_mode_blocked_after_redemption():
+    # Стена на уровне оплаты: погашавший once-код (даже с «висящим» пином) → None.
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions_per_user=1))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    # Имитируем «висящее» намерение (сбой clear): пин снова выставлен.
+    _run(c.promo_applied_repo.upsert(uid, "WELCOME", datetime.now(UTC) + timedelta(hours=PROMO_APPLIED_TTL_HOURS)))
+    assert _resolve(c, uid, 249) is None  # fail-closed → полная цена
+
+    # Контроль: unlimited-код в тех же условиях скидку даёт.
+    _apply(c, uid, _promo(code="FOREVER", max_redemptions_per_user=None))
+    _run(c.promo_applied_repo.upsert(uid, "FOREVER", datetime.now(UTC) + timedelta(hours=PROMO_APPLIED_TTL_HOURS)))
+    active = _resolve(c, uid, 249)
+    assert active is not None and active.code == "FOREVER"
+
+
+def test_bot_promo_input_already_used_after_redemption():
+    # Стена на уровне бота: повторный ввод once-кода → text_promo_already_used.
+    from app.bot_transport.runtime_facade import _handle_promo_code_input
+
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions_per_user=1))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    text, _kb = _run(_handle_promo_code_input(c, 9001, "WELCOME"))
+    assert "уже активировали" in text
+    assert _run(c.promo_applied_repo.get(uid)) is None  # пин не выставлен
+
+
+def test_bot_menu_badge_hidden_for_once_user_with_stale_pin():
+    # Бейдж/сводка не показывают скидку погашённого once-кода при «висящем» пине.
+    from app.bot_transport.runtime_facade import _active_applied_promo
+
+    c, uid = _composition()
+    _apply(c, uid, _promo(max_redemptions_per_user=1))
+    assert _redeem(c, uid, code="WELCOME", payment_ref="pay-1") is True
+    _run(c.promo_applied_repo.upsert(uid, "WELCOME", datetime.now(UTC) + timedelta(hours=PROMO_APPLIED_TTL_HOURS)))
+    assert _run(_active_applied_promo(c, 9001)) is None
 
 
 # ── webhook: сверка суммы с/без discount_kopecks (legacy=0) ──────────────────
@@ -374,6 +452,7 @@ def _resolve_plan(c, uid: str, base_rubles: int, *, plan_id: str | None, is_addo
             pool=None,
             promo_applied_repo=c.promo_applied_repo,
             promo_code_repo=c.promo_code_repo,
+            promo_redemption_repo=c.promo_redemption_repo,
             snapshots=c.snapshots,
             internal_user_id=uid,
             base_rubles=base_rubles,

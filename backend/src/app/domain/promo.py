@@ -67,6 +67,9 @@ class PromoCode:
     # плоская мода (скидка берётся из discount_value и применяется ко всему).
     # Непустая — per-tariff: скидка только для тарифов из map (см. apply_promo_discount).
     discounts_by_plan: dict[str, int] | None = None
+    # Лимит активаций кода ОДНИМ пользователем: None = неограничено, 1 = единожды
+    # (int допускает будущее N-на-юзера). Проверяется per_user_exhausted.
+    max_redemptions_per_user: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +144,9 @@ def redeem_block_reason(promo: PromoCode, now: datetime | None = None) -> str | 
     """Причина, по которой промокод нельзя гасить (None = можно).
 
     Проверяет только свойства самого кода (активность, срок, глобальный лимит).
-    Принадлежность к аудитории и лимит «один на пользователя» проверяются отдельно,
-    т.к. требуют контекста пользователя и/или транзакции.
+    Принадлежность к аудитории и лимит «на пользователя» проверяются отдельно
+    (audience_eligible и per_user_exhausted), т.к. требуют контекста пользователя
+    и/или транзакции.
     """
     if not promo.is_active:
         return "promo_inactive"
@@ -151,6 +155,17 @@ def redeem_block_reason(promo: PromoCode, now: datetime | None = None) -> str | 
     if promo.max_redemptions is not None and promo.redemptions_count >= promo.max_redemptions:
         return "promo_exhausted"
     return None
+
+
+def per_user_exhausted(promo: PromoCode, used_count: int) -> bool:
+    """True, если лимит активаций этого кода одним пользователем исчерпан.
+
+    Единое определение для всех поверхностей: применение (бот/web), пересчёт при
+    оплате (resolve_active_promo) и погашение (_redeem_atomic). None-лимит =
+    неограничено → всегда False.
+    """
+    limit = promo.max_redemptions_per_user
+    return limit is not None and used_count >= limit
 
 
 def is_new_user_eligible(*, has_accepted_payment: bool) -> bool:

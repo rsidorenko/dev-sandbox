@@ -26,6 +26,7 @@ from app.domain.promo import (
     PromoDiscountKind,
     audience_eligible,
     normalize_code,
+    per_user_exhausted,
     redeem_block_reason,
     validate_code_format,
 )
@@ -110,10 +111,12 @@ async def handle_get_promocode(request: Request) -> JSONResponse:
         from app.persistence.postgres_promo import (
             PostgresPromoAppliedRepository,
             PostgresPromoCodeRepository,
+            PostgresPromoRedemptionRepository,
         )
 
         applied_repo = PostgresPromoAppliedRepository(pool)
         code_repo = PostgresPromoCodeRepository(pool)
+        redemption_repo = PostgresPromoRedemptionRepository(pool)
         applied = await applied_repo.get(internal_user_id)
         now = datetime.now(UTC)
         if applied is None or applied.is_expired(now):
@@ -125,6 +128,11 @@ async def handle_get_promocode(request: Request) -> JSONResponse:
             return JSONResponse({"ok": True, "applied": None})
 
         valid = redeem_block_reason(promo, now) is None
+        if valid:
+            # Per-user лимит: погашавший once-код (с «висящим» пином) — valid=false,
+            # консистентно с оплатой (resolve_active_promo тоже отвергнет).
+            used = await redemption_repo.count_for_user(promo.code, internal_user_id)
+            valid = not per_user_exhausted(promo, used)
         if valid:
             is_new = await compute_is_new_user(pool=pool, snapshots=None, internal_user_id=internal_user_id)
             valid = audience_eligible(promo.audience, is_new_user=is_new)
@@ -157,10 +165,12 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
         from app.persistence.postgres_promo import (
             PostgresPromoAppliedRepository,
             PostgresPromoCodeRepository,
+            PostgresPromoRedemptionRepository,
         )
 
         applied_repo = PostgresPromoAppliedRepository(pool)
         code_repo = PostgresPromoCodeRepository(pool)
+        redemption_repo = PostgresPromoRedemptionRepository(pool)
 
         promo = await code_repo.get(code)
         if promo is None:
@@ -170,6 +180,11 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
         block = redeem_block_reason(promo, now)
         if block is not None:
             return safe_json_error(409, _BLOCK_ERROR.get(block, "ineligible"))
+
+        # Per-user лимит: код с режимом «единожды», уже погашенный этим пользователем.
+        used = await redemption_repo.count_for_user(code, internal_user_id)
+        if per_user_exhausted(promo, used):
+            return safe_json_error(409, "already_used")
 
         is_new = await compute_is_new_user(pool=pool, snapshots=None, internal_user_id=internal_user_id)
         if not audience_eligible(promo.audience, is_new_user=is_new):

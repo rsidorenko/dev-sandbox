@@ -33,6 +33,7 @@ _UPDATABLE_COLUMNS: frozenset[str] = frozenset(
         "discount_value",
         "discounts_by_plan",
         "max_redemptions",
+        "max_redemptions_per_user",
         "expires_at",
         "is_active",
         "note",
@@ -40,10 +41,11 @@ _UPDATABLE_COLUMNS: frozenset[str] = frozenset(
 )
 
 # Колонки, возвращаемые всеми SELECT/RETURNING — единый список, чтобы не рассинхронить
-# парсинг в record_from_row (там же читается discounts_by_plan).
+# парсинг в record_from_row (там же читаются discounts_by_plan/max_redemptions_per_user).
 _PROMO_SELECT_COLUMNS = (
     "code, audience, discount_kind, discount_value, discounts_by_plan, max_redemptions, "
-    "redemptions_count, expires_at, is_active, note, created_by, created_at, updated_at"
+    "max_redemptions_per_user, redemptions_count, expires_at, is_active, note, "
+    "created_by, created_at, updated_at"
 )
 
 
@@ -73,8 +75,8 @@ class PostgresPromoCodeRepository:
                 row = await conn.fetchrow(
                     "INSERT INTO promo_codes "  # noqa: S608
                     "(code, audience, discount_kind, discount_value, discounts_by_plan, max_redemptions, "
-                    "redemptions_count, expires_at, is_active, note, created_by) "
-                    "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11) "
+                    "max_redemptions_per_user, redemptions_count, expires_at, is_active, note, created_by) "
+                    "VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12) "
                     f"RETURNING {_PROMO_SELECT_COLUMNS}",
                     promo.code,
                     promo.audience.value,
@@ -82,6 +84,7 @@ class PostgresPromoCodeRepository:
                     discount_value_db,
                     _encode_discounts_by_plan(promo.discounts_by_plan),
                     promo.max_redemptions,
+                    promo.max_redemptions_per_user,
                     promo.redemptions_count,
                     promo.expires_at,
                     promo.is_active,
@@ -176,15 +179,35 @@ class PostgresPromoRedemptionRepository:
             )
         return tuple(_redemption_from_row(r) for r in rows)
 
+    async def count_for_user(self, code: str, internal_user_id: str) -> int:
+        """Сколько раз пользователь уже погашал этот код (применение/оплата/бейдж)."""
+        async with self._pool.acquire() as conn:
+            return await self.count_for_user_in_connection(conn, code, internal_user_id)
+
+    @staticmethod
+    async def count_for_user_in_connection(conn: asyncpg.Connection, code: str, internal_user_id: str) -> int:
+        """Транзакционный аналог count_for_user (внутри advisory-лока погашения)."""
+        value = await conn.fetchval(
+            "SELECT COUNT(*) FROM promo_redemptions WHERE code = $1 AND internal_user_id = $2",
+            code,
+            internal_user_id,
+        )
+        return int(value or 0)
+
     @staticmethod
     async def redeem_in_connection(conn: asyncpg.Connection, record: PromoRedemptionRecord) -> bool:
-        """Идемпотентная вставка погашения (True — вставлено, False — дубль/один-на-юзера)."""
+        """Идемпотентная вставка погашения (True — вставлено, False — дубль по ключу).
+
+        Конфликт-таргет — только idempotency_key (повтор вебхука/двойной клик).
+        Per-user лимит (максимум погашений кода одним пользователем) инфорсируется
+        выше по стеку — count-гейтом под advisory-локом в _redeem_atomic.
+        """
         result = await conn.execute(
             "INSERT INTO promo_redemptions "
             "(redemption_id, code, internal_user_id, idempotency_key, "
             "base_rubles, discounted_rubles, discount_kopecks, payment_ref, created_at) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
-            "ON CONFLICT DO NOTHING",
+            "ON CONFLICT (idempotency_key) DO NOTHING",
             record.redemption_id,
             record.code,
             record.internal_user_id,

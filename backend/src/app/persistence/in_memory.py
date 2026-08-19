@@ -364,6 +364,7 @@ _PROMO_UPDATABLE: set[str] = {
     "discount_value",
     "discounts_by_plan",
     "max_redemptions",
+    "max_redemptions_per_user",
     "expires_at",
     "is_active",
     "note",
@@ -439,13 +440,20 @@ class InMemoryPromoRedemptionRepository:
             items.sort(key=lambda r: r.created_at, reverse=True)
             return tuple(items[:limit])
 
+    async def count_for_user(self, code: str, internal_user_id: str) -> int:
+        """Сколько раз пользователь уже погашал этот код (для per-user лимита)."""
+        async with self._lock:
+            return sum(1 for r in self._redemptions if r.code == code and r.internal_user_id == internal_user_id)
+
     async def redeem(self, record: PromoRedemptionRecord) -> bool:
-        """Идемпотентная вставка: True — вставлено, False — дубль (по idempotency_key или code+user)."""
+        """Идемпотентная вставка: True — вставлено, False — дубль по idempotency_key.
+
+        Per-user лимит (максимум погашений кода одним пользователем) инфорсируется
+        выше по стеку — count-гейтом в _redeem_atomic (зеркало Postgres-семантики).
+        """
         async with self._lock:
             for r in self._redemptions:
-                if r.idempotency_key == record.idempotency_key or (
-                    r.code == record.code and r.internal_user_id == record.internal_user_id
-                ):
+                if r.idempotency_key == record.idempotency_key:
                     return False
             self._redemptions.append(record)
             return True

@@ -73,6 +73,18 @@ async def test_code_update_ignores_disallowed_columns():
 
 
 @pytest.mark.asyncio
+async def test_code_per_user_limit_update_roundtrip():
+    repo = InMemoryPromoCodeRepository()
+    await repo.create(_promo("WELCOME", max_redemptions_per_user=1))
+    assert (await repo.get("WELCOME")).max_redemptions_per_user == 1
+    # переключение на «неограничено» и обратно — колонка в белом списке
+    updated = await repo.update("WELCOME", {"max_redemptions_per_user": None})
+    assert updated.max_redemptions_per_user is None
+    updated = await repo.update("WELCOME", {"max_redemptions_per_user": 1})
+    assert updated.max_redemptions_per_user == 1
+
+
+@pytest.mark.asyncio
 async def test_code_list_active_filter():
     repo = InMemoryPromoCodeRepository()
     await repo.create(_promo("A", is_active=True))
@@ -126,15 +138,30 @@ def _redemption(code: str = "WELCOME", uid: str = "u1", idem: str = "k1") -> Pro
 
 
 @pytest.mark.asyncio
-async def test_redeem_idempotent_by_key_and_by_user():
+async def test_redeem_idempotent_by_key_only():
     repo = InMemoryPromoRedemptionRepository()
     assert await repo.redeem(_redemption()) is True
     # дубль по idempotency_key
     assert await repo.redeem(_redemption()) is False
-    # другой idem, но тот же code+user -> один-на-юзера
-    assert await repo.redeem(_redemption(idem="k2")) is False
+    # другой idem, тот же code+user -> ВСТАВЛЯЕТСЯ: per-user лимит больше не дедуп
+    # репозитория, инфорсится count-гейтом в _redeem_atomic (зеркало Postgres-семантики)
+    assert await repo.redeem(_redemption(idem="k2")) is True
     # другой пользователь -> ок
     assert await repo.redeem(_redemption(uid="u2", idem="k3")) is True
+
+
+@pytest.mark.asyncio
+async def test_redeem_count_for_user():
+    repo = InMemoryPromoRedemptionRepository()
+    assert await repo.count_for_user("WELCOME", "u1") == 0
+    await repo.redeem(_redemption(code="WELCOME", uid="u1", idem="k1"))
+    await repo.redeem(_redemption(code="WELCOME", uid="u1", idem="k2"))
+    await repo.redeem(_redemption(code="OTHER", uid="u1", idem="k3"))
+    await repo.redeem(_redemption(code="WELCOME", uid="u2", idem="k4"))
+    assert await repo.count_for_user("WELCOME", "u1") == 2
+    assert await repo.count_for_user("WELCOME", "u2") == 1
+    assert await repo.count_for_user("OTHER", "u1") == 1
+    assert await repo.count_for_user("GHOST", "u1") == 0
 
 
 @pytest.mark.asyncio

@@ -234,6 +234,7 @@ from app.bot_transport.storefront_ui import (
     text_my_keys_menu,
     text_no_subscription,
     text_payment_unavailable,
+    text_promo_already_used,
     text_promo_applied,
     text_promo_applied_in_order,
     text_promo_code_invalid,
@@ -610,15 +611,15 @@ async def _active_applied_promo(
     """Закреплённый промокод для отображения — (promo, expires_at) либо None.
 
     Каноническая re-валидация (как при оплате): запись есть и не протухла, код
-    существует, активен/в сроке/лимит не исчерпан, аудитория подходит. expires_at
-    нужен бейджу «ещё N ч».
+    существует, активен/в сроке/лимит не исчерпан, per-user лимит не исчерпан,
+    аудитория подходит. expires_at нужен бейджу «ещё N ч».
     """
     if uid is None:
         return None
     from datetime import UTC, datetime
 
     from app.application.promo_service import compute_is_new_user
-    from app.domain.promo import audience_eligible, redeem_block_reason
+    from app.domain.promo import audience_eligible, per_user_exhausted, redeem_block_reason
 
     resolved_iid = (await _get_internal_user_id(composition, uid)) or f"u{uid}"
     now = datetime.now(UTC)
@@ -627,6 +628,11 @@ async def _active_applied_promo(
         return None
     promo = await composition.promo_code_repo.get(applied.code)
     if promo is None or redeem_block_reason(promo, now) is not None:
+        return None
+    used = await composition.promo_redemption_repo.count_for_user(promo.code, resolved_iid)
+    if per_user_exhausted(promo, used):
+        # Погашавший once-код с «висящим» пином (сбой clear) — без бейджа/скидки,
+        # консистентно с оплатой (resolve_active_promo тоже вернёт None).
         return None
     is_new = await compute_is_new_user(
         pool=_get_pool_from_composition(composition),
@@ -717,17 +723,18 @@ async def _apply_promo_to_user(
     *,
     now: datetime | None = None,
 ) -> tuple[str, str | None, Any | None]:
-    """Apply-ядро промокода: normalize → get → redeem_block_reason → audience → upsert.
+    """Apply-ядро промокода: normalize → get → redeem_block_reason → per-user → audience → upsert.
 
     Переиспользуется текстовым вводом (_handle_promo_code_input) и кнопкой рассылки
     (_handle_broadcast_promo_claim). НЕ трогает rate-limit / FSM / return_target / render —
     это остаётся в вызывающем коде. Принимает уже-resolved internal_user_id.
 
     Возвращает (status, code, promo):
-      status ∈ {"ok", "invalid", "not_found", "inactive", "ineligible"};
+      status ∈ {"ok", "invalid", "not_found", "inactive", "already_used", "ineligible"};
       promo — PromoCode при not_found-кроме (None только для invalid/not_found).
-    Скидка канонически пере-валидируется при оплате (resolve_active_promo), поэтому
-    здесь сохраняется лишь «намерение» (promo_applied, TTL 24ч).
+    already_used — per-user лимит исчерпан (код с max_redemptions_per_user=1 уже
+    погашен этим пользователем). Скидка канонически пере-валидируется при оплате
+    (resolve_active_promo), поэтому здесь сохраняется лишь «намерение» (promo_applied, TTL 24ч).
     """
     from datetime import UTC, datetime, timedelta
 
@@ -736,6 +743,7 @@ async def _apply_promo_to_user(
         PROMO_APPLIED_TTL_HOURS,
         audience_eligible,
         normalize_code,
+        per_user_exhausted,
         redeem_block_reason,
         validate_code_format,
     )
@@ -752,6 +760,10 @@ async def _apply_promo_to_user(
     if redeem_block_reason(promo, now) is not None:
         # inactive/expired/exhausted — вызывающий решает, как показать (обычно «не найден»).
         return "inactive", code, promo
+
+    used = await composition.promo_redemption_repo.count_for_user(code, internal_user_id)
+    if per_user_exhausted(promo, used):
+        return "already_used", code, promo
 
     is_new = await compute_is_new_user(
         pool=_get_pool_from_composition(composition),
@@ -802,6 +814,8 @@ async def _handle_promo_code_input(
         return text_promo_code_invalid(user_text), prompt_keyboard
     if status in ("not_found", "inactive"):
         return text_promo_not_found(), prompt_keyboard
+    if status == "already_used":
+        return text_promo_already_used(), prompt_keyboard
     if status == "ineligible":
         return text_promo_ineligible(), prompt_keyboard
 
@@ -1280,6 +1294,9 @@ async def _handle_broadcast_promo_claim(
     status, resolved_code, promo = await _apply_promo_to_user(composition, id_rec.internal_user_id, code, now=now)
     if status in ("not_found", "inactive", "invalid"):
         return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
+    if status == "already_used":
+        # once-код уже погашен этим пользователем (например, успел применить до рассылки).
+        return text_promo_already_used(), back_only_keyboard(CB_MAIN_MENU)
     if status == "ineligible":
         return text_promo_ineligible(), back_only_keyboard(CB_MAIN_MENU)
     # ok
@@ -1737,6 +1754,7 @@ async def _process_yookassa_payment(
             pool=_get_pool_from_composition(composition),
             promo_applied_repo=composition.promo_applied_repo,
             promo_code_repo=composition.promo_code_repo,
+            promo_redemption_repo=composition.promo_redemption_repo,
             snapshots=composition.snapshots,
             internal_user_id=internal_user_id,
             base_rubles=total_rubles,
@@ -1844,6 +1862,7 @@ async def _process_cryptobot_payment(
             pool=_get_pool_from_composition(composition),
             promo_applied_repo=composition.promo_applied_repo,
             promo_code_repo=composition.promo_code_repo,
+            promo_redemption_repo=composition.promo_redemption_repo,
             snapshots=composition.snapshots,
             internal_user_id=internal_user_id,
             base_rubles=total_rubles,
@@ -2121,6 +2140,7 @@ async def _process_add_device_yookassa(
         pool=_get_pool_from_composition(composition),
         promo_applied_repo=composition.promo_applied_repo,
         promo_code_repo=composition.promo_code_repo,
+        promo_redemption_repo=composition.promo_redemption_repo,
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,
@@ -2236,6 +2256,7 @@ async def _process_add_device_cryptobot(
         pool=_get_pool_from_composition(composition),
         promo_applied_repo=composition.promo_applied_repo,
         promo_code_repo=composition.promo_code_repo,
+        promo_redemption_repo=composition.promo_redemption_repo,
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
         base_rubles=cost_rubles,

@@ -267,6 +267,24 @@ def test_promo_claim_ineligible(monkeypatch) -> None:
     assert "недоступен для вашей учётной записи" in text
 
 
+def test_promo_claim_already_used_after_redemption(monkeypatch) -> None:
+    """Once-режим: юзер уже погашал код → «уже активировали» (fail-closed, повторного apply нет)."""
+
+    async def _fake_apply(composition, internal_user_id, raw_code, *, now=None):
+        return "already_used", _CODE, _make_promo()
+
+    monkeypatch.setattr("app.bot_transport.runtime_facade._apply_promo_to_user", _fake_apply)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await _register(c, uid=42)
+        c.identity._pool = _PromoClaimPool(claim_row={"code": _CODE})  # type: ignore[attr-defined]
+        return await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+
+    text, _kb = _run(main())
+    assert "уже активировали этот промокод ранее" in text
+
+
 def test_promo_claim_rate_limiter_fail_open_on_exception(monkeypatch) -> None:
     """Сбой лимитера не должен блокировать применение промокода (fail-open)."""
 

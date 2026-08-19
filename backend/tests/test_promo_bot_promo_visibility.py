@@ -163,6 +163,7 @@ def test_handle_promo_input_from_order_returns_to_discounted_summary():
             pool=None,
             promo_applied_repo=c.promo_applied_repo,
             promo_code_repo=c.promo_code_repo,
+            promo_redemption_repo=c.promo_redemption_repo,
             snapshots=c.snapshots,
             internal_user_id=iid,
             base_rubles=249,

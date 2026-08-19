@@ -58,9 +58,13 @@ class PromoCodeRepository(Protocol):
 class PromoRedemptionRepository(Protocol):
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[PromoRedemptionRecord, ...]: ...
 
+    async def count_for_user(self, code: str, internal_user_id: str) -> int:
+        """Сколько раз пользователь уже погашал этот код (для per-user лимита)."""
+        ...
+
     # Идемпотентная вставка погашения — Postgres-specific staticmethod
-    # `PostgresPromoRedemptionRepository.redeem_in_connection` (UNIQUE по idempotency_key
-    # и по (code, internal_user_id)). В Protocol не входит.
+    # `PostgresPromoRedemptionRepository.redeem_in_connection` (UNIQUE по idempotency_key;
+    # per-user лимит инфорсится кодом под advisory-локом). В Protocol не входит.
 
 
 class PromoAppliedRepository(Protocol):
@@ -85,11 +89,16 @@ def _coerce_discounts_by_plan(raw: Any) -> dict[str, int] | None:
 
 def record_from_row(row: Any) -> PromoCode:
     """Сборка PromoCode из строки БД (asyncpg Record / dict-like)."""
-    # discounts_by_plan может отсутствовать у старых SELECT — tolerant к KeyError.
+    # discounts_by_plan/max_redemptions_per_user могут отсутствовать у старых SELECT —
+    # tolerant к KeyError.
     try:
         discounts_raw = row["discounts_by_plan"]
     except KeyError:
         discounts_raw = None
+    try:
+        per_user_raw = row["max_redemptions_per_user"]
+    except KeyError:
+        per_user_raw = None
     return PromoCode(
         code=row["code"],
         audience=PromoAudience(row["audience"]),
@@ -104,6 +113,7 @@ def record_from_row(row: Any) -> PromoCode:
         updated_at=row["updated_at"],
         created_by=row["created_by"],
         discounts_by_plan=_coerce_discounts_by_plan(discounts_raw),
+        max_redemptions_per_user=None if per_user_raw is None else int(per_user_raw),
     )
 
 

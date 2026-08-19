@@ -38,6 +38,7 @@ def _promo_to_dict(promo: PromoCode) -> dict:
         "discount_value": promo.discount_value,
         "discounts_by_plan": promo.discounts_by_plan,
         "max_redemptions": promo.max_redemptions,
+        "max_redemptions_per_user": promo.max_redemptions_per_user,
         "redemptions_count": promo.redemptions_count,
         "expires_at": promo.expires_at.isoformat() if promo.expires_at else None,
         "is_active": promo.is_active,
@@ -153,6 +154,16 @@ async def handle_admin_create_promocode(request: Request) -> JSONResponse:
     if max_redemptions is not None and max_redemptions <= 0:
         return safe_json_error(400, "invalid_max_redemptions")
 
+    # Лимит активаций одним пользователем: None («неограничено») либо целое >= 1 («единожды»).
+    try:
+        max_redemptions_per_user = _parse_int_optional(
+            data.get("max_redemptions_per_user"), field="max_redemptions_per_user"
+        )
+    except ValueError as exc:
+        return safe_json_error(400, str(exc))
+    if max_redemptions_per_user is not None and max_redemptions_per_user <= 0:
+        return safe_json_error(400, "invalid_max_redemptions_per_user")
+
     try:
         expires_at = _parse_expires_at(data.get("expires_at"))
     except ValueError:
@@ -170,6 +181,7 @@ async def handle_admin_create_promocode(request: Request) -> JSONResponse:
         discount_kind=discount_kind,
         discount_value=discount_value,
         max_redemptions=max_redemptions,
+        max_redemptions_per_user=max_redemptions_per_user,
         redemptions_count=0,
         expires_at=expires_at,
         is_active=is_active,
@@ -264,6 +276,16 @@ async def handle_admin_update_promocode(request: Request) -> JSONResponse:
             return safe_json_error(400, str(exc))
         if changes["max_redemptions"] is not None and changes["max_redemptions"] <= 0:
             return safe_json_error(400, "invalid_max_redemptions")
+    if "max_redemptions_per_user" in data:
+        # None («неограничено») либо целое >= 1 («единожды»).
+        try:
+            changes["max_redemptions_per_user"] = _parse_int_optional(
+                data["max_redemptions_per_user"], field="max_redemptions_per_user"
+            )
+        except ValueError as exc:
+            return safe_json_error(400, str(exc))
+        if changes["max_redemptions_per_user"] is not None and changes["max_redemptions_per_user"] <= 0:
+            return safe_json_error(400, "invalid_max_redemptions_per_user")
     if "expires_at" in data:
         try:
             changes["expires_at"] = _parse_expires_at(data["expires_at"])

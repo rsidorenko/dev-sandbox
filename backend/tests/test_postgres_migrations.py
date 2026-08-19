@@ -118,6 +118,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "071_referral_bonus_awards.sql",
         "072_broadcast_bonus.sql",
         "073_broadcast_promo.sql",
+        "074_promo_per_user_limit.sql",
     ]
 
 
@@ -426,6 +427,31 @@ def test_broadcast_bonus_migration_contract_safe_additive() -> None:
     assert "expires_at timestamptz not null" in lowered
     assert "primary key (job_id, telegram_user_id)" in lowered
     assert "create index if not exists idx_broadcast_bonus_claims_status" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
+    ):
+        assert forbidden not in lowered
+
+
+def test_promo_per_user_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "074_promo_per_user_limit.sql").read_text(
+        encoding="utf-8"
+    )
+    # Нормализуем whitespace (выравнивание колонок в SQL даёт множественные пробелы).
+    lowered = _squash_ws(migration).lower()
+
+    # additive: новая nullable-колонка per-user лимита + backfill «единожды» для старых кодов.
+    assert "alter table promo_codes add column if not exists max_redemptions_per_user integer null" in lowered
+    assert "check (max_redemptions_per_user is null or max_redemptions_per_user >= 1)" in lowered
+    assert "update promo_codes set max_redemptions_per_user = 1" in lowered
+    # UNIQUE(code, internal_user_id) заменён кодовым enforced-лимитом (см. _redeem_atomic).
+    assert "alter table promo_redemptions drop constraint if exists promo_redemptions_user_code_uniq" in lowered
+    assert "create index if not exists idx_promo_redemptions_code_user" in lowered
 
     for forbidden in (
         "drop table",
