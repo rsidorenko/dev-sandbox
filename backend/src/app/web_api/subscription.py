@@ -68,7 +68,7 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
         )
 
     row = await pool.fetchrow(
-        """SELECT i.internal_user_id, i.subscription_token_expires_at,
+        """SELECT i.internal_user_id,
                   s.state_label, s.plan_id, s.trial_expires_at, s.active_until_utc, s.keys_deleted_at
            FROM user_identities i
            LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
@@ -77,8 +77,6 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     )
     if row is None:
         return PlainTextResponse("not found", status_code=404)
-    if row.get("subscription_token_expires_at") and row["subscription_token_expires_at"] < datetime.now(UTC):
-        return PlainTextResponse("token expired", status_code=410)
     # Entitlement gate: serve keys only while the subscription/trial is currently valid.
     # bare_xray links are built deterministically (no panel probe), so without this gate
     # /sub/ keeps handing keys to expired users even after reconcile removed them from

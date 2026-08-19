@@ -43,7 +43,6 @@ _CACHE_TTL_SECONDS = 600  # 10 minutes — panel-client (server list) cache
 _USER_CONFIG_FRESH_SECONDS = 120  # served without triggering a refresh
 _USER_CONFIG_STALE_SECONDS = 3600  # served (background-refreshed) up to this age; block beyond
 _CONFIG_CACHE_MAX_ENTRIES = 10000
-_SUBSCRIPTION_TOKEN_TTL_DAYS = int(os.environ.get("SUBSCRIPTION_TOKEN_TTL_DAYS", "90"))
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,21 +59,20 @@ def _web_sub_url(token: str) -> str:
 
 
 async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
+    # URL подписки постоянный (f620f73): существующий токен возвращаем как есть,
+    # без TTL-ротации. 90-дневный TTL из #74, молча возвращённый #94 (7bfd690),
+    # ломал Karing-автообновление на 90-й день (404/410 на /sub/). Новые токены
+    # выдаём без expires (NULL = бессрочный); миграция 075 обнулила expires у всех.
     row = await pool.fetchrow(
-        "SELECT subscription_token, subscription_token_expires_at FROM user_identities WHERE internal_user_id = $1",
+        "SELECT subscription_token FROM user_identities WHERE internal_user_id = $1",
         internal_user_id,
     )
     if row and row["subscription_token"]:
-        expires = row.get("subscription_token_expires_at")
-        if expires is None or expires > datetime.now(UTC):
-            return row["subscription_token"]
-    # Token missing or expired — generate fresh one
+        return row["subscription_token"]
     token = _generate_subscription_token()
-    expires_at = datetime.now(UTC) + timedelta(days=_SUBSCRIPTION_TOKEN_TTL_DAYS)
     await pool.execute(
-        "UPDATE user_identities SET subscription_token = $1, subscription_token_expires_at = $2 WHERE internal_user_id = $3",
+        "UPDATE user_identities SET subscription_token = $1 WHERE internal_user_id = $2",
         token,
-        expires_at,
         internal_user_id,
     )
     return token

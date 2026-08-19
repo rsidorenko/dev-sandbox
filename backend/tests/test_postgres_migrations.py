@@ -119,6 +119,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "072_broadcast_bonus.sql",
         "073_broadcast_promo.sql",
         "074_promo_per_user_limit.sql",
+        "075_subscription_token_permanent.sql",
     ]
 
 

@@ -140,9 +140,14 @@ def test_device_count_null_falls_back_to_zero():
 
 def test_ensure_subscription_token_returns_existing_without_expiry_check():
     """Token returned as-is even if subscription_token_expires_at is in the past."""
+    from datetime import UTC, datetime, timedelta
+
     from app.issuance.xui_vless_provider import _ensure_subscription_token
 
-    expired_row = _Record(subscription_token="existing-token-abc")
+    expired_row = _Record(
+        subscription_token="existing-token-abc",
+        subscription_token_expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
 
     class _Pool:
         async def fetchrow(self, sql, uid):
