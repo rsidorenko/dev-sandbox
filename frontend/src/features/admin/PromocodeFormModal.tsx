@@ -34,6 +34,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 type DiscountMode = "flat" | "perTariff";
+type PerUserMode = "once" | "unlimited";
 
 const inputClass =
   "mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100";
@@ -43,6 +44,12 @@ function initialMode(initial: AdminPromocode | null): DiscountMode {
   return initial?.discounts_by_plan && Object.keys(initial.discounts_by_plan).length > 0
     ? "perTariff"
     : "flat";
+}
+
+// Режим активаций одним пользователем: null в БД = «неограничено»; создание — «единожды».
+function initialPerUserMode(initial: AdminPromocode | null): PerUserMode {
+  if (initial === null) return "once";
+  return initial.max_redemptions_per_user == null ? "unlimited" : "once";
 }
 
 export function PromocodeFormModal({
@@ -56,6 +63,7 @@ export function PromocodeFormModal({
 }) {
   const [serverError, setServerError] = useState("");
   const [mode, setMode] = useState<DiscountMode>(() => initialMode(initial));
+  const [perUserMode, setPerUserMode] = useState<PerUserMode>(() => initialPerUserMode(initial));
   // per-tariff значения как строки (для input); парсим в onSubmit.
   const [perPlan, setPerPlan] = useState<Record<string, string>>(() => {
     const m = initial?.discounts_by_plan ?? {};
@@ -138,6 +146,7 @@ export function PromocodeFormModal({
       discount_value: discount.discount_value,
       discounts_by_plan: discount.discounts_by_plan,
       max_redemptions: v.max_redemptions && v.max_redemptions.trim() ? Number(v.max_redemptions.trim()) : null,
+      max_redemptions_per_user: perUserMode === "once" ? 1 : null,
       expires_at: v.expires_at ? new Date(v.expires_at).toISOString() : null,
       note: v.note?.trim() ? v.note.trim() : null,
       is_active: v.is_active,
@@ -296,6 +305,39 @@ export function PromocodeFormModal({
             </div>
           </div>
 
+          {/* Активации одним пользователем: «единожды» или «неограниченно». */}
+          <div>
+            <label className={labelClass}>Активаций на пользователя</label>
+            <div className="mt-1 inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-zinc-600">
+              <button
+                type="button"
+                onClick={() => setPerUserMode("once")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  perUserMode === "once"
+                    ? "bg-brand-600 text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-700"
+                }`}
+              >
+                Единожды
+              </button>
+              <button
+                type="button"
+                onClick={() => setPerUserMode("unlimited")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  perUserMode === "unlimited"
+                    ? "bg-brand-600 text-white"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-700"
+                }`}
+              >
+                Неограниченно
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              «Единожды» — один пользователь может использовать код один раз. «Неограниченно» —
+              скидка действует при каждой оплате этим кодом.
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass} htmlFor="note">
@@ -344,6 +386,7 @@ function mapError(error: string): string {
     case "invalid_discounts_by_plan":
     case "invalid_kind":
     case "invalid_max_redemptions":
+    case "invalid_max_redemptions_per_user":
     case "invalid_expires_at":
       return "Проверьте корректность полей (код, тип/значение скидки, лимит, срок).";
     case "promo_code_not_found":

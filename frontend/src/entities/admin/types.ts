@@ -46,6 +46,8 @@ export interface AdminPromocode {
   /** Per-tariff скидки {plan_id: value}; null — плоская мода (discount_value). */
   discounts_by_plan: Record<string, number> | null;
   max_redemptions: number | null;
+  /** Лимит активаций одним пользователем: null — неограничено, 1 — единожды. */
+  max_redemptions_per_user: number | null;
   redemptions_count: number;
   expires_at: string | null;
   is_active: boolean;
@@ -70,6 +72,8 @@ export interface AdminPromocodePayload {
   /** Per-tariff мода {plan_id: value}. mutually exclusive с discount_value. */
   discounts_by_plan?: Record<string, number> | null;
   max_redemptions?: number | null;
+  /** Лимит активаций одним пользователем: null — неограничено, 1 — единожды. */
+  max_redemptions_per_user?: number | null;
   expires_at?: string | null;
   note?: string | null;
   is_active?: boolean;

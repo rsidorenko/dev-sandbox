@@ -135,6 +135,9 @@ export default function AdminPromocodesPage() {
                     <span className="text-gray-400 dark:text-gray-500">
                       {p.max_redemptions != null ? ` / ${p.max_redemptions}` : " / ∞"}
                     </span>
+                    <span className="block text-xs text-gray-400 dark:text-gray-500">
+                      {p.max_redemptions_per_user != null ? `${p.max_redemptions_per_user} / юзера` : "∞ / юзера"}
+                    </span>
                   </td>
                   <td className={`${adminTd} ${adminNum} text-gray-500 dark:text-gray-400`}>
                     {p.expires_at ? new Date(p.expires_at).toLocaleDateString("ru-RU") : "∞"}

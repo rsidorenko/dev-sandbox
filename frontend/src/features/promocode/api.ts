@@ -43,6 +43,7 @@ export const PROMO_ERROR_MESSAGES: Record<string, string> = {
   invalid_format: "Неверный формат кода (3–32 символа: латиница и цифры).",
   expired: "Срок действия промокода истёк.",
   exhausted: "Лимит промокода исчерпан.",
+  already_used: "Вы уже активировали этот промокод ранее.",
   ineligible: "Промокод недоступен.",
   wrong_audience: "Этот промокод недоступен для вашей учётной записи.",
 };
