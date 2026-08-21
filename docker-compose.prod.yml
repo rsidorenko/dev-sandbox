@@ -132,12 +132,16 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    # Периодический graceful reload, чтобы nginx подхватывал продлённый certbot'ом
+    # сертификат из тома `certs` (certbot renew — каждые 12ч, reload — каждые 6ч,
+    # максимальный лаг применения — 6ч). Канонический паттерн certbot↔nginx;
+    # без этого reload не происходит вообще: nginx кеширует сертификат с старта.
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./ssl:/etc/nginx/ssl:ro
       - certbot-www:/var/www/certbot:ro
       - certs:/etc/letsencrypt:ro
       - /opt/bravada-downloads:/var/www/downloads:ro

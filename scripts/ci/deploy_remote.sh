@@ -15,6 +15,9 @@ ls -t /opt/bravada-backups/db-*.sql.gz 2>/dev/null | tail -n +11 | xargs -r rm -
 echo "=== Preserve server-side state (.env, ssl) ==="
 cp -p /opt/bravada/backend/.env /tmp/backend.env.backup 2>/dev/null || true
 cp -p /opt/bravada/.env /tmp/root.env.backup 2>/dev/null || true
+# rm обязателен: при существующем /tmp/ssl.backup cp -rp кладёт каталог ВНУТРЬ него,
+# и каждый деплой добавлял уровень вложенности ssl/ssl/ssl/... (сотни уровней к 2026-08).
+rm -rf /tmp/ssl.backup
 cp -rp /opt/bravada/ssl /tmp/ssl.backup 2>/dev/null || true
 
 echo "=== Swap artifact into place ==="

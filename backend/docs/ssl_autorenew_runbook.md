@@ -1,94 +1,37 @@
 # SSL / Let's Encrypt auto-renewal runbook
 
 ## Purpose
-Make TLS for `bravada-connect.ru` self-maintaining so the cert never silently expires,
-and keep it on a **DV (domain-validation)** CA that is **not** subject to the
-GlobalSign sanctions-driven revocation wave.
+TLS для `bravada-connect.ru` обслуживается полностью автоматически: продление и
+применение сертификата не требуют ручных операций ни разу в 90-дневном цикле.
 
-This runbook does **not** address the iOS "fraudulent site" warning (that is a Google
-Safe Browsing domain-reputation flag — see the iOS fraud-warning plan). It only secures
-the certificate lifecycle.
+## Background: инцидент 2026-08-20 (почему архитектура такая)
 
-## Background: the two separate problems (do not confuse them)
+20.08.2026 в 21:43 UTC сертификат истёк — сайт и бот (вебхук Telegram) лежали ~26 часов.
 
-1. **iOS "fraudulent/phishing site" warning** → Google Safe Browsing flags the **domain**.
-   The cert is irrelevant. Fixed via Google Search Console → Security Issues → Request Review.
-2. **Certificate revocation wave (habr.com/ru/news/1047084, 2026-06-13)** → **GlobalSign**
-   (GMO Internet Group, EU-sanctions-bound) began forced revocation of **OV/EV** certs
-   issued to Russian organizations, per mandatory CA/Browser Forum sanctions screening
-   (in force 2026-05-04). **DV certs are not affected** (no organization to screen).
-   `bravada-connect.ru` runs a **DV Let's Encrypt E7** cert (verified live) → **safe**.
+Корень — split-brain: certbot-контейнер исправно продлевал сертификат в named-томе
+`certs:/etc/letsencrypt` (продлил 21.07), но nginx читал bind-mount
+`./ssl:/etc/nginx/ssl` с копией от 22.05, и ничто не синкало том в `./ssl`.
+Предыдущий план (host-certbot + setup_letsencrypt_autorenew.sh, ранбук от 04.07
+«Fix before 2026-08-20») требовал ручной установки на сервере — его так и не
+выполнили. Урок: механизм, требующий ручного шага на проде, не работает.
 
-## The defect this runbook fixes
+## Текущая архитектура (fix/tls-cert-split-brain, 2026-08-21)
 
-`docker-compose.prod.yml` has a `certbot` service that renews into a **named volume**
-`certs:/etc/letsencrypt`, but **nginx reads `/opt/bravada/ssl/`** (a bind mount), not that
-volume. So:
-- The compose `certbot` service is effectively dead (renews into a volume nothing reads).
-- The cert in `/opt/bravada/ssl/` is rotated **manually**.
-- LE certs expire in 90 days → without manual action the site breaks TLS.
+Всё внутри docker-compose.prod.yml, переживает любой деплой без оператора:
 
-Current cert (as of 2026-07-04): Let's Encrypt E7, `notAfter` 2026-08-20. Fix before then.
+1. **certbot-сервис** (`certbot renew` каждые 12ч) продлевает сертификат в
+   named-томе `certs`. HTTP-01 валидация — через webroot `certbot-www`
+   (nginx обслуживает `/.well-known/acme-challenge/`).
+2. **nginx читает сертификат напрямую из того же тома**:
+   `ssl_certificate /etc/letsencrypt/live/bravada-connect.ru/fullchain.pem;`
+   (том смонтирован в nginx read-only).
+3. **nginx-контейнер делает graceful reload каждые 6ч** (`command` с
+   reload-лупом — канонический паттерн certbot↔nginx). Максимальный лаг
+   применения продлённого сертификата — 6 часов.
 
-## Recommended fix: host-level certbot with a renew hook
-
-Host-level certbot is the robust, standard pattern: it survives `deploy.yml` (which wipes
-`/opt/bravada` but preserves host `/etc/letsencrypt` and `/opt/bravada/ssl/`) and can reload
-the nginx container directly.
-
-### Prereq: make the ACME webroot host-accessible
-
-nginx serves `/.well-known/acme-challenge/` from the container path `/var/www/certbot`,
-backed by the `certbot-www` **named volume**. Host certbot needs a real host path.
-
-In `docker-compose.prod.yml`, switch `certbot-www` from a named volume to a bind mount
-(two lines, identical change for both services):
-
-```diff
-   nginx:
-     volumes:
-       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-       - ./ssl:/etc/nginx/ssl:ro
--      - certbot-www:/var/www/certbot:ro
-+      - ./certbot-www:/var/www/certbot:ro
-       - certs:/etc/letsencrypt:ro
-   ...
-   certbot:
-     volumes:
--      - certbot-www:/var/www/certbot
-+      - ./certbot-www:/var/www/certbot
-       - certs:/etc/letsencrypt
-```
-
-Then apply and create the dir:
-```bash
-cd /opt/bravada
-mkdir -p certbot-www
-docker compose -f docker-compose.prod.yml up -d --force-recreate nginx certbot
-```
-
-(The `certbot` compose service becomes vestigial once host certbot owns renewal; you may
-leave it or remove it — but do not let both manage the same `/etc/letsencrypt`. Host
-certbot uses host `/etc/letsencrypt`; the compose service uses the `certs` volume —
-separate stores, no direct conflict.)
-
-### Run the setup script (once, as root)
-
-```bash
-cd /opt/bravada
-sudo ./backend/scripts/setup_letsencrypt_autorenew.sh \
-    --domain bravada-connect.ru \
-    --webroot /opt/bravada/certbot-www \
-    --email ops@your-contact.example
-```
-
-What it does (idempotent):
-1. Installs `certbot` if missing (apt).
-2. Installs a renewal deploy-hook at `/etc/letsencrypt/renewal-hooks/deploy/bravada-nginx-sync.sh`
-   that copies `fullchain.pem`/`privkey.pem` into `/opt/bravada/ssl/` and sends nginx a
-   graceful `HUP` (no downtime).
-3. Issues the cert via webroot (`bravada-connect.ru` + `www.bravada-connect.ru`) if absent.
-4. Enables `certbot.timer`.
+Bind-mount `./ssl` больше НЕ используется nginx. Каталог `/opt/bravada/ssl`
+сохраняется деплоем как аварийная копия (если named-том `certs` когда-нибудь
+потеряют, сертификат можно восстановить вручную в том: fullchain.pem+privkey.pem).
 
 ## CA policy (prevent the next revocation wave)
 
@@ -100,34 +43,31 @@ What it does (idempotent):
 - **Do not** put the National UC of MinTsifry / "Russian Trusted CA" on a public
   (client-facing) domain — Apple does not trust them, which reintroduces the iOS
   "This Connection Is Not Private" error.
-
-## Audit (apply to every public TLS endpoint, not just the landing)
-
-For each public host/panel the project exposes to clients, confirm the issuer is a DV CA:
-```bash
-echo Q | openssl s_client -connect <host>:443 -servername <host> | openssl x509 -noout -issuer
-# expect: O=Let's Encrypt (or ZeroSSL/Buypass). NOT GlobalSign/DigiCert/Sectigo.
-```
-Targets to check: `bravada-connect.ru` (✅ LE E7), any client-facing 3x-ui panel domain
-(see `backend/docs/vpn_server_setup_guide.md` — panels may use Cloudflare-origin or
-self-signed), any admin/internal host reachable from iOS.
+- OCSP stapling убран из конфига: Let's Encrypt прекратил OCSP для новых
+  сертификатов (директивы стали no-op и сыпали warning на каждый reload).
 
 ## Verification
 
 ```bash
-certbot certificates                                   # notAfter ~+90d, DV
-ls -l /opt/bravada/ssl/fullchain.pem                   # synced copy, recent mtime
-systemctl list-timers certbot.timer                    # next renewal scheduled
-certbot renew --dry-run                                # exercises the deploy-hook + reload
-echo Q | openssl s_client -connect bravada-connect.ru:443 -servername bravada-connect.ru -status \
-  | grep -iE "issuer=|OCSP Response Status"            # LE issuer; OCSP stapling OK
+# 1. Сертификат в томе (должен быть notAfter ~+90d)
+docker exec bravada-certbot-1 openssl x509 \
+  -in /etc/letsencrypt/live/bravada-connect.ru/fullchain.pem -noout -dates
+
+# 2. Что реально отдаёт nginx (совпадает с п.1 = том применяется)
+echo Q | openssl s_client -connect bravada-connect.ru:443 -servername bravada-connect.ru \
+  | openssl x509 -noout -issuer -dates
+
+# 3. Лупы живы
+docker logs bravada-certbot-1 --tail 5      # «Certificate not yet due for renewal» / renew
+docker exec bravada-nginx-1 ps              # виден фоновый sh с reload-лупом
 ```
 
-## Risks
-- The bind-mount change (`certbot-www`) must be applied before the script's webroot issuance
-  or `certonly` will fail to validate. Run the diff above first.
-- Host certbot + the compose `certbot` service are two renewal mechanisms — pick one (host,
-  recommended) and ignore/remove the other to avoid confusion.
-- A bad renewal deploy-hook could leave nginx serving a stale cert. The script's hook falls
-  back to a bare `docker kill -s HUP $(docker ps -qf name=nginx)`; verify with
-  `certbot renew --dry-run` + the openssl check above.
+## Risks / notes
+
+- **Свежий сервер с пустым томом `certs`**: nginx не стартует (нет файла
+  сертификата) → chicken-and-egg для первичного выпуска. Bootstrap: запустить
+  certbot-сервис с `certonly --webroot` ДО первого старта nginx (или временно
+  закомментировать 443-блок). На текущем проде том уже живёт и переживает деплои.
+- Если добавить второй домен — renew-конфиг certbot в томе должен существовать
+  для него же (`/etc/letsencrypt/live/<domain>/`), иначе nginx не стартует.
+- Критично: НЕ возвращать nginx к bind-mount `./ssl` — это и есть баг инцидента.
