@@ -89,9 +89,10 @@ services:
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-}
       SUBSCRIPTION_BASE_URL: ${SUBSCRIPTION_BASE_URL:-https://bravada-connect.ru}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://bravada-connect.ru}
-      # /sub/: Happ-импортам отдавать полный sing-box конфиг (правило Озон→direct
-      # на клиенте) вместо base64-списка ссылок. Пусто/0 = прежнее поведение.
-      SUB_SINGBOX_HAPP_ENABLE: ${SUB_SINGBOX_HAPP_ENABLE:-}
+      # /sub/: Happ-импортам добавлять заголовок `routing` с профилем
+      # happ://routing/onadd/… (семейство Озона → direct с жилого IP клиента).
+      # Пусто/0 = прежнее поведение (только base64-список ссылок).
+      SUB_HAPP_ROUTING_ENABLE: ${SUB_HAPP_ROUTING_ENABLE:-}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       # Cloud.ru bare-xray Happ relay: mirror_cloudru_clients.py SSHes here to sync
       # active users' VLESS UUIDs onto the relay entry (provider_kind='bare_xray', no
