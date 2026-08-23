@@ -28,9 +28,7 @@ _CDN_OPAQUE_LINK = f"vless://{_UUID}@cdn.strimingset.ru:443?extra=OBF&type=xhttp
 
 
 def _server(label: str, link: str) -> VlessServerConfig:
-    return VlessServerConfig(
-        server_label=label, country_code="LT", country_flag="🇱🇹", vless_link=link
-    )
+    return VlessServerConfig(server_label=label, country_code="LT", country_flag="🇱🇹", vless_link=link)
 
 
 # ---------------------------------------------------------------------------
