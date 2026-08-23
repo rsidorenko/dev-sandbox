@@ -107,7 +107,7 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
         singbox = build_singbox_config(servers)
         if singbox is not None:
             headers = {
-                "profile-title": "base64:" + base64.b64encode("Bravada VPN".encode("utf-8")).decode("ascii"),
+                "profile-title": "base64:" + base64.b64encode(b"Bravada VPN").decode("ascii"),
             }
             expire = _expiry_epoch(row)
             if expire:

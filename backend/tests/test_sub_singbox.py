@@ -148,4 +148,4 @@ def test_build_config_dedupes_duplicate_labels() -> None:
     assert cfg is not None
     tags = [ob["tag"] for ob in cfg["outbounds"]]
     assert len(tags) == len(set(tags))
-    assert set(selector_tags := cfg["outbounds"][0]["outbounds"]) == set(tags[1:-1])
+    assert set(cfg["outbounds"][0]["outbounds"]) == set(tags[1:-1])
