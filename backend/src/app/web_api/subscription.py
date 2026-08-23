@@ -1,22 +1,30 @@
-"""Public subscription endpoint: /sub/{token} → base64-encoded VLESS links."""
+"""Public subscription endpoint: /sub/{token} → base64-encoded VLESS links,
+or (flag SUB_SINGBOX_HAPP_ENABLE + Happ import) a full sing-box JSON config."""
 
 from __future__ import annotations
 
 import base64
+import os
 import time
 from datetime import UTC, datetime
 from urllib.parse import quote
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
+from app.web_api.subscription_singbox import build_singbox_config
 
 _SUB_RATE_LIMIT_MAX = 30
 _SUB_RATE_LIMIT_WINDOW = 60
 _SUB_RATE_LIMIT_MAX_ENTRIES = 10000
 _sub_rate_limit_store: dict[str, list[float]] = {}
 _sub_last_cleanup: float = 0.0
+
+# Serve Happ imports a full sing-box config (servers + client-side Ozon→direct
+# rules) instead of the base64 link list. Off by default: opt-in per env, see
+# subscription_singbox.py. Falls back to the link list when nothing parses.
+_SINGBOX_HAPP_ENABLE = os.environ.get("SUB_SINGBOX_HAPP_ENABLE", "").strip().lower() in ("1", "true", "yes")
 
 
 def _check_sub_rate_limit(client_ip: str) -> bool:
@@ -91,15 +99,31 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
         return PlainTextResponse("unavailable", status_code=503)
 
-    servers = _select_servers_for_client(
-        result.config.servers,
-        ua=request.headers.get("user-agent", ""),
-        client_param=request.query_params.get("client"),
-    )
+    ua = request.headers.get("user-agent", "")
+    client_param = request.query_params.get("client")
+    servers = _select_servers_for_client(result.config.servers, ua=ua, client_param=client_param)
+
+    if _SINGBOX_HAPP_ENABLE and _wants_happ(ua, client_param):
+        singbox = build_singbox_config(servers)
+        if singbox is not None:
+            headers = {
+                "profile-title": "base64:" + base64.b64encode("Bravada VPN".encode("utf-8")).decode("ascii"),
+            }
+            expire = _expiry_epoch(row)
+            if expire:
+                headers["subscription-userinfo"] = f"upload=0; download=0; total=0; expire={expire}"
+            return JSONResponse(singbox, headers=headers)
+        # nothing parsed — fall through to the plain link list (never worse than before)
 
     links = "\n".join(s.vless_link for s in servers)
     encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
     return PlainTextResponse(encoded, media_type="text/plain")
+
+
+def _expiry_epoch(row) -> int | None:
+    """Latest of trial/paid expiry as a unix epoch for subscription-userinfo."""
+    stamps = [t for t in (row.get("trial_expires_at"), row.get("active_until_utc")) if t is not None]
+    return int(max(stamps).timestamp()) if stamps else None
 
 
 def _entitlement_active(row, *, now: datetime) -> bool:
@@ -121,6 +145,11 @@ def _entitlement_active(row, *, now: datetime) -> bool:
     return trial_ok or sub_ok
 
 
+def _wants_happ(ua: str, client_param: str | None) -> bool:
+    """Whether the importing client is Happ (UA substring, or ?client=happ override)."""
+    return "happ" in (ua or "").lower() or client_param == "happ"
+
+
 def _select_servers_for_client(
     servers: tuple[VlessServerConfig, ...] | list[VlessServerConfig],
     *,
@@ -139,7 +168,7 @@ def _select_servers_for_client(
     that should appear in both subscriptions, e.g. a Cloud.ru 1.0 relay promoted from
     Happ-only to universal once the direct fleet 1.0 is DPI-dead for Karing.
     """
-    want_happ = "happ" in (ua or "").lower() or client_param == "happ"
+    want_happ = _wants_happ(ua, client_param)
     _FC = {0x59: 1, 0x0413: 2, 0x0424: 3, 0x041B: 4, 0x0421: 5, 0x041E: 6}
     servers = sorted(servers, key=lambda s: _FC.get(ord(s.server_label[0]) if s.server_label else 0, 99))
     both = [s for s in servers if s.surface == "both"]
