@@ -389,7 +389,7 @@ TARGETS: list[RoutingTarget] = [
     RoutingTarget("FI", "85.208.85.117"),  # cloud.ru, egress Helsinki
     RoutingTarget(
         "LT",
-        "45.91.55.234",  # Delta Ltd (migrated 2026-08-19 from dead Yandex 158.160.80.40), egress Lithuania
+        "45.91.52.204",  # Delta Ltd, IP swapped 2026-08-23 (Ozon/QRator blocked 45.91.55.234 as LT hosting), egress Lithuania
         key="D:/tmp/romtan_key.pem",
         extra_direct_domains=YT_DIRECT_DOMAINS,  # YouTube via LT's own RU leg (operator 2026-08-20)
         normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-20 — убрать
