@@ -16,11 +16,13 @@ from scripts.canonicalize_routing import (
     GGSEL_DOMAINS,
     GRIFFINY_DOMAINS,
     MAX_DOMAINS,
+    MAX_IPCHECK_DOMAINS,
     RU_SERVICES_DOMAINS,
     SUPERCELL_DOMAINS,
     TIKTOK_DOMAINS,
     VK_DOMAINS,
     YANDEX_DOMAINS,
+    YT_DIRECT_DOMAINS,
     build_canonical_rules,
     detect_egress_tag,
     parse_grpc_users,
@@ -70,6 +72,7 @@ def test_bank_domains_match_repo_authority():
         (GRIFFINY_DOMAINS, 1, "domain:griffiny.ru"),
         (MAX_DOMAINS, 4, "domain:max.ru"),
         (MAX_DOMAINS, 4, "domain:okcdn.ru"),
+        (MAX_IPCHECK_DOMAINS, 6, "domain:api.ipify.org"),
         (YANDEX_DOMAINS, 3, "domain:yandex.com"),
         (RU_SERVICES_DOMAINS, 30, "domain:ozon.com"),
     ],
@@ -91,6 +94,7 @@ def test_no_domain_appears_in_two_families():
         + BANK_DOMAINS
         + VK_DOMAINS
         + MAX_DOMAINS
+        + MAX_IPCHECK_DOMAINS
         + YANDEX_DOMAINS
         + RU_SERVICES_DOMAINS
     )
@@ -102,8 +106,8 @@ def test_no_domain_appears_in_two_families():
 
 def test_canonical_order_with_api():
     rules = build_canonical_rules(egress_tag="to-exit", has_api=True)
-    # 1 api + 1 geoip:private + 4 foreign + 5 RU + regexp + tld + geoip:ru = 14
-    assert len(rules) == 14
+    # 1 api + 1 geoip:private + 4 foreign + 6 RU + regexp + tld + geoip:ru = 15
+    assert len(rules) == 15
     assert rules[0] == {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
     assert rules[1] == {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"}
     assert rules[-1] == {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"}
@@ -112,20 +116,25 @@ def test_canonical_order_with_api():
 def test_canonical_order_without_api():
     rules = build_canonical_rules(egress_tag="egress", has_api=False)
     assert not any(r.get("inboundTag") == ["api"] for r in rules)
-    # api dropped -> 13 rules
-    assert len(rules) == 13
+    # api dropped -> 14 rules
+    assert len(rules) == 14
     assert rules[0] == {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"}
 
 
 def test_foreign_families_route_to_egress():
     rules = build_canonical_rules(egress_tag="to-exit", has_api=False)
     egress_rules = [r for r in rules if r.get("outboundTag") == "to-exit"]
-    assert len(egress_rules) == 4  # supercell, tiktok, ggsel, griffiny
+    # supercell, tiktok, ggsel, griffiny
+    assert len(egress_rules) == 4
     flat = {d for r in egress_rules for d in (r.get("domain") or [])}
     assert "domain:brawlstars.com" in flat
     assert "domain:tiktok.com" in flat
     assert "domain:ggsel.com" in flat
     assert "domain:griffiny.ru" in flat
+    # 2026-08-20: MAX + its ip-check domains moved back to direct (RU leg) —
+    # one fleet-wide policy, experiments stopped (see MAX_DOMAINS comment).
+    assert "domain:max.ru" not in flat
+    assert "domain:api.ipify.org" not in flat
     # VK must NOT be on the egress leg — it leaks to foreign anti-fraud
     assert not any(d.startswith("domain:vk") for d in flat)
     assert not any(d.startswith("domain:userapi") for d in flat)
@@ -135,18 +144,35 @@ def test_ru_families_route_to_direct():
     rules = build_canonical_rules(egress_tag="to-exit", has_api=False)
     direct_domain_rules = [r for r in rules if r.get("outboundTag") == "direct" and r.get("domain")]
     flat = {d for r in direct_domain_rules for d in r["domain"]}
-    # banks + vk + max + yandex + ru_services all -> direct
+    # banks + vk + yandex + ru_services + max + max-ipcheck all -> direct (2026-08-20)
     assert "domain:sberbank.ru" in flat
     assert "domain:vk.com" in flat
     assert "domain:vkvideo.com" in flat  # foreign-IP VK CDN must be explicit-direct
     assert "domain:vkuserapi.com" in flat  # Cloudflare-IP VK media
-    assert "domain:max.ru" in flat
-    assert "domain:okcdn.ru" in flat  # MAX shared VK/OK CDN (separate apex from mycdn.me)
     assert "domain:yandex.com" in flat
     assert "domain:ozon.com" in flat
+    # MAX + its echo-check domains ride the RU leg alongside VK
+    assert "domain:max.ru" in flat and "domain:okcdn.ru" in flat and "domain:apptracer.ru" in flat
+    assert "domain:api.ipify.org" in flat and "domain:ip.mail.ru" in flat
     # .ru regexp + tld catch-all
     assert any("regexp:" in d for d in flat)
     assert "domain:ru" in flat and "domain:su" in flat and "domain:xn--p1ai" in flat
+
+
+def test_extra_direct_domains_override_lands_before_geoip_catchall():
+    rules = build_canonical_rules(egress_tag="to-exit", has_api=False, extra_direct_domains=YT_DIRECT_DOMAINS)
+    # the extra rule sits immediately before geoip:ru so it wins the match
+    assert rules[-2] == {"type": "field", "domain": list(YT_DIRECT_DOMAINS), "outboundTag": "direct"}
+    assert rules[-1] == {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"}
+
+
+def test_rebuild_passthrough_extra_direct_domains():
+    out = rebuild_config_routing(_cfg("to-exit", has_api=True), extra_direct_domains=YT_DIRECT_DOMAINS)
+    yt = next(r for r in out["routing"]["rules"] if "domain:googlevideo.com" in (r.get("domain") or []))
+    assert yt["outboundTag"] == "direct"
+    # without the knob the YouTube override must NOT appear anywhere
+    plain = rebuild_config_routing(_cfg("to-exit", has_api=True))
+    assert not any("domain:googlevideo.com" in (r.get("domain") or []) for r in plain["routing"]["rules"])
 
 
 def test_build_is_idempotent_and_pure():

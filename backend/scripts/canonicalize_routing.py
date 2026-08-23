@@ -17,11 +17,18 @@ Canonical order:
     [api]                                  # only if an api inbound exists
     geoip:private -> direct
     FOREIGN -> egress :  supercell, tiktok, ggsel, griffiny
-    RU     -> direct :  banks, vk, max, yandex, ru_services
+    RU     -> direct :  banks, vk, yandex, ru_services, max, max_ipcheck
+    <target extra_direct_domains>          # per-target override, e.g. LT YouTube
     regexp:.*\\.ru$           -> direct
     domain:ru,su,рф(xn--p1ai) -> direct
     geoip:ru                 -> direct
     <preserved inbound-tagged trailing rules>
+
+Per-target knobs (RoutingTarget): `extra_direct_domains` appends one extra
+->direct rule just before the catch-alls (LT routes YouTube via its own RU leg —
+faster for RU users than the Vilnius egress), `normalize_log` forces
+log={loglevel: warning, access: none} (access logging is a temporary debug
+artifact, not a fleet default).
 
 `domain:X` in xray matches X and all subdomains, so `domain:vk.com` covers login/id/oauth/
 api/static/m.vk.com (the whole auth path). BANK_DOMAINS is owned by cascade_apply_banks
@@ -159,14 +166,46 @@ GRIFFINY_DOMAINS: list[str] = ["domain:griffiny.ru"]
 # i./web./ws-api(-tg)./video-callback./vk-notify./api-test-gost*.oneme.ru и т.д.) — cert-SAN *.max.ru
 # подтверждает. okcdn.ru = общий VK/OK CDN (тот же TLS-cert что mycdn.me) — MAX зовёт calls./iv.
 # okcdn.ru; НЕ покрывается domain:mycdn.me. apptracer.ru = телеметрия-SDK приложения (sdk-api.).
-# Все резолвятся в AS47764 LLC VK (RU: 155.212.204.x edge, 217.20.x OK-net), значит geoip:ru тоже
-# ловит, но явные правила = детерминированно-direct ДО IP-резолва + согласованность с VK-паттерном.
-# Источники: Минпросвещения ТСПУ приказ №8329, zapret-openwrt #747, cert-SAN/DNS recon.
+# ⚠️ 2026-08-19 экспериментально перевернуто direct -> egress; 2026-08-20 ВЕРНУЛИ -> direct по
+# решению оператора. Механизм детекта разобран (habr 1006666: модуль HOST_REACHABILITY шлёт на
+# api.oneme.ru локальный Android vpn-флаг + IP из 6 echo-источников 50/50 RU/foreign; сплит
+# ловится именно на расхождении echo-ответов, а RU-ДЦ IP + vpn тоже банится) — ни egress, ни
+# RU-нога по отдельности плашку не снимают. Итог: MAX и его проверки целиком через RU-ногу
+# (единая политика флота), эксперименты прекращены. См. memory max-routing-domains.
 MAX_DOMAINS: list[str] = [
     "domain:max.ru",
     "domain:oneme.ru",
     "domain:okcdn.ru",
     "domain:apptracer.ru",
+]
+
+# IP-echo endpoints the MAX app queries to learn "its own" IP (fatyzzz/max-list ip-check.txt,
+# daily builds). Route via the SAME outbound as MAX_DOMAINS (одна политика: MAX и все его
+# проверки — целиком через RU-ногу). Без этого правила foreign-эхо (ipify/amazonaws/ifconfig)
+# уходит в default-egress и ответы расходятся с max.ru, который видит RU-ногу. RU-hosted эхо
+# (ip.mail.ru, *.yandex.net) уже ловится .ru$/yandex-семейством, но перечислены явно для
+# детерминизма. 2ip.io/2ip.ru остаются в egress (GGSEL_DOMAINS) — НЕ часть MAX-политики.
+MAX_IPCHECK_DOMAINS: list[str] = [
+    "domain:api.ipify.org",
+    "domain:checkip.amazonaws.com",
+    "domain:ifconfig.me",
+    "domain:ip.mail.ru",
+    "domain:ipv4-internet.yandex.net",
+    "domain:ipv6-internet.yandex.net",
+]
+
+# LT-only override (operator 2026-08-20): YouTube/Google egresses DIRECTLY from the LT RU leg
+# (faster for RU users than the Vilnius relay; googlevideo CDN is reachable from RU). Attached to
+# the LT target only — NOT a fleet family, do not spread to other entries.
+YT_DIRECT_DOMAINS: list[str] = [
+    "domain:youtube.com",
+    "domain:googlevideo.com",
+    "domain:ytimg.com",
+    "domain:ggpht.com",
+    "domain:googleusercontent.com",
+    "domain:googleapis.com",
+    "domain:gstatic.com",
+    "domain:google.com",
 ]
 
 YANDEX_DOMAINS: list[str] = ["domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"]
@@ -215,8 +254,22 @@ RU_SERVICES_DOMAINS: list[str] = [
 ]
 
 # Foreign families route to the egress relay; RU families route to direct.
-_FOREIGN_FAMILIES = [SUPERCELL_DOMAINS, TIKTOK_DOMAINS, GGSEL_DOMAINS, GRIFFINY_DOMAINS]
-_RU_FAMILIES = [BANK_DOMAINS, VK_DOMAINS, MAX_DOMAINS, YANDEX_DOMAINS, RU_SERVICES_DOMAINS]
+# MAX + MAX_IPCHECK -> direct since 2026-08-20 (operator decision; see MAX_DOMAINS comment):
+# MAX, его echo-проверки и VK едут через RU-ногу одной политикой.
+_FOREIGN_FAMILIES = [
+    SUPERCELL_DOMAINS,
+    TIKTOK_DOMAINS,
+    GGSEL_DOMAINS,
+    GRIFFINY_DOMAINS,
+]
+_RU_FAMILIES = [
+    BANK_DOMAINS,
+    VK_DOMAINS,
+    YANDEX_DOMAINS,
+    RU_SERVICES_DOMAINS,
+    MAX_DOMAINS,
+    MAX_IPCHECK_DOMAINS,
+]
 
 BACKUP_SUFFIX = ".pre-canon.bak"
 GEOIP_PATH = "/usr/local/share/xray/geoip.dat"
@@ -243,11 +296,18 @@ def detect_egress_tag(config: dict) -> str:
     raise ValueError("no vless outbound found — cannot determine foreign egress tag")
 
 
-def build_canonical_rules(*, egress_tag: str, has_api: bool, trailing_rules: list[dict] | None = None) -> list[dict]:
+def build_canonical_rules(
+    *,
+    egress_tag: str,
+    has_api: bool,
+    trailing_rules: list[dict] | None = None,
+    extra_direct_domains: list[str] | None = None,
+) -> list[dict]:
     """Pure builder: returns the canonical routing.rules list for one server.
 
     Deterministic from the module constants + the per-server egress_tag / has_api / trailing
-    inbound-tagged rules. Does not touch the filesystem or the network.
+    inbound-tagged rules / optional per-target extra ->direct domains. Does not touch the
+    filesystem or the network.
     """
     rules: list[dict] = []
     if has_api:
@@ -257,18 +317,22 @@ def build_canonical_rules(*, egress_tag: str, has_api: bool, trailing_rules: lis
     rules.extend({"type": "field", "domain": list(fam), "outboundTag": "direct"} for fam in _RU_FAMILIES)
     rules.append({"type": "field", "domain": ["regexp:.*\\.ru$"], "outboundTag": "direct"})
     rules.append({"type": "field", "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"})
+    if extra_direct_domains:
+        # before geoip:ru so the override wins over the geo catch-all
+        rules.append({"type": "field", "domain": list(extra_direct_domains), "outboundTag": "direct"})
     rules.append({"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"})
     if trailing_rules:
         rules.extend(copy.deepcopy(trailing_rules))
     return rules
 
 
-def rebuild_config_routing(config: dict) -> dict:
+def rebuild_config_routing(config: dict, extra_direct_domains: list[str] | None = None) -> dict:
     """Return a deep copy of `config` with routing.rules rebuilt to canonical order.
 
     Auto-detects from the live config: foreign egress tag, whether an `api` inbound exists,
     and any inbound-tagged rules to preserve (e.g. per-inbound foreign defaults / splits).
-    Does not mutate the input.
+    `extra_direct_domains` appends one per-target ->direct rule before the catch-alls
+    (e.g. LT YouTube override). Does not mutate the input.
     """
     cfg = copy.deepcopy(config)
     egress_tag = detect_egress_tag(cfg)
@@ -277,7 +341,7 @@ def rebuild_config_routing(config: dict) -> dict:
         r for r in cfg.get("routing", {}).get("rules", []) if r.get("inboundTag") and r.get("inboundTag") != ["api"]
     ]
     cfg.setdefault("routing", {})["rules"] = build_canonical_rules(
-        egress_tag=egress_tag, has_api=has_api, trailing_rules=trailing
+        egress_tag=egress_tag, has_api=has_api, trailing_rules=trailing, extra_direct_domains=extra_direct_domains
     )
     cfg["routing"]["domainStrategy"] = "IPIfNonMatch"
     return cfg
@@ -311,19 +375,28 @@ class RoutingTarget:
     user: str = DEFAULT_SSH_USER
     key: str = DEFAULT_SSH_KEY
     config: str = CONFIG_PATH
+    # per-target knobs, see module docstring
+    extra_direct_domains: list[str] | None = None
+    normalize_log: bool = False
 
 
 TARGETS: list[RoutingTarget] = [
-    RoutingTarget("DE", "85.208.87.57"),  # cloud.ru, egress Frankfurt
+    RoutingTarget(
+        "DE",
+        "85.208.87.57",  # cloud.ru, egress Frankfurt
+        normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-19 — убрать
+    ),
     RoutingTarget("FI", "85.208.85.117"),  # cloud.ru, egress Helsinki
     RoutingTarget(
         "LT",
-        "158.160.80.40",  # Yandex, egress Lithuania
-        key="C:/Users/Roman/.ssh/yandex_new_key",
+        "45.91.55.234",  # Delta Ltd (migrated 2026-08-19 from dead Yandex 158.160.80.40), egress Lithuania
+        key="D:/tmp/romtan_key.pem",
+        extra_direct_domains=YT_DIRECT_DOMAINS,  # YouTube via LT's own RU leg (operator 2026-08-20)
+        normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-20 — убрать
     ),
     RoutingTarget(
         "US",
-        "89.169.139.153",  # Yandex, egress US
+        "176.109.107.226",  # cloud.ru (migrated 2026-08-14 from 89.169.139.153), egress US
         key="D:/TelegramBotVPN/.ssh/yandex-relay",
     ),
     RoutingTarget(
@@ -338,8 +411,10 @@ TARGETS: list[RoutingTarget] = [
     ),
     RoutingTarget(
         "CDN-DE",
-        "158.160.234.239",  # CDN-bypass origin, egress Frankfurt-exit
-        key="D:/tmp/origin_new_key",
+        # CDN-bypass origin, egress Frankfurt-exit. Box rebuilt 2026-08-20 (old 158.160.234.239 dead).
+        # SSH only from LT/main (SG allowlist) -> run via LT jump (D:/tmp/cdn_de_new/jump.py pattern).
+        "93.77.160.88",
+        key="D:/tmp/cdn_de_new/key.pem",
     ),
 ]
 
@@ -385,8 +460,15 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
             print(f"[{target.name}] config parse FAILED: {exc!r}", file=sys.stderr)
             return False
 
+        def _rebuilt() -> dict:
+            out = rebuild_config_routing(config, extra_direct_domains=target.extra_direct_domains)
+            if target.normalize_log:
+                loglevel = (out.get("log") or {}).get("loglevel", "warning")
+                out["log"] = {"loglevel": loglevel, "access": "none"}
+            return out
+
         try:
-            rebuilt = rebuild_config_routing(config)
+            rebuilt = _rebuilt()
         except ValueError as exc:
             print(f"[{target.name}] cannot canonicalize: {exc}", file=sys.stderr)
             return False
@@ -427,7 +509,7 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
             )
             return False
         # re-derive canonical on the config that now carries persisted clients
-        rebuilt = rebuild_config_routing(config)
+        rebuilt = _rebuilt()
 
         # backup + write
         _run(cli, f"sudo cp {target.config} {target.config}{BACKUP_SUFFIX}")
@@ -447,18 +529,30 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
         # restart + verify
         _run(cli, "sudo systemctl restart xray")
         rc, active, _ = _run(cli, "systemctl is-active xray")
-        vk = next((r for r in rebuilt["routing"]["rules"] if "domain:vk.com" in (r.get("domain") or [])), {})
+        rules = rebuilt["routing"]["rules"]
+
+        def _rule_with(marker: str) -> dict:
+            return next((r for r in rules if marker in (r.get("domain") or [])), {})
+
+        vk = _rule_with("domain:vk.com")
+        mx = _rule_with("domain:max.ru")
+        yt = _rule_with("domain:googlevideo.com")
         vk_ok = (
             active.strip() == "active"
             and vk.get("outboundTag") == "direct"
             and "domain:vkvideo.com" in (vk.get("domain") or [])
         )
+        max_ok = mx.get("outboundTag") == "direct" and "domain:okcdn.ru" in (mx.get("domain") or [])
+        yt_ok = (not target.extra_direct_domains) or yt.get("outboundTag") == "direct"
+        log_ok = (not target.normalize_log) or rebuilt.get("log", {}).get("access") == "none"
+        ok = vk_ok and max_ok and yt_ok and log_ok
         print(
-            f"[{target.name}] {'OK' if vk_ok else 'VERIFY-WARN'}: xray={active.strip()} "
-            f"rules={len(rebuilt['routing']['rules'])} persisted={persisted} "
-            f"VK->direct dom={len(vk.get('domain') or [])}"
+            f"[{target.name}] {'OK' if ok else 'VERIFY-WARN'}: xray={active.strip()} "
+            f"rules={len(rules)} persisted={persisted} "
+            f"VK->direct dom={len(vk.get('domain') or [])} "
+            f"MAX->direct={max_ok} extra_direct={yt_ok} log=none:{log_ok}"
         )
-        return vk_ok
+        return ok
     finally:
         cli.close()
 
@@ -503,7 +597,10 @@ def main() -> int:
             print(f"{t.name:8} {t.host}")
         return 0
 
-    targets = [t for t in TARGETS if args.entry.lower() in t.name.lower()]
+    # exact name match wins ("DE" must not also hit "CDN-DE"); substring is the fallback
+    targets = [t for t in TARGETS if t.name.lower() == args.entry.lower()]
+    if not targets:
+        targets = [t for t in TARGETS if args.entry.lower() in t.name.lower()]
     if not targets:
         print(f"no target matches --entry '{args.entry}'", file=sys.stderr)
         return 2
