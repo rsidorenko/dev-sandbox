@@ -428,3 +428,32 @@ def test_web_api_proxy_route_allows_patch_and_delete(monkeypatch: pytest.MonkeyP
     for r in proxy_routes:
         methods |= set(getattr(r, "methods", []) or [])
     assert {"PATCH", "DELETE"} <= methods, f"proxy must allow PATCH/DELETE, got {sorted(methods)}"
+
+
+def test_web_api_proxy_forwards_subscription_headers() -> None:
+    """Прокси /sub/* пересобирает ответы внутреннего web_api и обязан переносить
+    заголовки метаданных подписки (routing/profile-title/subscription-userinfo) —
+    иначе Happ не получит routing-профиль, отданный эндпоинтом /sub/."""
+    from starlette.responses import PlainTextResponse
+
+    response = PlainTextResponse("Zm9v")
+    sent_responses = [
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain; charset=utf-8"),
+                (b"content-length", b"4"),
+                (b"routing", b"happ://routing/onadd/eyJOYW1lIjoiQnJhdmFkYSJ9"),
+                (b"subscription-userinfo", b"upload=0; download=0; total=0; expire=1790000000"),
+                (b"profile-title", b"base64:QnJhdmFkYSBWUE4="),
+                (b"x-inner-only", b"must-not-leak"),
+            ],
+        }
+    ]
+    webhook_main_mod._forward_subscription_headers(response, sent_responses)
+    assert response.headers["routing"] == "happ://routing/onadd/eyJOYW1lIjoiQnJhdmFkYSJ9"
+    assert response.headers["subscription-userinfo"] == "upload=0; download=0; total=0; expire=1790000000"
+    assert response.headers["profile-title"] == "base64:QnJhdmFkYSBWUE4="
+    # everything the proxy did not whitelist must NOT be copied verbatim
+    assert "x-inner-only" not in response.headers

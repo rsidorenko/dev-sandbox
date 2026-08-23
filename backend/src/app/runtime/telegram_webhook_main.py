@@ -13,7 +13,7 @@ from typing import Any
 import asyncpg
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from app.observability.logging_config import configure_logging
@@ -222,6 +222,31 @@ def _build_webhook_http_disabled_starlette_app() -> Starlette:
             Route("/{path:path}", _build_webhook_disabled_handler(telemetry)),
         ],
     )
+
+
+# Subscription-convention response headers that VPN clients (Happ/Karing/
+# v2rayN) read on /sub/: `routing` carries a Happ routing profile,
+# profile-title / subscription-userinfo the subscription name and the
+# traffic/expiry bar. The web_api proxy rebuilds every inner response and
+# sets content-type/length itself, so these must be forwarded explicitly.
+_SUBSCRIPTION_HEADERS: tuple[bytes, ...] = (
+    b"routing",
+    b"profile-title",
+    b"profile-update-interval",
+    b"subscription-userinfo",
+    b"support-url",
+    b"profile-web-page-url",
+    b"announce",
+)
+
+
+def _forward_subscription_headers(response: Response, sent_responses: list[dict[str, Any]]) -> None:
+    """Copy subscription metadata headers from the inner app's ASGI messages
+    onto the proxied response (ASGI header names are lowercase bytes)."""
+    for resp_msg in sent_responses:
+        for h_name, h_value in resp_msg.get("headers", []):
+            if h_name in _SUBSCRIPTION_HEADERS:
+                response.headers.append(h_name.decode("latin-1"), h_value.decode("latin-1"))
 
 
 def build_slice1_telegram_webhook_asgi_application_from_env(
@@ -501,6 +526,9 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                     if h_name == b"content-type":
                         content_type = h_value.decode("latin-1")
             response = _RawResponse(content=body, status_code=status_code, media_type=content_type)
+        # Forward subscription metadata headers (routing, profile-title, …) —
+        # the rebuild above drops everything the inner app set.
+        _forward_subscription_headers(response, sent_responses)
         # Forward Set-Cookie headers from inner app (e.g. session cookie from auth)
         for resp_msg in sent_responses:
             for header_pair in resp_msg.get("headers", []):
