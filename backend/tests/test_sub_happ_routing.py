@@ -66,6 +66,9 @@ def test_routing_link_prefix_and_payload() -> None:
     # Яндекс.Музыка: API-семейство + медиа-CDN
     for site in ("domain:yandex.ru", "domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"):
         assert site in direct
+    # Т-Банк: API/SSO + зеркало + новый бренд
+    for site in ("domain:tinkoff.ru", "domain:tinkoff.com", "domain:tbank.ru"):
+        assert site in direct
     # без дублей — каждое правило встречается ровно один раз
     assert len(direct) == len(set(direct))
 

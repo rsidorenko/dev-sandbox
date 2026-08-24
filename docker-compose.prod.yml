@@ -90,8 +90,8 @@ services:
       SUBSCRIPTION_BASE_URL: ${SUBSCRIPTION_BASE_URL:-https://bravada-connect.ru}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://bravada-connect.ru}
       # /sub/: Happ-импортам добавлять заголовок `routing` с профилем
-      # happ://routing/onadd/… (RU-приложения — Озон/MAX/VK/Яндекс.Музыка →
-      # direct с жилого IP клиента). Пусто/0 = прежнее поведение
+      # happ://routing/onadd/… (RU-приложения — Озон/MAX/VK/Яндекс.Музыка/
+      # Т-Банк → direct с жилого IP клиента). Пусто/0 = прежнее поведение
       # (только base64-список ссылок).
       SUB_HAPP_ROUTING_ENABLE: ${SUB_HAPP_ROUTING_ENABLE:-}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}

@@ -26,6 +26,9 @@ Direct-список — RU-приложения, которым жилой IP к
 * Яндекс.Музыка — приложение живёт на music.yandex.ru (плюс паспорт/стримы
   на поддоменах yandex.ru), медиа-CDN на yandex.net/yastatic.net; серверно
   семейство уже идёт через RU-ногу.
+* Т-Банк — банковский антифрод флагает зарубежные IP и хостинговые ASN
+  (аналог проблемы Озона); прямой выход с жилого IP — единственный чистый
+  путь. Зеркало троицы из BANK_DOMAINS (cascade_apply_banks.py).
 
 ⚠️ Профиль глобален для приложения Happ: он действует независимо от того,
 какой сервер выбран в приложении, включая CDN whitelist-инозы (surface
@@ -120,8 +123,19 @@ _YANDEX_DIRECT_SITES: tuple[str, ...] = (
     "domain:yastatic.net",
 )
 
+# Т-Банк (зеркало троицы из scripts/cascade_apply_banks.py BANK_DOMAINS —
+# держать синхронно): tinkoff.ru — API/SSO приложения (api./sso./security.),
+# tinkoff.com — зеркало, tbank.ru — новый бренд после переименования.
+_TBANK_DIRECT_SITES: tuple[str, ...] = (
+    "domain:tinkoff.ru",
+    "domain:tinkoff.com",
+    "domain:tbank.ru",
+)
+
 # Итоговый DirectSites профиля; порядок стабилен → payload детерминирован.
-_DIRECT_SITES: tuple[str, ...] = _OZON_DIRECT_SITES + _MAX_DIRECT_SITES + _VK_DIRECT_SITES + _YANDEX_DIRECT_SITES
+_DIRECT_SITES: tuple[str, ...] = (
+    _OZON_DIRECT_SITES + _MAX_DIRECT_SITES + _VK_DIRECT_SITES + _YANDEX_DIRECT_SITES + _TBANK_DIRECT_SITES
+)
 
 # Stable profile name: same-name profiles are overwritten on subscription
 # update, which is exactly how list changes propagate to existing imports.
