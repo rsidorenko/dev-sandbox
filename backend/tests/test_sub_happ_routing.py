@@ -37,9 +37,23 @@ def test_routing_link_prefix_and_payload() -> None:
     profile = json.loads(base64.b64decode(value[len(_PREFIX) :]))
     assert profile["Name"] == "Bravada"
     assert profile["GlobalProxy"] == "true"
-    assert "domain:ozon.ru" in profile["DirectSites"]
-    assert "domain:ozone.ru" in profile["DirectSites"]
-    assert "domain:ozonusercontent.com" in profile["DirectSites"]
+    direct = profile["DirectSites"]
+    # Озон: витрина/API + медиа-CDN
+    for site in ("domain:ozon.ru", "domain:ozone.ru", "domain:ozonusercontent.com"):
+        assert site in direct
+    # MAX + его IP-echo проверки — единым direct-путём (иначе детект сплита)
+    for site in ("domain:max.ru", "domain:oneme.ru", "domain:okcdn.ru", "domain:apptracer.ru",
+                 "domain:api.ipify.org", "domain:checkip.amazonaws.com", "domain:ifconfig.me"):
+        assert site in direct
+    # VK: сайт/приложение + зарубежные CDN-домены, перечисленные явно
+    for site in ("domain:vk.com", "domain:vk.ru", "domain:userapi.com", "domain:vkuserapi.com",
+                 "domain:vkuservideo.net", "domain:vkvideo.com", "domain:mycdn.me"):
+        assert site in direct
+    # Яндекс.Музыка: API-семейство + медиа-CDN
+    for site in ("domain:yandex.ru", "domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"):
+        assert site in direct
+    # без дублей — каждое правило встречается ровно один раз
+    assert len(direct) == len(set(direct))
 
 
 def test_routing_link_deterministic() -> None:

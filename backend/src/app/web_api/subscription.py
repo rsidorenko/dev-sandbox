@@ -1,7 +1,7 @@
 """Public subscription endpoint: /sub/{token} → base64-encoded VLESS links.
 With SUB_HAPP_ROUTING_ENABLE the response also carries the `routing` header —
-a Happ routing profile that routes the Ozon app family DIRECT (see
-subscription_happ_routing.py)."""
+a Happ routing profile that routes RU app families (Ozon/MAX/VK/Яндекс.Музыка)
+DIRECT (see subscription_happ_routing.py)."""
 
 from __future__ import annotations
 
@@ -23,10 +23,11 @@ _SUB_RATE_LIMIT_MAX_ENTRIES = 10000
 _sub_rate_limit_store: dict[str, list[float]] = {}
 _sub_last_cleanup: float = 0.0
 
-# Attach a Happ routing profile (Ozon app family → DIRECT from the subscriber's
-# own ISP IP) to the base64 response as the `routing` header. Happ-only by UA
-# gate; every other client ignores unknown response headers. Off by default:
-# opt-in per env, see subscription_happ_routing.py.
+# Attach a Happ routing profile (RU app families — Ozon/MAX/VK/Яндекс.Музыка →
+# DIRECT from the subscriber's own ISP IP) to the base64 response as the
+# `routing` header. Happ-only by UA gate; every other client ignores unknown
+# response headers. Off by default: opt-in per env, see
+# subscription_happ_routing.py.
 _HAPP_ROUTING_ENABLE = os.environ.get("SUB_HAPP_ROUTING_ENABLE", "").strip().lower() in ("1", "true", "yes")
 
 
