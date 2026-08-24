@@ -121,9 +121,7 @@ _YANDEX_DIRECT_SITES: tuple[str, ...] = (
 )
 
 # Итоговый DirectSites профиля; порядок стабилен → payload детерминирован.
-_DIRECT_SITES: tuple[str, ...] = (
-    _OZON_DIRECT_SITES + _MAX_DIRECT_SITES + _VK_DIRECT_SITES + _YANDEX_DIRECT_SITES
-)
+_DIRECT_SITES: tuple[str, ...] = _OZON_DIRECT_SITES + _MAX_DIRECT_SITES + _VK_DIRECT_SITES + _YANDEX_DIRECT_SITES
 
 # Stable profile name: same-name profiles are overwritten on subscription
 # update, which is exactly how list changes propagate to existing imports.

@@ -42,12 +42,26 @@ def test_routing_link_prefix_and_payload() -> None:
     for site in ("domain:ozon.ru", "domain:ozone.ru", "domain:ozonusercontent.com"):
         assert site in direct
     # MAX + его IP-echo проверки — единым direct-путём (иначе детект сплита)
-    for site in ("domain:max.ru", "domain:oneme.ru", "domain:okcdn.ru", "domain:apptracer.ru",
-                 "domain:api.ipify.org", "domain:checkip.amazonaws.com", "domain:ifconfig.me"):
+    for site in (
+        "domain:max.ru",
+        "domain:oneme.ru",
+        "domain:okcdn.ru",
+        "domain:apptracer.ru",
+        "domain:api.ipify.org",
+        "domain:checkip.amazonaws.com",
+        "domain:ifconfig.me",
+    ):
         assert site in direct
     # VK: сайт/приложение + зарубежные CDN-домены, перечисленные явно
-    for site in ("domain:vk.com", "domain:vk.ru", "domain:userapi.com", "domain:vkuserapi.com",
-                 "domain:vkuservideo.net", "domain:vkvideo.com", "domain:mycdn.me"):
+    for site in (
+        "domain:vk.com",
+        "domain:vk.ru",
+        "domain:userapi.com",
+        "domain:vkuserapi.com",
+        "domain:vkuservideo.net",
+        "domain:vkvideo.com",
+        "domain:mycdn.me",
+    ):
         assert site in direct
     # Яндекс.Музыка: API-семейство + медиа-CDN
     for site in ("domain:yandex.ru", "domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"):
