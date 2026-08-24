@@ -28,7 +28,9 @@ Direct-список — RU-приложения, которым жилой IP к
   семейство уже идёт через RU-ногу.
 * Т-Банк — банковский антифрод флагает зарубежные IP и хостинговые ASN
   (аналог проблемы Озона); прямой выход с жилого IP — единственный чистый
-  путь. Зеркало троицы из BANK_DOMAINS (cascade_apply_banks.py).
+  путь. Приложение ходит не только на tinkoff/tbank: CDN, антифрод,
+  телеметрия и сервисы экосистемы — на отдельных доменах нового бренда
+  (полный список ниже; источник — bug-bounty-скоуп + v2fly tbank-ru).
 
 ⚠️ Профиль глобален для приложения Happ: он действует независимо от того,
 какой сервер выбран в приложении, включая CDN whitelist-инозы (surface
@@ -123,13 +125,52 @@ _YANDEX_DIRECT_SITES: tuple[str, ...] = (
     "domain:yastatic.net",
 )
 
-# Т-Банк (зеркало троицы из scripts/cascade_apply_banks.py BANK_DOMAINS —
-# держать синхронно): tinkoff.ru — API/SSO приложения (api./sso./security.),
-# tinkoff.com — зеркало, tbank.ru — новый бренд после переименования.
+# Т-Банк — полное семейство, а не только тройка из серверного BANK_DOMAINS
+# (cascade_apply_banks.py): приложение ходит и на отдельные домены CDN/
+# антифрода/телеметрии, частичный direct = детект сплита → «приложение не
+# работает». Источники: официальный скоуп bug-bounty (standoff365:
+# *.tbank.ru, *.tinkoff.ru, *.tcsbank.ru, *.tinkoffinsurance.ru) + курируемый
+# отбор из v2fly domain-list-community data/tbank-ru — исключены Rosbank-
+# «соседи», образование, внутренние dev-инструменты и фишинговый паттерн
+# secure-tinkoff.ru (через дефис; настоящие — secure.tinkoff.ru, покрывается
+# суффиксом). Домены проверены DNS 2026-08-24: живут на сетях Т-Банка
+# 178.130.x/193.17.93.x (апексы t-static.ru/t-access.ru без A — wildcard-
+# поддомены живые, правило-суффикс корректно). Клиентский список —
+# надмножество серверного BANK_DOMAINS (там .ru-домены и так уходят на
+# RU-ногу канонических правил), строгая синхронизация не требуется.
 _TBANK_DIRECT_SITES: tuple[str, ...] = (
+    # ядро: API/SSO + зеркала + официальный bug-bounty-скоуп
     "domain:tinkoff.ru",
     "domain:tinkoff.com",
     "domain:tbank.ru",
+    "domain:tcsbank.ru",
+    "domain:tinkoffinsurance.ru",
+    # CDN/статика нового бренда
+    "domain:cdn-tinkoff.ru",
+    "domain:t-static.ru",
+    # доступ/приложение
+    "domain:tbank-online.com",
+    "domain:t-bank-app.ru",
+    "domain:t-bank-app.su",
+    "domain:my-tbank.ru",
+    "domain:t-access.ru",
+    # антифрод/телеметрия/звонки — флагают зарубежные IP жёстче всего
+    "domain:tmiaf.ru",
+    "domain:data-tscbank.ru",
+    "domain:t-calls.ru",
+    "domain:time-messenger.ru",
+    # экосистема, доступная из приложения
+    "domain:tinkoffmobile.com",
+    "domain:tinkoffcapital.ru",
+    "domain:tpension.ru",
+    "domain:tinsurance.ru",
+    "domain:tinsurancefuture.ru",
+    "domain:tinkoffinsurancefuture.ru",
+    "domain:t-j.ru",
+    "domain:tinkoffjournal.ru",
+    "domain:dolyame.ru",
+    "domain:cardsmobile.ru",
+    "domain:t-technologies.ru",
 )
 
 # Итоговый DirectSites профиля; порядок стабилен → payload детерминирован.
