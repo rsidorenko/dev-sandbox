@@ -94,6 +94,14 @@ services:
       # Т-Банк → direct с жилого IP клиента). Пусто/0 = прежнее поведение
       # (только base64-список ссылок).
       SUB_HAPP_ROUTING_ENABLE: ${SUB_HAPP_ROUTING_ENABLE:-}
+      # /sub/: стандартные метаданные подписки (profile-title с эмодзи,
+      # subscription-userinfo expire → оставшиеся дни в приложении,
+      # support-url → иконка-самолётик Telegram на t.me-бота,
+      # profile-update-interval 24ч). Пусто/0 = не эмитировать.
+      # ⚠️ environment[] — явный список: новые флаги /sub/ добавлять и сюда,
+      # иначе .env до контейнера не доходит (env_file не используется).
+      SUB_PROFILE_META_ENABLE: ${SUB_PROFILE_META_ENABLE:-}
+      SUB_PROFILE_TITLE: ${SUB_PROFILE_TITLE:-}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
       # Cloud.ru bare-xray Happ relay: mirror_cloudru_clients.py SSHes here to sync
       # active users' VLESS UUIDs onto the relay entry (provider_kind='bare_xray', no
