@@ -1,7 +1,10 @@
 """Public subscription endpoint: /sub/{token} → base64-encoded VLESS links.
 With SUB_HAPP_ROUTING_ENABLE the response also carries the `routing` header —
 a Happ routing profile that routes RU app families (Ozon/MAX/VK/Яндекс.Музыка/
-Т-Банк) DIRECT (see subscription_happ_routing.py)."""
+Т-Банк) DIRECT (see subscription_happ_routing.py). With
+SUB_PROFILE_META_ENABLE it carries the standard subscription metadata headers
+(profile-title / subscription-userinfo / support-url / profile-update-interval
+— see _profile_meta_headers)."""
 
 from __future__ import annotations
 
@@ -29,6 +32,14 @@ _sub_last_cleanup: float = 0.0
 # unknown response headers. Off by default: opt-in per env, see
 # subscription_happ_routing.py.
 _HAPP_ROUTING_ENABLE = os.environ.get("SUB_HAPP_ROUTING_ENABLE", "").strip().lower() in ("1", "true", "yes")
+
+# Standard subscription metadata headers (Happ docs → App management, standard
+# parameters — no Provider ID needed): profile title with emoji, remaining days
+# via subscription-userinfo expire, a Telegram "airplane" icon linking to our
+# bot via support-url, and a daily auto-update so the days stay fresh. Off by
+# default: opt-in per env, mirrors SUB_HAPP_ROUTING_ENABLE.
+_PROFILE_META_ENABLE = os.environ.get("SUB_PROFILE_META_ENABLE", "").strip().lower() in ("1", "true", "yes")
+_DEFAULT_PROFILE_TITLE = "🛡️ Bravada VPN"
 
 
 def _check_sub_rate_limit(client_ip: str) -> bool:
@@ -110,6 +121,11 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     links = "\n".join(s.vless_link for s in servers)
     encoded = base64.b64encode(links.encode("utf-8")).decode("utf-8")
     response = PlainTextResponse(encoded, media_type="text/plain")
+    if _PROFILE_META_ENABLE:
+        # Standard headers read by Happ/Karing/v2rayN; unknown ones are ignored
+        # by other clients. Title goes base64 (UTF-8 emoji is not header-safe).
+        for name, value in _profile_meta_headers(row).items():
+            response.headers[name] = value
     if _HAPP_ROUTING_ENABLE and _wants_happ(ua, client_param):
         # Happ adds + activates the profile from this header on import/update;
         # the body stays the plain link list, so the server picker is untouched.
@@ -134,6 +150,39 @@ def _entitlement_active(row, *, now: datetime) -> bool:
     trial_ok = row.get("trial_expires_at") is not None and row["trial_expires_at"] > now
     sub_ok = row.get("active_until_utc") is not None and row["active_until_utc"] > now
     return trial_ok or sub_ok
+
+
+def _profile_meta_headers(row) -> dict[str, str]:
+    """Standard subscription metadata headers for /sub/ (Happ docs → App
+    management, standard parameters — no Provider ID required).
+
+    * ``profile-title`` — «🛡️ Bravada VPN» (env ``SUB_PROFILE_TITLE``
+      overrides), emitted as ``base64:<b64>`` because the emoji is not
+      ASCII/header-safe; Happ limit is 25 decoded chars (ours is 14).
+    * ``profile-update-interval`` — 24 h auto-update, so remaining days and
+      renewals propagate without a manual refresh.
+    * ``subscription-userinfo`` — ``expire`` = the later of trial/paid windows
+      (same "later wins" as _entitlement_active); Happ renders remaining days
+      from it and flips the profile to expired once it passes. Traffic fields
+      are zeroed: we sell time, not bytes, and with ``total=0`` clients show
+      the expiry only.
+    * ``support-url`` — ``https://t.me/<BOT_USERNAME>``: Happ draws the
+      Telegram airplane icon on the subscription bar and opens our bot.
+
+    Headers whose inputs are missing (no expiry timestamps, no
+    ``BOT_USERNAME``) are simply not emitted.
+    """
+    headers: dict[str, str] = {}
+    title = os.environ.get("SUB_PROFILE_TITLE", "").strip() or _DEFAULT_PROFILE_TITLE
+    headers["profile-title"] = "base64:" + base64.b64encode(title.encode("utf-8")).decode("ascii")
+    headers["profile-update-interval"] = "24"
+    expires = [d for d in (row.get("trial_expires_at"), row.get("active_until_utc")) if d is not None]
+    if expires:
+        headers["subscription-userinfo"] = f"upload=0; download=0; total=0; expire={int(max(expires).timestamp())}"
+    bot_username = os.environ.get("BOT_USERNAME", "").strip().lstrip("@")
+    if bot_username:
+        headers["support-url"] = f"https://t.me/{bot_username}"
+    return headers
 
 
 def _wants_happ(ua: str, client_param: str | None) -> bool:
