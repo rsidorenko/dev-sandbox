@@ -4,11 +4,12 @@ a Happ routing profile that routes RU app families (Ozon/MAX/VK/Яндекс.М�
 Т-Банк) DIRECT (see subscription_happ_routing.py). With
 SUB_PROFILE_META_ENABLE it carries the standard subscription metadata headers
 (profile-title / subscription-userinfo / support-url / profile-update-interval
-— see _profile_meta_headers)."""
+/ announce with remaining days — see _profile_meta_headers)."""
 
 from __future__ import annotations
 
 import base64
+import math
 import os
 import time
 from datetime import UTC, datetime
@@ -35,9 +36,10 @@ _HAPP_ROUTING_ENABLE = os.environ.get("SUB_HAPP_ROUTING_ENABLE", "").strip().low
 
 # Standard subscription metadata headers (Happ docs → App management, standard
 # parameters — no Provider ID needed): profile title with emoji, remaining days
-# via subscription-userinfo expire, a Telegram "airplane" icon linking to our
-# bot via support-url, and a daily auto-update so the days stay fresh. Off by
-# default: opt-in per env, mirrors SUB_HAPP_ROUTING_ENABLE.
+# via subscription-userinfo expire + an «Осталось: N дней» announce, a Telegram
+# "airplane" icon linking to our bot via support-url, and a 12 h auto-update so
+# the days stay fresh. Off by default: opt-in per env, mirrors
+# SUB_HAPP_ROUTING_ENABLE.
 _PROFILE_META_ENABLE = os.environ.get("SUB_PROFILE_META_ENABLE", "").strip().lower() in ("1", "true", "yes")
 _DEFAULT_PROFILE_TITLE = "🛡️ Bravada VPN"
 
@@ -152,37 +154,62 @@ def _entitlement_active(row, *, now: datetime) -> bool:
     return trial_ok or sub_ok
 
 
-def _profile_meta_headers(row) -> dict[str, str]:
+def _profile_meta_headers(row, *, now: datetime | None = None) -> dict[str, str]:
     """Standard subscription metadata headers for /sub/ (Happ docs → App
     management, standard parameters — no Provider ID required).
 
     * ``profile-title`` — «🛡️ Bravada VPN» (env ``SUB_PROFILE_TITLE``
       overrides), emitted as ``base64:<b64>`` because the emoji is not
       ASCII/header-safe; Happ limit is 25 decoded chars (ours is 14).
-    * ``profile-update-interval`` — 24 h auto-update, so remaining days and
+    * ``profile-update-interval`` — 12 h auto-update, so remaining days and
       renewals propagate without a manual refresh.
     * ``subscription-userinfo`` — ``expire`` = the later of trial/paid windows
       (same "later wins" as _entitlement_active); Happ renders remaining days
       from it and flips the profile to expired once it passes. Traffic fields
       are zeroed: we sell time, not bytes, and with ``total=0`` clients show
       the expiry only.
+    * ``announce`` — «⏳ Осталось: N дней» with a live day count (ceil of the
+      time left to the same expiry). Happ draws its own «Истекает: <дата>»
+      from ``expire``; the native «N days» status chip only renders when the
+      userinfo carries traffic quota, which we deliberately do not sell — so
+      the announcement is the standard no-Provider-ID way to show days.
+      Base64-encoded (Cyrillic + emoji are not header-safe).
     * ``support-url`` — ``https://t.me/<BOT_USERNAME>``: Happ draws the
       Telegram airplane icon on the subscription bar and opens our bot.
 
     Headers whose inputs are missing (no expiry timestamps, no
-    ``BOT_USERNAME``) are simply not emitted.
+    ``BOT_USERNAME``) are simply not emitted; ``announce`` is also dropped
+    once the expiry has passed (the expired state speaks for itself).
     """
     headers: dict[str, str] = {}
     title = os.environ.get("SUB_PROFILE_TITLE", "").strip() or _DEFAULT_PROFILE_TITLE
     headers["profile-title"] = "base64:" + base64.b64encode(title.encode("utf-8")).decode("ascii")
-    headers["profile-update-interval"] = "24"
+    headers["profile-update-interval"] = "12"
     expires = [d for d in (row.get("trial_expires_at"), row.get("active_until_utc")) if d is not None]
     if expires:
-        headers["subscription-userinfo"] = f"upload=0; download=0; total=0; expire={int(max(expires).timestamp())}"
+        expire_at = max(expires)
+        headers["subscription-userinfo"] = f"upload=0; download=0; total=0; expire={int(expire_at.timestamp())}"
+        remaining = expire_at - (now or datetime.now(UTC))
+        if remaining.total_seconds() > 0:
+            days = math.ceil(remaining.total_seconds() / 86400)
+            announce = f"⏳ Осталось: {_ru_days(days)}"
+            headers["announce"] = "base64:" + base64.b64encode(announce.encode("utf-8")).decode("ascii")
     bot_username = os.environ.get("BOT_USERNAME", "").strip().lstrip("@")
     if bot_username:
         headers["support-url"] = f"https://t.me/{bot_username}"
     return headers
+
+
+def _ru_days(count: int) -> str:
+    """«N день/дня/дней» — Russian plural for a day count (1 день, 2 дня, 5 дней,
+    11 дней, 21 день…)."""
+    if count % 10 == 1 and count % 100 != 11:
+        form = "день"
+    elif 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        form = "дня"
+    else:
+        form = "дней"
+    return f"{count} {form}"
 
 
 def _wants_happ(ua: str, client_param: str | None) -> bool:

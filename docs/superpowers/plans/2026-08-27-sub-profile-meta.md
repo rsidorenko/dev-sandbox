@@ -59,3 +59,22 @@
       (`SUB_PROFILE_META_ENABLE=1`, проверить наличие `BOT_USERNAME`) +
       `docker compose -f docker-compose.prod.yml up -d --force-recreate backend`
 - [ ] LIVE-check: `curl -sD- <prod>/sub/<token>` с UA Happ → 4 заголовка.
+
+---
+
+## Инкремент 2 — «Осталось: N дней» через announce (2026-08-28)
+
+- **Ветка:** `feat/sub-announce-days`
+- **Запрос:** показывать остаток подписки в днях (как у VPN со скриншота
+  пользователя), не только дату; трафик НЕ показывать (явное решение
+  владельца — нативный чип «N days» Happ рисует только при total>0, фейковую
+  квоту отвергли).
+- **Решение:** стандартный параметр `announce` (дока Happ → App management,
+  без Provider ID, ≤200 симв.): `base64("⏳ Осталось: N день/дня/дней")`,
+  N = ceil((max(trial, active_until) − now)/86400), русский плюрализм
+  (`_ru_days`). Истёкшая подписка / нет дат → заголовок не эмитируется.
+  `profile-update-interval` 24→12ч — дни не отстаивают от даты на баре.
+- **Тесты:** 21 новый кейс (склонения 1/2/5/11/21/101/111, ceil, <1 дня,
+  expired, консистентность с expire, ≤200 симв., DI-параметр `now=`).
+- **Env:** новых нет — входит в `SUB_PROFILE_META_ENABLE`, прокси-вайтлист
+  `announce` уже содержал.

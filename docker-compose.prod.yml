@@ -95,9 +95,10 @@ services:
       # (только base64-список ссылок).
       SUB_HAPP_ROUTING_ENABLE: ${SUB_HAPP_ROUTING_ENABLE:-}
       # /sub/: стандартные метаданные подписки (profile-title с эмодзи,
-      # subscription-userinfo expire → оставшиеся дни в приложении,
+      # subscription-userinfo expire → дата истечения в приложении,
+      # announce «⏳ Осталось: N дней» с живым пересчётом,
       # support-url → иконка-самолётик Telegram на t.me-бота,
-      # profile-update-interval 24ч). Пусто/0 = не эмитировать.
+      # profile-update-interval 12ч). Пусто/0 = не эмитировать.
       # ⚠️ environment[] — явный список: новые флаги /sub/ добавлять и сюда,
       # иначе .env до контейнера не доходит (env_file не используется).
       SUB_PROFILE_META_ENABLE: ${SUB_PROFILE_META_ENABLE:-}
