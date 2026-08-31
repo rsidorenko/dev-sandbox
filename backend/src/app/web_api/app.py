@@ -42,6 +42,11 @@ from app.web_api.admin_users import (
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.middleware import require_auth, require_csrf
+from app.web_api.notifications import (
+    handle_list_notifications,
+    handle_notification_claim,
+    handle_notifications_read,
+)
 from app.web_api.payment import (
     handle_create_add_device_balance_payment,
     handle_create_add_device_payment,
@@ -58,11 +63,6 @@ from app.web_api.profile import (
     handle_get_profile,
     handle_reissue_keys,
     handle_renew_subscription,
-)
-from app.web_api.notifications import (
-    handle_list_notifications,
-    handle_notification_claim,
-    handle_notifications_read,
 )
 from app.web_api.promocode import (
     handle_apply_promocode,
