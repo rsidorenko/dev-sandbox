@@ -59,6 +59,11 @@ from app.web_api.profile import (
     handle_reissue_keys,
     handle_renew_subscription,
 )
+from app.web_api.notifications import (
+    handle_list_notifications,
+    handle_notification_claim,
+    handle_notifications_read,
+)
 from app.web_api.promocode import (
     handle_apply_promocode,
     handle_clear_promocode,
@@ -202,6 +207,19 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route(
             "/api/v1/user/promocode/clear",
             _with_auth(_with_csrf(handle_clear_promocode)),
+            methods=["POST"],
+        ),
+        # Notifications (web session): лента + прочтение + клейм бонуса рассылки
+        # (claims-ядра shared с ботом). Мутации под CSRF.
+        Route("/api/v1/user/notifications", _with_auth(handle_list_notifications), methods=["GET"]),
+        Route(
+            "/api/v1/user/notifications/read",
+            _with_auth(_with_csrf(handle_notifications_read)),
+            methods=["POST"],
+        ),
+        Route(
+            "/api/v1/user/notifications/{notification_id}/claim",
+            _with_auth(_with_csrf(handle_notification_claim)),
             methods=["POST"],
         ),
         # Payment
