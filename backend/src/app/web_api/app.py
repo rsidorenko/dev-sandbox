@@ -21,6 +21,12 @@ from app.web_api.admin_broadcast import (
     handle_admin_broadcast_status,
     handle_admin_broadcast_test,
 )
+from app.web_api.admin_plans import (
+    handle_admin_list_plans,
+    handle_admin_reset_plan_price,
+    handle_admin_set_global_discount,
+    handle_admin_set_plan_price,
+)
 from app.web_api.admin_promocodes import (
     handle_admin_create_promocode,
     handle_admin_delete_promocode,
@@ -238,6 +244,12 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/admin/promocodes", handle_admin_create_promocode, methods=["POST"]),
         Route("/api/v1/admin/promocodes/{code}", handle_admin_update_promocode, methods=["PATCH"]),
         Route("/api/v1/admin/promocodes/{code}", handle_admin_delete_promocode, methods=["DELETE"]),
+        # Тарифы: цены 7 планов + глобальная скидка (auth в обработчике; мутации под CSRF).
+        # literal-маршрут global-discount объявлен ДО параметрического {plan_id}.
+        Route("/api/v1/admin/plans", handle_admin_list_plans, methods=["GET"]),
+        Route("/api/v1/admin/plans/global-discount", handle_admin_set_global_discount, methods=["PUT"]),
+        Route("/api/v1/admin/plans/{plan_id}", handle_admin_set_plan_price, methods=["PATCH"]),
+        Route("/api/v1/admin/plans/{plan_id}", handle_admin_reset_plan_price, methods=["DELETE"]),
         # Агрегированный дашборд статистики (auth в обработчике; GET — без CSRF).
         Route("/api/v1/admin/stats", handle_admin_stats, methods=["GET"]),
         # Рассылка (auth + CSRF в обработчике). estimate/send/test — мутации под CSRF.
