@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Header } from "@/widgets/header/Header";
 import { Footer } from "@/widgets/footer/Footer";
 import { AuthProvider } from "@/shared/lib/auth";
+import { PlansProvider } from "@/features/plans/PlansProvider";
 import { ReferralCapture } from "@/shared/lib/referralCapture";
 
 // Каркас ОСНОВНОГО сайта (шапка, футер, пользовательская сессия, захват ?ref=).
@@ -14,17 +15,20 @@ export default function SiteLayout({
 }) {
   return (
     <AuthProvider>
-      {/*
-        Capture ?ref= on EVERY page (not just /) so referral links to /login,
-        /payment/*, /trial, /dashboard still attribute. Suspense boundary is
-        required because ReferralCapture uses useSearchParams (Next.js App Router).
-      */}
-      <Suspense fallback={null}>
-        <ReferralCapture />
-      </Suspense>
-      <Header />
-      <main>{children}</main>
-      <Footer />
+      {/* Каталог тарифов: один fetch /api/v1/plans; потребители падают на siteConfig. */}
+      <PlansProvider>
+        {/*
+          Capture ?ref= on EVERY page (not just /) so referral links to /login,
+          /payment/*, /trial, /dashboard still attribute. Suspense boundary is
+          required because ReferralCapture uses useSearchParams (Next.js App Router).
+        */}
+        <Suspense fallback={null}>
+          <ReferralCapture />
+        </Suspense>
+        <Header />
+        <main>{children}</main>
+        <Footer />
+      </PlansProvider>
     </AuthProvider>
   );
 }

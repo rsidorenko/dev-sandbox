@@ -6,6 +6,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi, type PaymentMethod } from "@/entities/payment/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
+import { usePlans } from "@/features/plans/PlansProvider";
+import { globalDiscountRubles } from "@/features/plans/effectivePrice";
 import {
   calcExtraDeviceCost,
   getTariffInfo,
@@ -78,6 +80,10 @@ function PaymentForm() {
   // количества устройств — при изменении слайдера показываем полную цену (скидка всё
   // равно применится на checkout, т.к. /payment/create пере-резолвит промокод).
   const { applied: appliedPromo, apply: applyPromo, clear: clearPromo } = usePromocode();
+  // Runtime-цены: база фиксированного тарифа — из каталога (админ-оверрайд),
+  // custom:N — из конфига (оверрайды не действуют). Глобальная скидка без
+  // промокода применяется на витрине; итоговую сумму считает сервер.
+  const { prices, globalDiscount } = usePlans();
   const [promoDiscount, setPromoDiscount] = useState<number | null>(null);
   const [promoDevices, setPromoDevices] = useState<number | null>(null);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -109,7 +115,12 @@ function PaymentForm() {
     };
   }, [appliedPromo, appliedPromo?.code, planId, deviceCount]);
 
-  const info = planId ? getTariffInfo(planId) : null;
+  const staticInfo = planId ? getTariffInfo(planId) : null;
+  // Эффективная база: каталог цен (оверрайд админки) для фиксированных тарифов.
+  const info =
+    staticInfo && !planId.startsWith("custom:") && prices[planId] != null
+      ? { ...staticInfo, basePrice: prices[planId] }
+      : staticInfo;
 
   if (!info) {
     return (
@@ -140,7 +151,11 @@ function PaymentForm() {
   const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
   const total = info.basePrice + extraCost;
   const promoPreviewValid = promoDiscount != null && promoDevices === deviceCount;
-  const displayTotal = promoPreviewValid ? (promoDiscount as number) : total;
+  // Глобальная скидка без промокода (или пока preview недействителен): витрина
+  // «X ₽ вместо Y». С промокодом preview сервера уже best-of — он приоритетен.
+  const globalOnlyTotal = globalDiscountRubles(globalDiscount, planId, total);
+  const displayTotal = promoPreviewValid ? (promoDiscount as number) : globalOnlyTotal;
+  const hasVisibleDiscount = displayTotal < total;
   const canPayWithBalance = profile?.referral != null && balanceRubles >= displayTotal;
 
   const handleApplyPromo = async (e: FormEvent) => {
@@ -339,7 +354,7 @@ function PaymentForm() {
           <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
             <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
-              {promoPreviewValid && (
+              {hasVisibleDiscount && (
                 <span className="mr-2 text-sm font-normal text-gray-400 line-through">
                   {total.toLocaleString("ru-RU")} ₽
                 </span>
@@ -347,6 +362,11 @@ function PaymentForm() {
               {displayTotal.toLocaleString("ru-RU")} ₽
             </span>
           </div>
+          {hasVisibleDiscount && !promoPreviewValid && globalDiscount && (
+            <p className="mt-2 text-right text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              🎁 {globalDiscount.public_label || "Акция"} {globalDiscount.label}
+            </p>
+          )}
 
           {errorMsg && <Alert className="mt-4">{errorMsg}</Alert>}
 

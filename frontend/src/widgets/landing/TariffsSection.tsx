@@ -7,7 +7,8 @@ import { reachGoal } from "@/shared/lib/analytics";
 import { savingsPctForPlan } from "@/entities/tariff/savings";
 import { Reveal } from "@/shared/ui/Reveal";
 import { usePromocode } from "@/features/promocode/usePromocode";
-import { discountedRubles } from "@/features/promocode/discount";
+import { usePlans } from "@/features/plans/PlansProvider";
+import { effectivePlanPrice } from "@/features/plans/effectivePrice";
 import type { AppliedPromo } from "@/features/promocode/api";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
@@ -23,7 +24,10 @@ export function TariffsSection() {
   const [showCustom, setShowCustom] = useState(false);
   const [customDays, setCustomDays] = useState(30);
   const { applied } = usePromocode();
+  // Runtime-цены (админ-оверрайды) + глобальная скидка; пока не загружены — siteConfig.
+  const { prices, globalDiscount } = usePlans();
 
+  const priceFor = (t: Tariff): number => prices[t.id] ?? t.price;
   const activeTariff = tariffs.find((t) => t.id === selected);
 
   return (
@@ -79,7 +83,13 @@ export function TariffsSection() {
           {showCustom ? (
             <CustomCard days={customDays} onDaysChange={setCustomDays} />
           ) : activeTariff ? (
-            <TariffCard tariff={activeTariff} applied={applied} />
+            <TariffCard
+              tariff={activeTariff}
+              applied={applied}
+              globalDiscount={globalDiscount}
+              runtimePrice={priceFor(activeTariff)}
+              upsellPrice={priceFor(siteConfig.tariffs.find((t) => t.id === "3m") ?? activeTariff)}
+            />
           ) : null}
         </div>
 
@@ -101,26 +111,45 @@ export function TariffsSection() {
   );
 }
 
-function UpsellHint({ currentId }: { currentId: string }) {
+function UpsellHint({ currentId, targetPrice }: { currentId: string; targetPrice: number | null }) {
   // Апселл к более длинному тарифу — рост среднего чека. Не показываем для длинных.
   if (["3m", "6m", "365d"].includes(currentId)) return null;
   const target = siteConfig.tariffs.find((t) => t.id === "3m");
-  if (!target) return null;
+  if (!target || targetPrice == null) return null;
   return (
     <Link
       href={`/payment/${target.id}`}
       className="mt-3 block rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
     >
-      💡 Выгоднее: {target.label.toLowerCase()} за {target.price} ₽
+      💡 Выгоднее: {target.label.toLowerCase()} за {targetPrice.toLocaleString("ru-RU")} ₽
     </Link>
   );
 }
 
-function TariffCard({ tariff, applied }: { tariff: Tariff; applied: AppliedPromo | null }) {
+function TariffCard({
+  tariff,
+  applied,
+  globalDiscount,
+  runtimePrice,
+  upsellPrice,
+}: {
+  tariff: Tariff;
+  applied: AppliedPromo | null;
+  globalDiscount: ReturnType<typeof usePlans>["globalDiscount"];
+  runtimePrice: number;
+  upsellPrice: number | null;
+}) {
   const sp = savingsPctForPlan(tariff.id);
   const isBest = tariff.id === "365d";
-  const discounted = discountedRubles(applied, tariff.id, tariff.price);
-  const hasDiscount = discounted < tariff.price;
+  // База — runtime-цена (админ-оверрайд или дефолт); итог — best-of(промо, акция).
+  const eff = effectivePlanPrice({
+    base: runtimePrice,
+    planId: tariff.id,
+    applied,
+    globalDiscount,
+  });
+  const hasDiscount = eff.discounted < runtimePrice;
+  const perDay = `≈ ${Math.max(1, Math.round(runtimePrice / tariff.durationDays))} ₽/день`;
   return (
     <div className="mx-auto mt-8 max-w-md">
       <div className="relative rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-800 dark:shadow-none">
@@ -138,22 +167,27 @@ function TariffCard({ tariff, applied }: { tariff: Tariff; applied: AppliedPromo
           {hasDiscount ? (
             <div className="flex items-baseline justify-center gap-2">
               <span className="text-2xl font-bold text-gray-400 line-through dark:text-gray-500">
-                {tariff.price} ₽
+                {runtimePrice.toLocaleString("ru-RU")} ₽
               </span>
               <span className="text-4xl font-extrabold text-brand-600 dark:text-brand-400">
-                {discounted.toLocaleString("ru-RU")} ₽
+                {eff.discounted.toLocaleString("ru-RU")} ₽
               </span>
             </div>
           ) : (
             <span className="text-4xl font-extrabold text-gray-900 dark:text-white">
-              {tariff.priceLabel}
+              {runtimePrice.toLocaleString("ru-RU")} ₽
             </span>
           )}
-          <span className="ml-2 text-sm text-gray-400">{tariff.perDay}</span>
+          <span className="ml-2 text-sm text-gray-400">{perDay}</span>
         </div>
-        {hasDiscount && applied ? (
+        {hasDiscount && eff.winner === "promo" && applied ? (
           <p className="mt-1 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-            🎁 Промокод {applied.code}: скидка {tariff.price - discounted} ₽
+            🎁 Промокод {applied.code}: скидка {runtimePrice - eff.discounted} ₽
+          </p>
+        ) : hasDiscount && eff.winner === "global" ? (
+          <p className="mt-1 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+            🎁 {globalDiscount?.public_label || "Акция"} {globalDiscount?.label}: скидка{" "}
+            {runtimePrice - eff.discounted} ₽
           </p>
         ) : sp > 0 ? (
           <p className="mt-1 text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -197,7 +231,7 @@ function TariffCard({ tariff, applied }: { tariff: Tariff; applied: AppliedPromo
           </Link>
         </div>
 
-        <UpsellHint currentId={tariff.id} />
+        <UpsellHint currentId={tariff.id} targetPrice={upsellPrice} />
       </div>
     </div>
   );
