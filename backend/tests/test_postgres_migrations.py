@@ -120,6 +120,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "073_broadcast_promo.sql",
         "074_promo_per_user_limit.sql",
         "075_subscription_token_permanent.sql",
+        "076_pricing_admin.sql",
     ]
 
 
