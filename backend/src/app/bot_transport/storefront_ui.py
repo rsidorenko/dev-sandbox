@@ -306,7 +306,7 @@ def text_welcome(*, trial_available: bool = False) -> str:
 def _text_intro() -> str:
     """Приветствие с бенефитами — единый текст welcome и главного меню."""
     return (
-        "<b>Привет! Я — Bravada VPN 🚀</b>\n\n"
+        "<b>Привет! Я — Bravada VPN 🤖</b>\n\n"
         "Помогу подключить VPN за пару минут.\n\n"
         "⚡ Быстрое подключение\n"
         "🔐 Защищённое соединение\n"
