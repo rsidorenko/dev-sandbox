@@ -27,8 +27,10 @@ import asyncpg
 
 from app.application.bootstrap import Slice1Composition
 from app.application.interfaces import SubscriptionSnapshot
+from app.application.plan_pricing import get_plan_pricing, resolve_effective_charge
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, extra_device_cost
-from app.domain.plans import calculate_total_price_kopecks, get_plan
+from app.domain.plans import calculate_total_price_kopecks
+from app.domain.pricing import WINNER_PROMO
 from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
 from app.domain.subscription_timing import compute_renewal_active_until
 from app.persistence.postgres_referral import (
@@ -105,7 +107,7 @@ async def pay_plan_from_balance(
     notifier: FulfillmentActivationTelegramNotifier | None = None,
     active_until_normalization: str = "wall_clock",
 ) -> BalancePaymentResult:
-    plan = get_plan(plan_id)
+    plan = await get_plan_pricing(pool).get_plan(plan_id)
     if plan is None:
         return BalancePaymentResult(
             BalancePaymentStatus.INVALID_PLAN, internal_user_id, correlation_id or "", plan_id=plan_id
@@ -123,7 +125,8 @@ async def pay_plan_from_balance(
 
     # Применённый промокод: скидка применяется ОДИН РАЗ к charge_kopecks и течёт в debit,
     # result.amount и базу комиссии (паритет карта/баланс — комиссия с discounted суммы).
-    active_promo, charge_kopecks = await _resolve_balance_discount(
+    # Итог — best-of(промо, глобальная скидка); погашение кода — только если промо выиграл.
+    active_promo, charge_kopecks, promo_won = await _resolve_balance_discount(
         pool=pool,
         composition=composition,
         internal_user_id=internal_user_id,
@@ -160,8 +163,9 @@ async def pay_plan_from_balance(
             active_until_normalization=active_until_normalization,
         )
 
-    # Погашение — только при свежем COMPLETED (не ALREADY_COMPLETED = реплей). Best-effort.
-    if result.status is BalancePaymentStatus.COMPLETED and active_promo is not None:
+    # Погашение — только при свежем COMPLETED (не ALREADY_COMPLETED = реплей) и только
+    # если промокод выиграл best-of (иначе глобальная скидка зря расходовала бы код). Best-effort.
+    if result.status is BalancePaymentStatus.COMPLETED and active_promo is not None and promo_won:
         await _redeem_balance_promo(
             pool=pool,
             composition=composition,
@@ -484,7 +488,10 @@ async def _add_device_pg(
             if new_device_count <= current:
                 raise _NotHigher()
             plan_id = snap.plan_id or "1m"
-            plan = get_plan(plan_id)
+            # Только duration_days (оверрайдами не меняется) — код-дефолт.
+            from app.domain.plans import get_plan as _get_plan
+
+            plan = _get_plan(plan_id)
             if plan is None:
                 raise _NoActive()
             cost_rubles = extra_device_cost(new_device_count, current, plan.duration_days)
@@ -718,13 +725,16 @@ async def _resolve_balance_discount(
     internal_user_id: str,
     base_kopecks: int,
     plan_id: str,
-) -> tuple[Any, int]:
-    """Возвращает (ActivePromo | None, charge_kopecks). charge = discounted если промокод пригоден."""
+) -> tuple[Any, int, bool]:
+    """Возвращает (ActivePromo | None, charge_kopecks, promo_won).
+
+    charge — best-of(промокод, глобальная скидка) на одной базе; promo_won —
+    выиграл ли именно промокод (тогда и только тогда код гасится на успехе)."""
     from app.application.promo_service import resolve_active_promo
 
     base_rubles = base_kopecks // 100
     if base_rubles <= 0:
-        return None, base_kopecks
+        return None, base_kopecks, False
     applied, code_repo, redemption_repo, snapshots = _balance_promo_repos(pool, composition)
     active = await resolve_active_promo(
         pool=pool,
@@ -736,8 +746,13 @@ async def _resolve_balance_discount(
         base_rubles=base_rubles,
         plan_id=plan_id,
     )
-    charge = active.price.discounted_kopecks if active is not None else base_kopecks
-    return active, charge
+    resolved = resolve_effective_charge(
+        base_rubles=base_rubles,
+        plan_id=plan_id,
+        promo=active.promo if active is not None else None,
+        global_discount=await get_plan_pricing(pool).get_global_discount(),
+    )
+    return active, resolved.charge_kopecks, resolved.price.winner == WINNER_PROMO
 
 
 async def _redeem_balance_promo(

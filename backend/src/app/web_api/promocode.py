@@ -196,25 +196,35 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
         body: dict = {"ok": True, "applied": _applied_descriptor(promo, expires_at=expires_at, valid=True)}
 
         # Preview скидки против конкретного тарифа — страница оплаты передаёт plan+devices.
+        # База — эффективная цена (админ-оверрайд), итог — best-of(промо, глобальная):
+        # preview совпадает с суммой, которую спишет /api/v1/payment/create.
         plan_id = str(data.get("plan_id", "")).strip()
         if plan_id:
-            from app.domain.plans import calculate_total_price, get_plan
-            from app.domain.promo import apply_promo_discount
+            from app.application.plan_pricing import get_plan_pricing
+            from app.domain.plans import calculate_total_price
+            from app.domain.pricing import effective_plan_price
 
-            plan = get_plan(plan_id)
+            pricing = get_plan_pricing(pool)
+            plan = await pricing.get_plan(plan_id)
             if plan is not None:
                 try:
                     device_count = int(data.get("device_count", 5))
                 except (ValueError, TypeError):
                     device_count = 5
                 base = calculate_total_price(plan, device_count)
-                price = apply_promo_discount(base, promo, plan_id=plan_id)
+                eff = effective_plan_price(
+                    base,
+                    plan_id=plan_id,
+                    promo=promo,
+                    global_discount=await pricing.get_global_discount(),
+                )
                 body["preview"] = {
                     "plan_id": plan_id,
                     "device_count": device_count,
-                    "base_rubles": price.base_rubles,
-                    "discounted_rubles": price.discounted_rubles,
-                    "discount_kopecks": price.discount_kopecks,
+                    "base_rubles": eff.base_rubles,
+                    "discounted_rubles": eff.discounted_rubles,
+                    "discount_kopecks": eff.discount_kopecks,
+                    "winner": eff.winner,
                 }
         return JSONResponse(body)
     except Exception:

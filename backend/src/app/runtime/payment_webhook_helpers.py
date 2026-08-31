@@ -73,6 +73,7 @@ def promo_from_metadata(metadata: dict[str, Any]) -> tuple[str, int] | None:
     """Промокод платежа из metadata: (code, discount_kopecks) или None, если кода нет.
 
     Безопасный parse как parse_add_device_metadata: default 0 для legacy-платежей без поля.
+    Глобальная скидка НЕ ставит promo_code → погашения не будет (скидка без кода).
     """
     code = metadata.get("promo_code", "")
     if not isinstance(code, str) or not code:
@@ -82,6 +83,35 @@ def promo_from_metadata(metadata: dict[str, Any]) -> tuple[str, int] | None:
     except (ValueError, TypeError):
         discount_kopecks = 0
     return code, max(0, discount_kopecks)
+
+
+def discount_kopecks_from_metadata(metadata: dict[str, Any]) -> int:
+    """Фактическая скидка платежа (kopecks) независимо от источника.
+
+    В отличие от promo_from_metadata, читает discount_kopecks и когда промокода
+    нет: при победе глобальной скидки metadata несёт discount_kopecks без
+    promo_code — сумма сверки должна учесть эту скидку.
+    """
+    try:
+        value = int(metadata.get("discount_kopecks", "0"))
+    except (ValueError, TypeError):
+        return 0
+    return max(0, value)
+
+
+def base_amount_from_metadata(metadata: dict[str, Any]) -> int | None:
+    """База платежа (kopecks) из metadata или None для legacy-платежей без поля.
+
+    base_amount_kopecks фиксируется при создании платежа (пост-оверрайд, до
+    скидки) и эхом возвращается провайдером — вебхук предпочитает её пересчёту
+    из кода, чтобы смена цены админом между созданием платежа и вебхуком не
+    ломала сверку суммы (±1 коп).
+    """
+    try:
+        value = int(metadata.get("base_amount_kopecks", "0"))
+    except (ValueError, TypeError):
+        return None
+    return value if value > 0 else None
 
 
 def parse_add_device_metadata(metadata: dict[str, str]) -> tuple[int, int, int] | None:
@@ -426,20 +456,33 @@ async def fulfill_subscription_payment(
         _LOGGER.warning("%s webhook: missing or invalid telegram_user_id ref=%s", provider_key, external_payment_id)
         return safe_json_error(400, "invalid_payload")
 
-    from app.domain.plans import get_plan
+    from app.application.plan_pricing import get_plan_pricing
 
-    plan = get_plan(plan_id)
+    # Нужен только duration_days (не меняется оверрайдами) — гонки со сменой цены нет.
+    plan = await get_plan_pricing(pool).get_plan(plan_id)
     if plan is None:
         _LOGGER.warning("%s webhook: unknown plan_id=%s ref=%s", provider_key, plan_id, external_payment_id)
         return safe_json_error(400, "invalid_plan")
 
     # Expected amount must cover the plan PLUS any extra devices the user paid
-    # for, MINUS the promo discount carried in metadata (default 0 for legacy
-    # payments without the field). paid_amount_kopecks may be None for providers
-    # that fix the RUB face value at creation (the re-fetch already proved 'paid').
+    # for, MINUS the discount carried in metadata (promo OR global; default 0 for
+    # legacy payments without the field). paid_amount_kopecks may be None for
+    # providers that fix the RUB face value at creation (the re-fetch already
+    # proved 'paid').
+    # base_amount_kopecks (фиксация цены при создании) имеет приоритет над
+    # пересчётом из кода: админская смена цены между созданием платежа и вебхуком
+    # не должна ломать сверку (±1 коп).
     promo = promo_from_metadata(metadata)
-    discount_kopecks = promo[1] if promo is not None else 0
-    expected_kopecks = expected_subscription_kopecks(plan, device_count, discount_kopecks=discount_kopecks)
+    discount_kopecks = discount_kopecks_from_metadata(metadata)
+    base_meta = base_amount_from_metadata(metadata)
+    if base_meta is not None:
+        base_rubles = base_meta // 100
+        expected_kopecks = base_meta - discount_kopecks
+    else:
+        from app.domain.plans import calculate_total_price
+
+        base_rubles = calculate_total_price(plan, device_count)
+        expected_kopecks = expected_subscription_kopecks(plan, device_count, discount_kopecks=discount_kopecks)
     if paid_amount_kopecks is not None and abs(paid_amount_kopecks - expected_kopecks) > 1:
         _LOGGER.warning(
             "%s webhook: amount mismatch expected=%d got=%d ref=%s",
@@ -507,12 +550,9 @@ async def fulfill_subscription_payment(
         result.operation_outcome.value,
     )
 
-    # Погашение промокода (best-effort, идемпотентно). base/discounted пересчитываем из
-    # канонической цены и discount_kopecks из metadata — те же значения, что при оплате.
+    # Погашение промокода (best-effort, идемпотентно). base/discounted — из той же
+    # базы, что сверялась выше (metadata-preferred): значения как при оплате.
     if promo is not None:
-        from app.domain.plans import calculate_total_price as _calc_total
-
-        base_rubles = _calc_total(plan, device_count)
         await redeem_webhook_promo(
             pool=pool,
             code=promo[0],

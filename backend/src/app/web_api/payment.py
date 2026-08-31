@@ -15,8 +15,13 @@ from app.application.balance_payment_service import (
     add_device_from_balance,
     pay_plan_from_balance,
 )
+from app.application.plan_pricing import (
+    charge_metadata_fields,
+    get_plan_pricing,
+    resolve_effective_charge,
+)
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, extra_device_cost
-from app.domain.plans import calculate_total_price, get_plan
+from app.domain.plans import calculate_total_price
 from app.web_api.helpers import safe_json_error, truthy
 from app.web_api.middleware import require_auth
 
@@ -114,7 +119,12 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     except (ValueError, TypeError):
         device_count = 5
 
-    plan = get_plan(plan_id)
+    # Эффективная цена тарифа: админ-оверрайд (plan_price_overrides) поверх
+    # код-дефолтов; custom:N всегда парсится кодом. pool может быть None
+    # (in-memory тесты) — тогда провайдер отдаёт код-дефолты.
+    pool = request.app.state.pool
+    pricing = get_plan_pricing(pool)
+    plan = await pricing.get_plan(plan_id)
     if plan is None:
         return safe_json_error(400, "invalid_plan_id")
 
@@ -139,7 +149,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     # accounts carry a NON-POSITIVE telegram_user_id and an internal_user_id of
     # "web_<hash>" (NOT f"u{telegram_user_id}"); the webhook must apply the
     # subscription to that exact identity, so we carry it in the payment context.
-    pool = request.app.state.pool
     identity = await pool.fetchrow(
         "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
         telegram_user_id,
@@ -165,8 +174,17 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         base_rubles=total_rubles,
         plan_id=plan_id,
     )
-    charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else total_rubles
-    charge_kopecks = charge_rubles * 100
+    # Best-of(промокод, глобальная скидка) на одной базе. promo_code попадает в
+    # metadata ТОЛЬКО когда выиграл промокод — иначе вебхук не погасит код зря.
+    global_discount = await pricing.get_global_discount()
+    resolved = resolve_effective_charge(
+        base_rubles=total_rubles,
+        plan_id=plan_id,
+        promo=active_promo.promo if active_promo is not None else None,
+        global_discount=global_discount,
+    )
+    charge_rubles = resolved.charge_rubles
+    charge_kopecks = resolved.charge_kopecks
 
     if payment_method == "crypto":
         # CryptoBot carries the FULL context in its payload string (no client-side
@@ -177,9 +195,16 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             "telegram_user_id": str(telegram_user_id),
             "internal_user_id": internal_user_id,
         }
-        if active_promo is not None:
-            context["discount_kopecks"] = str(active_promo.price.discounted_kopecks)
-            context["promo_code"] = active_promo.code
+        # base_amount_kopecks — фиксация цены на момент создания (вебхук сверяет
+        # по ней при смене цены админом); discount_kopecks — скидка победителя
+        # best-of (раньше сюда ошибочно писался итоговый discounted_kopecks).
+        context.update(
+            charge_metadata_fields(
+                resolved,
+                promo_code=active_promo.code if active_promo is not None else None,
+                global_discount=global_discount,
+            )
+        )
         created = await _cryptobot_create(
             amount_rubles=charge_rubles,
             description=f"Bravada VPN - {plan_display_name_safe(plan_id)}",
@@ -217,9 +242,13 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     )
     # Always carry the real identity so the webhook credits the correct account.
     payment_metadata: dict[str, str] = {"internal_user_id": internal_user_id}
-    if active_promo is not None:
-        payment_metadata["discount_kopecks"] = str(active_promo.price.discount_kopecks)
-        payment_metadata["promo_code"] = active_promo.code
+    payment_metadata.update(
+        charge_metadata_fields(
+            resolved,
+            promo_code=active_promo.code if active_promo is not None else None,
+            global_discount=global_discount,
+        )
+    )
     # Checkout-reference correlation assumes a real Telegram identity —
     # validate_telegram_user_id rejects the non-positive ids used by web-only
     # accounts (which previously raised here, outside any try/except, and crashed
@@ -346,7 +375,8 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         return safe_json_error(400, "device_count_not_higher")
 
     plan_id = snap["plan_id"] or "1m"
-    plan = get_plan(plan_id)
+    # Только duration_days (оверрайдами не меняется) — провайдер для единообразия.
+    plan = await get_plan_pricing(pool).get_plan(plan_id)
     if plan is None:
         return safe_json_error(400, "invalid_plan")
     cost_rubles = extra_device_cost(new_device_count, current, plan.duration_days)
