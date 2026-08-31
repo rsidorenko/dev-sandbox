@@ -20,6 +20,11 @@ from datetime import UTC, datetime
 import asyncpg
 import httpx
 
+from app.bot_transport.custom_emoji import (
+    apply_custom_emoji,
+    apply_keyboard_custom_emoji,
+    custom_emoji_enabled_from_env,
+)
 from app.bot_transport.notification_texts import (
     text_keys_deleted,
     text_referral_offer_paid,
@@ -192,13 +197,18 @@ class NotificationScheduler:
         if telegram_user_id > 0:
             try:
                 client = await self._get_http_client()
+                tg_text = text
+                tg_keyboard = keyboard
+                if custom_emoji_enabled_from_env():
+                    tg_text = apply_custom_emoji(text, enabled=True)
+                    tg_keyboard = apply_keyboard_custom_emoji(keyboard, enabled=True)
                 resp = await client.post(
                     f"https://api.telegram.org/bot{self._bot_token}/sendMessage",
                     json={
                         "chat_id": telegram_user_id,
-                        "text": text,
+                        "text": tg_text,
                         "parse_mode": "Markdown",
-                        "reply_markup": keyboard,
+                        "reply_markup": tg_keyboard,
                     },
                 )
                 if resp.status_code != 200:

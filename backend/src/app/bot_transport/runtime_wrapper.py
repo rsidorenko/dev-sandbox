@@ -7,12 +7,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from app.application.bootstrap import Slice1Composition
+from app.bot_transport.custom_emoji import (
+    apply_custom_emoji,
+    apply_keyboard_custom_emoji,
+    custom_emoji_enabled_from_env,
+)
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
 from app.security.validation import ValidationError, validate_telegram_user_id
 
@@ -171,13 +177,33 @@ async def handle_slice1_telegram_update_to_runtime_action(
         )
         for fu in rendered.follow_up_messages
     )
+    # Кастомные эмодзи (tg-emoji): единая точка финализации исходящих сообщений.
+    # Применяется только к HTML-отправкам (синтаксис tg-emoji — HTML) и под флагом.
+    custom_emoji_on = custom_emoji_enabled_from_env()
+    markup = rendered.reply_markup
+    if custom_emoji_on:
+        if rendered.parse_mode == "HTML":
+            rendered = dataclasses.replace(
+                rendered, message_text=apply_custom_emoji(rendered.message_text, enabled=True)
+            )
+        markup = apply_keyboard_custom_emoji(markup, enabled=True)
+        follow_ups = tuple(
+            TelegramRuntimeFollowUpSend(
+                message_text=(
+                    apply_custom_emoji(fu.message_text, enabled=True) if fu.parse_mode == "HTML" else fu.message_text
+                ),
+                reply_markup=apply_keyboard_custom_emoji(fu.reply_markup, enabled=True),
+                parse_mode=fu.parse_mode,
+            )
+            for fu in follow_ups
+        )
     return TelegramRuntimeAction(
         kind=TelegramRuntimeActionKind.SEND_MESSAGE,
         correlation_id=cid,
         chat_id=target,
         message_text=rendered.message_text,
         action_keys=rendered.action_keys,
-        reply_markup=rendered.reply_markup,
+        reply_markup=markup,
         uc01_idempotency_key=idem_key,
         follow_ups=follow_ups,
         parse_mode=rendered.parse_mode,
