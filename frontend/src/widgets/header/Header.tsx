@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { NotificationsBell } from "@/features/notifications/NotificationsBell";
+import { useAuth } from "@/shared/lib/auth";
 import { TelegramButton } from "@/shared/ui/TelegramButton";
 
 function SunIcon({ className }: { className?: string }) {
@@ -23,6 +25,7 @@ function MoonIcon({ className }: { className?: string }) {
 export function Header() {
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(false);
+  const { authenticated } = useAuth();
 
   useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
@@ -72,6 +75,7 @@ export function Header() {
           >
             {themeIcon}
           </button>
+          {authenticated && <NotificationsBell />}
           <TelegramButton />
           <Link
             href="/dashboard"
@@ -83,6 +87,7 @@ export function Header() {
 
         {/* Mobile */}
         <div className="flex items-center gap-2 md:hidden">
+          {authenticated && <NotificationsBell />}
           <button
             onClick={toggleTheme}
             className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
