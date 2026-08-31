@@ -1,4 +1,12 @@
-"""Subscription plans: pricing, duration, and total price calculation."""
+"""Subscription plans: pricing, duration, and total price calculation.
+
+ВНИМАНИЕ (миграция 076, вкладка админки «Тарифы»): `_PLANS` ниже — FALLBACK-дефолты.
+Runtime-источник цен 7 фиксированных тарифов — таблица `plan_price_overrides`
+(читается через `app.application.plan_pricing.PlanPricingProvider`); отсутствие
+строки оверрайда = цена отсюда, из кода. Больше НЕ писать 051-стиль миграций
+синка цен в БД — они конфликтуют с админ-панелью. Зеркало `subscription_plans`
+остаётся справочным и приложением не читается.
+"""
 
 from __future__ import annotations
 
