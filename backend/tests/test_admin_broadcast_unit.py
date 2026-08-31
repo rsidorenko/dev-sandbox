@@ -13,6 +13,8 @@ import pytest
 
 from app.bot_transport.storefront_ui import CB_BROADCAST_DAYS, CB_BROADCAST_PROMO
 from app.web_api.admin_broadcast import (
+    _CATEGORY_PREDICATES,
+    _WEB_CATEGORY_PREDICATES,
     BroadcastRunner,
     _build_inner_union,
     _build_reply_markup,
@@ -23,11 +25,14 @@ from app.web_api.admin_broadcast import (
     _extract_retry_after,
     _fetch_sql,
     _html_for_telegram,
+    _resolve_explicit_targets,
     _validate_bonus_config,
     _validate_bonus_promo_exists,
     _validate_buttons,
     _validate_categories,
     _validate_html,
+    _web_count_sql,
+    _web_fetch_sql,
 )
 
 # --- _validate_html ---------------------------------------------------------
@@ -118,6 +123,58 @@ def test_count_and_fetch_sql_wrap_distinct_and_filter_positive():
         assert "DISTINCT" in sql
 
 
+def test_web_predicates_mirror_tg_without_sign_filter():
+    """Web-варианты категорий = TG-варианты без знакового фильтра (тот же core)."""
+    assert set(_CATEGORY_PREDICATES) == set(_WEB_CATEGORY_PREDICATES)
+    for key, tg_sql in _CATEGORY_PREDICATES.items():
+        assert tg_sql.replace("i.telegram_user_id > 0", "TRUE") == _WEB_CATEGORY_PREDICATES[key]
+
+
+def test_web_count_and_fetch_sql_filter_by_verified_email():
+    """Web-аудитория: EXISTS verified email; без `> 0` (web-only с отрицательным tg-id)."""
+    for fn in (_web_count_sql, _web_fetch_sql):
+        sql = fn(["all"])
+        assert "user_emails" in sql
+        assert "is_verified = TRUE" in sql
+        assert "DISTINCT" in sql
+        assert "telegram_user_id > 0" not in sql
+        assert sql.count("$1") == 1
+
+
+# --- _resolve_explicit_targets (функция чистая, пул подменяем) ---------------
+
+
+class _EmailResolvePool:
+    """fetchval(email) → telegram_user_id (или None). Помнит SQL для ассертов."""
+
+    def __init__(self, mapping: dict[str, int | None]) -> None:
+        self._mapping = {k.lower(): v for k, v in mapping.items()}
+        self.email_sql: str | None = None
+
+    async def fetchval(self, sql: str, *args):
+        self.email_sql = sql
+        return self._mapping.get(str(args[0]).lower())
+
+
+def test_resolve_explicit_targets_numbers_and_emails():
+    pool = _EmailResolvePool({"web@example.com": -42, "tg@example.com": 777})
+    resolved, unresolved = _run(
+        _resolve_explicit_targets(pool, ["12345", "-9", "0", "web@example.com", "tg@example.com", "unknown@x.io"])
+    )
+    assert resolved == [12345, -42, 777]  # web-only (отрицательный) тоже резолвится
+    # числа обрабатываются раньше email — потому «0» и «-9» в начале
+    assert unresolved == ["0", "-9", "unknown@x.io"]
+
+
+def test_resolve_explicit_targets_email_sql_has_no_sign_filter():
+    """Email-резолв НЕ фильтрует по знаку tg-id (web-only имеют право на рассылку)."""
+    pool = _EmailResolvePool({"a@b.io": 1})
+    _run(_resolve_explicit_targets(pool, ["a@b.io"]))
+    assert pool.email_sql is not None
+    assert "telegram_user_id > 0" not in pool.email_sql
+    assert "is_verified = TRUE" in pool.email_sql
+
+
 # --- _extract_retry_after ---------------------------------------------------
 
 
@@ -146,7 +203,8 @@ def test_extract_retry_after_non_json_defaults_to_one():
 
 class _FakeConn:
     """Соединение из pool.acquire(): поддерживает transaction() + executemany()
-    (нужно BroadcastRunner._seed_bonus_claims). Записывает посеянные claim-rows в пул."""
+    (нужно BroadcastRunner._seed_bonus_claims) + execute/fetchrow для web-канала
+    (PostgresWebNotificationRepository.insert_broadcast_for_tg_ids)."""
 
     def __init__(self, pool: _FakePool) -> None:
         self._pool = pool
@@ -161,20 +219,43 @@ class _FakeConn:
         return self  # сам выступает async-context-менеджером транзакции
 
     async def executemany(self, sql: str, rows):
-        # rows: list of (job_id, telegram_user_id, days, ttl_days)
-        self._pool.bonus_seed_rows = list(rows)
+        # rows: (job_id, telegram_user_id, days|code, ttl_days) — от TG- и web-посева
+        if self._pool.bonus_seed_rows is None:
+            self._pool.bonus_seed_rows = []
+        self._pool.bonus_seed_rows.extend(rows)
+
+    async def execute(self, sql: str, *args):
+        s = sql.upper()
+        if s.startswith("INSERT INTO WEB_NOTIFICATIONS"):
+            # (telegram_user_ids, title, body, payload_json) — web fan-out
+            if self._pool.fail_web_insert:
+                raise RuntimeError("web insert failed")
+            self._pool.web_notification_inserts.append(
+                {"tg_ids": list(args[0]), "title": args[1], "body": args[2], "payload": args[3]}
+            )
+            return f"INSERT 0 {len(args[0])}"
+        return "UPDATE 1"
 
 
 class _FakePool:
-    """Запоминает UPDATE-вызовы и имитирует конфиг задачи + список получателей."""
+    """Запоминает UPDATE-вызовы и имитирует конфиг задачи + списки получателей
+    (TG- и web-аудитория — отдельно: fetch различает по user_emails в SQL)."""
 
-    def __init__(self, job_row: dict, recipients: list[int]) -> None:
+    def __init__(self, job_row: dict, recipients: list[int], web_recipients: list[int] | None = None) -> None:
         self._job_row = job_row
         self._recipients = [{"telegram_user_id": r} for r in recipients]
+        self._web_recipients = [
+            {"telegram_user_id": r} for r in (web_recipients if web_recipients is not None else [])
+        ]
         self.total_recipients_written: int | None = None
         self.finish: tuple | None = None  # (status, sent, blocked, failed, last_error)
-        # Записанные _seed_bonus_claims строки (job_id, tg, days, ttl); None если не вызывалось.
+        # Записанные _seed_*_claims строки (job_id, tg, days|code, ttl); None если не вызывалось.
         self.bonus_seed_rows: list | None = None
+        # web fan-out: вставки web_notifications — {tg_ids, title, body, payload}
+        self.web_notification_inserts: list[dict] = []
+        self.web_recipient_count_written: int | None = None
+        self.web_notified_count_written: int | None = None
+        self.fail_web_insert = False  # симуляция сбоя веб-канала
 
     def acquire(self):
         return _FakeConn(self)
@@ -186,6 +267,12 @@ class _FakePool:
         if "TOTAL_RECIPIENTS=$2" in s:
             self.total_recipients_written = args[1]
             return "UPDATE 1"
+        if "WEB_RECIPIENT_COUNT=$2" in s:
+            self.web_recipient_count_written = args[1]
+            return "UPDATE 1"
+        if "WEB_NOTIFIED_COUNT=$2" in s:
+            self.web_notified_count_written = args[1]
+            return "UPDATE 1"
         if s.startswith("UPDATE BROADCAST_JOBS SET STATUS=$2"):
             # finish: status=$2 sent=$3 blocked=$4 failed=$5 ... last_error=$6
             self.finish = (args[1], args[2], args[3], args[4], args[5])
@@ -196,6 +283,9 @@ class _FakePool:
         return self._job_row
 
     async def fetch(self, sql: str, *args):
+        # web-аудитория отличается по user_emails в SQL; дефолт — пустая (TG-only тесты)
+        if "user_emails" in sql.lower():
+            return list(self._web_recipients)
         return list(self._recipients)
 
 
@@ -245,11 +335,13 @@ def _runner(
     *,
     buttons: list | None = None,
     bonus: dict | str | None = None,
+    web_recipients: list[int] | None = None,
+    explicit_ids: list[int] | None = None,
 ) -> tuple[BroadcastRunner, _FakePool]:
     pool = _FakePool(
         job_row={
             "categories": ["all"],
-            "explicit_telegram_ids": [],
+            "explicit_telegram_ids": list(explicit_ids or []),
             "message_text": "<b>hi</b>",
             "parse_mode": "HTML",
             "disable_web_page_preview": False,
@@ -257,6 +349,7 @@ def _runner(
             "bonus": bonus,
         },
         recipients=recipients,
+        web_recipients=web_recipients,
     )
     runner = BroadcastRunner(pool=pool, client=client, job_id="11111111-2222-3333-4444-555555555555", sleep=_nosleep)
     return runner, pool
@@ -868,3 +961,74 @@ def test_validate_bonus_promo_exists_no_warning_when_expires_far():
     pool = _PromoExistsPool(_promo_row(expires_at=expires_far))
     err, warnings = _run(_validate_bonus_promo_exists(pool, {"type": "promo", "code": "X", "ttl_days": 30}))
     assert err is None and warnings == []
+
+
+# --- Runner: веб-канал fan-out ----------------------------------------------
+
+
+def test_runner_web_fanout_inserts_notifications_and_seeds_webonly_claims():
+    """Смешанная аудитория: TG (11) + web-only (-5) + линкнутый (11 в обоих каналах).
+    Web-канал: одно INSERT-множество на всю web-аудиторию; claims для web-only (tg<=0);
+    у линкнутого claim уже сидирован TG-этапом — дубля нет (общий PK)."""
+    client = _FakeClient()
+    bonus = {"type": "days", "days": 5, "label": "🎁 Получить 5 дней", "ttl_days": 14}
+    runner, pool = _runner(client, [11], bonus=bonus, web_recipients=[-5, 11])
+    _run(runner.run())
+
+    # Одно множественное INSERT на web-аудиторию, kind/title/payload корректны.
+    assert len(pool.web_notification_inserts) == 1
+    inserted = pool.web_notification_inserts[0]
+    assert set(inserted["tg_ids"]) == {-5, 11}
+    assert inserted["title"] == "hi"  # plain_title("<b>hi</b>")
+    assert inserted["body"] == "<b>hi</b>"
+    import json as _json
+
+    payload = _json.loads(inserted["payload"])
+    assert payload["job_id"] == _JOB_UUID
+    assert payload["bonus"]["type"] == "days" and payload["bonus"]["days"] == 5
+
+    # Claims: TG-этап сеет 11, web-этап — только web_only (-5). Линкнутый 11 — один раз.
+    seeded = {row[1] for row in (pool.bonus_seed_rows or [])}
+    assert seeded == {11, -5}
+    assert sum(1 for row in (pool.bonus_seed_rows or []) if row[1] == 11) == 1
+
+    # Счётчики web-канала записаны.
+    assert pool.web_recipient_count_written == 2
+    assert pool.web_notified_count_written == 2
+
+
+def test_runner_web_only_broadcast_not_killed_by_early_return():
+    """Регресс: TG-получателей нет, но web-аудитория есть → рассылка НЕ выходит по
+    раннему return, job завершается completed, клейм сидирован для web-only."""
+    client = _FakeClient()
+    bonus = {"type": "days", "days": 3, "label": "x"}
+    runner, pool = _runner(client, [], bonus=bonus, web_recipients=[-7])
+    _run(runner.run())
+    assert pool.finish[0] == "completed"
+    assert client.calls == []  # TG-отправок не было
+    assert pool.total_recipients_written == 0
+    assert {row[1] for row in (pool.bonus_seed_rows or [])} == {-7}
+    assert pool.web_notification_inserts and pool.web_notification_inserts[0]["tg_ids"] == [-7]
+
+
+def test_runner_web_fanout_failure_does_not_break_tg_cycle():
+    """Сбой веб-канала (INSERT упал) — логируется, но TG-цикл доезжает до completed."""
+    client = _FakeClient()
+    runner, pool = _runner(client, [11, 12], web_recipients=[-5])
+    pool.fail_web_insert = True
+    _run(runner.run())
+    assert pool.finish[0] == "completed"
+    assert pool.finish[1] == 2  # оба TG-получателя получили
+    assert client.calls == [11, 12]
+    assert pool.web_notification_inserts == []
+
+
+def test_runner_web_fanout_uses_all_explicit_ids():
+    """Явные цели: web-каналу уходят ВСЕ id (включая отрицательные web-only),
+    TG-каналу — только положительные."""
+    client = _FakeClient()
+    runner, pool = _runner(client, [11], explicit_ids=[11, -42], web_recipients=[11, -42])
+    _run(runner.run())
+    # TG-отправка только положительному 11; web-вставка — обоим.
+    assert client.calls == [11]
+    assert set(pool.web_notification_inserts[0]["tg_ids"]) == {11, -42}

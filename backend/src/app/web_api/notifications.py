@@ -160,13 +160,24 @@ async def _enrich_claim_status(
             item["claim_status"] = status
 
 
+def _public_payload(item: dict[str, Any]) -> dict[str, Any]:
+    """payload для клиента: без bonus.code — код приватен (клейм идёт по claims-таблице
+    сервером, пользователю код не нужен; утечка = расшаривание промокода)."""
+    payload = item.get("payload") or {}
+    bonus = payload.get("bonus")
+    if isinstance(bonus, dict) and "code" in bonus:
+        payload = dict(payload)
+        payload["bonus"] = {k: v for k, v in bonus.items() if k != "code"}
+    return payload
+
+
 def _item_public(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(item["id"]),
         "kind": item["kind"],
         "title": item["title"],
         "body": item["body"],
-        "payload": item.get("payload") or {},
+        "payload": _public_payload(item),
         "created_at": item["created_at"].isoformat(),
         "read_at": item["read_at"].isoformat() if item["read_at"] is not None else None,
         **({"claim_status": item["claim_status"]} if "claim_status" in item else {}),

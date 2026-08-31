@@ -94,17 +94,19 @@ def _throttle_sec() -> float:
 
 
 # --- Категории аудитории -----------------------------------------------------
-# Каждый предикат — самодостаточный SELECT telegram_user_id с фильтром > 0
-# (web-only с отрицательным telegram_user_id выкидываются — у них нет TG-чата).
+# Каждый предикат — самодостаточный SELECT telegram_user_id. __TG_FILTER__ — плейсхолдер
+# знакового фильтра: TG-вариант (> 0: web-only с отрицательным telegram_user_id выкидываются
+# — у них нет TG-чата) и web-вариант (TRUE: web-аудитория фильтруется отдельно по
+# verified email в user_emails, см. _WEB_EMAIL_EXISTS).
 # now()/интервалы — литералы, единственный параметр $1 (массив явных tg-id)
 # подставляется во внешнем unnest — как в admin_users._LIST_*.
 
-_CATEGORY_PREDICATES: dict[str, str] = {
-    "all": ("SELECT i.telegram_user_id FROM user_identities i WHERE i.telegram_user_id > 0"),
+_CATEGORY_PREDICATE_CORE: dict[str, str] = {
+    "all": ("SELECT i.telegram_user_id FROM user_identities i WHERE __TG_FILTER__"),
     "active": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 AND ("
+        "WHERE __TG_FILTER__ AND ("
         "(s.plan_id IS NOT NULL AND s.state_label = 'active' AND s.active_until_utc IS NOT NULL AND s.active_until_utc > now())"
         " OR (s.plan_id IS NULL AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at > now())"
         ")"
@@ -112,40 +114,40 @@ _CATEGORY_PREDICATES: dict[str, str] = {
     "expired_0_2d": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 "
+        "WHERE __TG_FILTER__ "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() AND s.active_until_utc > now() - INTERVAL '3 days'"
     ),
     "expired_3_5d": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 "
+        "WHERE __TG_FILTER__ "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '3 days' AND s.active_until_utc > now() - INTERVAL '6 days'"
     ),
     "expired_6_7d": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 "
+        "WHERE __TG_FILTER__ "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '6 days' AND s.active_until_utc > now() - INTERVAL '8 days'"
     ),
     "expired_8_30d": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 "
+        "WHERE __TG_FILTER__ "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '8 days' AND s.active_until_utc > now() - INTERVAL '31 days'"
     ),
     "expired_30plus": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-        "WHERE i.telegram_user_id > 0 "
+        "WHERE __TG_FILTER__ "
         "AND s.plan_id IS NOT NULL AND s.active_until_utc IS NOT NULL "
         "AND s.active_until_utc <= now() - INTERVAL '31 days'"
     ),
     "dormant": (
-        "SELECT i.telegram_user_id FROM user_identities i WHERE i.telegram_user_id > 0 "
+        "SELECT i.telegram_user_id FROM user_identities i WHERE __TG_FILTER__ "
         "AND COALESCE(i.trial_used, FALSE) = FALSE "
         "AND NOT EXISTS (SELECT 1 FROM billing_events_ledger b "
         "WHERE b.internal_user_id = i.internal_user_id AND b.status = 'accepted') "
@@ -153,6 +155,14 @@ _CATEGORY_PREDICATES: dict[str, str] = {
         "WHERE s.internal_user_id = i.internal_user_id AND s.plan_id IS NOT NULL "
         "AND s.state_label = 'active' AND s.active_until_utc IS NOT NULL AND s.active_until_utc > now())"
     ),
+}
+
+_CATEGORY_PREDICATES: dict[str, str] = {
+    key: sql.replace("__TG_FILTER__", "i.telegram_user_id > 0")
+    for key, sql in _CATEGORY_PREDICATE_CORE.items()
+}
+_WEB_CATEGORY_PREDICATES: dict[str, str] = {
+    key: sql.replace("__TG_FILTER__", "TRUE") for key, sql in _CATEGORY_PREDICATE_CORE.items()
 }
 
 _ALLOWED_CATEGORIES = frozenset(_CATEGORY_PREDICATES)
@@ -175,6 +185,33 @@ def _fetch_sql(categories: list[str]) -> str:
     return f"SELECT DISTINCT telegram_user_id FROM ({inner}) t WHERE telegram_user_id > 0"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
 
 
+# --- Web-аудитория (веб-уведомления) ------------------------------------------
+# Те же категории, но без знакового фильтра + обязательный verified email
+# (возможность залогиниться на сайт). Линкнутые TG-пользователи (положительный id
+# + email) попадают и в TG-рассылку, и в веб-канал — дубль осознанный.
+
+_WEB_EMAIL_EXISTS = (
+    "EXISTS (SELECT 1 FROM user_emails e "
+    "WHERE e.telegram_user_id = t.telegram_user_id AND e.is_verified = TRUE)"
+)
+
+
+def _web_build_inner_union(categories: list[str]) -> str:
+    arms = [_WEB_CATEGORY_PREDICATES[c] for c in categories if c in _WEB_CATEGORY_PREDICATES]
+    arms.append("SELECT unnest($1::bigint[]) AS telegram_user_id")
+    return " UNION ALL ".join(arms)
+
+
+def _web_count_sql(categories: list[str]) -> str:
+    inner = _web_build_inner_union(categories)
+    return f"SELECT COUNT(DISTINCT telegram_user_id) AS n FROM ({inner}) t WHERE {_WEB_EMAIL_EXISTS}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
+
+
+def _web_fetch_sql(categories: list[str]) -> str:
+    inner = _web_build_inner_union(categories)
+    return f"SELECT DISTINCT telegram_user_id FROM ({inner}) t WHERE {_WEB_EMAIL_EXISTS}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
+
+
 async def _count_category(pool: asyncpg.Pool, key: str) -> int:
     """Счётчик одной категории (без дедупа с другими) — для per_category_counts."""
     return int(await pool.fetchval(f"SELECT COUNT(*) FROM ({_CATEGORY_PREDICATES[key]}) t") or 0)  # noqa: S608 — key из allowlist, предикат литеральный
@@ -182,7 +219,8 @@ async def _count_category(pool: asyncpg.Pool, key: str) -> int:
 
 async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple[list[int], list[str]]:
     """Числа → telegram id (>0); прочее трактуется как email и резолвится через
-    user_emails (верифицированные). Возвращает (resolved_ids, unresolved_tokens).
+    user_emails (верифицированные, любой знак tg-id: web-only отрицательные тоже
+    получают веб-рассылку). Возвращает (resolved_ids, unresolved_tokens).
     """
     resolved: list[int] = []
     unresolved: list[str] = []
@@ -208,7 +246,7 @@ async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple
     for email in email_tokens:
         tg = await pool.fetchval(
             "SELECT telegram_user_id FROM user_emails "
-            "WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE AND telegram_user_id > 0",
+            "WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE",
             email,
         )
         if tg is not None:
@@ -602,7 +640,10 @@ class BroadcastRunner:
             return
 
         categories = list(job["categories"] or [])
-        explicit_ids = [int(x) for x in (job["explicit_telegram_ids"] or []) if int(x) > 0]
+        # Явные цели: TG-канал — только положительные; веб-канал — все
+        # (web-only с отрицательным tg-id резолвятся по email в _resolve_explicit_targets).
+        explicit_all = [int(x) for x in (job["explicit_telegram_ids"] or [])]
+        explicit_ids = [x for x in explicit_all if x > 0]
         text: str = job["message_text"]
         parse_mode: str = job["parse_mode"] or "HTML"
         disable_preview: bool = bool(job["disable_web_page_preview"])
@@ -624,6 +665,11 @@ class BroadcastRunner:
                 self._job_id,
                 len(recipients),
             )
+
+            # Веб-канал — ДО раннего выхода: рассылка может целиком уйти в web-аудиторию
+            # (TG-получателей нет). Ошибки веб-канала логируются, но НЕ роняют TG-цикл.
+            await self._web_fanout(categories, explicit_all, text, bonus)
+
             if not recipients:
                 await self._finish("completed", sent, blocked, failed, None)
                 return
@@ -679,6 +725,59 @@ class BroadcastRunner:
     async def _fetch_recipients(self, categories: list[str], explicit_ids: list[int]) -> list[asyncpg.Record]:
         sql = _fetch_sql(categories)
         return await self._pool.fetch(sql, explicit_ids)
+
+    async def _web_fanout(self, categories: list[str], explicit_ids: list[int], text: str, bonus: dict | None) -> None:
+        """Веб-канал рассылки: уведомления + bonus-claims для web-аудитории.
+
+        Аудитория — те же категории/явные цели, но с verified email в user_emails
+        (web-only с отрицательным tg-id И линкнутые TG-пользователи — дубль каналов
+        осознан). Claims сидируются только для web-only (tg_id <= 0): у линкнутых
+        строка уже сидирована TG-этапом по общему PK (job_id, telegram_user_id).
+        Best-effort: сбой веб-канала не должен ронять TG-цикл.
+        """
+        from app.domain.web_notifications import plain_title
+        from app.persistence.postgres_web_notifications import PostgresWebNotificationRepository
+
+        try:
+            rows = await self._pool.fetch(_web_fetch_sql(categories), explicit_ids)
+            web_tg_ids = [int(r["telegram_user_id"]) for r in rows]
+            if not web_tg_ids:
+                await self._pool.execute(
+                    "UPDATE broadcast_jobs SET web_recipient_count=0, web_notified_count=0 WHERE job_id=$1",
+                    self._job_id,
+                )
+                return
+            await self._pool.execute(
+                "UPDATE broadcast_jobs SET web_recipient_count=$2 WHERE job_id=$1",
+                self._job_id,
+                len(web_tg_ids),
+            )
+
+            # Бонус для web-only получателей — те же claims-таблицы, что у TG-канала.
+            if bonus is not None:
+                web_only = [tg for tg in web_tg_ids if tg <= 0]
+                if web_only:
+                    if bonus["type"] == "promo":
+                        await self._seed_promo_claims(bonus, web_only)
+                    else:
+                        await self._seed_bonus_claims(bonus, web_only)
+
+            payload: dict[str, Any] = {"job_id": self._job_id}
+            if bonus is not None:
+                payload["bonus"] = bonus
+            notified = await PostgresWebNotificationRepository(self._pool).insert_broadcast_for_tg_ids(
+                telegram_user_ids=web_tg_ids,
+                title=plain_title(text),
+                body=text,
+                payload=payload,
+            )
+            await self._pool.execute(
+                "UPDATE broadcast_jobs SET web_notified_count=$2 WHERE job_id=$1",
+                self._job_id,
+                notified,
+            )
+        except Exception:
+            _LOGGER.exception("broadcast job %s web fan-out failed", self._job_id[:8])
 
     async def _seed_bonus_claims(self, bonus: dict, tg_ids: list[int]) -> None:
         """Bulk-INSERT eligible-claims для реальных получателей (одна транзакция, ON CONFLICT
@@ -831,6 +930,8 @@ def _job_to_dict(row: asyncpg.Record) -> dict:
         "sent_count": row["sent_count"],
         "failed_count": row["failed_count"],
         "blocked_count": row["blocked_count"],
+        "web_recipient_count": row.get("web_recipient_count"),
+        "web_notified_count": row.get("web_notified_count"),
         "started_at": row["started_at"].isoformat() if row.get("started_at") else None,
         "finished_at": row["finished_at"].isoformat() if row.get("finished_at") else None,
         "last_error": row["last_error"],
@@ -863,6 +964,7 @@ async def handle_admin_broadcast_estimate(request: Request) -> JSONResponse:
 
     try:
         total = int(await pool.fetchval(_count_sql(categories), resolved_ids) or 0)
+        web_total = int(await pool.fetchval(_web_count_sql(categories), resolved_ids) or 0)
         per_category: dict[str, int] = {}
         for key in categories:
             per_category[key] = await _count_category(pool, key)
@@ -874,6 +976,7 @@ async def handle_admin_broadcast_estimate(request: Request) -> JSONResponse:
         {
             "ok": True,
             "total": total,
+            "web_total": web_total,
             "per_category_counts": per_category,
             "explicit_resolved": resolved_ids,
             "explicit_unresolved": unresolved,
