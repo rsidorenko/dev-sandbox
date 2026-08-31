@@ -110,8 +110,10 @@ async def handle_admin_set_plan_price(request: Request) -> JSONResponse:
             actor=_admin_actor(request),
             action="set_plan_price",
             plan_id=plan_id,
-            old_value=old,
-            new_value=row,
+            # в аудит — только цена: сырая строка несёт updated_at (datetime),
+            # который не JSON-сериализуем
+            old_value={"price_rubles": old["price_rubles"]} if old else None,
+            new_value={"price_rubles": row["price_rubles"]},
             correlation_id=f"admin-pricing-{uuid.uuid4()}",
         )
         invalidate_all_plan_pricing()
@@ -149,7 +151,7 @@ async def handle_admin_reset_plan_price(request: Request) -> JSONResponse:
                 actor=_admin_actor(request),
                 action="reset_plan_price",
                 plan_id=plan_id,
-                old_value=old,
+                old_value={"price_rubles": old["price_rubles"]},  # без updated_at (datetime)
                 new_value=None,
                 correlation_id=f"admin-pricing-{uuid.uuid4()}",
             )
@@ -183,9 +185,10 @@ async def handle_admin_set_global_discount(request: Request) -> JSONResponse:
         kind_raw = data.get("discount_kind")
         value_raw = data.get("discount_value")
         public_label = data.get("public_label")
-        if not is_active and kind_raw is None and value_raw is None:
-            # Выключение без параметров — сохраняем последние kind/value/label
-            # (лёгкое повторное включение без повторного ввода).
+        if kind_raw is None and value_raw is None:
+            # Без kind/value — сохраняем последние сохранённые kind/value/label:
+            # выключение не затирает настройку, повторное включение {is_active:true}
+            # поднимает её же без повторного ввода.
             kind_raw = old_raw.get("discount_kind")
             value_raw = old_raw.get("discount_value")
             if public_label is None:
@@ -231,8 +234,9 @@ async def handle_admin_set_global_discount(request: Request) -> JSONResponse:
             actor=_admin_actor(request),
             action="set_global_discount",
             plan_id=None,
-            old_value=old_raw or None,
-            new_value=row,
+            # дескрипторы (isoformat) — JSON-сериализуемы, сырые строки — нет
+            old_value=_gd_descriptor(old_raw) if old_raw else None,
+            new_value=_gd_descriptor(row),
             correlation_id=f"admin-pricing-{uuid.uuid4()}",
         )
         invalidate_all_plan_pricing()

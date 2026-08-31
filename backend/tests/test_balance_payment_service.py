@@ -112,3 +112,95 @@ def test_add_device_not_higher_inmemory():
     )
     result = _run(add_device_from_balance(pool=None, composition=c, internal_user_id=uid, new_device_count=7))
     assert result.status is BalancePaymentStatus.NOT_HIGHER
+
+
+# ── runtime-цены и глобальная скидка (best-of) ───────────────────────────────
+
+
+def _seed_promo(c, uid: str, *, code: str = "PROMO30", value: int = 30) -> None:
+    """Применённый промокод ALL_USERS percent=value (не истекает)."""
+    from app.domain.promo import PromoAudience, PromoCode, PromoDiscountKind
+
+    now = datetime.now(UTC)
+    _run(
+        c.promo_code_repo.create(
+            PromoCode(
+                code=code,
+                audience=PromoAudience.ALL_USERS,
+                discount_kind=PromoDiscountKind.PERCENT,
+                discount_value=value,
+                max_redemptions=None,
+                redemptions_count=0,
+                expires_at=None,
+                is_active=True,
+                note=None,
+                created_at=now,
+                updated_at=now,
+                created_by="test",
+            )
+        )
+    )
+    _run(c.promo_applied_repo.upsert(uid, code, _FUTURE))
+
+
+def _patch_pricing(monkeypatch, overrides: dict[str, int] | None = None, gd=None) -> None:
+    """Подменить провайдер цен баланс-пути на фикс-снимок (без БД)."""
+    import app.application.balance_payment_service as svc
+    from app.application.plan_pricing import PlanPricingProvider
+
+    state_overrides = dict(overrides or {})
+
+    async def _load():
+        return state_overrides, gd
+
+    monkeypatch.setattr(svc, "get_plan_pricing", lambda pool: PlanPricingProvider(None, loader=_load))
+
+
+def _gd(value: int, *, kind: str = "percent"):
+    from app.domain.pricing import GlobalDiscount
+    from app.domain.promo import PromoDiscountKind
+
+    kind_enum = PromoDiscountKind.PERCENT if kind == "percent" else PromoDiscountKind.FIXED_RUBLES
+    return GlobalDiscount(is_active=True, discount_kind=kind_enum, discount_value=value)
+
+
+def test_pay_plan_price_override_debits_runtime_price(monkeypatch):
+    _patch_pricing(monkeypatch, overrides={"1m": 299})
+    c, uid = _composition(balance_kopecks=500_00)
+    result = _run(pay_plan_from_balance(pool=None, composition=c, internal_user_id=uid, plan_id="1m", device_count=5))
+    assert result.status is BalancePaymentStatus.COMPLETED
+    assert result.amount_kopecks == 299_00  # runtime-оверрайд, не код-дефолт 249
+
+
+def test_pay_plan_global_discount_only_debits_discounted(monkeypatch):
+    _patch_pricing(monkeypatch, gd=_gd(20))
+    c, uid = _composition(balance_kopecks=500_00)
+    result = _run(pay_plan_from_balance(pool=None, composition=c, internal_user_id=uid, plan_id="1m", device_count=5))
+    assert result.status is BalancePaymentStatus.COMPLETED
+    assert result.amount_kopecks == 199_00  # 249 − 20%
+    bal = _run(c.referral_balance_repo.get_balance(uid))
+    assert bal is not None and bal.balance_kopecks == 301_00
+
+
+def test_pay_plan_promo_wins_over_smaller_global_redeems(monkeypatch):
+    _patch_pricing(monkeypatch, gd=_gd(10))
+    c, uid = _composition(balance_kopecks=500_00)
+    _seed_promo(c, uid, value=30)
+    result = _run(pay_plan_from_balance(pool=None, composition=c, internal_user_id=uid, plan_id="1m", device_count=5))
+    assert result.status is BalancePaymentStatus.COMPLETED
+    assert result.amount_kopecks == 174_00  # промо 30% бьёт акцию 10%
+    redemptions = _run(c.promo_redemption_repo.list_by_user(uid))
+    assert len(redemptions) == 1  # код погашен — победил именно промокод
+
+
+def test_pay_plan_global_wins_without_promo_redemption(monkeypatch):
+    _patch_pricing(monkeypatch, gd=_gd(20))
+    c, uid = _composition(balance_kopecks=500_00)
+    _seed_promo(c, uid, value=10)
+    result = _run(pay_plan_from_balance(pool=None, composition=c, internal_user_id=uid, plan_id="1m", device_count=5))
+    assert result.status is BalancePaymentStatus.COMPLETED
+    assert result.amount_kopecks == 199_00  # акция 20% бьёт промо 10%
+    redemptions = _run(c.promo_redemption_repo.list_by_user(uid))
+    assert redemptions == ()  # промокод НЕ расходуется — победила глобальная
+    applied = _run(c.promo_applied_repo.get(uid))
+    assert applied is not None and applied.code == "PROMO30"  # и остаётся применённым

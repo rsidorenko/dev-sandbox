@@ -21,10 +21,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Any
 
 import asyncpg
 
@@ -154,7 +152,14 @@ class PlanPricingProvider:
 
 # --- Реестр провайдеров: per-pool синглтон + инвалидация всех инстансов ---
 
-_PROVIDERS: weakref.WeakKeyDictionary[Any, PlanPricingProvider] = weakref.WeakKeyDictionary()
+# asyncpg.Pool использует __slots__ БЕЗ __weakref__ → WeakKeyDictionary невозможен
+# («cannot create weak reference to 'Pool'»). Храним (pool, provider) по id(pool):
+# сильная ссылка на пул исключает переиспользование id, а количество пулов на
+# процесс мало (в проде — один). Страховка от утечки в длинных тестовых прогонах —
+# мягкий лимит: при превышении реестр сбрасывается целиком (дешёвое восстановление:
+# следующий вызов просто создаст провайдер заново и перечитает цены).
+_PROVIDERS: dict[int, tuple[asyncpg.Pool, PlanPricingProvider]] = {}
+_PROVIDERS_SOFT_LIMIT = 64
 _NO_POOL_PROVIDER: PlanPricingProvider | None = None
 
 
@@ -168,16 +173,20 @@ def get_plan_pricing(pool: asyncpg.Pool | None) -> PlanPricingProvider:
         if _NO_POOL_PROVIDER is None:
             _NO_POOL_PROVIDER = PlanPricingProvider(None)
         return _NO_POOL_PROVIDER
-    provider = _PROVIDERS.get(pool)
-    if provider is None:
-        provider = PlanPricingProvider(pool)
-        _PROVIDERS[pool] = provider
+    key = id(pool)
+    entry = _PROVIDERS.get(key)
+    if entry is not None and entry[0] is pool:
+        return entry[1]
+    if len(_PROVIDERS) >= _PROVIDERS_SOFT_LIMIT:
+        _PROVIDERS.clear()
+    provider = PlanPricingProvider(pool)
+    _PROVIDERS[key] = (pool, provider)
     return provider
 
 
 def invalidate_all_plan_pricing() -> None:
     """Инвалидация кэша всех провайдеров процесса. Вызывается после админ-записи."""
-    for provider in _PROVIDERS.values():
+    for _, provider in _PROVIDERS.values():
         provider.invalidate()
     if _NO_POOL_PROVIDER is not None:
         _NO_POOL_PROVIDER.invalidate()

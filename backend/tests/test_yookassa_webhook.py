@@ -255,3 +255,31 @@ def test_resolve_internal_user_id_ignores_empty_metadata_value() -> None:
     )
 
     assert _resolve_subscription_internal_user_id({"internal_user_id": ""}, 456) == "u456"
+
+
+# ── metadata цен: base_amount_kopecks / discount_kopecks (промо ИЛИ акция) ───
+
+
+def test_base_amount_from_metadata_prefers_fixed_value() -> None:
+    """base_amount_kopecks фиксируется при создании платежа — защита «летающих»
+    платежей от смены цены админом между созданием и вебхуком."""
+    from app.runtime.payment_webhook_helpers import base_amount_from_metadata
+
+    assert base_amount_from_metadata({"base_amount_kopecks": "24900"}) == 24900
+    # legacy-платёж без поля → None (вебхук пересчитает из кода)
+    assert base_amount_from_metadata({}) is None
+    assert base_amount_from_metadata({"plan_id": "1m"}) is None
+    # мусор не роняет вебхук — трактуем как отсутствие
+    assert base_amount_from_metadata({"base_amount_kopecks": "oops"}) is None
+    assert base_amount_from_metadata({"base_amount_kopecks": "0"}) is None
+
+
+def test_discount_kopecks_from_metadata_reads_global_leg_too() -> None:
+    """При победе глобальной скидки metadata несёт discount_kopecks БЕЗ promo_code:
+    скидка должна читаться и без кода (сверка суммы вебхуком)."""
+    from app.runtime.payment_webhook_helpers import discount_kopecks_from_metadata
+
+    assert discount_kopecks_from_metadata({"discount_kopecks": "5000"}) == 5000
+    assert discount_kopecks_from_metadata({"promo_code": "WELCOME", "discount_kopecks": "12400"}) == 12400
+    assert discount_kopecks_from_metadata({}) == 0  # legacy без поля
+    assert discount_kopecks_from_metadata({"discount_kopecks": "oops"}) == 0
