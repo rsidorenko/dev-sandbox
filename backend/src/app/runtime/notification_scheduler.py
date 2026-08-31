@@ -30,6 +30,7 @@ from app.bot_transport.notification_texts import (
     text_trial_expiring,
 )
 from app.issuance.vless_provider import VlessProviderOutcome, VlessProviderPort
+from app.persistence.postgres_web_notifications import PostgresWebNotificationRepository
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +41,18 @@ _ADVISORY_LOCK_ID = 20260608
 # Окно «недавней активации» для реферального оффера: 25 ч > 24 ч каденции тиков,
 # чтобы каждого недавно активировавшего пользователя (триал или оплата) поймал хотя бы один тик.
 _REFERRAL_OFFER_RECENT_HOURS = 25
+
+# Веб-канал: notification_type → (kind, title). kind ⊆ CHECK-множества миграции 077
+# (контракт-тест в test_notification_scheduler_web.py). body — исходный текст уведомления.
+_WEB_KINDS: dict[str, tuple[str, str]] = {
+    "trial_expiring": ("trial_expiring", "Триал заканчивается"),
+    "trial_expired": ("trial_expired", "Триал истёк"),
+    "subscription_expiring_3d": ("subscription_expiring", "Подписка заканчивается"),
+    "subscription_expired": ("subscription_expired", "Подписка истекла"),
+    "keys_deleted": ("key_deleted", "Ключи удалены"),
+    "referral_offer_trial": ("referral_offer", "Реферальная программа"),
+    "referral_offer_paid": ("referral_offer", "Реферальная программа"),
+}
 
 
 def _referral_offer_enabled(env_getter=os.environ.get) -> bool:
@@ -125,18 +138,28 @@ class NotificationScheduler:
         text: str,
         keyboard: dict,
     ) -> bool:
-        """Send a Telegram message and log it. Returns True if sent successfully."""
-        # Get telegram_user_id
+        """Двухканальная доставка: веб (verified email) + Telegram (tg_id > 0).
+
+        Дедуп notification_log — ОДНА запись на оба канала (по ней же тики
+        пропускают повтор). Возвращает True, если доставлено хотя бы по одному
+        каналу. Web-only (tg_id <= 0) раньше фейлились каждый час (TG-400 на
+        отрицательный chat_id) — теперь получают веб-уведомление и закрываются
+        дедуп-записью.
+        """
         row = await self._pool.fetchrow(
-            "SELECT telegram_user_id FROM user_identities WHERE internal_user_id = $1",
+            "SELECT i.telegram_user_id, "
+            "EXISTS (SELECT 1 FROM user_emails e "
+            "        WHERE e.telegram_user_id = i.telegram_user_id AND e.is_verified = TRUE) AS has_email "
+            "FROM user_identities i WHERE i.internal_user_id = $1",
             internal_user_id,
         )
         if row is None:
             return False
 
         telegram_user_id = row["telegram_user_id"]
+        has_email = bool(row["has_email"])
 
-        # Check dedup
+        # Дедуп общий на оба канала
         existing = await self._pool.fetchval(
             """SELECT 1 FROM notification_log
                WHERE internal_user_id = $1 AND notification_type = $2
@@ -147,31 +170,56 @@ class NotificationScheduler:
         if existing:
             return False
 
-        # Send via Telegram Bot API
-        try:
-            client = await self._get_http_client()
-            resp = await client.post(
-                f"https://api.telegram.org/bot{self._bot_token}/sendMessage",
-                json={
-                    "chat_id": telegram_user_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                    "reply_markup": keyboard,
-                },
-            )
-            if resp.status_code != 200:
-                _LOGGER.warning(
-                    "notification_send_failed user=%s type=%s status=%d",
-                    internal_user_id,
-                    notification_type,
-                    resp.status_code,
+        delivered = False
+
+        # --- Веб-канал (у кого есть verified email — «может залогиниться») ---
+        web_kind = _WEB_KINDS.get(notification_type)
+        if has_email and web_kind is not None:
+            try:
+                kind, title = web_kind
+                await PostgresWebNotificationRepository(self._pool).insert_one(
+                    internal_user_id=internal_user_id,
+                    kind=kind,
+                    title=title,
+                    body=text,
+                    payload={"notification_type": notification_type},
                 )
-                return False
-        except Exception:
-            _LOGGER.debug("notification_send_error user=%s", internal_user_id, exc_info=True)
+                delivered = True
+            except Exception:
+                _LOGGER.exception(
+                    "notification_web_insert_failed user=%s type=%s", internal_user_id, notification_type
+                )
+
+        # --- TG-канал ---
+        if telegram_user_id > 0:
+            try:
+                client = await self._get_http_client()
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{self._bot_token}/sendMessage",
+                    json={
+                        "chat_id": telegram_user_id,
+                        "text": text,
+                        "parse_mode": "Markdown",
+                        "reply_markup": keyboard,
+                    },
+                )
+                if resp.status_code != 200:
+                    _LOGGER.warning(
+                        "notification_send_failed user=%s type=%s status=%d",
+                        internal_user_id,
+                        notification_type,
+                        resp.status_code,
+                    )
+                else:
+                    delivered = True
+            except Exception:
+                _LOGGER.debug("notification_send_error user=%s", internal_user_id, exc_info=True)
+
+        if not delivered:
+            # Нет ни одного успешного канала — дедуп-запись не пишем, ретрай следующим тиком.
             return False
 
-        # Log notification
+        # Log notification (одна запись на оба канала)
         await self._pool.execute(
             """INSERT INTO notification_log (internal_user_id, notification_type)
                VALUES ($1, $2) ON CONFLICT DO NOTHING""",
@@ -343,7 +391,8 @@ class NotificationScheduler:
         """Recent TRIAL activations: send the referral offer once per user (once-ever via NOT EXISTS).
 
         Window = _REFERRAL_OFFER_RECENT_HOURS (>1 tick cadence) so each freshly-activated trial user is
-        caught by at least one hourly tick. Web-only users (no positive telegram_user_id) are filtered out."""
+        caught by at least one hourly tick. Web-only (tg_id <= 0) получают оффер веб-каналом
+        (без фильтра по знаку; дедуп — notification_log, как и у TG)."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id
                 FROM subscription_snapshots s
@@ -352,7 +401,6 @@ class NotificationScheduler:
                 AND s.plan_id IS NULL
                 AND s.trial_expires_at IS NOT NULL
                 AND s.updated_at > NOW() - make_interval(hours => $1)
-                AND u.telegram_user_id > 0
                 AND NOT EXISTS (
                     SELECT 1 FROM notification_log nl
                     WHERE nl.internal_user_id = s.internal_user_id
@@ -388,7 +436,7 @@ class NotificationScheduler:
         row (action='add_days') for this user whose ``created_at`` coincides with ``updated_at``
         (every grant writes it right after the snapshot upsert). A later genuine payment re-sets
         ``updated_at`` past the grant time, so the offer correctly fires again — the filter is not
-        an across-the-board block."""
+        an across-the-board block. Web-only (tg_id <= 0) получают оффер веб-каналом."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id
                 FROM subscription_snapshots s
@@ -396,7 +444,6 @@ class NotificationScheduler:
                 WHERE s.state_label = 'active'
                 AND s.plan_id IS NOT NULL
                 AND s.updated_at > NOW() - make_interval(hours => $1)
-                AND u.telegram_user_id > 0
                 AND NOT EXISTS (
                     SELECT 1 FROM notification_log nl
                     WHERE nl.internal_user_id = s.internal_user_id
