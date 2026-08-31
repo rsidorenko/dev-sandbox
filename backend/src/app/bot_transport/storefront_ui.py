@@ -297,10 +297,21 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
 
 
 def text_welcome(*, trial_available: bool = False) -> str:
-    base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\nВыберите действие в меню ниже."
+    base = _text_intro()
     if trial_available:
-        base = "<b>👋 Добро пожаловать в VPN-сервис!</b>\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
+        base += "\n\n🎁 Вам доступен бесплатный пробный период — 3 дня!"
     return base
+
+
+def _text_intro() -> str:
+    """Приветствие с бенефитами — единый текст welcome и главного меню."""
+    return (
+        "<b>Привет! Я — Bravada VPN 🚀</b>\n\n"
+        "Помогу подключить VPN за пару минут.\n\n"
+        "⚡ Быстрое подключение\n"
+        "🔐 Защищённое соединение\n"
+        "🌍 Доступ к нужным сайтам"
+    )
 
 
 def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
@@ -315,7 +326,7 @@ def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
 
 
 def text_main_menu() -> str:
-    return "<b>🏠 Главное меню</b>"
+    return _text_intro()
 
 
 def text_buy_vpn_intro(
