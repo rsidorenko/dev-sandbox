@@ -15,10 +15,10 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from app.application.bootstrap import Slice1Composition
+from app.application.plan_pricing import get_plan_pricing
 from app.application.purchase_handler import (
     PurchaseSummary,
-    build_purchase_summary,
-    get_available_plans,
+    plan_options_from_plans,
 )
 from app.bot_transport.message_catalog import RenderedMessagePackage, render_telegram_outbound_plan
 from app.bot_transport.outbound import (
@@ -674,14 +674,20 @@ async def _render_purchase_summary(
 ) -> tuple[str, dict[str, Any] | None]:
     """Сводка заказа со скидкой закреплённого промокода + кнопкой ввода промокода.
 
-    Скидка — отображение того же apply_promo_discount, что применяется при оплате
-    (CB_DO_PAY/CB_PAY_BALANCE пере-резолвят resolve_active_promo). Кнопка промокода
-    ведёт в FSM с возвратом к этой сводке. Гейт «С баланса» ориентируется на скидочную
-    сумму.
+    Скидка — best-of(промокод, глобальная): то же effective_plan_price, что применяется
+    при оплате (CB_DO_PAY/CB_PAY_BALANCE пере-резолвят resolve_active_promo). План и
+    глобальная скидка — через PlanPricingProvider (эффективные цены админки). Кнопка
+    промокода ведёт в FSM с возвратом к этой сводке. Гейт «С баланса» ориентируется
+    на скидочную сумму.
     """
-    from app.domain.promo import apply_promo_discount
+    from app.application.purchase_handler import build_purchase_summary_for_plan
+    from app.domain.pricing import effective_plan_price
 
-    summary = build_purchase_summary(plan_id=plan_id, device_count=device_count)
+    pricing = get_plan_pricing(_get_pool_from_composition(composition))
+    plan = await pricing.get_plan(plan_id)
+    if plan is None:
+        return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
+    summary = build_purchase_summary_for_plan(plan, device_count)
     if not isinstance(summary, PurchaseSummary):
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
@@ -699,18 +705,17 @@ async def _render_purchase_summary(
 
     active = await _active_applied_promo(composition, uid)
     promo = active[0] if active is not None else None
-    text = text_purchase_summary(summary, promo=promo, promo_note=promo_note)
+    global_discount = await pricing.get_global_discount()
+    text = text_purchase_summary(summary, promo=promo, promo_note=promo_note, global_discount=global_discount)
 
-    if promo is not None:
-        price = apply_promo_discount(summary.total_price_rubles, promo, plan_id=plan_id)
-        charge_kopecks = price.discounted_rubles * 100
-    else:
-        charge_kopecks = summary.total_price_rubles * 100
+    eff = effective_plan_price(
+        summary.total_price_rubles, plan_id=plan_id, promo=promo, global_discount=global_discount
+    )
     keyboard = confirm_pay_keyboard(
         plan_id,
         device_count,
         balance_kopecks=user_balance_kopecks,
-        total_kopecks=charge_kopecks,
+        total_kopecks=eff.discounted_kopecks,
         promo=promo,
     )
     return text, keyboard
@@ -1726,7 +1731,9 @@ async def _process_yookassa_payment(
     import logging
     import os
 
-    from app.domain.plans import calculate_total_price, get_plan, plan_display_name
+    from app.application.plan_pricing import charge_metadata_fields, resolve_effective_charge
+    from app.domain.plans import calculate_total_price, plan_display_name
+    from app.domain.pricing import WINNER_GLOBAL
     from app.yookassa.client import YooKassaClient
 
     _logger = logging.getLogger(__name__)
@@ -1734,19 +1741,21 @@ async def _process_yookassa_payment(
     if uid is None:
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
-    plan = get_plan(plan_id)
+    pricing = get_plan_pricing(_get_pool_from_composition(composition))
+    plan = await pricing.get_plan(plan_id)
     if plan is None:
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
     total_rubles = calculate_total_price(plan, device_count)
 
     # Применённый промокод: каноническая re-валидация (активность/срок/лимит/аудитория).
-    # Если пригоден — списываем discounted, кладём discount_kopecks в metadata платежа,
-    # чтобы вебхук вычел его из ожидаемой суммы при сверке (round-trip доказан add-device).
-    charge_rubles = total_rubles
-    discount_kopecks = 0
+    # Итог — best-of(промокод, глобальная) через resolve_effective_charge: metadata несёт
+    # base_amount_kopecks (фиксация базы против смены цен до вебхука) + скидку победителя;
+    # promo_code кладётся ТОЛЬКО при победе промокода — глобальная скидка код не расходует.
     payment_metadata: dict[str, str] = {}
     internal_user_id = await _get_internal_user_id(composition, uid)
+    promo = None
+    promo_code = None
     if internal_user_id is not None:
         from app.application.promo_service import resolve_active_promo
 
@@ -1761,12 +1770,18 @@ async def _process_yookassa_payment(
             plan_id=plan_id,
         )
         if active is not None:
-            charge_rubles = active.price.discounted_rubles
-            discount_kopecks = active.price.discount_kopecks
-            payment_metadata = {
-                "discount_kopecks": str(discount_kopecks),
-                "promo_code": active.code,
-            }
+            promo = active.promo
+            promo_code = active.code
+    global_discount = await pricing.get_global_discount()
+    resolved = resolve_effective_charge(
+        base_rubles=total_rubles,
+        plan_id=plan_id,
+        promo=promo,
+        global_discount=global_discount,
+    )
+    charge_rubles = resolved.charge_rubles
+    discount_kopecks = resolved.price.discount_kopecks
+    payment_metadata.update(charge_metadata_fields(resolved, promo_code=promo_code, global_discount=global_discount))
 
     client = YooKassaClient.from_env()
     if client is None:
@@ -1793,7 +1808,9 @@ async def _process_yookassa_payment(
     set_pending_payment_for_user(uid, result.payment_id)
 
     display_name = plan_display_name(plan_id)
-    if discount_kopecks > 0:
+    if discount_kopecks > 0 and resolved.price.winner == WINNER_GLOBAL:
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (акция −{discount_kopecks // 100} ₽)"
+    elif discount_kopecks > 0:
         price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{discount_kopecks // 100} ₽)"
     else:
         price_line = f"💰 К оплате: {charge_rubles} ₽"
@@ -1830,30 +1847,35 @@ async def _process_cryptobot_payment(
     import logging
     import os
 
+    from app.application.plan_pricing import charge_metadata_fields, resolve_effective_charge
     from app.cryptobot.client import CryptoBotClient
     from app.cryptobot.payload import encode_payment_context
-    from app.domain.plans import calculate_total_price, get_plan, plan_display_name
+    from app.domain.plans import calculate_total_price, plan_display_name
+    from app.domain.pricing import WINNER_GLOBAL
 
     _logger = logging.getLogger(__name__)
 
     if uid is None:
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
-    plan = get_plan(plan_id)
+    pricing = get_plan_pricing(_get_pool_from_composition(composition))
+    plan = await pricing.get_plan(plan_id)
     if plan is None:
         return text_payment_unavailable(), back_only_keyboard(CB_BUY_VPN)
 
     total_rubles = calculate_total_price(plan, device_count)
 
-    charge_rubles = total_rubles
-    discount_kopecks = 0
     # CryptoBot carries the FULL context in its payload (no client-side injection).
+    # Итог — best-of(промокод, глобальная): base_amount_kopecks фиксирует базу,
+    # promo_code кладётся ТОЛЬКО при победе промокода (глобальная код не расходует).
     context: dict[str, object] = {
         "plan_id": plan_id,
         "device_count": str(device_count),
         "telegram_user_id": str(uid),
     }
     internal_user_id = await _get_internal_user_id(composition, uid)
+    promo = None
+    promo_code = None
     if internal_user_id is not None:
         context["internal_user_id"] = internal_user_id
         from app.application.promo_service import resolve_active_promo
@@ -1869,10 +1891,18 @@ async def _process_cryptobot_payment(
             plan_id=plan_id,
         )
         if active is not None:
-            charge_rubles = active.price.discounted_rubles
-            discount_kopecks = active.price.discounted_kopecks
-            context["discount_kopecks"] = str(discount_kopecks)
-            context["promo_code"] = active.code
+            promo = active.promo
+            promo_code = active.code
+    global_discount = await pricing.get_global_discount()
+    resolved = resolve_effective_charge(
+        base_rubles=total_rubles,
+        plan_id=plan_id,
+        promo=promo,
+        global_discount=global_discount,
+    )
+    charge_rubles = resolved.charge_rubles
+    discount_kopecks = resolved.price.discount_kopecks
+    context.update(charge_metadata_fields(resolved, promo_code=promo_code, global_discount=global_discount))
 
     client = CryptoBotClient.from_env()
     if client is None:
@@ -1898,7 +1928,9 @@ async def _process_cryptobot_payment(
     set_pending_payment_for_user(uid, result.invoice_id)
 
     display_name = plan_display_name(plan_id)
-    if discount_kopecks > 0:
+    if discount_kopecks > 0 and resolved.price.winner == WINNER_GLOBAL:
+        price_line = f"💰 К оплате: {charge_rubles} ₽ (акция −{discount_kopecks // 100} ₽)"
+    elif discount_kopecks > 0:
         price_line = f"💰 К оплате: {charge_rubles} ₽ (скидка по промокоду −{discount_kopecks // 100} ₽)"
     else:
         price_line = f"💰 К оплате: {charge_rubles} ₽"
@@ -2412,10 +2444,16 @@ async def _render_storefront_response(
         text, keyboard = await _main_menu_text(composition, uid), await _main_menu_keyboard(composition, uid)
 
     elif code in (CB_BUY_VPN, "store_plans"):
-        plans = get_available_plans()
+        # Витрина тарифов — эффективные цены (админ-оверрайды) + глобальная скидка.
+        pricing = get_plan_pricing(_get_pool_from_composition(composition))
+        plans = plan_options_from_plans(await pricing.get_fixed_plans())
+        global_discount = await pricing.get_global_discount()
         applied = await _active_applied_promo(composition, uid)
         promo = applied[0] if applied is not None else None
-        text, keyboard = text_buy_vpn_intro(promo=promo), buy_vpn_keyboard(plans, promo=promo)
+        text, keyboard = (
+            text_buy_vpn_intro(promo=promo, global_discount=global_discount),
+            buy_vpn_keyboard(plans, promo=promo, global_discount=global_discount),
+        )
 
     elif code in (CB_HELP, "slice1_help"):
         text, keyboard = text_help(), back_only_keyboard(CB_MAIN_MENU)
@@ -2755,11 +2793,19 @@ async def _render_storefront_response(
 
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN) :]
-        plan = get_plan(plan_id)
+        pricing = get_plan_pricing(_get_pool_from_composition(composition))
+        plan = await pricing.get_plan(plan_id)
         if plan is not None:
             applied = await _active_applied_promo(composition, uid)
             promo = applied[0] if applied is not None else None
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, DEVICES_DEFAULT, promo=promo)
+            text = text_device_select(
+                plan_id,
+                plan.price_rubles,
+                plan.duration_days,
+                DEVICES_DEFAULT,
+                promo=promo,
+                global_discount=await pricing.get_global_discount(),
+            )
             keyboard = device_select_keyboard(plan_id, DEVICES_DEFAULT)
 
     elif code.startswith(CB_DEVICES):
@@ -2775,11 +2821,19 @@ async def _render_storefront_response(
         else:
             plan_id = rest
             device_count = DEVICES_DEFAULT
-        plan = get_plan(plan_id)
+        pricing = get_plan_pricing(_get_pool_from_composition(composition))
+        plan = await pricing.get_plan(plan_id)
         if plan is not None:
             applied = await _active_applied_promo(composition, uid)
             promo = applied[0] if applied is not None else None
-            text = text_device_select(plan_id, plan.price_rubles, plan.duration_days, device_count, promo=promo)
+            text = text_device_select(
+                plan_id,
+                plan.price_rubles,
+                plan.duration_days,
+                device_count,
+                promo=promo,
+                global_discount=await pricing.get_global_discount(),
+            )
             keyboard = device_select_keyboard(plan_id, device_count)
 
     elif code.startswith(CB_CONFIRM_PAY):

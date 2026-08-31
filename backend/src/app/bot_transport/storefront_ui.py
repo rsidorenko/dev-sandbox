@@ -15,7 +15,14 @@ from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
-from app.domain.promo import PromoCode, PromoDiscountKind, apply_promo_discount
+from app.domain.pricing import (
+    WINNER_GLOBAL,
+    WINNER_PROMO,
+    GlobalDiscount,
+    effective_plan_price,
+    global_discount_label,
+)
+from app.domain.promo import PromoCode, PromoDiscountKind
 from app.issuance.vless_provider import VlessServerConfig, VlessUserConfig, format_key_list
 from app.shared.site_url import get_site_base_url
 
@@ -178,16 +185,22 @@ _PLAN_EMOJI: dict[str, str] = {
 }
 
 
-def buy_vpn_keyboard(plans: tuple[PurchasePlanOption, ...], *, promo: PromoCode | None = None) -> dict[str, Any]:
+def buy_vpn_keyboard(
+    plans: tuple[PurchasePlanOption, ...],
+    *,
+    promo: PromoCode | None = None,
+    global_discount: GlobalDiscount | None = None,
+) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     for p in plans:
         base = p.price_rubles
-        # Скидка по закреплённому промокоду для этого тарифа (per-tariff: только если тариф в map).
-        discounted = (
-            apply_promo_discount(base, promo, plan_id=p.plan_id).discounted_rubles if promo is not None else base
-        )
-        if discounted < base:
-            label = f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {discounted} ₽ вместо {base}"
+        # Скидка для этого тарифа — best-of(промокод, глобальная). Per-tariff промокод
+        # даёт 0 на тарифе вне map → тогда (и при отсутствии промокода) решает глобальная.
+        discounted = effective_plan_price(base, plan_id=p.plan_id, promo=promo, global_discount=global_discount)
+        if discounted.discounted_rubles < base:
+            label = (
+                f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {discounted.discounted_rubles} ₽ вместо {base}"
+            )
         else:
             label = f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {base} ₽"
         rows.append([{"text": label, "callback_data": f"{CB_PLAN}{p.plan_id}"}])
@@ -303,7 +316,11 @@ def text_main_menu() -> str:
     return "<b>🏠 Главное меню</b>"
 
 
-def text_buy_vpn_intro(*, promo: PromoCode | None = None) -> str:
+def text_buy_vpn_intro(
+    *,
+    promo: PromoCode | None = None,
+    global_discount: GlobalDiscount | None = None,
+) -> str:
     lines = [
         "<b>🔑 Выберите тариф VPN-подписки:</b>",
         "",
@@ -320,6 +337,9 @@ def text_buy_vpn_intro(*, promo: PromoCode | None = None) -> str:
     if promo is not None:
         lines.append("")
         lines.append(f"🎁 <b>Промокод {promo.code} применён</b> — цены ниже уже со скидкой.")
+    if global_discount is not None and global_discount.is_active:
+        lines.append("")
+        lines.append(f"🎁 <b>Акция {global_discount_label(global_discount)}</b> — цены ниже уже со скидкой.")
     return "\n".join(lines)
 
 
@@ -330,6 +350,7 @@ def text_device_select(
     device_count: int,
     *,
     promo: PromoCode | None = None,
+    global_discount: GlobalDiscount | None = None,
 ) -> str:
     from app.domain.devices import extra_device_cost, extra_device_count
 
@@ -344,22 +365,29 @@ def text_device_select(
     if extra > 0:
         daily_price = EXTRA_DEVICE_PRICE_RUBLES / 30
         lines.append(f"  ➕ Доп. устройств: {extra} × {daily_price:.1f} ₽/день × {duration_days} дн = {extra_cost} ₽")
-    # Скидка по применённому промокоду действует на весь итог подписки (base + доп. устройства),
-    # т.к. это покупка подписки (is_addon=False), а не add-device к существующей.
-    discounted = total
-    if promo is not None:
-        price = apply_promo_discount(total, promo, plan_id=plan_id)
-        discounted = price.discounted_rubles
-    if discounted < total:
-        lines.append(f"  🎁 Промокод {promo.code if promo else ''}: −{total - discounted} ₽")
-        lines.append(f"\n💳 Итого: <b>{discounted} ₽</b> (вместо {total})")
+    # Скидка действует на весь итог подписки (base + доп. устройства), т.к. это покупка
+    # подписки (is_addon=False). Итог — best-of(промокод, глобальная); строка — по winner:
+    # пер-tariff промокод с 0 скидки НЕ печатает «−0 ₽» (тогда решает глобальная).
+    eff = effective_plan_price(total, plan_id=plan_id, promo=promo, global_discount=global_discount)
+    if eff.winner == WINNER_PROMO and promo is not None:
+        lines.append(f"  🎁 Промокод {promo.code}: −{total - eff.discounted_rubles} ₽")
+        lines.append(f"\n💳 Итого: <b>{eff.discounted_rubles} ₽</b> (вместо {total})")
+    elif eff.winner == WINNER_GLOBAL and global_discount is not None:
+        lines.append(f"  🎁 Акция {global_discount_label(global_discount)}: −{total - eff.discounted_rubles} ₽")
+        lines.append(f"\n💳 Итого: <b>{eff.discounted_rubles} ₽</b> (вместо {total})")
     else:
         lines.append(f"\n💳 Итого: {total} ₽")
     lines.append("\nВыберите количество устройств:")
     return "\n".join(lines)
 
 
-def text_purchase_summary(summary: PurchaseSummary, *, promo: PromoCode | None = None, promo_note: str = "") -> str:
+def text_purchase_summary(
+    summary: PurchaseSummary,
+    *,
+    promo: PromoCode | None = None,
+    promo_note: str = "",
+    global_discount: GlobalDiscount | None = None,
+) -> str:
     lines = ["<b>📋 Заказ:</b>", ""]
     if promo_note:
         lines += [promo_note, ""]
@@ -373,14 +401,24 @@ def text_purchase_summary(summary: PurchaseSummary, *, promo: PromoCode | None =
             f"  Доп. устройств: {summary.extra_devices} × {daily_price:.1f} ₽/день × {summary.duration_days} дн = {summary.extra_device_cost_rubles} ₽"
         )
     base = summary.total_price_rubles
-    if promo is not None:
-        # Скидка канонически считается тем же apply_promo_discount, что и при оплате.
-        price = apply_promo_discount(base, promo, plan_id=summary.plan_id)
+    # Итог — best-of(промокод, глобальная), строка — по winner: при победе глобальной
+    # промокод не печатает «−0 ₽» (per-tariff промокод с нулевой скидкой на тарифе).
+    eff = effective_plan_price(base, plan_id=summary.plan_id, promo=promo, global_discount=global_discount)
+    if eff.winner == WINNER_PROMO and promo is not None:
         lines += ["", f"  🎁 Промокод {promo.code}: {promo_badge_label(promo)}"]
-        lines.append(f"  Скидка: {base - price.discounted_rubles} ₽")
+        lines.append(f"  Скидка: {base - eff.discounted_rubles} ₽")
         lines += [
             "",
-            f"💳 К оплате: {price.discounted_rubles} ₽ (вместо {base} ₽)",
+            f"💳 К оплате: {eff.discounted_rubles} ₽ (вместо {base} ₽)",
+            "",
+            "Нажмите «Оплатить» для перехода к оплате.",
+        ]
+    elif eff.winner == WINNER_GLOBAL and global_discount is not None:
+        lines += ["", f"  🎁 Акция: {global_discount_label(global_discount)}"]
+        lines.append(f"  Скидка: {base - eff.discounted_rubles} ₽")
+        lines += [
+            "",
+            f"💳 К оплате: {eff.discounted_rubles} ₽ (вместо {base} ₽)",
             "",
             "Нажмите «Оплатить» для перехода к оплате.",
         ]
