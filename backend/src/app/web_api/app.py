@@ -43,6 +43,7 @@ from app.web_api.payment import (
     handle_create_payment,
     handle_get_payment_status,
 )
+from app.web_api.plans import handle_list_plans
 from app.web_api.profile import (
     handle_activate_trial,
     handle_cancel_subscription,
@@ -159,6 +160,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
 
     routes = [
         Route("/api/v1/healthz", _healthz, methods=["GET"]),
+        # Публичный каталог тарифов: эффективные цены + глобальная скидка (Cache-Control 30с).
+        Route("/api/v1/plans", handle_list_plans, methods=["GET"]),
         # Auth
         Route("/api/v1/auth/email/send-code", handle_send_code, methods=["POST"]),
         Route("/api/v1/auth/email/verify", handle_verify_code, methods=["POST"]),
