@@ -104,8 +104,7 @@ class PostgresWebNotificationRepository:
     async def count_unread(self, internal_user_id: str) -> int:
         async with self._pool.acquire() as conn:
             value = await conn.fetchval(
-                "SELECT COUNT(*) FROM web_notifications "
-                "WHERE internal_user_id = $1 AND read_at IS NULL",
+                "SELECT COUNT(*) FROM web_notifications WHERE internal_user_id = $1 AND read_at IS NULL",
                 internal_user_id,
             )
         return int(value or 0)
@@ -116,8 +115,7 @@ class PostgresWebNotificationRepository:
         async with self._pool.acquire() as conn:
             if ids is None:
                 status = await conn.execute(
-                    "UPDATE web_notifications SET read_at = NOW() "
-                    "WHERE internal_user_id = $1 AND read_at IS NULL",
+                    "UPDATE web_notifications SET read_at = NOW() WHERE internal_user_id = $1 AND read_at IS NULL",
                     internal_user_id,
                 )
             else:
@@ -144,9 +142,7 @@ class PostgresWebNotificationRepository:
             )
         return None if row is None else dict(row)
 
-    async def broadcast_days_claims(
-        self, telegram_user_id: int, job_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
+    async def broadcast_days_claims(self, telegram_user_id: int, job_ids: list[str]) -> dict[str, dict[str, Any]]:
         """Статусы bonus-days claims: {job_id: {status, expires_at}}."""
         if not job_ids:
             return {}
@@ -159,9 +155,7 @@ class PostgresWebNotificationRepository:
             )
         return {str(row["job_id"]): dict(row) for row in rows}
 
-    async def broadcast_promo_claims(
-        self, telegram_user_id: int, job_ids: list[str]
-    ) -> dict[str, dict[str, Any]]:
+    async def broadcast_promo_claims(self, telegram_user_id: int, job_ids: list[str]) -> dict[str, dict[str, Any]]:
         """Промо claims: {job_id: {code, expires_at}}."""
         if not job_ids:
             return {}

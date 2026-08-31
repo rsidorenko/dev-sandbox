@@ -158,8 +158,7 @@ _CATEGORY_PREDICATE_CORE: dict[str, str] = {
 }
 
 _CATEGORY_PREDICATES: dict[str, str] = {
-    key: sql.replace("__TG_FILTER__", "i.telegram_user_id > 0")
-    for key, sql in _CATEGORY_PREDICATE_CORE.items()
+    key: sql.replace("__TG_FILTER__", "i.telegram_user_id > 0") for key, sql in _CATEGORY_PREDICATE_CORE.items()
 }
 _WEB_CATEGORY_PREDICATES: dict[str, str] = {
     key: sql.replace("__TG_FILTER__", "TRUE") for key, sql in _CATEGORY_PREDICATE_CORE.items()
@@ -191,8 +190,7 @@ def _fetch_sql(categories: list[str]) -> str:
 # + email) попадают и в TG-рассылку, и в веб-канал — дубль осознанный.
 
 _WEB_EMAIL_EXISTS = (
-    "EXISTS (SELECT 1 FROM user_emails e "
-    "WHERE e.telegram_user_id = t.telegram_user_id AND e.is_verified = TRUE)"
+    "EXISTS (SELECT 1 FROM user_emails e WHERE e.telegram_user_id = t.telegram_user_id AND e.is_verified = TRUE)"
 )
 
 
@@ -245,8 +243,7 @@ async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple
 
     for email in email_tokens:
         tg = await pool.fetchval(
-            "SELECT telegram_user_id FROM user_emails "
-            "WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE",
+            "SELECT telegram_user_id FROM user_emails WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE",
             email,
         )
         if tg is not None:

@@ -244,9 +244,7 @@ class _FakePool:
     def __init__(self, job_row: dict, recipients: list[int], web_recipients: list[int] | None = None) -> None:
         self._job_row = job_row
         self._recipients = [{"telegram_user_id": r} for r in recipients]
-        self._web_recipients = [
-            {"telegram_user_id": r} for r in (web_recipients if web_recipients is not None else [])
-        ]
+        self._web_recipients = [{"telegram_user_id": r} for r in (web_recipients if web_recipients is not None else [])]
         self.total_recipients_written: int | None = None
         self.finish: tuple | None = None  # (status, sent, blocked, failed, last_error)
         # Записанные _seed_*_claims строки (job_id, tg, days|code, ttl); None если не вызывалось.

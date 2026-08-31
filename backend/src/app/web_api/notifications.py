@@ -209,7 +209,12 @@ async def handle_list_notifications(request: Request) -> JSONResponse:
             items=items,
         )
         return JSONResponse(
-            {"ok": True, "items": [_item_public(item) for item in items], "unread_count": unread_count, "has_more": has_more}
+            {
+                "ok": True,
+                "items": [_item_public(item) for item in items],
+                "unread_count": unread_count,
+                "has_more": has_more,
+            }
         )
     except Exception:
         _LOGGER.exception("notifications_list_error")

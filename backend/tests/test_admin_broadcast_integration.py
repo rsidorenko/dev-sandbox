@@ -304,7 +304,11 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
 
             r = await client.post(
                 "/api/v1/admin/broadcast/send",
-                json={"categories": [], "explicit_targets": [str(_TG["active_paid"])], "message_text": "<a>без href</a>"},
+                json={
+                    "categories": [],
+                    "explicit_targets": [str(_TG["active_paid"])],
+                    "message_text": "<a>без href</a>",
+                },
                 headers=h,
             )
             assert r.status_code == 400

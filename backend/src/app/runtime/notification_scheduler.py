@@ -186,9 +186,7 @@ class NotificationScheduler:
                 )
                 delivered = True
             except Exception:
-                _LOGGER.exception(
-                    "notification_web_insert_failed user=%s type=%s", internal_user_id, notification_type
-                )
+                _LOGGER.exception("notification_web_insert_failed user=%s type=%s", internal_user_id, notification_type)
 
         # --- TG-канал ---
         if telegram_user_id > 0:

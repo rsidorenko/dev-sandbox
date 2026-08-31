@@ -54,21 +54,15 @@ def test_compose_claim_status_days_matrix() -> None:
     # нет claim-строки (не получатель) — кнопку не рендерим
     assert compose_claim_status(bonus={"type": "days"}, now=now) is None
     assert (
-        compose_claim_status(
-            bonus={"type": "days"}, days_claim={"status": "claimed", "expires_at": past}, now=now
-        )
+        compose_claim_status(bonus={"type": "days"}, days_claim={"status": "claimed", "expires_at": past}, now=now)
         == "claimed"
     )
     assert (
-        compose_claim_status(
-            bonus={"type": "days"}, days_claim={"status": "eligible", "expires_at": past}, now=now
-        )
+        compose_claim_status(bonus={"type": "days"}, days_claim={"status": "eligible", "expires_at": past}, now=now)
         == "expired"
     )
     assert (
-        compose_claim_status(
-            bonus={"type": "days"}, days_claim={"status": "eligible", "expires_at": future}, now=now
-        )
+        compose_claim_status(bonus={"type": "days"}, days_claim={"status": "eligible", "expires_at": future}, now=now)
         == "eligible"
     )
 
@@ -89,15 +83,11 @@ def test_compose_claim_status_promo_matrix() -> None:
         == "claimed"
     )
     assert (
-        compose_claim_status(
-            bonus={"type": "promo"}, promo_claim={"code": "SALE", "expires_at": past}, now=now
-        )
+        compose_claim_status(bonus={"type": "promo"}, promo_claim={"code": "SALE", "expires_at": past}, now=now)
         == "expired"
     )
     assert (
-        compose_claim_status(
-            bonus={"type": "promo"}, promo_claim={"code": "SALE", "expires_at": future}, now=now
-        )
+        compose_claim_status(bonus={"type": "promo"}, promo_claim={"code": "SALE", "expires_at": future}, now=now)
         == "eligible"
     )
 
@@ -107,7 +97,7 @@ def test_decode_payload_variants() -> None:
     assert decode_payload('{"a": 1}') == {"a": 1}
     assert decode_payload({"a": 1}) == {"a": 1}
     assert decode_payload("not json") == {}
-    assert decode_payload('[1, 2]') == {}
+    assert decode_payload("[1, 2]") == {}
 
 
 def test_insert_count_parses_asyncpg_status() -> None:
