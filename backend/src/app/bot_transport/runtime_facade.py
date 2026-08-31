@@ -728,7 +728,9 @@ async def _apply_promo_to_user(
     *,
     now: datetime | None = None,
 ) -> tuple[str, str | None, Any | None]:
-    """Apply-ядро промокода: normalize → get → redeem_block_reason → per-user → audience → upsert.
+    """Apply-ядро промокода — делегат в ``application/promo_apply_service.py::
+    apply_promo_intent`` (shared с web_api: ручной ввод в кабинете + клейм бонуса
+    рассылки из веб-уведомления).
 
     Переиспользуется текстовым вводом (_handle_promo_code_input) и кнопкой рассылки
     (_handle_broadcast_promo_claim). НЕ трогает rate-limit / FSM / return_target / render —
@@ -741,46 +743,19 @@ async def _apply_promo_to_user(
     погашен этим пользователем). Скидка канонически пере-валидируется при оплате
     (resolve_active_promo), поэтому здесь сохраняется лишь «намерение» (promo_applied, TTL 24ч).
     """
-    from datetime import UTC, datetime, timedelta
+    from app.application.promo_apply_service import apply_promo_intent
 
-    from app.application.promo_service import compute_is_new_user
-    from app.domain.promo import (
-        PROMO_APPLIED_TTL_HOURS,
-        audience_eligible,
-        normalize_code,
-        per_user_exhausted,
-        redeem_block_reason,
-        validate_code_format,
-    )
-
-    code = normalize_code(raw_code)
-    if validate_code_format(code) is not None:
-        return "invalid", code, None
-
-    promo = await composition.promo_code_repo.get(code)
-    if promo is None:
-        return "not_found", code, None
-
-    now = now or datetime.now(UTC)
-    if redeem_block_reason(promo, now) is not None:
-        # inactive/expired/exhausted — вызывающий решает, как показать (обычно «не найден»).
-        return "inactive", code, promo
-
-    used = await composition.promo_redemption_repo.count_for_user(code, internal_user_id)
-    if per_user_exhausted(promo, used):
-        return "already_used", code, promo
-
-    is_new = await compute_is_new_user(
+    outcome = await apply_promo_intent(
         pool=_get_pool_from_composition(composition),
+        promo_code_repo=composition.promo_code_repo,
+        promo_redemption_repo=composition.promo_redemption_repo,
+        promo_applied_repo=composition.promo_applied_repo,
         snapshots=composition.snapshots,
         internal_user_id=internal_user_id,
+        raw_code=raw_code,
+        now=now,
     )
-    if not audience_eligible(promo.audience, is_new_user=is_new):
-        return "ineligible", code, promo
-
-    expires_at = now + timedelta(hours=PROMO_APPLIED_TTL_HOURS)
-    await composition.promo_applied_repo.upsert(internal_user_id, code, expires_at)
-    return "ok", code, promo
+    return outcome.status, outcome.code, outcome.promo
 
 
 async def _handle_promo_code_input(

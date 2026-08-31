@@ -161,37 +161,39 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
         if validate_code_format(code) is not None:
             return safe_json_error(400, "invalid_format")
 
-        from app.application.promo_service import compute_is_new_user
+        from app.application.promo_apply_service import apply_promo_intent
         from app.persistence.postgres_promo import (
             PostgresPromoAppliedRepository,
             PostgresPromoCodeRepository,
             PostgresPromoRedemptionRepository,
         )
 
-        applied_repo = PostgresPromoAppliedRepository(pool)
-        code_repo = PostgresPromoCodeRepository(pool)
-        redemption_repo = PostgresPromoRedemptionRepository(pool)
-
-        promo = await code_repo.get(code)
-        if promo is None:
-            return safe_json_error(404, "not_found")
-
         now = datetime.now(UTC)
-        block = redeem_block_reason(promo, now)
-        if block is not None:
-            return safe_json_error(409, _BLOCK_ERROR.get(block, "ineligible"))
-
-        # Per-user лимит: код с режимом «единожды», уже погашенный этим пользователем.
-        used = await redemption_repo.count_for_user(code, internal_user_id)
-        if per_user_exhausted(promo, used):
+        outcome = await apply_promo_intent(
+            pool=pool,
+            promo_code_repo=PostgresPromoCodeRepository(pool),
+            promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
+            promo_applied_repo=PostgresPromoAppliedRepository(pool),
+            snapshots=None,
+            internal_user_id=internal_user_id,
+            raw_code=code,
+            now=now,
+        )
+        if outcome.status == "invalid":
+            return safe_json_error(400, "invalid_format")
+        if outcome.status == "not_found":
+            return safe_json_error(404, "not_found")
+        if outcome.status == "inactive":
+            return safe_json_error(409, _BLOCK_ERROR.get(outcome.block_reason or "", "ineligible"))
+        if outcome.status == "already_used":
             return safe_json_error(409, "already_used")
-
-        is_new = await compute_is_new_user(pool=pool, snapshots=None, internal_user_id=internal_user_id)
-        if not audience_eligible(promo.audience, is_new_user=is_new):
+        if outcome.status == "ineligible":
             return safe_json_error(409, "wrong_audience")
 
+        promo = outcome.promo
+        assert promo is not None
+        # Ядро уже выполнило upsert с этим же TTL — пересчитываем только для дескриптора.
         expires_at = now + timedelta(hours=PROMO_APPLIED_TTL_HOURS)
-        await applied_repo.upsert(internal_user_id, code, expires_at)
 
         body: dict = {"ok": True, "applied": _applied_descriptor(promo, expires_at=expires_at, valid=True)}
 
