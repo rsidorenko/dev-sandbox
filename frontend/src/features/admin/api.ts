@@ -3,6 +3,10 @@
 
 import type {
   AdminAddDaysResponse,
+  AdminGlobalDiscount,
+  AdminGlobalDiscountPayload,
+  AdminPlanPrice,
+  AdminPlansResponse,
   AdminPromocode,
   AdminPromocodePayload,
   AdminPromocodesResponse,
@@ -77,6 +81,27 @@ export const adminApi = {
   },
   listPromocodes() {
     return adminFetch<AdminPromocodesResponse>("/api/v1/admin/promocodes");
+  },
+  listPlans() {
+    return adminFetch<AdminPlansResponse>("/api/v1/admin/plans");
+  },
+  setPlanPrice(planId: string, priceRubles: number) {
+    return adminFetch<{ plan: AdminPlanPrice }>(`/api/v1/admin/plans/${encodeURIComponent(planId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ price_rubles: priceRubles }),
+    });
+  },
+  resetPlanPrice(planId: string) {
+    return adminFetch<{ plan_id: string; price_rubles: number }>(
+      `/api/v1/admin/plans/${encodeURIComponent(planId)}`,
+      { method: "DELETE" },
+    );
+  },
+  setGlobalDiscount(payload: AdminGlobalDiscountPayload) {
+    return adminFetch<{ global_discount: AdminGlobalDiscount }>("/api/v1/admin/plans/global-discount", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   },
   stats(period: AdminStatsPeriod, tz = "Europe/Moscow") {
     const q = new URLSearchParams({ period, tz });

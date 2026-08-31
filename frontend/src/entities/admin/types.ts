@@ -79,6 +79,43 @@ export interface AdminPromocodePayload {
   is_active?: boolean;
 }
 
+// /api/v1/admin/plans — вкладка «Тарифы»: цены 7 планов + глобальная скидка.
+
+export interface AdminPlanPrice {
+  plan_id: string;
+  duration_days: number;
+  /** Код-дефолт из domain/plans.py (не редактируется). */
+  default_price_rubles: number;
+  /** Эффективная цена (оверрайд или дефолт). */
+  price_rubles: number;
+  is_overridden: boolean;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminGlobalDiscount {
+  is_active: boolean;
+  /** percent | fixed_rubles; null — выключенная скидка без сохранённых параметров. */
+  discount_kind: PromoDiscountKind | null;
+  /** При is_active=false может быть null. */
+  discount_value: number | null;
+  public_label: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminPlansResponse {
+  plans: AdminPlanPrice[];
+  global_discount: AdminGlobalDiscount;
+}
+
+export interface AdminGlobalDiscountPayload {
+  is_active: boolean;
+  discount_kind?: PromoDiscountKind | null;
+  discount_value?: number | null;
+  public_label?: string | null;
+}
+
 // /api/v1/admin/stats — агрегированный дашборд статистики за период.
 
 export type AdminStatsPeriod = "1d" | "7d" | "30d" | "90d" | "all";
