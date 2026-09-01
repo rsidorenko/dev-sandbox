@@ -326,7 +326,9 @@ frontend:gate:
 # ════════════════════════════════════════════════════════════════════════════
 deploy:
   stage: deploy
-  image: ubuntu:24.04
+  # alpine+apk вместо ubuntu+apt: зеркала Canonical рвут соединения с IP раннера
+  # (apt виснет на CLOSE_WAIT по 20-35 мин), а dl-cdn.alpinelinux.org (Fastly) — другой CDN.
+  image: alpine:3.20
   needs: []
   rules:
     # Авто-деплой на push в main ТОЛЬКО когда секреты заданы (иначе — упадёт и потратит минуты).
@@ -336,8 +338,8 @@ deploy:
   variables:
     RUN_HARDENING: "false"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq openssh-client rsync sshpass curl jq python3 > /dev/null
+    # bash — для scripts/ci/fetch_karing_clients.sh (вызывается ниже явно через bash)
+    - apk add --no-cache openssh-client rsync sshpass curl jq python3 bash
     - eval $(ssh-agent -s)
     - printf '%s' "$SERVER_SSH_KEY" | base64 -d > /tmp/deploy_key && chmod 400 /tmp/deploy_key && ssh-add /tmp/deploy_key
     - mkdir -p ~/.ssh
