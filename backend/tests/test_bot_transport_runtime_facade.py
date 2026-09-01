@@ -13,6 +13,7 @@ from app.bot_transport.runtime_facade import (
 from app.bot_transport.storefront_ui import (
     CB_BALANCE,
     CB_BUY_VPN,
+    CB_CHECK_SUB,
     CB_CONFIRM_PAY,
     CB_CONNECT_DEVICE,
     CB_DEVICES,
@@ -854,5 +855,143 @@ def test_facade_callback_balance_placeholder() -> None:
         raw = _callback_update(callback_data=CB_BALANCE)
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert "баланс" in pkg.message_text.lower()
+
+    _run(main())
+
+
+# ─── Гейт подписки на канал перед выдачей триала ──────────────────────
+
+
+class _FakeGate:
+    """Fake-чекер с тем же контрактом, что TelegramChannelMembershipChecker."""
+
+    def __init__(self, result: bool | None) -> None:
+        self._result = result
+        self.calls: list[int] = []
+
+    async def is_member(self, user_id: int) -> bool | None:
+        self.calls.append(user_id)
+        return self._result
+
+
+def _gate_composition(result: bool | None):
+    from app.issuance.vless_provider import StubVlessProvider
+
+    return build_slice1_composition(vless_provider=StubVlessProvider(), trial_channel_gate=_FakeGate(result))
+
+
+def test_facade_trial_gate_off_activates_as_before() -> None:
+    """Гейт выключен (checker None) — CB_TRIAL активирует триал как раньше."""
+
+    async def main() -> None:
+        from app.bot_transport.runtime_facade import _is_trial_available
+        from app.issuance.vless_provider import StubVlessProvider
+
+        c = build_slice1_composition(vless_provider=StubVlessProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "Пробный период активирован" in pkg.message_text
+        assert await _is_trial_available(c, 42) is False
+
+    _run(main())
+
+
+def test_facade_trial_gate_not_subscribed_shows_gate_without_burning_trial() -> None:
+    """Не подписан: экран гейта, триал НЕ израсходован — главная инварианта."""
+
+    async def main() -> None:
+        from app.bot_transport.runtime_facade import _is_trial_available
+
+        c = _gate_composition(False)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "подпишитесь" in pkg.message_text
+        kb = pkg.reply_markup
+        assert kb is not None
+        rows = kb["inline_keyboard"]
+        assert any(b.get("url") == "https://t.me/bravada_vpn" for row in rows for b in row)
+        assert any(b.get("callback_data") == CB_CHECK_SUB for row in rows for b in row)
+        # Триал не сожжён
+        assert await _is_trial_available(c, 42) is True
+
+    _run(main())
+
+
+def test_facade_trial_gate_subscribed_activates() -> None:
+    """Подписан: триал выдаётся штатно."""
+
+    async def main() -> None:
+        c = _gate_composition(True)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "Пробный период активирован" in pkg.message_text
+
+    _run(main())
+
+
+def test_facade_trial_gate_check_error_fail_open_activates() -> None:
+    """Fail-open: ошибка проверки (None) не блокирует триал."""
+
+    async def main() -> None:
+        c = _gate_composition(None)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "Пробный период активирован" in pkg.message_text
+
+    _run(main())
+
+
+def test_facade_check_sub_after_subscribing_activates() -> None:
+    """«Я подписался — проверить» после подписки: активация триала."""
+
+    async def main() -> None:
+        c = _gate_composition(True)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CHECK_SUB, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "Пробный период активирован" in pkg.message_text
+        gate = c.trial_channel_gate
+        assert isinstance(gate, _FakeGate)
+        # Проверка зовётся дважды: в ветке check_sub (дружелюбный отказ) и в активации
+        # (охрана claim перед выдачей) — второй вызов гарантирует отсутствие гонки.
+        assert gate.calls == [42, 42]
+
+    _run(main())
+
+
+def test_facade_check_sub_still_not_subscribed_shows_gate_again() -> None:
+    """«Я подписался» без фактической подписки: повторный экран гейта, триал цел."""
+
+    async def main() -> None:
+        from app.bot_transport.runtime_facade import _is_trial_available
+
+        c = _gate_composition(False)
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(message=_base_message(text="/start")), c, correlation_id=new_correlation_id()
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CHECK_SUB, update_id=2), c, correlation_id=new_correlation_id()
+        )
+        assert "не видим вашу подписку" in pkg.message_text
+        assert await _is_trial_available(c, 42) is True
 
     _run(main())
