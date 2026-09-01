@@ -62,6 +62,8 @@ CB_CONNECT_MAC = "connect_mac"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
+# Гейт подписки на канал перед выдачей триала: «Я подписался — проверить».
+CB_CHECK_SUB = "check_sub"
 CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
 CB_CUSTOM_DAYS = "custom_days"
@@ -324,6 +326,36 @@ def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
             ]
         )
     return main_menu_keyboard()
+
+
+# ─── Гейт подписки на канал перед выдачей триала ──────────────────────
+
+
+def trial_subscribe_gate_keyboard(channel_username: str) -> dict[str, Any]:
+    """Клавиатура экрана «подпишитесь на канал»: ссылка на канал + повторная проверка."""
+    return _inline_kb(
+        [
+            [{"text": "📢 Подписаться на канал", "url": f"https://t.me/{channel_username.lstrip('@')}"}],
+            [{"text": "🔄 Я подписался — проверить", "callback_data": CB_CHECK_SUB}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+
+
+def text_trial_subscribe_required(channel_username: str) -> str:
+    return (
+        "<b>🎁 Пробный период — для подписчиков канала</b>\n\n"
+        "Чтобы активировать 3 дня бесплатно, подпишитесь на наш канал\n"
+        f"---@{channel_username.lstrip('@')} --- там мы публикуем новости и обновления сервиса.\n\n"
+        "После подписки нажмите «🔄 Я подписался — проверить»."
+    )
+
+
+def text_trial_subscribe_still_missing() -> str:
+    return (
+        "😕 Пока не видим вашу подписку.\n\n"
+        "Убедитесь, что вы подписались на канал, и нажмите «🔄 Я подписался — проверить» ещё раз."
+    )
 
 
 def text_main_menu() -> str:

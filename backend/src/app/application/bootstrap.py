@@ -38,6 +38,11 @@ from app.application.telegram_update_dedup import (
     InMemoryTelegramUpdateDedupGuard,
     TelegramUpdateDedupGuard,
 )
+from app.application.trial_channel_gate import (
+    TelegramChannelMembershipChecker,
+    channel_username_from_env,
+    trial_channel_gate_enabled_from_env,
+)
 from app.issuance.service import IssuanceService
 from app.issuance.vless_provider import VlessProviderPort
 from app.persistence.in_memory import (
@@ -94,6 +99,8 @@ class Slice1Composition:
     promo_applied_repo: PromoAppliedRepository
     bot_username: str
     vless_provider: VlessProviderPort | None = None
+    #: Гейт подписки на канал перед выдачей триала; None — фича выключена (гейт не применяется).
+    trial_channel_gate: TelegramChannelMembershipChecker | None = None
 
 
 def build_slice1_composition(
@@ -123,6 +130,7 @@ def build_slice1_composition(
     promo_applied_repo: PromoAppliedRepository | None = None,
     bot_username: str | None = None,
     vless_provider: VlessProviderPort | None = None,
+    trial_channel_gate: TelegramChannelMembershipChecker | None = None,
 ) -> Slice1Composition:
     if (identity is None) ^ (idempotency is None):
         raise ValueError("identity and idempotency must both be provided or both omitted")
@@ -159,6 +167,16 @@ def build_slice1_composition(
     promo_redemptions = promo_redemption_repo or InMemoryPromoRedemptionRepository()
     promo_applied = promo_applied_repo or InMemoryPromoAppliedRepository()
     resolved_bot_username = bot_username or os.environ.get("BOT_USERNAME", "")
+    # Гейт подписки на канал: автоконструирование только при включённом флаге и наличии
+    # BOT_TOKEN (checker без токена бесполезен — каждый вызов упал бы в fail-open None).
+    resolved_trial_channel_gate = trial_channel_gate
+    if resolved_trial_channel_gate is None and trial_channel_gate_enabled_from_env():
+        bot_token = os.environ.get("BOT_TOKEN", "").strip()
+        if bot_token:
+            resolved_trial_channel_gate = TelegramChannelMembershipChecker(
+                bot_token,
+                channel_username_from_env(),
+            )
     return Slice1Composition(
         bootstrap=BootstrapIdentityHandler(identity, idempotency, audit, snapshot_writer),
         get_status=GetSubscriptionStatusHandler(
@@ -194,4 +212,5 @@ def build_slice1_composition(
         promo_applied_repo=promo_applied,
         bot_username=resolved_bot_username,
         vless_provider=vless_provider,
+        trial_channel_gate=resolved_trial_channel_gate,
     )

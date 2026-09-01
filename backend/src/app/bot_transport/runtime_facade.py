@@ -42,6 +42,7 @@ from app.bot_transport.storefront_ui import (
     CB_BROADCAST_DAYS,
     CB_BROADCAST_PROMO,
     CB_BUY_VPN,
+    CB_CHECK_SUB,
     CB_CONFIRM_PAY,
     CB_CONNECT_ANDROID,
     CB_CONNECT_DEVICE,
@@ -252,7 +253,10 @@ from app.bot_transport.storefront_ui import (
     text_single_server_key,
     text_subscription_active,
     text_subscription_expired,
+    text_trial_subscribe_required,
+    text_trial_subscribe_still_missing,
     text_welcome,
+    trial_subscribe_gate_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -885,6 +889,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_HELP,
         CB_ROUTER,
         CB_TRIAL,
+        CB_CHECK_SUB,
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
         CB_LINK_EMAIL,
@@ -1040,6 +1045,26 @@ async def _handle_trial_activation(
     id_rec = await composition.identity.find_by_telegram_user_id(uid)
     if id_rec is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
+
+    # Гейт подписки на канал — ДО атомарного claim, иначе отказ (или сбой проверки)
+    # «сжёг» бы триал. Fail-open: None (ошибка проверки) → выдаём триал как раньше.
+    gate = composition.trial_channel_gate
+    if gate is not None:
+        from app.application.trial_channel_gate import channel_username_from_env
+
+        channel_username = channel_username_from_env()
+        try:
+            is_member = await gate.is_member(uid)
+        except Exception:
+            logging.getLogger(__name__).warning("trial_channel_gate.is_member_raised user_id=%s", uid)
+            is_member = None
+        if is_member is False:
+            return (
+                text_trial_subscribe_required(channel_username),
+                trial_subscribe_gate_keyboard(channel_username),
+            )
+        if is_member is None:
+            logging.getLogger(__name__).warning("trial_channel_gate.check_failed_fail_open user_id=%s", uid)
 
     pool = _get_pool_from_composition(composition)
 
@@ -2464,6 +2489,32 @@ async def _render_storefront_response(
 
     elif code == CB_TRIAL:
         text, keyboard = await _handle_trial_activation(composition, uid)
+
+    elif code == CB_CHECK_SUB:
+        # Повторная проверка подписки после клика «Я подписался». True → выдать триал;
+        # None → fail-open (не блокируем триал сбоем проверки); False → просим ещё раз.
+        gate = composition.trial_channel_gate
+        if gate is None or uid is None:
+            # Фича выключена / чат не опознан — обычная активация (или её ошибка).
+            text, keyboard = await _handle_trial_activation(composition, uid)
+        else:
+            from app.application.trial_channel_gate import channel_username_from_env
+
+            channel_username = channel_username_from_env()
+            try:
+                is_member = await gate.is_member(uid)
+            except Exception:
+                logging.getLogger(__name__).warning("trial_channel_gate.is_member_raised user_id=%s", uid)
+                is_member = None
+            if is_member is False:
+                text, keyboard = (
+                    text_trial_subscribe_still_missing(),
+                    trial_subscribe_gate_keyboard(channel_username),
+                )
+            else:
+                if is_member is None:
+                    logging.getLogger(__name__).warning("trial_channel_gate.check_failed_fail_open user_id=%s", uid)
+                text, keyboard = await _handle_trial_activation(composition, uid)
 
     elif code.startswith(CB_BROADCAST_DAYS):
         # Бонус-кнопка из рассылки: "bc_days:{job_id}". Параметры бонуса (дни) хранятся
