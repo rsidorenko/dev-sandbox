@@ -55,6 +55,11 @@ services:
       # Кастомные эмодзи (tg-emoji) в текстах/кнопках. Требование Bot API 9.4:
       # у владельца бота должен быть Telegram Premium. Откат без деплоя — 0 в .env.
       TELEGRAM_CUSTOM_EMOJI_ENABLE: ${TELEGRAM_CUSTOM_EMOJI_ENABLE:-1}
+      # Гейт подписки на @bravada_vpn перед выдачей пробного периода.
+      # Важно: backend получает только явно перечисленные переменные, поэтому
+      # без этих строк фича оставалась выключенной даже при настройке .env.
+      TRIAL_CHANNEL_SUBSCRIBE_ENABLE: ${TRIAL_CHANNEL_SUBSCRIBE_ENABLE:-}
+      TRIAL_CHANNEL_USERNAME: ${TRIAL_CHANNEL_USERNAME:-bravada_vpn}
       ACCESS_RECONCILE_SCHEDULE_ACK: "1"
       ACCESS_RECONCILE_MAX_INTERVAL_SECONDS: ${ACCESS_RECONCILE_MAX_INTERVAL_SECONDS:-1800}
       SUBSCRIPTION_DEFAULT_PERIOD_DAYS: ${SUBSCRIPTION_DEFAULT_PERIOD_DAYS:-30}
