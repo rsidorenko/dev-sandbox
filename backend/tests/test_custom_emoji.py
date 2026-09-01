@@ -48,8 +48,8 @@ class TestApplyCustomEmoji:
         assert result == f'<tg-emoji emoji-id="{EMOJI_TO_CUSTOM_ID["⚙️"]}">⚙️</tg-emoji> Настройки'
 
     def test_unknown_emoji_left_as_is(self) -> None:
-        # → и ⚪ нет в мапе (нет замены в паке) — остаются юникодом
-        text = "→ вперёд, ⚪ маркер"
+        # → и ↩ нет в мапе (нет замены в паке) — остаются юникодом
+        text = "→ вперёд, ↩️ назад, ⚪ маркер"
         assert apply_custom_emoji(text, enabled=True) == text
 
     def test_idempotent(self) -> None:
