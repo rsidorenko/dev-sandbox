@@ -105,6 +105,29 @@ class TestKeyboardIcons:
         apply_keyboard_custom_emoji(kb, enabled=True)
         assert kb["inline_keyboard"][0][0]["icon_custom_emoji_id"] == "1"
 
+    def test_apply_keyboard_strips_emoji_from_text(self) -> None:
+        # Иконка ушла в icon_custom_emoji_id — статичный глиф из текста убран (нет дубля)
+        kb = {"inline_keyboard": [[{"text": "🔑 Купить VPN", "callback_data": "buy"}]]}
+        apply_keyboard_custom_emoji(kb, enabled=True)
+        button = kb["inline_keyboard"][0][0]
+        assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["🔑"]
+        assert button["text"] == "Купить VPN"
+
+    def test_apply_keyboard_strips_emoji_at_end(self) -> None:
+        kb = {"inline_keyboard": [[{"text": "Назад ↩️", "callback_data": "b"}]]}
+        apply_keyboard_custom_emoji(kb, enabled=True)
+        button = kb["inline_keyboard"][0][0]
+        assert button["text"] == "Назад"
+        assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["↩️"]
+
+    def test_apply_keyboard_keeps_text_when_only_emoji(self) -> None:
+        # Пустой text Bot API отклонит — текст-из-одного-эмодзи не трогаем
+        kb = {"inline_keyboard": [[{"text": "🔑", "callback_data": "b"}]]}
+        apply_keyboard_custom_emoji(kb, enabled=True)
+        button = kb["inline_keyboard"][0][0]
+        assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["🔑"]
+        assert button["text"] == "🔑"
+
     def test_apply_keyboard_handles_none_and_foreign_shapes(self) -> None:
         assert apply_keyboard_custom_emoji(None, enabled=True) is None
         assert apply_keyboard_custom_emoji({}, enabled=True) == {}

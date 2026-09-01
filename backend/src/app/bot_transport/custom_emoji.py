@@ -189,6 +189,10 @@ def apply_keyboard_custom_emoji(
 
     InlineKeyboardButton.style уже используется ботом — иконка встаёт рядом тем же
     механизмом нативных полей Bot API. Кнопки без эмодзи в тексте не трогаем.
+
+    Эмодзи, ушедший в иконку, вырезается из текста кнопки: иначе Telegram рисует
+    и анимированную иконку, и статичный глиф рядом — дублирование. При выключенном
+    флаге тексты не меняются (статичные эмодзи — fallback).
     """
     if not enabled or not isinstance(reply_markup, dict):
         return reply_markup
@@ -199,8 +203,28 @@ def apply_keyboard_custom_emoji(
         if not isinstance(row, list):
             continue
         for button in row:
-            if isinstance(button, dict) and "icon_custom_emoji_id" not in button:
-                icon_id = button_icon_custom_emoji_id(button)
-                if icon_id is not None:
-                    button["icon_custom_emoji_id"] = icon_id
+            if not isinstance(button, dict) or "icon_custom_emoji_id" in button:
+                continue
+            text = button.get("text") or ""
+            match = _EMOJI_PATTERN.search(text)
+            if match is None:
+                continue
+            # override триала важнее эмодзи из текста (button_icon_custom_emoji_id)
+            custom_id = button_icon_custom_emoji_id(button)
+            if custom_id is None:
+                continue
+            button["icon_custom_emoji_id"] = custom_id
+            button["text"] = _strip_button_emoji(text, match.start(), match.end())
     return reply_markup
+
+
+def _strip_button_emoji(text: str, start: int, end: int) -> str:
+    """Убрать эмодзи из текста кнопки и подчистить крайние пробелы.
+
+    ``🔑 Купить VPN`` → ``Купить VPN``; ``Меню 🔑`` → ``Меню``;
+    Если текст состоял только из эмодзи — возвращаем исходный текст: пустой
+    ``text`` Bot API отклонит вместе со всем сообщением.
+    """
+    stripped = text[:start] + text[end:]
+    stripped = stripped.strip("  	")
+    return stripped or text
