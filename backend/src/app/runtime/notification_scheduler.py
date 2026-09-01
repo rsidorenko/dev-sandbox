@@ -207,7 +207,7 @@ class NotificationScheduler:
                     json={
                         "chat_id": telegram_user_id,
                         "text": tg_text,
-                        "parse_mode": "Markdown",
+                        "parse_mode": "HTML",
                         "reply_markup": tg_keyboard,
                     },
                 )
