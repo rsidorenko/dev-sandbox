@@ -355,13 +355,18 @@ def test_main_menu_moved_buttons_into_subscription_submenu() -> None:
 def test_main_menu_colored_action_buttons() -> None:
     """Целевые действия в главном меню подсвечены нативным InlineKeyboardButton.style:
     «Купить VPN» — зелёная (success), «Подключить устройство» — синяя (primary),
-    «Моя подписка» — красная (danger)."""
+    «Моя подписка» — нейтральная (без style), идёт после целевых действий."""
     from app.bot_transport.storefront_ui import main_menu_keyboard
 
-    by_cb = {b.get("callback_data"): b for row in main_menu_keyboard()["inline_keyboard"] for b in row}
+    flat = [b for row in main_menu_keyboard()["inline_keyboard"] for b in row]
+    by_cb = {b.get("callback_data"): b for b in flat}
     assert by_cb[CB_BUY_VPN]["style"] == "success"
     assert by_cb[CB_CONNECT_DEVICE]["style"] == "primary"
-    assert by_cb[CB_MY_SUB]["style"] == "danger"
+    assert "style" not in by_cb[CB_MY_SUB]
+    # Порядок по референсу: Купить VPN → Подключить устройство → Моя подписка
+    order = [b.get("callback_data") for b in flat]
+    assert order.index(CB_BUY_VPN) < order.index(CB_CONNECT_DEVICE) < order.index(CB_MY_SUB)
+    assert by_cb[CB_MY_SUB]["text"].startswith("👤")
 
 
 def test_my_subscription_keyboard_has_submenu_buttons_and_back_to_main() -> None:

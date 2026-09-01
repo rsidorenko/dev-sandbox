@@ -139,11 +139,12 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
             # "success"=зелёная, "primary"=синяя, "danger"=красная. Выделяем целевые
             # действия. На старых клиентах поле игнорируется — кнопка остаётся рабочей.
             [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
+            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE, "style": "primary"}],
             # «Мои ключи», «Настройки подписки», «Привязать email» перенесены в
             # подменю «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
-            # с этих экранов (контекстный возврат «откуда пришёл»).
-            [{"text": "📋 Моя подписка", "callback_data": CB_MY_SUB, "style": "danger"}],
-            [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE, "style": "primary"}],
+            # с этих экранов (контекстный возврат «откуда пришёл»). Кнопка нейтральная
+            # (без style) и идёт после целевых действий — по референсу главного меню.
+            [{"text": "👤 Моя подписка", "callback_data": CB_MY_SUB}],
             [
                 {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
@@ -1947,7 +1948,7 @@ def text_help() -> str:
     return (
         "<b>❓ Помощь</b>\n\n"
         "🔑 Купить VPN — выбор тарифа и оплата\n"
-        "📋 Моя подписка — статус и срок действия\n"
+        "👤 Моя подписка — статус и срок действия\n"
         "🔐 Мои ключи — список VLESS-ключей\n"
         "📎 Ссылка для приложений — для Karing, Happ, v2rayTune\n"
         "👥 Реферальная программа — приглашайте друзей\n"
