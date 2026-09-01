@@ -114,11 +114,12 @@ class TestKeyboardIcons:
         assert button["text"] == "Купить VPN"
 
     def test_apply_keyboard_strips_emoji_at_end(self) -> None:
-        kb = {"inline_keyboard": [[{"text": "Назад ↩️", "callback_data": "b"}]]}
+        # ↩️ нет в RestrictedEmoji-мапе — берём 🔄, который в мапе есть
+        kb = {"inline_keyboard": [[{"text": "Обновить 🔄", "callback_data": "b"}]]}
         apply_keyboard_custom_emoji(kb, enabled=True)
         button = kb["inline_keyboard"][0][0]
-        assert button["text"] == "Назад"
-        assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["↩️"]
+        assert button["text"] == "Обновить"
+        assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["🔄"]
 
     def test_apply_keyboard_keeps_text_when_only_emoji(self) -> None:
         # Пустой text Bot API отклонит — текст-из-одного-эмодзи не трогаем
