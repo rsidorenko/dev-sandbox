@@ -40,12 +40,12 @@ class TestApplyCustomEmoji:
 
     def test_wraps_known_emoji(self) -> None:
         result = apply_custom_emoji("🚀 Готово", enabled=True)
-        assert result == '<tg-emoji emoji-id="5445284980978621387">🚀</tg-emoji> Готово'
+        assert result == f'<tg-emoji emoji-id="{EMOJI_TO_CUSTOM_ID["🚀"]}">🚀</tg-emoji> Готово'
 
     def test_variation_selector_matched_before_base_glyph(self) -> None:
         # ⚙️ (с selector) должен уйти целиком в тег, без хвоста «️»
         result = apply_custom_emoji("⚙️ Настройки", enabled=True)
-        assert result == '<tg-emoji emoji-id="5449428597922079323">⚙️</tg-emoji> Настройки'
+        assert result == f'<tg-emoji emoji-id="{EMOJI_TO_CUSTOM_ID["⚙️"]}">⚙️</tg-emoji> Настройки'
 
     def test_unknown_emoji_left_as_is(self) -> None:
         # → и ↩ нет в мапе (нет замены в паке) — остаются юникодом
@@ -59,13 +59,13 @@ class TestApplyCustomEmoji:
     def test_html_tags_preserved(self) -> None:
         # tg-emoji вставляется в финальный HTML: соседние теги не ломаются
         result = apply_custom_emoji("<b>🏠 Главное меню</b>", enabled=True)
-        assert result == '<b><tg-emoji emoji-id="5465226866321268133">🏠</tg-emoji> Главное меню</b>'
+        assert result == (f'<b><tg-emoji emoji-id="{EMOJI_TO_CUSTOM_ID["🏠"]}">🏠</tg-emoji> Главное меню</b>')
 
     def test_multiple_emojis_all_wrapped(self) -> None:
         result = apply_custom_emoji("🎁 3 дня · 🔑 VPN", enabled=True)
         assert result.count("<tg-emoji") == 2
-        assert "5199749070830197566" in result
-        assert "5330115548900501467" in result
+        assert EMOJI_TO_CUSTOM_ID["🎁"] in result
+        assert EMOJI_TO_CUSTOM_ID["🔑"] in result
 
 
 class TestKeyboardIcons:
