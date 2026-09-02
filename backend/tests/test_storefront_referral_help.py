@@ -38,9 +38,10 @@ def test_referral_screen_keeps_free_month_offer_and_hides_rates() -> None:
     assert "Ваш доход от рефералки" in text
     assert "Доступно на балансе: <b>42.50 ₽</b>" in text
     assert "Всего заработано: <b>100.00 ₽</b>" in text
+    assert "До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений." in text
     assert "Приглашено друзей: <b>3</b>" in text
     assert "Подарено дней: <b>30</b>" in text
-    assert "35%" not in text
+    assert "1 день —" not in text
     assert "Со 2-го уровня" not in text
     assert "https://" not in text
 
