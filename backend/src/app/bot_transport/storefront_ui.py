@@ -10,7 +10,7 @@ import json
 import os
 import time
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
@@ -38,7 +38,6 @@ CB_REFERRAL = "referral_program"
 CB_BALANCE = "balance"
 CB_SETTINGS = "subscription_settings"
 CB_HELP = "help"
-CB_HELP_FAQ = "help_faq:"
 CB_BACK = "back"
 CB_PLAN = "plan:"
 CB_DEVICES = "devices:"
@@ -127,7 +126,7 @@ def _cb(prefix: str, value: str) -> str:
     return payload
 
 
-def _inline_kb(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
+def _inline_kb(rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
     return {"inline_keyboard": rows}
 
 
@@ -1922,11 +1921,19 @@ def referral_program_keyboard(info: ReferralInfo) -> dict[str, Any]:
             {
                 "url": info.referral_link,
                 "text": "Попробуй Bravada VPN — безопасный доступ к интернету.",
-            }
+            },
+            quote_via=quote,
         )
         rows.append([{"text": "📨 Пригласить друга в Telegram", "url": share_url}])
     if info.web_referral_link:
-        rows.append([{"text": "🌐 Пригласить друга без Telegram", "url": info.web_referral_link}])
+        rows.append(
+            [
+                {
+                    "text": "🌐 Пригласить друга без Telegram",
+                    "copy_text": {"text": info.web_referral_link},
+                }
+            ]
+        )
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
 
@@ -2015,46 +2022,11 @@ FAQ_ITEMS: tuple[tuple[str, str], ...] = (
 
 
 def text_help() -> str:
-    return "<b>❓ Помощь</b>\n\nВыберите вопрос — покажем подробный ответ."
-
-
-def help_faq_keyboard() -> dict[str, Any]:
-    rows = [
-        [{"text": f"❓ {question}", "callback_data": _cb(CB_HELP_FAQ, str(index))}]
-        for index, (question, _) in enumerate(FAQ_ITEMS)
-    ]
-    rows.extend(
-        [
-            [{"text": "💬 Написать в поддержку", "url": _SUPPORT_URL}],
-            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
-    return _inline_kb(rows)
-
-
-def get_help_faq_item(callback_data: str) -> tuple[str, str] | None:
-    """Возвращает вопрос FAQ из callback либо None для неизвестного индекса."""
-    if not callback_data.startswith(CB_HELP_FAQ):
-        return None
-    try:
-        index = int(callback_data.removeprefix(CB_HELP_FAQ))
-    except ValueError:
-        return None
-    return FAQ_ITEMS[index] if 0 <= index < len(FAQ_ITEMS) else None
-
-
-def text_help_faq_answer(question: str, answer: str) -> str:
-    return f"<b>❓ {question}</b>\n\n{answer}"
-
-
-def help_faq_answer_keyboard() -> dict[str, Any]:
-    return _inline_kb(
-        [
-            [{"text": "↩️ К вопросам", "callback_data": CB_HELP}],
-            [{"text": "💬 Написать в поддержку", "url": _SUPPORT_URL}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+    sections = ["<b>❓ Помощь</b>"]
+    for question, answer in FAQ_ITEMS:
+        sections.append(f"<b>{question}</b>\n{answer}")
+    sections.append('<b>Остались вопросы?</b>\n💬 <a href="https://t.me/bravada_support">Написать в поддержку</a>')
+    return "\n\n".join(sections)
 
 
 def text_fulfillment_success(active_until: str | None) -> str:

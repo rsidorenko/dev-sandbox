@@ -18,7 +18,6 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_DEVICE,
     CB_DEVICES,
     CB_HELP,
-    CB_HELP_FAQ,
     CB_LINK_EMAIL,
     CB_MAIN_MENU,
     CB_MY_KEYS,
@@ -34,7 +33,6 @@ from app.bot_transport.storefront_ui import (
     settings_keyboard,
     text_buy_vpn_intro,
     text_help,
-    text_help_faq_answer,
     text_keys_not_available,
     text_main_menu,
     text_no_subscription,
@@ -434,24 +432,7 @@ def test_facade_callback_help_renders_storefront_help() -> None:
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert pkg.message_text == text_help()
         assert pkg.reply_markup is not None
-        callbacks = [button.get("callback_data") for row in pkg.reply_markup["inline_keyboard"] for button in row]
-        assert f"{CB_HELP_FAQ}0" in callbacks
-
-    _run(main())
-
-
-def test_facade_callback_help_faq_renders_answer_and_back_to_questions() -> None:
-    async def main() -> None:
-        c = build_slice1_composition()
-        pkg = await handle_slice1_telegram_update_to_rendered_message(
-            _callback_update(callback_data=f"{CB_HELP_FAQ}0"), c, correlation_id=new_correlation_id()
-        )
-        assert pkg.message_text == text_help_faq_answer(
-            "Что такое услуга защищённого сетевого доступа?",
-            "Это персональный защищённый сетевой туннель, который обеспечивает шифрование вашего интернет-соединения и защиту трафика при использовании публичных и ненадёжных сетей.",
-        )
-        assert pkg.reply_markup is not None
-        assert pkg.reply_markup["inline_keyboard"][0][0]["callback_data"] == CB_HELP
+        assert pkg.reply_markup["inline_keyboard"][0][0]["callback_data"] == CB_MAIN_MENU
 
     _run(main())
 

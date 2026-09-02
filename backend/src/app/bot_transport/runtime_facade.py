@@ -57,7 +57,6 @@ from app.bot_transport.storefront_ui import (
     CB_DO_PAY,
     CB_DO_PAY_CRYPTO,
     CB_HELP,
-    CB_HELP_FAQ,
     CB_IOS_DID_WORK,
     CB_IOS_HAPP_STEP,
     CB_IOS_NO,
@@ -134,9 +133,6 @@ from app.bot_transport.storefront_ui import (
     connect_device_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
-    get_help_faq_item,
-    help_faq_answer_keyboard,
-    help_faq_keyboard,
     ios_app_chooser_keyboard,
     ios_did_work_keyboard,
     ios_did_work_text,
@@ -227,7 +223,6 @@ from app.bot_transport.storefront_ui import (
     text_device_select,
     text_error_generic,
     text_help,
-    text_help_faq_answer,
     text_ios_app_chooser,
     text_keys_not_available,
     text_link_email_already_linked,
@@ -953,7 +948,6 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                     CB_ADD_DEV_BALANCE,
                     CB_ADD_DEV,
                     CB_PROMO_AT,
-                    CB_HELP_FAQ,
                     CB_SERVER,
                     CB_IOS_STEP,
                     CB_MAC_STEP,
@@ -2463,15 +2457,7 @@ async def _render_storefront_response(
         )
 
     elif code in (CB_HELP, "slice1_help"):
-        text, keyboard = text_help(), help_faq_keyboard()
-
-    elif code.startswith(CB_HELP_FAQ):
-        faq_item = get_help_faq_item(code)
-        if faq_item is None:
-            text, keyboard = text_help(), help_faq_keyboard()
-        else:
-            question, answer = faq_item
-            text, keyboard = text_help_faq_answer(question, answer), help_faq_answer_keyboard()
+        text, keyboard = text_help(), back_only_keyboard(CB_MAIN_MENU)
 
     elif code == CB_ROUTER:
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
