@@ -30,6 +30,7 @@ from app.bot_transport.storefront_ui import (
     link_email_keyboard,
     my_keys_menu_keyboard,
     my_subscription_keyboard,
+    rich_help_message,
     settings_keyboard,
     text_buy_vpn_intro,
     text_help,
@@ -431,8 +432,9 @@ def test_facade_callback_help_renders_storefront_help() -> None:
         raw = _callback_update(callback_data=CB_HELP)
         pkg = await handle_slice1_telegram_update_to_rendered_message(raw, c, correlation_id=cid)
         assert pkg.message_text == text_help()
-        assert pkg.reply_markup is not None
-        assert pkg.reply_markup["inline_keyboard"][0][0]["callback_data"] == CB_MAIN_MENU
+        assert pkg.rich_message == rich_help_message()
+        assert pkg.parse_mode is None
+        assert pkg.reply_markup is None
 
     _run(main())
 

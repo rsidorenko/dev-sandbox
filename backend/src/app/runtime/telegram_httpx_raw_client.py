@@ -187,6 +187,33 @@ class HttpxTelegramRawPollingClient:
             raise RuntimeError("telegram API sendMessage result missing message_id")
         return mid
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: Mapping[str, Any],
+        *,
+        correlation_id: str,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Вызвать Telegram ``sendRichMessage`` для нативного структурированного сообщения."""
+        td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)
+        post_kw = _httpx_post_timeout_kwargs(td)
+        _ = correlation_id
+        body: dict[str, Any] = {"chat_id": chat_id, "rich_message": dict(rich_message)}
+        if reply_markup is not None:
+            body["reply_markup"] = dict(reply_markup)
+        response = await self._client.post(f"{self._base}sendRichMessage", json=body, **post_kw)
+        response.raise_for_status()
+        data = _parse_json_object(response)
+        _raise_if_not_ok(data)
+        result = data.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("telegram API sendRichMessage result is not an object")
+        mid = result.get("message_id")
+        if type(mid) is not int:
+            raise RuntimeError("telegram API sendRichMessage result missing message_id")
+        return mid
+
     async def answer_callback_query(self, callback_query_id: str) -> None:
         """Call Telegram ``answerCallbackQuery`` to dismiss the inline button loading indicator."""
         td = self._polling_policy.timeout.timeout_for_request(ORDINARY_OUTBOUND_REQUEST)

@@ -31,6 +31,7 @@ class RenderedMessagePackage:
     uc01_idempotency_key: str | None = None
     follow_up_messages: tuple[RenderedMessagePackage, ...] = ()
     parse_mode: str | None = None
+    rich_message: dict[str, Any] | None = None
     disable_web_page_preview: bool = False
     #: Unified media attachment: "video", "photo", or "document".
     media_type: str | None = None

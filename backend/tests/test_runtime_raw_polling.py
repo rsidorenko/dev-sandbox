@@ -6,6 +6,7 @@ import inspect
 
 import app.runtime.raw_polling as raw_polling_mod
 from app.application.bootstrap import build_slice1_composition
+from app.bot_transport.storefront_ui import CB_HELP, rich_help_message
 from app.runtime.binding import process_raw_updates_with_bridge
 from app.runtime.raw_polling import RawPollingBatchResult, Slice1RawPollingRuntime, TelegramRawPollingClient
 from app.shared.correlation import new_correlation_id
@@ -48,6 +49,7 @@ class FakeTelegramRawPollingClient:
         "fetch_offset_history",
         "last_fetch_limit",
         "last_fetch_offset",
+        "rich_calls",
         "send_calls",
         "send_fail",
     )
@@ -65,6 +67,7 @@ class FakeTelegramRawPollingClient:
         self.last_fetch_limit: int | None = None
         self.last_fetch_offset: int | None = None
         self.fetch_offset_history: list[int | None] = []
+        self.rich_calls: list[dict[str, object]] = []
         self.send_calls: list[tuple[int, str, str]] = []
         self.send_fail = False
         self._fetch_raises: BaseException | None = None
@@ -102,6 +105,24 @@ class FakeTelegramRawPollingClient:
             raise RuntimeError("send failed")
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
+
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, object],
+        *,
+        correlation_id: str,
+        reply_markup=None,
+    ) -> int:
+        self.rich_calls.append(
+            {
+                "chat_id": chat_id,
+                "rich_message": rich_message,
+                "correlation_id": correlation_id,
+                "reply_markup": reply_markup,
+            }
+        )
+        return 2
 
     async def send_video(
         self,
@@ -166,6 +187,31 @@ def test_one_raw_start_fetch_bridge_send_count_one() -> None:
         assert r.fetch_failure_count == 0
         assert r.raw_received_count == 1
         assert len(client.send_calls) == 1
+
+    _run(main())
+
+
+def test_raw_polling_callback_help_forwards_native_rich_message() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        raw = {
+            "update_id": 2,
+            "callback_query": {
+                "id": "callback-1",
+                "from": {"id": 42, "is_bot": False, "first_name": "U"},
+                "message": {"message_id": 7, "chat": {"id": 42, "type": "private"}},
+                "data": CB_HELP,
+            },
+        }
+        client = FakeTelegramRawPollingClient(fetch_queue=[raw])
+        runtime = Slice1RawPollingRuntime(c, client, _identity_bridge)
+
+        result = await runtime.poll_once(correlation_id=new_correlation_id())
+
+        assert result.send_count == 1
+        assert client.send_calls == []
+        assert client.rich_calls[0]["chat_id"] == 42
+        assert client.rich_calls[0]["rich_message"] == rich_help_message()
 
     _run(main())
 

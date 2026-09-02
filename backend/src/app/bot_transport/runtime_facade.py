@@ -204,6 +204,7 @@ from app.bot_transport.storefront_ui import (
     referral_program_keyboard,
     reissue_confirm_keyboard,
     remove_device_keyboard,
+    rich_help_message,
     settings_keyboard,
     single_server_key_keyboard,
     text_add_device_confirm,
@@ -2437,6 +2438,7 @@ async def _render_storefront_response(
     keyboard: dict[str, Any] | None = None
     media_type: str | None = None
     media_path: str | None = None
+    rich_message: dict[str, Any] | None = None
     follow_up_main_menu: bool = False
 
     if code in (CB_MAIN_MENU, "store_menu"):
@@ -2457,7 +2459,7 @@ async def _render_storefront_response(
         )
 
     elif code in (CB_HELP, "slice1_help"):
-        text, keyboard = text_help(), back_only_keyboard(CB_MAIN_MENU)
+        text, rich_message = text_help(), rich_help_message()
 
     elif code == CB_ROUTER:
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
@@ -3023,7 +3025,7 @@ async def _render_storefront_response(
             text = text_error_generic()
             keyboard = back_only_keyboard(CB_SETTINGS)
 
-    parse_mode = "HTML"
+    parse_mode = None if rich_message is not None else "HTML"
     # Connection step initial renders (CB_CONNECT_*) also use HTML step texts
     if code in (CB_CONNECT_IOS, CB_CONNECT_MAC, CB_CONNECT_TV, CB_CONNECT_WIN, CB_CONNECT_ANDROID):
         parse_mode = "HTML"
@@ -3050,6 +3052,7 @@ async def _render_storefront_response(
             replay_suppresses_outbound=transport.replay_suppresses_outbound,
             uc01_idempotency_key=transport.uc01_idempotency_key,
             parse_mode=parse_mode,
+            rich_message=rich_message,
             media_type=media_type,
             media_path=media_path,
             follow_up_messages=(
@@ -3070,6 +3073,7 @@ async def _render_storefront_response(
         replay_suppresses_outbound=transport.replay_suppresses_outbound,
         uc01_idempotency_key=transport.uc01_idempotency_key,
         parse_mode=parse_mode,
+        rich_message=rich_message,
         media_type=media_type,
         media_path=media_path,
     )

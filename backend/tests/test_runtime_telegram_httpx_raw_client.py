@@ -137,6 +137,48 @@ def test_timeout_policy_lookup_request_kinds_and_happy_path_bodies_unchanged() -
     assert _json_body(captured[1]) == {"chat_id": 7, "text": "hi"}
 
 
+def test_send_rich_message_posts_native_details_payload() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 9}})
+
+    async def main() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as ac:
+            c = HttpxTelegramRawPollingClient("x", base_url="https://e/b/", client=ac)
+            message_id = await c.send_rich_message(
+                7,
+                {
+                    "blocks": [
+                        {
+                            "type": "details",
+                            "summary": "Вопрос",
+                            "blocks": [{"type": "paragraph", "text": "Ответ"}],
+                        }
+                    ]
+                },
+                correlation_id="cid-abc",
+            )
+        assert message_id == 9
+
+    asyncio.run(main())
+    assert captured[0].url.path.endswith("/sendRichMessage")
+    assert _json_body(captured[0]) == {
+        "chat_id": 7,
+        "rich_message": {
+            "blocks": [
+                {
+                    "type": "details",
+                    "summary": "Вопрос",
+                    "blocks": [{"type": "paragraph", "text": "Ответ"}],
+                }
+            ]
+        },
+    }
+
+
 def test_inherit_timeout_mode_post_has_no_per_request_timeout_kwarg() -> None:
     post_kwargs: list[dict[str, Any]] = []
 

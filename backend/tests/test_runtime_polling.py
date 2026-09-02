@@ -6,6 +6,7 @@ import inspect
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport import handle_slice1_telegram_update_to_runtime_action as public_handle_slice1
+from app.bot_transport.storefront_ui import CB_HELP, rich_help_message
 from app.runtime.polling import (
     PollingBatchResult,
     PollingRuntimeConfig,
@@ -47,6 +48,7 @@ class FakeTelegramPollingClient:
         "last_fetch_limit",
         "media_calls",
         "media_fail_remaining",
+        "rich_calls",
         "send_calls",
         "send_fail",
     )
@@ -60,6 +62,7 @@ class FakeTelegramPollingClient:
         # Media send recording + controlled failure for fallback tests.
         self.media_calls: list[dict[str, object]] = []
         self.media_fail_remaining = 0
+        self.rich_calls: list[dict[str, object]] = []
         self.delete_calls: list[tuple[int, int]] = []
 
     async def fetch_updates(self, *, limit: int):
@@ -81,6 +84,24 @@ class FakeTelegramPollingClient:
             raise RuntimeError("send failed")
         self.send_calls.append((chat_id, text, correlation_id))
         return 1
+
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, object],
+        *,
+        correlation_id: str,
+        reply_markup=None,
+    ) -> int:
+        self.rich_calls.append(
+            {
+                "chat_id": chat_id,
+                "rich_message": rich_message,
+                "correlation_id": correlation_id,
+                "reply_markup": reply_markup,
+            }
+        )
+        return 2
 
     async def send_video(
         self,
@@ -182,6 +203,33 @@ def test_polling_batch_one_start_one_send() -> None:
         assert len(client.send_calls) == 1
         assert client.send_calls[0][0] == 42
         assert "Bravada VPN" in client.send_calls[0][1]
+
+    _run(main())
+
+
+def test_polling_callback_help_sends_native_rich_message() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        client = FakeTelegramPollingClient()
+        rt = Slice1PollingRuntime(c, client)
+        raw = {
+            "update_id": 2,
+            "callback_query": {
+                "id": "callback-1",
+                "from": {"id": 42, "is_bot": False, "first_name": "U"},
+                "message": {"message_id": 7, "chat": {"id": 42, "type": "private"}},
+                "data": CB_HELP,
+            },
+        }
+
+        result = await rt.process_batch([raw], correlation_id=new_correlation_id())
+
+        assert result.send_count == 1
+        assert client.send_calls == []
+        assert client.delete_calls == [(42, 7)]
+        assert client.rich_calls[0]["chat_id"] == 42
+        assert client.rich_calls[0]["rich_message"] == rich_help_message()
+        assert client.rich_calls[0]["reply_markup"] is None
 
     _run(main())
 

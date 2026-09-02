@@ -52,6 +52,7 @@ class TelegramRuntimeAction:
     uc01_idempotency_key: str | None = None
     follow_ups: tuple[TelegramRuntimeFollowUpSend, ...] = ()
     parse_mode: str | None = None
+    rich_message: Mapping[str, Any] | None = None
     disable_web_page_preview: bool = False
     media_type: str | None = None
     media_path: str | None = None
@@ -207,6 +208,7 @@ async def handle_slice1_telegram_update_to_runtime_action(
         uc01_idempotency_key=idem_key,
         follow_ups=follow_ups,
         parse_mode=rendered.parse_mode,
+        rich_message=rendered.rich_message,
         disable_web_page_preview=rendered.disable_web_page_preview,
         media_type=rendered.media_type,
         media_path=rendered.media_path,

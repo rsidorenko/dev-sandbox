@@ -1909,7 +1909,7 @@ def text_referral_program(info: ReferralInfo) -> str:
         "<b>💰 Ваш доход от рефералки</b>\n"
         f"Доступно на балансе: <b>{info.balance_rubles:.2f} ₽</b>\n"
         f"Всего заработано: <b>{info.total_earned_rubles:.2f} ₽</b>\n"
-        "💡 До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений.\n\n"
+        "\n"
         f"👥 Приглашено друзей: <b>{info.l1_invited}</b>\n"
         f"🎁 Подарено дней: <b>{info.bonus_days_awarded}</b>\n\n"
         "Выберите, как пригласить друга:"
@@ -2027,9 +2027,40 @@ FAQ_ITEMS: tuple[tuple[str, str], ...] = (
 def text_help() -> str:
     sections = ["<b>❓ Помощь</b>"]
     for question, answer in FAQ_ITEMS:
-        sections.append(f"<blockquote expandable><b>{question}</b>\n{answer}</blockquote>")
+        sections.append(f"<b>{question}</b>\n{answer}")
     sections.append('<b>Остались вопросы?</b>\n💬 <a href="https://t.me/bravada_support">Написать в поддержку</a>')
     return "\n\n".join(sections)
+
+
+def rich_help_message() -> dict[str, Any]:
+    """Собрать нативные Telegram details-блоки для аккордеона «Помощь»."""
+
+    blocks: list[dict[str, Any]] = [
+        {"type": "heading", "text": "❓ Помощь", "size": 2},
+    ]
+    blocks.extend(
+        {
+            "type": "details",
+            "summary": question,
+            "blocks": [{"type": "paragraph", "text": answer}],
+        }
+        for question, answer in FAQ_ITEMS
+    )
+    blocks.append(
+        {
+            "type": "paragraph",
+            "text": [
+                {"type": "bold", "text": "Остались вопросы?"},
+                "\n💬 ",
+                {
+                    "type": "url",
+                    "text": "Написать в поддержку",
+                    "url": "https://t.me/bravada_support",
+                },
+            ],
+        }
+    )
+    return {"blocks": blocks}
 
 
 def text_fulfillment_success(active_until: str | None) -> str:

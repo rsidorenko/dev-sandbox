@@ -262,19 +262,33 @@ class Slice1PollingRuntime:
                             os.getcwd(),
                             self._media_root,
                         )
-            sends: list[tuple[str, Mapping[str, Any] | None, str | None]] = [
-                (action.message_text or "", action.reply_markup, action.parse_mode),
+            sends: list[tuple[str, Mapping[str, Any] | None, str | None, Mapping[str, Any] | None]] = [
+                (action.message_text or "", action.reply_markup, action.parse_mode, action.rich_message),
             ]
-            sends.extend((fu.message_text, fu.reply_markup, fu.parse_mode) for fu in action.follow_ups)
+            sends.extend((fu.message_text, fu.reply_markup, fu.parse_mode, None) for fu in action.follow_ups)
             try:
                 if idem_key is not None:
                     await self._composition.outbound_delivery.ensure_pending(idem_key)
                 first = True
-                for text, markup, pmode in sends:
+                for text, markup, pmode, rich_message in sends:
                     if not text.strip() and not (first and media_path):
                         continue
+                    if first and rich_message is not None:
+                        if cb_origin is not None:
+                            with contextlib.suppress(Exception):
+                                await self._client.delete_message(cb_origin[0], cb_origin[1])
+                        sender = getattr(self._client, "send_rich_message", None)
+                        if not callable(sender):
+                            raise RuntimeError("Telegram client does not support sendRichMessage")
+                        msg_id = await sender(
+                            action.chat_id,
+                            rich_message,
+                            correlation_id=action.correlation_id,
+                            reply_markup=markup,
+                        )
+                        _LOGGER.info("polling.send_rich_message_ok chat_id=%s msg_id=%s", action.chat_id, msg_id)
                     # Media attachment: video, photo, or document
-                    if first and media_type and media_path:
+                    elif first and media_type and media_path:
                         # Delete old callback message to avoid clutter
                         if cb_origin is not None:
                             with contextlib.suppress(Exception):

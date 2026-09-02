@@ -138,6 +138,24 @@ class _PollingClientFromRaw:
             disable_web_page_preview=disable_web_page_preview,
         )
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: Mapping[str, Any],
+        *,
+        correlation_id: str,
+        reply_markup: Mapping[str, Any] | None = None,
+    ) -> int:
+        sender = getattr(self._raw, "send_rich_message", None)
+        if not callable(sender):
+            raise RuntimeError("raw Telegram client does not support sendRichMessage")
+        return await sender(
+            chat_id,
+            rich_message,
+            correlation_id=correlation_id,
+            reply_markup=reply_markup,
+        )
+
     async def send_video(
         self,
         chat_id: int,

@@ -22,23 +22,23 @@
 
 ### Задача 1.2 — Добавить FAQ-каталог и текст справки
 - **Файлы:** `backend/src/app/bot_transport/storefront_ui.py`
-- **Что сделать:** ввести неизменяемый каталог из десяти пар вопрос/ответ, собрать их в один
-  структурированный HTML-текст и оставить только кнопку возврата.
-- **Acceptance:** все вопросы и ответы видны без callback-навигации.
+- **Что сделать:** ввести неизменяемый каталог из десяти пар вопрос/ответ и собрать Rich Message
+  из нативных `details`-блоков.
+- **Acceptance:** каждый вопрос виден без callback-навигации и раскрывает ответ по нажатию на шеврон.
 
 ## Фаза 2 — Навигация и тесты
 
 ### Задача 2.1 — Подключить упрощённую маршрутизацию storefront
 - **Файлы:** `backend/src/app/bot_transport/runtime_facade.py`
 - **Что сделать:** заменить fallback-клавиатуру рефералки на специализированную, использовать
-  `copy_text` для веб-ссылки и убрать маршрутизацию FAQ-callback.
-- **Acceptance:** `CB_HELP` открывает полный справочный текст; веб-кнопка копирует ссылку.
+  `copy_text` для веб-ссылки и передать Rich Message Help без inline-кнопок вопросов.
+- **Acceptance:** `CB_HELP` открывает нативный аккордеон; веб-кнопка копирует ссылку.
 
 ### Задача 2.3 — Отправить Help как Telegram Rich Message
 - **Файлы:** `backend/src/app/bot_transport/storefront_ui.py`, `backend/src/app/bot_transport/runtime_facade.py`,
   `backend/src/app/runtime/telegram_httpx_raw_client.py`, `backend/src/app/runtime/polling.py`
-- **Что сделать:** представить FAQ как Rich HTML с отдельными `<details>`-блоками, пронести rich payload
-  через отрендеренный пакет и вызвать `sendRichMessage` только для экрана Help.
+- **Что сделать:** представить FAQ как `InputRichBlockDetails`, пронести blocks payload через
+  отрендеренный пакет и вызвать `sendRichMessage` только для экрана Help.
 - **Acceptance:** Bot API получает корректный `rich_message`; обычные отправки по-прежнему используют
   `sendMessage`.
 

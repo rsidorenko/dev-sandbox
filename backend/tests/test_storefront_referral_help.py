@@ -7,6 +7,7 @@ from app.bot_transport.storefront_ui import (
     CB_HELP,
     FAQ_ITEMS,
     referral_program_keyboard,
+    rich_help_message,
     text_help,
     text_referral_program,
 )
@@ -35,7 +36,7 @@ def test_referral_screen_keeps_free_month_offer_and_hides_rates() -> None:
     assert "Всего заработано: <b>100.00 ₽</b>" in text
     assert "Зарабатывайте до 35% с каждой оплаты друга" in text
     assert "вывести на криптокошелёк" in text
-    assert "До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений." in text
+    assert "💡 До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений." not in text
     assert "Приглашено друзей: <b>3</b>" in text
     assert "Подарено дней: <b>30</b>" in text
     assert "1 день —" not in text
@@ -66,14 +67,28 @@ def test_referral_keyboard_has_telegram_share_and_web_referral_link() -> None:
     }
 
 
-def test_help_text_contains_current_frontend_faq_without_question_buttons() -> None:
+def test_help_rich_message_contains_current_frontend_faq_as_native_details() -> None:
     assert len(FAQ_ITEMS) == 10
     assert FAQ_ITEMS[0][0] == "Что такое услуга защищённого сетевого доступа?"
     assert FAQ_ITEMS[-1][0] == "Происходит ли автопродление подписки?"
+    rich_message = rich_help_message()
+    blocks = rich_message["blocks"]
+    assert blocks[0] == {"type": "heading", "text": "❓ Помощь", "size": 2}
+    details = blocks[1:-1]
+    assert len(details) == len(FAQ_ITEMS)
+    for detail, (question, answer) in zip(details, FAQ_ITEMS, strict=True):
+        assert detail == {
+            "type": "details",
+            "summary": question,
+            "blocks": [{"type": "paragraph", "text": answer}],
+        }
+    assert blocks[-1]["type"] == "paragraph"
+
     text = text_help()
     assert "Выберите вопрос" not in text
     for question, answer in FAQ_ITEMS:
-        assert f"<blockquote expandable><b>{question}</b>" in text
+        assert f"<b>{question}</b>" in text
         assert answer in text
+    assert "<blockquote" not in text
     assert "Написать в поддержку" in text
     assert CB_HELP == "help"
