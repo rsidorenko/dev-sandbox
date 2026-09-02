@@ -342,13 +342,8 @@ def trial_subscribe_gate_keyboard(channel_username: str) -> dict[str, Any]:
     )
 
 
-def text_trial_subscribe_required(channel_username: str) -> str:
-    return (
-        "<b>🎁 Пробный период — для подписчиков канала</b>\n\n"
-        "Чтобы активировать 3 дня бесплатно, подпишитесь на наш канал\n"
-        f"---@{channel_username.lstrip('@')} --- там мы публикуем новости и обновления сервиса.\n\n"
-        "После подписки нажмите «🔄 Я подписался — проверить»."
-    )
+def text_trial_subscribe_required(_channel_username: str) -> str:
+    return "<b>🎁 Пробный период — для подписчиков канала</b>\n\nПодпишись на наш канал"
 
 
 def text_trial_subscribe_still_missing() -> str:

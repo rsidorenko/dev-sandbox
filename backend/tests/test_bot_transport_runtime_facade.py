@@ -913,7 +913,7 @@ def test_facade_trial_gate_not_subscribed_shows_gate_without_burning_trial() -> 
         pkg = await handle_slice1_telegram_update_to_rendered_message(
             _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
         )
-        assert "подпишитесь" in pkg.message_text
+        assert pkg.message_text == ("<b>🎁 Пробный период — для подписчиков канала</b>\n\nПодпишись на наш канал")
         kb = pkg.reply_markup
         assert kb is not None
         rows = kb["inline_keyboard"]
