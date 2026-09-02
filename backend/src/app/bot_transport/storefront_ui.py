@@ -10,6 +10,7 @@ import json
 import os
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
@@ -37,6 +38,7 @@ CB_REFERRAL = "referral_program"
 CB_BALANCE = "balance"
 CB_SETTINGS = "subscription_settings"
 CB_HELP = "help"
+CB_HELP_FAQ = "help_faq:"
 CB_BACK = "back"
 CB_PLAN = "plan:"
 CB_DEVICES = "devices:"
@@ -1897,39 +1899,33 @@ def text_keys_not_available() -> str:
 
 
 def text_referral_program(info: ReferralInfo) -> str:
-    links_section = f"🔗 <b>Для Telegram</b> — друг без сайта:\n<code>{info.referral_link}</code>\n\n"
-    if info.web_referral_link:
-        links_section += f"🌐 <b>Для сайта</b> — друг без Telegram:\n<code>{info.web_referral_link}</code>\n\n"
     return (
         "<b>👥 Реферальная программа</b>\n\n"
-        "🎁 <b>Приведи друга — получи месяц бесплатно!</b>\n"
-        "За каждого друга, который оплатит подписку от 1 месяца, вам начисляется "
-        "+30 дней к подписке. Бонус суммируется с кешбеком ниже.\n\n"
-        "Выбирайте удобную ссылку:\n\n" + links_section + f"💰 Баланс (кешбэк): {info.balance_rubles:.2f} ₽\n"
-        f"🎁 Подарено дней за друзей: {info.bonus_days_awarded}\n"
-        f"💸 Всего заработано: {info.total_earned_rubles:.2f} ₽\n"
-        "👤 Приглашено:\n"
-        f"   • 1 уровень — {info.l1_invited}\n"
-        f"   • 2 уровень — {info.l2_invited}\n\n"
-        "📊 <b>Кешбэк с оплат друзей:</b>\n\n"
-        "<b>Прямые рефералы:</b>\n"
-        "  1 день — 10%\n"
-        "  7 дней — 15%\n"
-        "  2 недели — 20%\n"
-        "  1 месяц — 35%\n"
-        "  3 месяца — 30%\n"
-        "  6 месяцев — 20%\n"
-        "  1 год — 17%\n\n"
-        "<b>Со 2-го уровня:</b>\n"
-        "  1 день — 1%\n"
-        "  7 дней — 2%\n"
-        "  2 недели — 3%\n"
-        "  1 месяц — 5%\n"
-        "  3 месяца — 3%\n"
-        "  6 месяцев — 2%\n"
-        "  1 год — 2%\n\n"
-        "💡 Реферальными деньгами можно оплачивать подписку."
+        "🎁 <b>Приведи друга — получи месяц бесплатно!</b>\n\n"
+        "Когда приглашённый друг впервые оплатит подписку от 1 месяца, "
+        "мы добавим вам <b>30 дней</b> к подписке.\n\n"
+        f"👥 Приглашено друзей: {info.l1_invited}\n"
+        f"🎁 Подарено дней: {info.bonus_days_awarded}\n"
+        f"💰 Реферальный баланс: {info.balance_rubles:.2f} ₽\n\n"
+        "Выберите, как пригласить друга:"
     )
+
+
+def referral_program_keyboard(info: ReferralInfo) -> dict[str, Any]:
+    """Кнопки персонального приглашения внутри и за пределами Telegram."""
+    rows: list[list[dict[str, str]]] = []
+    if info.referral_link:
+        share_url = "https://t.me/share/url?" + urlencode(
+            {
+                "url": info.referral_link,
+                "text": "Попробуй Bravada VPN — безопасный доступ к интернету.",
+            }
+        )
+        rows.append([{"text": "📨 Пригласить друга в Telegram", "url": share_url}])
+    if info.web_referral_link:
+        rows.append([{"text": "🌐 Пригласить друга без Telegram", "url": info.web_referral_link}])
+    rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
 
 
 def text_balance(info: ReferralBalanceInfo) -> str:
@@ -1971,20 +1967,90 @@ def text_router_soon() -> str:
     return "<b>📶 Конфиг для роутера</b>\n\n🔜 Эта функция скоро будет доступна!\nСледите за обновлениями."
 
 
+FAQ_ITEMS: tuple[tuple[str, str], ...] = (
+    (
+        "Что такое услуга защищённого сетевого доступа?",
+        "Это персональный защищённый сетевой туннель, который обеспечивает шифрование вашего интернет-соединения и защиту трафика при использовании публичных и ненадёжных сетей.",
+    ),
+    (
+        "Как подключиться к сервису?",
+        "Оформите подписку через Telegram-бота или на сайте. После оплаты доступ активируется автоматически, а настройки подключения будут доступны в личном кабинете и Telegram-боте.",
+    ),
+    (
+        "Какие устройства поддерживаются?",
+        f"Сервис работает на всех основных платформах: iOS, Android, Windows, macOS и Linux. Количество устройств зависит от тарифа — до {MAX_DEVICE_COUNT}.",
+    ),
+    (
+        "Как происходит оплата?",
+        "Оплата производится на сайте через платёжный сервис. Мы принимаем банковские карты, СБП и другие способы оплаты. После подтверждения оплаты доступ активируется автоматически.",
+    ),
+    (
+        "Можно ли вернуть деньги?",
+        "Да, вы можете запросить возврат в течение 7 дней с момента оплаты. Подробные условия описаны на странице «Условия возврата».",
+    ),
+    (
+        "Как связаться с поддержкой?",
+        "Вы можете написать нам в Telegram или на электронную почту. Контакты указаны в соответствующем разделе сайта.",
+    ),
+    (
+        "Можно ли попробовать сервис бесплатно?",
+        "Да. Доступен бесплатный пробный период на 3 дня — без привязки карты. Оформить пробный можно через Telegram-бота.",
+    ),
+    (
+        "Что произойдёт после окончания пробного периода?",
+        "По окончании пробного периода доступ прекращается. Подписка не включается автоматически — вы сами выбираете тариф и оплачиваете, когда вам удобно.",
+    ),
+    (
+        "Можно ли использовать несколько устройств одновременно?",
+        "Да, в рамках выбранного тарифа можно подключить несколько устройств. Точное количество зависит от тарифа.",
+    ),
+    (
+        "Происходит ли автопродление подписки?",
+        "Нет, автопродления нет. Подписка действует до конца оплаченного срока. Продлить можно вручную в любой момент до или после окончания срока.",
+    ),
+)
+
+
 def text_help() -> str:
-    return (
-        "<b>❓ Помощь</b>\n\n"
-        "🔑 Купить VPN — выбор тарифа и оплата\n"
-        "👤 Моя подписка — статус и срок действия\n"
-        "🔐 Мои ключи — список VLESS-ключей\n"
-        "📎 Ссылка для приложений — для Karing, Happ, v2rayTune\n"
-        "👥 Реферальная программа — приглашайте друзей\n"
-        "💰 Баланс — реферальные начисления\n"
-        "⚙️ Настройки подписки — управление подпиской\n\n"
-        "Все суммы указаны в рублях.\n"
-        f"Подписка включает {DEFAULT_DEVICE_LIMIT} устройств по умолчанию.\n"
-        f"Дополнительное устройство — {EXTRA_DEVICE_PRICE_RUBLES / 30:.1f} ₽/день ({EXTRA_DEVICE_PRICE_RUBLES} ₽ за 30 дней).\n\n"
-        "✉️ Написать нам в поддержку: @bravada_support"
+    return "<b>❓ Помощь</b>\n\nВыберите вопрос — покажем подробный ответ."
+
+
+def help_faq_keyboard() -> dict[str, Any]:
+    rows = [
+        [{"text": f"❓ {question}", "callback_data": _cb(CB_HELP_FAQ, str(index))}]
+        for index, (question, _) in enumerate(FAQ_ITEMS)
+    ]
+    rows.extend(
+        [
+            [{"text": "💬 Написать в поддержку", "url": _SUPPORT_URL}],
+            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+    return _inline_kb(rows)
+
+
+def get_help_faq_item(callback_data: str) -> tuple[str, str] | None:
+    """Возвращает вопрос FAQ из callback либо None для неизвестного индекса."""
+    if not callback_data.startswith(CB_HELP_FAQ):
+        return None
+    try:
+        index = int(callback_data.removeprefix(CB_HELP_FAQ))
+    except ValueError:
+        return None
+    return FAQ_ITEMS[index] if 0 <= index < len(FAQ_ITEMS) else None
+
+
+def text_help_faq_answer(question: str, answer: str) -> str:
+    return f"<b>❓ {question}</b>\n\n{answer}"
+
+
+def help_faq_answer_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "↩️ К вопросам", "callback_data": CB_HELP}],
+            [{"text": "💬 Написать в поддержку", "url": _SUPPORT_URL}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
     )
 
 
