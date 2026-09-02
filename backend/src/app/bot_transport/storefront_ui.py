@@ -1904,9 +1904,11 @@ def text_referral_program(info: ReferralInfo) -> str:
         "🎁 <b>Приведи друга — получи месяц бесплатно!</b>\n\n"
         "Когда приглашённый друг впервые оплатит подписку от 1 месяца, "
         "мы добавим вам <b>30 дней</b> к подписке.\n\n"
-        f"👥 Приглашено друзей: {info.l1_invited}\n"
-        f"🎁 Подарено дней: {info.bonus_days_awarded}\n"
-        f"💰 Реферальный баланс: {info.balance_rubles:.2f} ₽\n\n"
+        "<b>💰 Ваш доход от рефералки</b>\n"
+        f"Доступно на балансе: <b>{info.balance_rubles:.2f} ₽</b>\n"
+        f"Всего заработано: <b>{info.total_earned_rubles:.2f} ₽</b>\n\n"
+        f"👥 Приглашено друзей: <b>{info.l1_invited}</b>\n"
+        f"🎁 Подарено дней: <b>{info.bonus_days_awarded}</b>\n\n"
         "Выберите, как пригласить друга:"
     )
 
