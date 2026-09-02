@@ -33,6 +33,8 @@ def test_referral_screen_keeps_free_month_offer_and_hides_rates() -> None:
     assert "Ваш доход от рефералки" in text
     assert "Доступно на балансе: <b>42.50 ₽</b>" in text
     assert "Всего заработано: <b>100.00 ₽</b>" in text
+    assert "Зарабатывайте до 35% с каждой оплаты друга" in text
+    assert "вывести на криптокошелёк" in text
     assert "До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений." in text
     assert "Приглашено друзей: <b>3</b>" in text
     assert "Подарено дней: <b>30</b>" in text
@@ -71,7 +73,7 @@ def test_help_text_contains_current_frontend_faq_without_question_buttons() -> N
     text = text_help()
     assert "Выберите вопрос" not in text
     for question, answer in FAQ_ITEMS:
-        assert f"<b>{question}</b>" in text
+        assert f"<blockquote expandable><b>{question}</b>" in text
         assert answer in text
     assert "Написать в поддержку" in text
     assert CB_HELP == "help"

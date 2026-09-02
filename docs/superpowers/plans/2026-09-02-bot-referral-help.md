@@ -34,6 +34,14 @@
   `copy_text` для веб-ссылки и убрать маршрутизацию FAQ-callback.
 - **Acceptance:** `CB_HELP` открывает полный справочный текст; веб-кнопка копирует ссылку.
 
+### Задача 2.3 — Отправить Help как Telegram Rich Message
+- **Файлы:** `backend/src/app/bot_transport/storefront_ui.py`, `backend/src/app/bot_transport/runtime_facade.py`,
+  `backend/src/app/runtime/telegram_httpx_raw_client.py`, `backend/src/app/runtime/polling.py`
+- **Что сделать:** представить FAQ как Rich HTML с отдельными `<details>`-блоками, пронести rich payload
+  через отрендеренный пакет и вызвать `sendRichMessage` только для экрана Help.
+- **Acceptance:** Bot API получает корректный `rich_message`; обычные отправки по-прежнему используют
+  `sendMessage`.
+
 ### Задача 2.2 — Зафиксировать поведение тестами
 - **Файлы:** `backend/tests/test_bot_transport_runtime_facade.py`, при необходимости новый
   `backend/tests/test_storefront_ui.py`

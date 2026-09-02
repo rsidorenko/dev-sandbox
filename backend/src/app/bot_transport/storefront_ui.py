@@ -1903,6 +1903,9 @@ def text_referral_program(info: ReferralInfo) -> str:
         "🎁 <b>Приведи друга — получи месяц бесплатно!</b>\n\n"
         "Когда приглашённый друг впервые оплатит подписку от 1 месяца, "
         "мы добавим вам <b>30 дней</b> к подписке.\n\n"
+        "💸 <b>Зарабатывайте до 35% с каждой оплаты друга</b>\n"
+        "И ещё до 5% — с оплат его приглашённых.\n"
+        "Бонусы поступают на баланс — ими можно оплатить VPN или вывести на криптокошелёк*.\n\n"
         "<b>💰 Ваш доход от рефералки</b>\n"
         f"Доступно на балансе: <b>{info.balance_rubles:.2f} ₽</b>\n"
         f"Всего заработано: <b>{info.total_earned_rubles:.2f} ₽</b>\n"
@@ -2024,7 +2027,7 @@ FAQ_ITEMS: tuple[tuple[str, str], ...] = (
 def text_help() -> str:
     sections = ["<b>❓ Помощь</b>"]
     for question, answer in FAQ_ITEMS:
-        sections.append(f"<b>{question}</b>\n{answer}")
+        sections.append(f"<blockquote expandable><b>{question}</b>\n{answer}</blockquote>")
     sections.append('<b>Остались вопросы?</b>\n💬 <a href="https://t.me/bravada_support">Написать в поддержку</a>')
     return "\n\n".join(sections)
 
