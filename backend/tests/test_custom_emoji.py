@@ -10,7 +10,7 @@ from app.bot_transport.custom_emoji import (
     button_icon_custom_emoji_id,
     custom_emoji_enabled_from_env,
 )
-from app.bot_transport.storefront_ui import main_menu_keyboard
+from app.bot_transport.storefront_ui import main_menu_keyboard, text_trial_subscribe_required
 
 
 class TestFlag:
@@ -66,6 +66,10 @@ class TestApplyCustomEmoji:
         assert result.count("<tg-emoji") == 2
         assert EMOJI_TO_CUSTOM_ID["🎁"] in result
         assert EMOJI_TO_CUSTOM_ID["🔑"] in result
+
+    def test_trial_channel_gate_title_uses_animated_gift(self) -> None:
+        result = apply_custom_emoji(text_trial_subscribe_required("bravada_vpn"), enabled=True)
+        assert result.startswith(f'<b><tg-emoji emoji-id="{EMOJI_TO_CUSTOM_ID["🎁"]}">🎁</tg-emoji>')
 
 
 class TestKeyboardIcons:
