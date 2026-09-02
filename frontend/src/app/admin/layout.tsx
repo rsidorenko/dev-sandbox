@@ -89,23 +89,24 @@ function AdminGate({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-zinc-900">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/80 backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/80">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-6">
-            <div className="flex items-baseline gap-2">
-              <span className="text-lg font-bold text-brand-700 dark:text-brand-400">Bravada</span>
-              <span className="hidden text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 sm:inline">
-                Админ-панель
-              </span>
-            </div>
-            <nav className="flex gap-1">
-              {navLink("/admin/users", "Пользователи")}
-              {navLink("/admin/promocodes", "Промокоды")}
-              {navLink("/admin/plans", "Тарифы")}
-              {navLink("/admin/broadcast", "Рассылка")}
-              {navLink("/admin/stats", "Статистика")}
-            </nav>
+        <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6 lg:flex lg:gap-4">
+          <div className="flex min-w-0 items-baseline gap-2 lg:order-1 lg:shrink-0">
+            <span className="text-lg font-bold text-brand-700 dark:text-brand-400">Bravada</span>
+            <span className="hidden text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 sm:inline">
+              Админ-панель
+            </span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <nav
+            aria-label="Разделы админ-панели"
+            className="col-span-2 flex min-w-0 gap-1 overflow-x-auto pb-1 pt-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:order-2 lg:col-span-1 lg:flex-1 lg:justify-center lg:overflow-visible lg:py-0"
+          >
+            {navLink("/admin/users", "Пользователи")}
+            {navLink("/admin/promocodes", "Промокоды")}
+            {navLink("/admin/plans", "Тарифы")}
+            {navLink("/admin/broadcast", "Рассылка")}
+            {navLink("/admin/stats", "Статистика")}
+          </nav>
+          <div className="flex shrink-0 items-center gap-1.5 justify-self-end lg:order-3">
             <ThemeToggle />
             <button
               type="button"
@@ -117,7 +118,7 @@ function AdminGate({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">{children}</main>
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
     </div>
   );
 }

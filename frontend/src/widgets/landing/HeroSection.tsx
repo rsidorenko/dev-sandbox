@@ -11,10 +11,7 @@ export function HeroSection() {
       <AuroraBackground />
 
       <div className="relative mx-auto max-w-4xl px-4 text-center">
-        <span className="inline-block animate-fade-in-up rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium tracking-wide [animation-delay:0ms]">
-          Защищённое соединение
-        </span>
-        <h1 className="mt-6 animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl [animation-delay:100ms]">
+        <h1 className="animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl [animation-delay:0ms]">
           Защищённое соединение
           <br />
           <span className="bg-gradient-to-r from-brand-200 via-brand-400 to-brand-300 bg-clip-text text-transparent [background-size:200%_auto] animate-shimmer">

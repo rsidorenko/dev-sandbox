@@ -6,7 +6,7 @@ import inspect
 
 import app.runtime.raw_polling as raw_polling_mod
 from app.application.bootstrap import build_slice1_composition
-from app.bot_transport.storefront_ui import CB_HELP, rich_help_message
+from app.bot_transport.storefront_ui import CB_HELP, CB_MAIN_MENU, back_only_keyboard, rich_help_message
 from app.runtime.binding import process_raw_updates_with_bridge
 from app.runtime.raw_polling import RawPollingBatchResult, Slice1RawPollingRuntime, TelegramRawPollingClient
 from app.shared.correlation import new_correlation_id
@@ -212,6 +212,7 @@ def test_raw_polling_callback_help_forwards_native_rich_message() -> None:
         assert client.send_calls == []
         assert client.rich_calls[0]["chat_id"] == 42
         assert client.rich_calls[0]["rich_message"] == rich_help_message()
+        assert client.rich_calls[0]["reply_markup"] == back_only_keyboard(CB_MAIN_MENU)
 
     _run(main())
 

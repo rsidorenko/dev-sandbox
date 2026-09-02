@@ -16,6 +16,7 @@ from app.bot_transport.storefront_ui import (
     CB_CHECK_SUB,
     CB_CONFIRM_PAY,
     CB_CONNECT_DEVICE,
+    CB_CUSTOM_DAYS,
     CB_DEVICES,
     CB_HELP,
     CB_LINK_EMAIL,
@@ -23,10 +24,12 @@ from app.bot_transport.storefront_ui import (
     CB_MY_KEYS,
     CB_MY_SUB,
     CB_PLAN,
+    CB_PROMOCODE,
     CB_REFERRAL,
     CB_ROUTER,
     CB_SETTINGS,
     CB_TRIAL,
+    back_only_keyboard,
     link_email_keyboard,
     my_keys_menu_keyboard,
     my_subscription_keyboard,
@@ -434,7 +437,63 @@ def test_facade_callback_help_renders_storefront_help() -> None:
         assert pkg.message_text == text_help()
         assert pkg.rich_message == rich_help_message()
         assert pkg.parse_mode is None
-        assert pkg.reply_markup is None
+        assert pkg.reply_markup == back_only_keyboard(CB_MAIN_MENU)
+
+    _run(main())
+
+
+def test_facade_command_clears_custom_days_before_promo_input() -> None:
+    """Команда и переход в промокод не должны оставлять ввод «Своего тарифа» активным."""
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        uid = 4242
+
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CUSTOM_DAYS, user_id=uid, update_id=1),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _update(update_id=2, message=_base_message(user_id=uid, text="/start")),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_PROMOCODE, user_id=uid, update_id=3),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _update(update_id=4, message=_base_message(user_id=uid, text="SWAG")),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+
+        assert "целое число от 1 до 365" not in pkg.message_text
+        assert "Промокод" in pkg.message_text
+        assert pkg.parse_mode == "HTML"
+
+    _run(main())
+
+
+def test_facade_custom_days_result_uses_html_parse_mode() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        uid = 4343
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(callback_data=CB_CUSTOM_DAYS, user_id=uid, update_id=1),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+        pkg = await handle_slice1_telegram_update_to_rendered_message(
+            _update(update_id=2, message=_base_message(user_id=uid, text="10")),
+            c,
+            correlation_id=new_correlation_id(),
+        )
+
+        assert pkg.parse_mode == "HTML"
+        assert "<b>📦 Тариф: 10 дней</b>" in pkg.message_text
 
     _run(main())
 

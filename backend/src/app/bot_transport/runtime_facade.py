@@ -334,6 +334,13 @@ def _trim_inmemory_dict(d: dict[int, Any], *, max_size: int = _INMEMORY_DICT_MAX
             d.pop(next(iter(d)), None)
 
 
+def _clear_pending_text_input(uid: int) -> None:
+    """Отменить незавершённый ввод, когда пользователь меняет сценарий."""
+
+    _awaiting_custom_days.pop(uid, None)
+    _awaiting_promo_code.pop(uid, None)
+
+
 # ─── Media path constants per platform/step ──────────────────────────
 
 _STEP_MEDIA: dict[tuple[str, int], tuple[str | None, str | None]] = {
@@ -2459,7 +2466,7 @@ async def _render_storefront_response(
         )
 
     elif code in (CB_HELP, "slice1_help"):
-        text, rich_message = text_help(), rich_help_message()
+        text, keyboard, rich_message = text_help(), back_only_keyboard(CB_MAIN_MENU), rich_help_message()
 
     elif code == CB_ROUTER:
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
@@ -2821,6 +2828,7 @@ async def _render_storefront_response(
 
     elif code == CB_CUSTOM_DAYS:
         if uid is not None:
+            _awaiting_promo_code.pop(uid, None)
             _awaiting_custom_days[uid] = True
             _trim_inmemory_dict(_awaiting_custom_days)
         text = text_custom_days_prompt()
@@ -2837,6 +2845,7 @@ async def _render_storefront_response(
             return_target = CB_MAIN_MENU
             back_callback = CB_MAIN_MENU
         if uid is not None:
+            _awaiting_custom_days.pop(uid, None)
             _awaiting_promo_code[uid] = return_target
             _trim_inmemory_dict(_awaiting_promo_code)
         text = text_promo_prompt()
@@ -3088,6 +3097,11 @@ async def handle_slice1_telegram_update_to_rendered_message(
 ) -> RenderedMessagePackage:
     # Check for email linking text input (email address or verification code)
     uid = _extract_private_telegram_user_id(update)
+    if uid is not None:
+        message = update.get("message")
+        command_text = message.get("text") if isinstance(message, Mapping) else None
+        if isinstance(command_text, str) and command_text.lstrip().startswith("/"):
+            _clear_pending_text_input(uid)
     if uid is not None and not isinstance(update.get("callback_query"), Mapping):
         msg = update.get("message")
         if isinstance(msg, Mapping):
@@ -3105,6 +3119,7 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         reply_markup=custom_keyboard,
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
+                        parse_mode="HTML",
                     )
                 if _awaiting_promo_code.get(uid):
                     # Флаг сбрасывается только при успешном применении (внутри обработчика) —

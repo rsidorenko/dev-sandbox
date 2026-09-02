@@ -5,9 +5,9 @@
 
 // Каркас таблицы.
 export const adminTableWrap =
-  "overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800";
+  "touch-pan-x overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-zinc-700 dark:bg-zinc-800";
 
-export const adminTable = "w-full border-collapse text-left text-sm";
+export const adminTable = "min-w-max w-full border-collapse text-left text-sm";
 
 // Шапка: приглушённый фон, капитель, трекинг — как у «меток» сайта.
 export const adminTh =
@@ -38,6 +38,6 @@ export const adminBtnSecondary =
   "inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700";
 
 // Ссылка-таб навигации админки.
-export const adminNavActive = "rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white";
+export const adminNavActive = "shrink-0 whitespace-nowrap rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white";
 export const adminNavIdle =
-  "rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-800";
+  "shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-800";

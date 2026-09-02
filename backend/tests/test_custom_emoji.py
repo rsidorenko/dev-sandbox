@@ -125,13 +125,13 @@ class TestKeyboardIcons:
         assert button["text"] == "Обновить"
         assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["🔄"]
 
-    def test_apply_keyboard_keeps_text_when_only_emoji(self) -> None:
-        # Пустой text Bot API отклонит — текст-из-одного-эмодзи не трогаем
+    def test_apply_keyboard_hides_text_when_only_emoji(self) -> None:
+        # Невидимый символ сохраняет валидный text для Bot API без второго статичного глифа.
         kb = {"inline_keyboard": [[{"text": "🔑", "callback_data": "b"}]]}
         apply_keyboard_custom_emoji(kb, enabled=True)
         button = kb["inline_keyboard"][0][0]
         assert button["icon_custom_emoji_id"] == EMOJI_TO_CUSTOM_ID["🔑"]
-        assert button["text"] == "🔑"
+        assert button["text"] == "\u2060"
 
     def test_apply_keyboard_handles_none_and_foreign_shapes(self) -> None:
         assert apply_keyboard_custom_emoji(None, enabled=True) is None

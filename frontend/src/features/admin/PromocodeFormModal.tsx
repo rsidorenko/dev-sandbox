@@ -175,7 +175,7 @@ export function PromocodeFormModal({
 
   return (
     <Modal onClose={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-800">
+      <div className="w-full max-w-lg rounded-2xl border border-gray-100 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-800 sm:p-6">
         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
           {isEdit ? "Редактировать промокод" : "Новый промокод"}
         </h2>
@@ -199,7 +199,7 @@ export function PromocodeFormModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={labelClass} htmlFor="audience">
                 Для кого
@@ -290,7 +290,7 @@ export function PromocodeFormModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={labelClass} htmlFor="max_redemptions">
                 Лимит погашений (пусто = ∞)
@@ -338,7 +338,7 @@ export function PromocodeFormModal({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={labelClass} htmlFor="note">
                 Заметка (опц.)
@@ -353,7 +353,7 @@ export function PromocodeFormModal({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onClose}

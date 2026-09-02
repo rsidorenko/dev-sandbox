@@ -62,7 +62,7 @@ export function AddDaysModal({
 
   return (
     <Modal onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-800">
+      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-800 sm:p-6">
         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Добавить дни подписки</h2>
         <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Telegram ID {user.telegram_user_id} · тариф {user.plan_id ?? "—"} · до {fmt(user.active_until)}
@@ -90,7 +90,7 @@ export function AddDaysModal({
           />
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}

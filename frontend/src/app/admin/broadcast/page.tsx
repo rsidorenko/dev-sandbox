@@ -535,7 +535,7 @@ export default function AdminBroadcastPage() {
                   <p className="text-xs text-gray-400 dark:text-gray-500">Нет ссылок. Например: «Наш сайт» → https://bravada-connect.ru</p>
                 )}
                 {urlButtons.map((b, i) => (
-                  <div key={i} className="flex gap-2">
+                  <div key={i} className="flex flex-col gap-2 sm:flex-row">
                     <input
                       type="text"
                       value={b.label}
@@ -543,7 +543,7 @@ export default function AdminBroadcastPage() {
                         setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
                       }
                       placeholder="Текст"
-                      className={`${adminInput} w-1/3`}
+                      className={`${adminInput} w-full sm:w-1/3`}
                     />
                     <input
                       type="url"
@@ -552,12 +552,12 @@ export default function AdminBroadcastPage() {
                         setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
                       }
                       placeholder="https://…"
-                      className={`${adminInput} flex-1`}
+                      className={`${adminInput} w-full sm:flex-1`}
                     />
                     <button
                       type="button"
                       onClick={() => setUrlButtons((prev) => prev.filter((_, j) => j !== i))}
-                      className="rounded-lg px-2 text-sm font-semibold text-red-600 transition hover:text-red-700"
+                      className="self-end rounded-lg px-2 py-2 text-sm font-semibold text-red-600 transition hover:text-red-700 sm:self-auto"
                       aria-label="Удалить ссылку"
                     >
                       ×

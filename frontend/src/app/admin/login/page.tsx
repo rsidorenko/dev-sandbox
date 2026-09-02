@@ -44,7 +44,7 @@ function AdminLoginForm() {
 
   return (
     <section className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-zinc-900">
-      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Вход в админку</h1>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Логин и пароль администратора</p>
 

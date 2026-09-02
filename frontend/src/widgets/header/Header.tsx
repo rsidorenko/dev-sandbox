@@ -52,25 +52,25 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-gray-100 bg-white/80 backdrop-blur-md dark:border-zinc-700 dark:bg-zinc-900/80">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <Link href="/" className="text-xl font-bold text-brand-700 dark:text-brand-400">
+      <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-3 xl:px-6">
+        <Link href="/" className="shrink-0 text-xl font-bold text-brand-700 dark:text-brand-400">
           Bravada
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="hidden min-w-0 flex-1 items-center justify-end gap-3 xl:flex 2xl:gap-4">
           {links.map((l) => (
             <Link
               key={l.href}
               href={l.href}
-              className="text-sm font-medium text-gray-600 transition hover:text-brand-600 dark:text-gray-300 dark:hover:text-brand-400"
+              className="whitespace-nowrap text-sm font-medium text-gray-600 transition hover:text-brand-600 dark:text-gray-300 dark:hover:text-brand-400"
             >
               {l.label}
             </Link>
           ))}
           <button
             onClick={toggleTheme}
-            className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+            className="shrink-0 rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
             aria-label="Сменить тему"
           >
             {themeIcon}
@@ -79,14 +79,14 @@ export function Header() {
           <TelegramButton />
           <Link
             href="/dashboard"
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             Личный кабинет
           </Link>
         </nav>
 
         {/* Mobile */}
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 xl:hidden">
           {authenticated && <NotificationsBell />}
           <button
             onClick={toggleTheme}

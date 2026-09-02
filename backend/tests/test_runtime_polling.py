@@ -6,7 +6,7 @@ import inspect
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport import handle_slice1_telegram_update_to_runtime_action as public_handle_slice1
-from app.bot_transport.storefront_ui import CB_HELP, rich_help_message
+from app.bot_transport.storefront_ui import CB_HELP, CB_MAIN_MENU, back_only_keyboard, rich_help_message
 from app.runtime.polling import (
     PollingBatchResult,
     PollingRuntimeConfig,
@@ -229,7 +229,7 @@ def test_polling_callback_help_sends_native_rich_message() -> None:
         assert client.delete_calls == [(42, 7)]
         assert client.rich_calls[0]["chat_id"] == 42
         assert client.rich_calls[0]["rich_message"] == rich_help_message()
-        assert client.rich_calls[0]["reply_markup"] is None
+        assert client.rich_calls[0]["reply_markup"] == back_only_keyboard(CB_MAIN_MENU)
 
     _run(main())
 
