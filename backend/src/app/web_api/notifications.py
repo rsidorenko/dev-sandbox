@@ -30,6 +30,7 @@ from app.persistence.postgres_web_notifications import (
     PostgresWebNotificationRepository,
     decode_payload,
 )
+from app.web_api.channel_subscription import require_channel_subscription
 from app.web_api.helpers import safe_json_error
 from app.web_api.middleware import require_auth
 
@@ -284,6 +285,10 @@ async def handle_notification_claim(request: Request) -> JSONResponse:
         job_id = str(payload.get("job_id") or "")
         if not isinstance(bonus, dict) or not job_id:
             return safe_json_error(400, "no_bonus")
+
+        subscription_error = await require_channel_subscription(request, telegram_user_id)
+        if subscription_error is not None:
+            return subscription_error
 
         if bonus.get("type") == "promo":
             return await _claim_promo(pool, internal_user_id, telegram_user_id, job_id)

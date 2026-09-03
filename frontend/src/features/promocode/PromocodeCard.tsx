@@ -22,14 +22,17 @@ type CodeForm = z.infer<typeof codeSchema>;
 export function PromocodeCard() {
   const { applied, apply, clear } = usePromocode();
   const [error, setError] = useState("");
+  const [channelSubscriptionRequired, setChannelSubscriptionRequired] = useState(false);
   const [clearing, setClearing] = useState(false);
   const form = useForm<CodeForm>({ resolver: zodResolver(codeSchema), defaultValues: { code: "" } });
 
   const onApply = form.handleSubmit(async ({ code }) => {
     setError("");
+    setChannelSubscriptionRequired(false);
     const result = await apply(code.trim().toUpperCase());
     if (!result.ok) {
       setError(PROMO_ERROR_MESSAGES[result.error] ?? "Не удалось применить промокод. Попробуйте позже.");
+      setChannelSubscriptionRequired(result.error === "channel_subscription_required");
       return;
     }
     form.reset({ code: "" });
@@ -95,7 +98,24 @@ export function PromocodeCard() {
           {form.formState.errors.code && (
             <p className="text-xs text-red-600 dark:text-red-400">{form.formState.errors.code.message}</p>
           )}
-          {error && <Alert className="mt-1">{error}</Alert>}
+          {error && (
+            <Alert className="mt-1">
+              {error}
+              {channelSubscriptionRequired && (
+                <>
+                  {" "}
+                  <a
+                    href="https://t.me/bravada_vpn"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold underline"
+                  >
+                    Подписаться на канал
+                  </a>
+                </>
+              )}
+            </Alert>
+          )}
         </form>
       )}
     </div>

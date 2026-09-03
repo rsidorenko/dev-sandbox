@@ -129,6 +129,7 @@ from app.bot_transport.storefront_ui import (
     back_only_keyboard,
     balance_keyboard,
     buy_vpn_keyboard,
+    channel_subscribe_gate_keyboard,
     confirm_pay_keyboard,
     connect_device_keyboard,
     custom_days_prompt_keyboard,
@@ -217,7 +218,10 @@ from app.bot_transport.storefront_ui import (
     text_balance_insufficient,
     text_balance_payment_in_progress,
     text_balance_payment_success,
+    text_bonus_subscribe_required,
+    text_bonus_subscribe_still_missing,
     text_buy_vpn_intro,
+    text_channel_subscription_check_failed,
     text_connect_device,
     text_custom_days_invalid,
     text_custom_days_prompt,
@@ -258,7 +262,6 @@ from app.bot_transport.storefront_ui import (
     text_trial_subscribe_required,
     text_trial_subscribe_still_missing,
     text_welcome,
-    trial_subscribe_gate_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -800,6 +803,18 @@ async def _handle_promo_code_input(
     if not allowed:
         return text_promo_rate_limited(), prompt_keyboard
 
+    retry_callback_data = CB_PROMOCODE
+    if return_target.startswith(CB_CONFIRM_PAY):
+        retry_callback_data = f"{CB_PROMO_AT}{return_target[len(CB_CONFIRM_PAY) :]}"
+    subscription_gate = await _channel_subscription_gate_response(
+        composition,
+        uid,
+        retry_callback_data=retry_callback_data,
+        is_trial=False,
+    )
+    if subscription_gate is not None:
+        return subscription_gate
+
     internal_user_id = await _get_internal_user_id(composition, uid)
     resolved_iid = internal_user_id or f"u{uid}"
     status, code, promo = await _apply_promo_to_user(composition, resolved_iid, user_text)
@@ -1034,9 +1049,70 @@ async def _has_active_subscription(
     return snap is not None and snap.state_label == "active"
 
 
+async def _channel_subscription_gate_response(
+    composition: Slice1Composition,
+    uid: int,
+    *,
+    retry_callback_data: str,
+    is_trial: bool,
+    retry: bool = False,
+) -> tuple[str, dict[str, Any] | None] | None:
+    """Вернуть экран подписки либо ``None`` при подтверждённом членстве/выключенной фиче.
+
+    Для бесплатных выгод политика строгая: выдача допускается только для ``True``.
+    ``False`` означает отсутствие подписки, ``None`` — техническую невозможность
+    проверить её. В обоих случаях исходная операция не выполняется и не потребляется.
+    """
+    gate = composition.trial_channel_gate
+    if gate is None:
+        if not composition.channel_subscription_required:
+            return None
+        from app.application.trial_channel_gate import channel_username_from_env
+
+        channel_username = channel_username_from_env()
+        logging.getLogger(__name__).error("channel_subscription_gate.not_configured user_id=%s", uid)
+        return (
+            text_channel_subscription_check_failed(),
+            channel_subscribe_gate_keyboard(
+                channel_username,
+                retry_callback_data=retry_callback_data,
+            ),
+        )
+
+    from app.application.trial_channel_gate import channel_username_from_env
+
+    channel_username = channel_username_from_env()
+    try:
+        is_member = await gate.is_member(uid)
+    except Exception:
+        logging.getLogger(__name__).warning("channel_subscription_gate.is_member_raised user_id=%s", uid)
+        is_member = None
+
+    if is_member is True:
+        return None
+
+    if is_member is None:
+        logging.getLogger(__name__).warning("channel_subscription_gate.check_failed user_id=%s", uid)
+        text = text_channel_subscription_check_failed()
+    elif is_trial:
+        text = text_trial_subscribe_still_missing() if retry else text_trial_subscribe_required(channel_username)
+    else:
+        text = text_bonus_subscribe_still_missing() if retry else text_bonus_subscribe_required()
+
+    return (
+        text,
+        channel_subscribe_gate_keyboard(
+            channel_username,
+            retry_callback_data=retry_callback_data,
+        ),
+    )
+
+
 async def _handle_trial_activation(
     composition: Slice1Composition,
     uid: int | None,
+    *,
+    subscription_retry: bool = False,
 ) -> tuple[str, dict[str, Any] | None]:
     """Activate 3-day trial: create VLESS keys, set trial dates.
 
@@ -1055,25 +1131,16 @@ async def _handle_trial_activation(
     if id_rec is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    # Гейт подписки на канал — ДО атомарного claim, иначе отказ (или сбой проверки)
-    # «сжёг» бы триал. Fail-open: None (ошибка проверки) → выдаём триал как раньше.
-    gate = composition.trial_channel_gate
-    if gate is not None:
-        from app.application.trial_channel_gate import channel_username_from_env
-
-        channel_username = channel_username_from_env()
-        try:
-            is_member = await gate.is_member(uid)
-        except Exception:
-            logging.getLogger(__name__).warning("trial_channel_gate.is_member_raised user_id=%s", uid)
-            is_member = None
-        if is_member is False:
-            return (
-                text_trial_subscribe_required(channel_username),
-                trial_subscribe_gate_keyboard(channel_username),
-            )
-        if is_member is None:
-            logging.getLogger(__name__).warning("trial_channel_gate.check_failed_fail_open user_id=%s", uid)
+    # Проверяем до атомарного claim: отказ или сбой Telegram API не должны сжечь триал.
+    subscription_gate = await _channel_subscription_gate_response(
+        composition,
+        uid,
+        retry_callback_data=CB_CHECK_SUB,
+        is_trial=True,
+        retry=subscription_retry,
+    )
+    if subscription_gate is not None:
+        return subscription_gate
 
     pool = _get_pool_from_composition(composition)
 
@@ -1183,6 +1250,15 @@ async def _handle_broadcast_days_claim(
     if not allowed:
         return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
 
+    subscription_gate = await _channel_subscription_gate_response(
+        composition,
+        uid,
+        retry_callback_data=f"{CB_BROADCAST_DAYS}{job_id}",
+        is_trial=False,
+    )
+    if subscription_gate is not None:
+        return subscription_gate
+
     id_rec = await composition.identity.find_by_telegram_user_id(uid)
     if id_rec is None:
         return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
@@ -1276,6 +1352,15 @@ async def _handle_broadcast_promo_claim(
         allowed = True  # fail-open: сбой лимитера не должен блокировать применение
     if not allowed:
         return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_MAIN_MENU)
+
+    subscription_gate = await _channel_subscription_gate_response(
+        composition,
+        uid,
+        retry_callback_data=f"{CB_BROADCAST_PROMO}{job_id}",
+        is_trial=False,
+    )
+    if subscription_gate is not None:
+        return subscription_gate
 
     id_rec = await composition.identity.find_by_telegram_user_id(uid)
     if id_rec is None:
@@ -2501,30 +2586,9 @@ async def _render_storefront_response(
         text, keyboard = await _handle_trial_activation(composition, uid)
 
     elif code == CB_CHECK_SUB:
-        # Повторная проверка подписки после клика «Я подписался». True → выдать триал;
-        # None → fail-open (не блокируем триал сбоем проверки); False → просим ещё раз.
-        gate = composition.trial_channel_gate
-        if gate is None or uid is None:
-            # Фича выключена / чат не опознан — обычная активация (или её ошибка).
-            text, keyboard = await _handle_trial_activation(composition, uid)
-        else:
-            from app.application.trial_channel_gate import channel_username_from_env
-
-            channel_username = channel_username_from_env()
-            try:
-                is_member = await gate.is_member(uid)
-            except Exception:
-                logging.getLogger(__name__).warning("trial_channel_gate.is_member_raised user_id=%s", uid)
-                is_member = None
-            if is_member is False:
-                text, keyboard = (
-                    text_trial_subscribe_still_missing(),
-                    trial_subscribe_gate_keyboard(channel_username),
-                )
-            else:
-                if is_member is None:
-                    logging.getLogger(__name__).warning("trial_channel_gate.check_failed_fail_open user_id=%s", uid)
-                text, keyboard = await _handle_trial_activation(composition, uid)
+        # Повторная проверка подписки перед триалом. Внутри одна проверка,
+        # после которой либо выдаётся триал, либо возвращается исходный экран.
+        text, keyboard = await _handle_trial_activation(composition, uid, subscription_retry=True)
 
     elif code.startswith(CB_BROADCAST_DAYS):
         # Бонус-кнопка из рассылки: "bc_days:{job_id}". Параметры бонуса (дни) хранятся

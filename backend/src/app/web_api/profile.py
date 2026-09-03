@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.domain.status_view import remaining_days
+from app.web_api.channel_subscription import require_channel_subscription
 from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
@@ -368,6 +369,10 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
         telegram_user_id = auth_result.get("telegram_user_id")
         if telegram_user_id is None:
             return _safe_json_error(403, "no_telegram_identity")
+
+        subscription_error = await require_channel_subscription(request, int(telegram_user_id))
+        if subscription_error is not None:
+            return subscription_error
 
         pool: asyncpg.Pool = request.app.state.pool
         identity = await pool.fetchrow(

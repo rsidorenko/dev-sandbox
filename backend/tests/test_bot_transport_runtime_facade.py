@@ -1003,8 +1003,8 @@ def test_facade_trial_gate_subscribed_activates() -> None:
     _run(main())
 
 
-def test_facade_trial_gate_check_error_fail_open_activates() -> None:
-    """Fail-open: ошибка проверки (None) не блокирует триал."""
+def test_facade_trial_gate_check_error_does_not_activate() -> None:
+    """Техническая ошибка проверки не позволяет получить бесплатный триал."""
 
     async def main() -> None:
         c = _gate_composition(None)
@@ -1014,7 +1014,7 @@ def test_facade_trial_gate_check_error_fail_open_activates() -> None:
         pkg = await handle_slice1_telegram_update_to_rendered_message(
             _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
         )
-        assert "Пробный период активирован" in pkg.message_text
+        assert "не удалось проверить подписку" in pkg.message_text
 
     _run(main())
 
@@ -1033,9 +1033,7 @@ def test_facade_check_sub_after_subscribing_activates() -> None:
         assert "Пробный период активирован" in pkg.message_text
         gate = c.trial_channel_gate
         assert isinstance(gate, _FakeGate)
-        # Проверка зовётся дважды: в ветке check_sub (дружелюбный отказ) и в активации
-        # (охрана claim перед выдачей) — второй вызов гарантирует отсутствие гонки.
-        assert gate.calls == [42, 42]
+        assert gate.calls == [42]
 
     _run(main())
 

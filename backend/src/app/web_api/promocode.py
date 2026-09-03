@@ -30,6 +30,7 @@ from app.domain.promo import (
     redeem_block_reason,
     validate_code_format,
 )
+from app.web_api.channel_subscription import require_channel_subscription
 from app.web_api.helpers import safe_json_error
 from app.web_api.middleware import require_auth
 
@@ -69,7 +70,7 @@ def _applied_descriptor(promo: PromoCode, *, expires_at: datetime, valid: bool) 
     }
 
 
-async def _require_identity(request: Request) -> tuple[asyncpg.Pool, str] | JSONResponse:
+async def _require_identity(request: Request) -> tuple[asyncpg.Pool, str, int] | JSONResponse:
     """Auth + resolve internal_user_id. Web-only (email) accounts carry a non-positive
     telegram_user_id and are resolved by the same DB lookup as profile/payment."""
     auth_result = await require_auth(request)
@@ -85,7 +86,7 @@ async def _require_identity(request: Request) -> tuple[asyncpg.Pool, str] | JSON
     )
     if identity is None:
         return safe_json_error(404, "identity_not_found")
-    return pool, identity["internal_user_id"]
+    return pool, identity["internal_user_id"], int(telegram_user_id)
 
 
 async def handle_get_promocode(request: Request) -> JSONResponse:
@@ -151,7 +152,11 @@ async def handle_apply_promocode(request: Request) -> JSONResponse:
         resolved = await _require_identity(request)
         if isinstance(resolved, JSONResponse):
             return resolved
-        pool, internal_user_id = resolved
+        pool, internal_user_id, telegram_user_id = resolved
+
+        subscription_error = await require_channel_subscription(request, telegram_user_id)
+        if subscription_error is not None:
+            return subscription_error
 
         try:
             data = await request.json()
@@ -240,7 +245,7 @@ async def handle_clear_promocode(request: Request) -> JSONResponse:
         resolved = await _require_identity(request)
         if isinstance(resolved, JSONResponse):
             return resolved
-        pool, internal_user_id = resolved
+        pool, internal_user_id, _telegram_user_id = resolved
         from app.persistence.postgres_promo import PostgresPromoAppliedRepository
 
         await PostgresPromoAppliedRepository(pool).clear(internal_user_id)

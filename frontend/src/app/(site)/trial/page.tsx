@@ -14,9 +14,11 @@ type Status =
   | "success"
   | "already_used"
   | "already_subscribed"
+  | "channel_subscription_required"
   | "error";
 
 const TG_FALLBACK = `https://t.me/${siteConfig.botUsername}?start=trial`;
+const CHANNEL_URL = "https://t.me/bravada_vpn";
 
 export default function TrialPage() {
   const { loading, authenticated, profile, refresh } = useAuth();
@@ -40,6 +42,8 @@ export default function TrialPage() {
       setStatus("already_used");
     } else if (res.error === "already_subscribed") {
       setStatus("already_subscribed");
+    } else if (res.error === "channel_subscription_required") {
+      setStatus("channel_subscription_required");
     } else if (res.error === "unauthorized") {
       // Сессия истекла — на вход с возвратом сюда. Сохраняем ?ref= для атрибуции.
       const ref = new URLSearchParams(window.location.search).get("ref");
@@ -146,6 +150,36 @@ export default function TrialPage() {
                 >
                   В личный кабинет
                 </Link>
+              </div>
+            </>
+          )}
+
+          {status === "channel_subscription_required" && (
+            <>
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-2xl dark:bg-brand-900/40">
+                🎁
+              </div>
+              <h1 className="mt-4 text-xl font-bold text-gray-900 dark:text-gray-100">
+                Пробный период — для подписчиков канала
+              </h1>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                Подпишитесь на наш Telegram-канал, затем вернитесь сюда и повторите проверку.
+              </p>
+              <div className="mt-6 flex flex-col gap-2">
+                <a
+                  href={CHANNEL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
+                >
+                  Подписаться на канал
+                </a>
+                <button
+                  onClick={() => void runActivation()}
+                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  Я подписался — проверить
+                </button>
               </div>
             </>
           )}

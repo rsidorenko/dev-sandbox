@@ -87,6 +87,7 @@ function ClaimButton({
 export function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [channelSubscriptionRequired, setChannelSubscriptionRequired] = useState(false);
   const {
     items,
     unreadCount,
@@ -126,9 +127,11 @@ export function NotificationsBell() {
 
   const handleClaim = async (id: number) => {
     setClaimError(null);
+    setChannelSubscriptionRequired(false);
     const outcome = await claim(id);
     if (!outcome.ok) {
       setClaimError(CLAIM_ERROR_MESSAGES[outcome.error] || "Не удалось получить бонус.");
+      setChannelSubscriptionRequired(outcome.error === "channel_subscription_required");
     }
   };
 
@@ -212,6 +215,19 @@ export function NotificationsBell() {
           {claimError && (
             <div className="border-t border-gray-100 px-4 py-2 text-xs text-red-600 dark:border-zinc-700 dark:text-red-400">
               {claimError}
+              {channelSubscriptionRequired && (
+                <>
+                  {" "}
+                  <a
+                    href="https://t.me/bravada_vpn"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold underline"
+                  >
+                    Подписаться на канал
+                  </a>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -13,6 +13,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app.application.trial_channel_gate import (
+    TelegramChannelMembershipChecker,
+    channel_username_from_env,
+    trial_channel_gate_enabled_from_env,
+)
 from app.web_api.admin_auth import handle_admin_login, handle_admin_logout
 from app.web_api.admin_broadcast import (
     handle_admin_broadcast_estimate,
@@ -294,6 +299,24 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         app.state.vless_provider = StubVlessProvider()
 
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
+    app.state.channel_subscription_required = trial_channel_gate_enabled_from_env()
+    app.state.channel_membership_checker = None
+    if app.state.channel_subscription_required:
+        if bot_token:
+            app.state.channel_membership_checker = TelegramChannelMembershipChecker(
+                bot_token,
+                channel_username_from_env(),
+            )
+        else:
+            _LOGGER.error("channel_subscription_gate_enabled_without_bot_token")
+
+    async def _close_channel_membership_checker() -> None:
+        checker = getattr(app.state, "channel_membership_checker", None)
+        if checker is not None:
+            await checker.aclose()
+
+    app.add_event_handler("shutdown", _close_channel_membership_checker)
+
     if bot_token:
         from app.runtime.telegram_httpx_raw_client import HttpxTelegramRawPollingClient
 

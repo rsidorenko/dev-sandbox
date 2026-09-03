@@ -81,11 +81,21 @@ class _PromoClaimPool:
 
     def __init__(self, *, claim_row: dict | None = None) -> None:
         self.claim_row = claim_row
+        self.claim_attempts = 0
 
     async def fetchrow(self, sql: str, *args):
         if "broadcast_promo_claims" in sql:
+            self.claim_attempts += 1
             return self.claim_row
         return None
+
+
+class _FakeGate:
+    def __init__(self, result: bool | None) -> None:
+        self.result = result
+
+    async def is_member(self, user_id: int) -> bool | None:
+        return self.result
 
 
 def test_promo_claim_refuses_when_uid_none() -> None:
@@ -156,6 +166,26 @@ def test_promo_claim_refuses_when_no_claim_row() -> None:
         assert text == _broadcast_bonus_unavailable_text()
 
     _run(main())
+
+
+def test_promo_claim_requires_channel_subscription_before_looking_up_code() -> None:
+    """Неподписанный не получает доступ к промокоду и не меняет promo_applied."""
+
+    async def main() -> None:
+        c = build_slice1_composition(trial_channel_gate=_FakeGate(False))
+        await _register(c, uid=42)
+        pool = _PromoClaimPool(claim_row={"code": _CODE})
+        c.identity._pool = pool  # type: ignore[attr-defined]
+        text, keyboard = await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+        return text, keyboard, pool
+
+    text, keyboard, pool = _run(main())
+    assert "Подарки и промокоды — для подписчиков канала" in text
+    assert pool.claim_attempts == 0
+    assert keyboard is not None
+    assert any(
+        button.get("callback_data") == f"bc_promo:{_JOB_ID}" for row in keyboard["inline_keyboard"] for button in row
+    )
 
 
 def test_promo_claim_precheck_already_applied(monkeypatch) -> None:

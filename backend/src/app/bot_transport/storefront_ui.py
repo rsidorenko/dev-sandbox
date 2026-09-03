@@ -63,7 +63,7 @@ CB_CONNECT_MAC = "connect_mac"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
-# Гейт подписки на канал перед выдачей триала: «Я подписался — проверить».
+# Гейт подписки на канал перед выдачей бесплатных выгод: «Я подписался — проверить».
 CB_CHECK_SUB = "check_sub"
 CB_ALL_KEYS = "all_keys"
 CB_SERVER = "server:"
@@ -329,18 +329,28 @@ def welcome_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
     return main_menu_keyboard()
 
 
-# ─── Гейт подписки на канал перед выдачей триала ──────────────────────
+# ─── Гейт подписки на канал перед выдачей бесплатных выгод ────────────
 
 
-def trial_subscribe_gate_keyboard(channel_username: str) -> dict[str, Any]:
-    """Клавиатура экрана «подпишитесь на канал»: ссылка на канал + повторная проверка."""
+def channel_subscribe_gate_keyboard(
+    channel_username: str,
+    *,
+    retry_callback_data: str,
+    back_callback_data: str = CB_MAIN_MENU,
+) -> dict[str, Any]:
+    """Клавиатура проверки подписки с возвратом к исходному действию."""
     return _inline_kb(
         [
             [{"text": "📢 Подписаться на канал", "url": f"https://t.me/{channel_username.lstrip('@')}"}],
-            [{"text": "🔄 Я подписался — проверить", "callback_data": CB_CHECK_SUB}],
-            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
+            [{"text": "🔄 Я подписался — проверить", "callback_data": retry_callback_data}],
+            [{"text": "↩️ Назад", "callback_data": back_callback_data}],
         ]
     )
+
+
+def trial_subscribe_gate_keyboard(channel_username: str) -> dict[str, Any]:
+    """Совместимый shortcut для экрана пробного периода."""
+    return channel_subscribe_gate_keyboard(channel_username, retry_callback_data=CB_CHECK_SUB)
 
 
 def text_trial_subscribe_required(_channel_username: str) -> str:
@@ -351,6 +361,24 @@ def text_trial_subscribe_still_missing() -> str:
     return (
         "😕 Пока не видим вашу подписку.\n\n"
         "Убедитесь, что вы подписались на канал, и нажмите «🔄 Я подписался — проверить» ещё раз."
+    )
+
+
+def text_bonus_subscribe_required() -> str:
+    return "<b>🎁 Подарки и промокоды — для подписчиков канала</b>\n\nПодпишись на наш канал"
+
+
+def text_bonus_subscribe_still_missing() -> str:
+    return (
+        "😕 Пока не видим вашу подписку.\n\n"
+        "Убедитесь, что вы подписались на канал, и нажмите «🔄 Я подписался — проверить» ещё раз."
+    )
+
+
+def text_channel_subscription_check_failed() -> str:
+    return (
+        "⚠️ Сейчас не удалось проверить подписку на канал.\n\n"
+        "Попробуйте нажать «🔄 Я подписался — проверить» ещё раз немного позже."
     )
 
 

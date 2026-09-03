@@ -46,6 +46,7 @@ export const PROMO_ERROR_MESSAGES: Record<string, string> = {
   already_used: "Вы уже активировали этот промокод ранее.",
   ineligible: "Промокод недоступен.",
   wrong_audience: "Этот промокод недоступен для вашей учётной записи.",
+  channel_subscription_required: "Промокоды доступны подписчикам нашего Telegram-канала.",
 };
 
 export const promoApi = {

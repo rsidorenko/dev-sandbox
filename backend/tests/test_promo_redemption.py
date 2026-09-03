@@ -9,6 +9,7 @@ In-memory seam (pool=None) — как test_balance_payment_service. Покрыв
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from app.application.balance_payment_service import (
@@ -413,6 +414,25 @@ def test_bot_promo_input_applies_valid_code():
     applied = _run(c.promo_applied_repo.get(uid))
     assert applied is not None and applied.code == "WELCOME"
     assert keyboard is not None  # main menu keyboard
+
+
+def test_bot_promo_input_requires_channel_subscription_before_applying_code():
+    from app.bot_transport.runtime_facade import _handle_promo_code_input
+
+    class _FakeGate:
+        async def is_member(self, user_id: int) -> bool:
+            return False
+
+    c, uid = _composition()
+    c = replace(c, trial_channel_gate=_FakeGate())
+    _run(c.promo_code_repo.create(_promo(value=15)))
+
+    text, keyboard = _run(_handle_promo_code_input(c, 9001, "WELCOME"))
+
+    assert "Подарки и промокоды — для подписчиков канала" in text
+    assert _run(c.promo_applied_repo.get(uid)) is None
+    assert keyboard is not None
+    assert any(button.get("callback_data") == "enter_promo" for row in keyboard["inline_keyboard"] for button in row)
 
 
 def test_bot_promo_input_rejects_bad_format():

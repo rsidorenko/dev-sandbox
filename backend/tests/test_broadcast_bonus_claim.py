@@ -54,9 +54,11 @@ class _ClaimPool:
     def __init__(self, *, claim_row: dict | None = None) -> None:
         self.claim_row = claim_row
         self.trial_used_updates = 0
+        self.claim_attempts = 0
 
     async def fetchrow(self, sql: str, *args):
         if "RETURNING DAYS" in sql.upper():
+            self.claim_attempts += 1
             return self.claim_row
         return None
 
@@ -64,6 +66,14 @@ class _ClaimPool:
         if "TRIAL_USED" in sql.upper():
             self.trial_used_updates += 1
         return "UPDATE 1"
+
+
+class _FakeGate:
+    def __init__(self, result: bool | None) -> None:
+        self.result = result
+
+    async def is_member(self, user_id: int) -> bool | None:
+        return self.result
 
 
 def test_claim_refuses_when_uid_none() -> None:
@@ -134,6 +144,40 @@ def test_claim_refuses_when_no_eligible_row() -> None:
         assert text == _broadcast_bonus_unavailable_text()
 
     _run(main())
+
+
+def test_claim_requires_confirmed_channel_subscription_before_consuming_bonus() -> None:
+    """Неподписанный не делает атомарный UPDATE и может получить тот же подарок позже."""
+
+    async def main() -> None:
+        c = build_slice1_composition(trial_channel_gate=_FakeGate(False))
+        await _register(c, uid=42)
+        pool = _ClaimPool(claim_row={"days": 5})
+        c.identity._pool = pool  # type: ignore[attr-defined]
+        text, keyboard = await _handle_broadcast_days_claim(c, 42, _JOB_ID)
+        return text, keyboard, pool
+
+    text, keyboard, pool = _run(main())
+    assert "Подарки и промокоды — для подписчиков канала" in text
+    assert pool.claim_attempts == 0
+    assert keyboard is not None
+    assert any(
+        button.get("callback_data") == f"bc_days:{_JOB_ID}" for row in keyboard["inline_keyboard"] for button in row
+    )
+
+
+def test_claim_does_not_consume_bonus_when_channel_check_fails() -> None:
+    async def main() -> None:
+        c = build_slice1_composition(trial_channel_gate=_FakeGate(None))
+        await _register(c, uid=42)
+        pool = _ClaimPool(claim_row={"days": 5})
+        c.identity._pool = pool  # type: ignore[attr-defined]
+        text, _keyboard = await _handle_broadcast_days_claim(c, 42, _JOB_ID)
+        return text, pool
+
+    text, pool = _run(main())
+    assert "не удалось проверить подписку" in text
+    assert pool.claim_attempts == 0
 
 
 def test_claim_grants_days_and_closes_trial_on_success(monkeypatch) -> None:

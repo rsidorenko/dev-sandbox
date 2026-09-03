@@ -62,6 +62,7 @@ export const CLAIM_ERROR_MESSAGES: Record<string, string> = {
   no_bonus: "В этом уведомлении нет бонуса.",
   rate_limited: "Слишком часто. Попробуйте чуть позже.",
   not_found: "Уведомление не найдено.",
+  channel_subscription_required: "Бонус доступен подписчикам нашего Telegram-канала.",
   network_error: "Ошибка сети. Попробуйте позже.",
 };
 

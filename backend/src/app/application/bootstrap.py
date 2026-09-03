@@ -99,8 +99,11 @@ class Slice1Composition:
     promo_applied_repo: PromoAppliedRepository
     bot_username: str
     vless_provider: VlessProviderPort | None = None
-    #: Гейт подписки на канал перед выдачей триала; None — фича выключена (гейт не применяется).
+    #: Проверяющий Bot API клиент; None допустим только при выключенном гейте или ошибке конфигурации.
     trial_channel_gate: TelegramChannelMembershipChecker | None = None
+    #: Правило подписки для бесплатных выгод. Отдельно от клиента, чтобы ошибка конфигурации
+    #: не превращалась в обход проверки.
+    channel_subscription_required: bool = False
 
 
 def build_slice1_composition(
@@ -168,9 +171,10 @@ def build_slice1_composition(
     promo_applied = promo_applied_repo or InMemoryPromoAppliedRepository()
     resolved_bot_username = bot_username or os.environ.get("BOT_USERNAME", "")
     # Гейт подписки на канал: автоконструирование только при включённом флаге и наличии
-    # BOT_TOKEN (checker без токена бесполезен — каждый вызов упал бы в fail-open None).
+    # BOT_TOKEN. Флаг остаётся отдельным от клиента: без токена выдача должна быть закрыта.
+    channel_subscription_required = trial_channel_gate is not None or trial_channel_gate_enabled_from_env()
     resolved_trial_channel_gate = trial_channel_gate
-    if resolved_trial_channel_gate is None and trial_channel_gate_enabled_from_env():
+    if resolved_trial_channel_gate is None and channel_subscription_required:
         bot_token = os.environ.get("BOT_TOKEN", "").strip()
         if bot_token:
             resolved_trial_channel_gate = TelegramChannelMembershipChecker(
@@ -213,4 +217,5 @@ def build_slice1_composition(
         bot_username=resolved_bot_username,
         vless_provider=vless_provider,
         trial_channel_gate=resolved_trial_channel_gate,
+        channel_subscription_required=channel_subscription_required,
     )
