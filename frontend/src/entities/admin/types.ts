@@ -140,6 +140,10 @@ export interface AdminStatsKpi {
   active_subscriptions: number;
   /** Доля триалов за период, дошедших до оплаты; null — если триалов не было. */
   trial_to_paid_rate: number | null;
+  /** Трафик bare_xray за период (ГБ, up+down). */
+  traffic_gb: number;
+  /** Максимум уникальных пользователей в сутки за период. */
+  traffic_users: number;
 }
 
 export interface AdminStatsRevenuePoint {
@@ -152,6 +156,20 @@ export interface AdminStatsRevenuePoint {
 export interface AdminStatsCountPoint {
   bucket: string;
   count: number;
+}
+
+export interface AdminStatsTrafficPoint {
+  /** stat_date — DATE в MSK (день, независимо от period.bucket). */
+  bucket: string;
+  gb: number;
+  users: number;
+}
+
+export interface AdminStatsTrafficByServer {
+  /** label из vpn_servers; для неизвестных id — «server <id>». */
+  label: string;
+  gb: number;
+  users: number;
 }
 
 export interface AdminStatsByPlan {
@@ -167,7 +185,9 @@ export interface AdminStatsResponse {
     revenue: AdminStatsRevenuePoint[];
     new_users: AdminStatsCountPoint[];
     trials: AdminStatsCountPoint[];
+    traffic: AdminStatsTrafficPoint[];
   };
+  traffic_by_server: AdminStatsTrafficByServer[];
   by_plan: AdminStatsByPlan[];
 }
 

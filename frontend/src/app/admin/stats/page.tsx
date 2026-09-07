@@ -19,6 +19,7 @@ import type {
   AdminStatsResponse,
   AdminStatsCountPoint,
   AdminStatsRevenuePoint,
+  AdminStatsTrafficPoint,
 } from "@/entities/admin/types";
 import { Alert } from "@/shared/ui/Alert";
 
@@ -66,6 +67,10 @@ function formatBucketFull(value: unknown, bucket: "hour" | "day" | "month"): str
 
 function formatRubles(n: number): string {
   return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`;
+}
+
+function formatGb(n: number): string {
+  return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ГБ`;
 }
 
 function ChartCard({ title, hint, isEmpty, children }: { title: string; hint?: string; isEmpty?: boolean; children: React.ReactNode }) {
@@ -140,6 +145,8 @@ export default function AdminStatsPage() {
   const revData: AdminStatsRevenuePoint[] = data?.series.revenue ?? [];
   const newUsersData: AdminStatsCountPoint[] = data?.series.new_users ?? [];
   const trialsData: AdminStatsCountPoint[] = data?.series.trials ?? [];
+  const trafficData: AdminStatsTrafficPoint[] = data?.series.traffic ?? [];
+  const trafficByServer = data?.traffic_by_server ?? [];
   const byPlan = data?.by_plan ?? [];
 
   const kpi = data?.kpi;
@@ -188,6 +195,11 @@ export default function AdminStatsPage() {
               label="Конверсия"
               value={ratePct == null ? "—" : `${ratePct}%`}
               sub="триал → платный"
+            />
+            <KpiCard
+              label="Трафик"
+              value={formatGb(kpi?.traffic_gb ?? 0)}
+              sub={`до ${kpi?.traffic_users ?? 0} польз./сутки`}
             />
           </div>
 
@@ -282,6 +294,79 @@ export default function AdminStatsPage() {
             </ChartCard>
           </div>
 
+          {/* Трафик bare_xray: серия всегда дневная (stat_date — DATE в MSK),
+              независимо от period.bucket остальных графиков */}
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <ChartCard title="Трафик" hint="ГБ/день · up+down" isEmpty={trafficData.length === 0}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trafficData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={ACCENT} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} vertical={false} />
+                  <XAxis
+                    dataKey="bucket"
+                    stroke={theme.axis}
+                    tick={{ fontSize: 12 }}
+                    minTickGap={24}
+                    tickFormatter={(v) => formatBucket(v, "day")}
+                  />
+                  <YAxis
+                    stroke={theme.axis}
+                    tick={{ fontSize: 12 }}
+                    width={56}
+                    tickFormatter={(v) => `${Number(v).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}`}
+                  />
+                  <Tooltip
+                    contentStyle={theme.tooltip}
+                    labelFormatter={(v) => formatBucketFull(v, "day")}
+                    formatter={(value, name) =>
+                      name === "users"
+                        ? [Number(value).toLocaleString("ru-RU"), "Пользователей"]
+                        : [formatGb(Number(value)), "Трафик"]
+                    }
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="gb"
+                    stroke={ACCENT}
+                    strokeWidth={2}
+                    fill="url(#trafficFill)"
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 4 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Трафик по серверам" hint="ГБ за период" isEmpty={trafficByServer.length === 0}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={trafficByServer} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} horizontal={false} />
+                  <XAxis
+                    type="number"
+                    stroke={theme.axis}
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(v) => `${Number(v).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}`}
+                  />
+                  <YAxis type="category" dataKey="label" stroke={theme.axis} tick={{ fontSize: 12 }} width={110} />
+                  <Tooltip
+                    contentStyle={theme.tooltip}
+                    formatter={(value, name) =>
+                      name === "users"
+                        ? [Number(value).toLocaleString("ru-RU"), "Пользователей"]
+                        : [formatGb(Number(value)), "Трафик"]
+                    }
+                  />
+                  <Bar dataKey="gb" fill={ACCENT} radius={[0, 4, 4, 0]} maxBarSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+
           {/* Активные подписки по тарифам */}
           <div className="mt-6">
             <ChartCard title="Активные подписки по тарифам" hint="сейчас" isEmpty={byPlan.length === 0}>
@@ -309,7 +394,8 @@ export default function AdminStatsPage() {
           <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
             Выручка — только реальные платежи через YooKassa (status=accepted в ledger). Внутренние и
             операторские гранты (grant_subscription, manual_grant) исключены. Историческая выручка до
-            внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита).
+            внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита). Трафик —
+            bare_xray (сбор с 07.09.2026): up+down по всем покрытым серверам, день = MSK.
           </p>
         </>
       )}
