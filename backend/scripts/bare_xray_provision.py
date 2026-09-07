@@ -226,7 +226,30 @@ def connect(host: str, user: str, key: str):
 
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(host, port=22, username=user, key_filename=key, look_for_keys=False, allow_agent=False, timeout=20)
+    kwargs: dict = {"port": 22, "username": user, "key_filename": key,
+                    "look_for_keys": False, "allow_agent": False, "timeout": 20}
+    # Jump через основной хост: у части egress-боксов :22 фильтруется на уровне
+    # провайдера (SG main-only, ufw при этом открыт — US egress). Секреты только
+    # из env (паттерн connect_main): SSH_JUMP_HOST/USER + SSH_JUMP_KEY|PASSWORD.
+    jump_host = os.environ.get("SSH_JUMP_HOST")
+    if jump_host:
+        jump = paramiko.SSHClient()
+        jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        jump_kw: dict = {"port": 22, "look_for_keys": False, "allow_agent": False,
+                         "timeout": 25, "banner_timeout": 20, "auth_timeout": 20}
+        if os.environ.get("SSH_JUMP_KEY"):
+            jump_kw["key_filename"] = os.environ["SSH_JUMP_KEY"]
+        elif os.environ.get("SSH_JUMP_PASSWORD"):
+            jump_kw["password"] = os.environ["SSH_JUMP_PASSWORD"]
+        else:
+            raise SystemExit("SSH_JUMP_HOST задан — нужен SSH_JUMP_KEY или SSH_JUMP_PASSWORD")
+        jump.connect(jump_host, username=os.environ.get("SSH_JUMP_USER", "root"), **jump_kw)
+        chan = jump.get_transport().open_channel("direct-tcpip", (host, 22), ("127.0.0.1", 0))
+        cli.connect(host, sock=chan, **kwargs)
+        # держим ссылку на jump-транспорт: канал жив, пока жив transport
+        cli._jump_client = jump
+        return cli
+    cli.connect(host, **kwargs)
     return cli
 
 
