@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -128,6 +128,25 @@ _ACTIVE_BY_PLAN = (
     "GROUP BY plan_id ORDER BY n DESC"
 )
 
+# bare_xray-трафик (сбор с 2026-09-07): stat_date — DATE в MSK, поэтому группировка
+# всегда по дню, без TZ-конверсий (в отличие от временных рядов выше). ГБ = up+down.
+_TRAFFIC_SERIES = (
+    "SELECT stat_date AS bucket, "
+    "ROUND(SUM(uplink_bytes + downlink_bytes) / 1073741824.0, 2) AS gb, "
+    "COUNT(DISTINCT email) AS users "
+    "FROM bare_xray_traffic_daily WHERE stat_date >= $1::date "
+    "GROUP BY stat_date ORDER BY stat_date"
+)
+
+_TRAFFIC_BY_SERVER = (
+    "SELECT COALESCE(v.label, 'server ' || t.server_id::text) AS label, "
+    "ROUND(SUM(t.uplink_bytes + t.downlink_bytes) / 1073741824.0, 2) AS gb, "
+    "COUNT(DISTINCT t.email) AS users "
+    "FROM bare_xray_traffic_daily t LEFT JOIN vpn_servers v ON v.id = t.server_id "
+    "WHERE t.stat_date >= $1::date "
+    "GROUP BY t.server_id, label ORDER BY gb DESC"
+)
+
 _ACTIVE_TOTAL = "SELECT COUNT(*) FROM subscription_snapshots WHERE state_label = 'active' AND active_until_utc > now()"
 
 
@@ -174,6 +193,16 @@ async def _active_by_plan(pool: asyncpg.Pool) -> list[dict]:
     return [{"plan_id": r["plan_id"], "count": int(r["n"])} for r in rows]
 
 
+async def _traffic_series(pool: asyncpg.Pool, from_date: date) -> list[dict]:
+    rows = await pool.fetch(_TRAFFIC_SERIES, from_date)
+    return [{"bucket": r["bucket"].isoformat(), "gb": float(r["gb"]), "users": int(r["users"])} for r in rows]
+
+
+async def _traffic_by_server(pool: asyncpg.Pool, from_date: date) -> list[dict]:
+    rows = await pool.fetch(_TRAFFIC_BY_SERVER, from_date)
+    return [{"label": r["label"], "gb": float(r["gb"]), "users": int(r["users"])} for r in rows]
+
+
 @_with_admin_auth
 async def handle_admin_stats(request: Request) -> JSONResponse:
     """GET /api/v1/admin/stats?period=7d&tz=Europe/Moscow — агрегированный дашборд статистики."""
@@ -189,6 +218,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
 
     from_ts, trunc = _compute_window(period, tz)
     now = datetime.now(UTC)
+    # stat_date — DATE в MSK: нижняя граница окна в той же зоне, чтобы 1d/7d совпали с рядом.
+    from_date = from_ts.astimezone(ZoneInfo(tz)).date()
 
     # Все агрегаты — независимы, гоняем параллельно (каждый берёт своё соединение из pool).
     (
@@ -201,6 +232,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         trial_paid_rate,
         active_by_plan,
         active_total,
+        traffic_series,
+        traffic_by_server,
     ) = await asyncio.gather(
         _revenue_series(pool, trunc, tz, from_ts),
         _revenue_kpi(pool, from_ts),
@@ -211,7 +244,12 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _trial_paid_rate(pool, from_ts),
         _active_by_plan(pool),
         _scalar(pool, _ACTIVE_TOTAL),  # запрос без параметров — текущий живой gauge
+        _traffic_series(pool, from_date),
+        _traffic_by_server(pool, from_date),
     )
+
+    traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
+    traffic_users = max((p["users"] for p in traffic_series), default=0)
 
     return JSONResponse(
         {
@@ -228,12 +266,16 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
                 "trials_started": trials_kpi,
                 "active_subscriptions": active_total,
                 "trial_to_paid_rate": trial_paid_rate,
+                "traffic_gb": traffic_total_gb,
+                "traffic_users": traffic_users,
             },
             "series": {
                 "revenue": revenue_series,
                 "new_users": new_users_series,
                 "trials": trials_series,
+                "traffic": traffic_series,
             },
             "by_plan": active_by_plan,
+            "traffic_by_server": traffic_by_server,
         }
     )
