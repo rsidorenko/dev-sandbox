@@ -18,6 +18,10 @@ from app.runtime.telegram_httpx_live_process import (
     Slice1HttpxLiveProcess,
     build_slice1_httpx_live_process_from_env_async,
 )
+from app.runtime.traffic_stats_scheduler import (
+    TrafficStatsScheduler,
+    traffic_stats_enabled_from_env,
+)
 
 _BOT_MENU_COMMANDS: list[dict[str, str]] = [
     {"command": "start", "description": "Начать / главное меню"},
@@ -196,6 +200,26 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
             except Exception:
                 _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
 
+        # Traffic-stats collector (feature-gated, default OFF; инертен без StatsService на хостах).
+        traffic_stats: TrafficStatsScheduler | None = None
+        traffic_stats_task: asyncio.Task | None = None
+        if traffic_stats_enabled_from_env() and process.app.bundle.pg_pool is not None:
+            try:
+                vp = process.app.bundle.bundle.composition.vless_provider
+                if isinstance(vp, XuiVlessProvider):
+                    traffic_stats = TrafficStatsScheduler(
+                        pool=process.app.bundle.pg_pool,
+                        vless_provider=vp,
+                    )
+                    traffic_stats_task = asyncio.create_task(traffic_stats.run())
+                    _log_lifecycle_event(
+                        intent="startup",
+                        outcome="completed",
+                        operation="traffic_stats_scheduler_started",
+                    )
+            except Exception:
+                _LOGGER.warning("traffic_stats_scheduler_start_failed", exc_info=True)
+
         try:
             summary = await process.run_until_stopped()
         except Exception:
@@ -220,6 +244,10 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         )
         return summary
     finally:
+        if traffic_stats is not None:
+            traffic_stats.stop()
+        if traffic_stats_task is not None:
+            traffic_stats_task.cancel()
         if cert_monitor is not None:
             cert_monitor.stop()
         if cert_monitor_task is not None:

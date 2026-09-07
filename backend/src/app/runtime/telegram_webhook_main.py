@@ -52,6 +52,10 @@ from app.runtime.telegram_webhook_ingress_telemetry import (  # noqa: E402
     TelegramWebhookIngressDecisionEvent,
     TelegramWebhookIngressTelemetry,
 )
+from app.runtime.traffic_stats_scheduler import (  # noqa: E402
+    TrafficStatsScheduler,
+    traffic_stats_enabled_from_env,
+)
 from app.security.config import ConfigurationError, load_runtime_config  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
@@ -315,6 +319,8 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     sync_task: asyncio.Task | None = None
     cert_monitor: CertMonitorScheduler | None = None
     cert_monitor_task: asyncio.Task | None = None
+    traffic_stats: TrafficStatsScheduler | None = None
+    traffic_stats_task: asyncio.Task | None = None
 
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
@@ -327,7 +333,9 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             sync_scheduler, \
             sync_task, \
             cert_monitor, \
-            cert_monitor_task
+            cert_monitor_task, \
+            traffic_stats, \
+            traffic_stats_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -382,8 +390,24 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 _LOGGER.info("cert_monitor_scheduler_started")
             except Exception:
                 _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
+        # Traffic-stats collector (feature-gated, default OFF; инертен без StatsService на хостах).
+        if traffic_stats_enabled_from_env() and runtime_pg_pool is not None:
+            try:
+                from app.issuance.xui_vless_provider import XuiVlessProvider
+
+                vp = runtime._composition.vless_provider if runtime._composition else None
+                if isinstance(vp, XuiVlessProvider):
+                    traffic_stats = TrafficStatsScheduler(pool=runtime_pg_pool, vless_provider=vp)
+                    traffic_stats_task = asyncio.create_task(traffic_stats.run())
+                    _LOGGER.info("traffic_stats_scheduler_started")
+            except Exception:
+                _LOGGER.warning("traffic_stats_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if traffic_stats is not None:
+            traffic_stats.stop()
+        if traffic_stats_task is not None:
+            traffic_stats_task.cancel()
         if cert_monitor is not None:
             cert_monitor.stop()
         if cert_monitor_task is not None:
@@ -433,7 +457,9 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             sync_scheduler, \
             sync_task, \
             cert_monitor, \
-            cert_monitor_task
+            cert_monitor_task, \
+            traffic_stats, \
+            traffic_stats_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -497,8 +523,27 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 _LOGGER.info("cert_monitor_scheduler_started")
             except Exception:
                 _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
+        # Traffic-stats collector (feature-gated, default OFF; инертен без StatsService на хостах).
+        if traffic_stats_enabled_from_env() and (runtime_pg_pool or web_api_pool) is not None:
+            try:
+                from app.issuance.xui_vless_provider import XuiVlessProvider
+
+                vp = runtime._composition.vless_provider if runtime._composition else None
+                if isinstance(vp, XuiVlessProvider):
+                    traffic_stats = TrafficStatsScheduler(
+                        pool=runtime_pg_pool or web_api_pool,  # type: ignore[arg-type]
+                        vless_provider=vp,
+                    )
+                    traffic_stats_task = asyncio.create_task(traffic_stats.run())
+                    _LOGGER.info("traffic_stats_scheduler_started")
+            except Exception:
+                _LOGGER.warning("traffic_stats_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if traffic_stats is not None:
+            traffic_stats.stop()
+        if traffic_stats_task is not None:
+            traffic_stats_task.cancel()
         if cert_monitor is not None:
             cert_monitor.stop()
         if cert_monitor_task is not None:

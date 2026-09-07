@@ -149,6 +149,20 @@ async def handle_admin_get_user(request: Request) -> JSONResponse:
         internal_user_id,
     )
 
+    # Трафик за текущий MSK-месяц (bare_xray StatsService-коллектор). Отсутствие
+    # таблиц/сбора не должно ломать выдачу пользователя — null в ответе.
+    traffic: dict[str, object] | None = None
+    try:
+        from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
+
+        repo = PostgresTrafficStatsRepository(pool)
+        traffic = {
+            "monthly_total_bytes": await repo.monthly_total_for_user(internal_user_id),
+            "per_server": await repo.per_server_for_user(internal_user_id),
+        }
+    except Exception:
+        traffic = None
+
     return JSONResponse(
         {
             "ok": True,
@@ -164,6 +178,7 @@ async def handle_admin_get_user(request: Request) -> JSONResponse:
                 }
                 for r in redemptions
             ],
+            "traffic": traffic,
         }
     )
 

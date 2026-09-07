@@ -19,6 +19,8 @@ from app.issuance.xray_api_client import (
     encode_typed_message,
     encode_vless_account,
     get_inbound_users_payload,
+    parse_query_stats_response,
+    query_stats_payload,
 )
 from app.issuance.xui_client import REALITY_TCP_FLOW
 
@@ -142,3 +144,68 @@ def test_add_user_bytes_stable_value() -> None:
     raw = encode_add_user_operation(email="e@x", uuid="i", flow="")
     # hand-computed-independent: just assert it's non-empty and stable across the run
     assert encode_add_user_operation(email="e@x", uuid="i", flow="") == raw
+
+
+# --- QueryStats (StatsService) ------------------------------------------------
+
+
+def test_query_stats_payload_shape() -> None:
+    payload = json.loads(query_stats_payload())
+    assert payload == {"pattern": ["user>>>"], "reset": False}
+    assert json.loads(query_stats_payload(pattern="user>>>x-user-1>>>", reset=True)) == {
+        "pattern": ["user>>>x-user-1>>>"],
+        "reset": True,
+    }
+
+
+def test_parse_query_stats_int64_as_string() -> None:
+    # proto3 JSON serializes int64 as a STRING — parse must coerce.
+    out = json.dumps(
+        {
+            "stat": [
+                {"name": "user>>>user-abc123>>>traffic>>>uplink", "value": "123456789012"},
+                {"name": "user>>>user-abc123>>>traffic>>>downlink", "value": "987654321098"},
+            ]
+        }
+    )
+    parsed = parse_query_stats_response(out)
+    assert parsed == {"user-abc123": {"up": 123456789012, "down": 987654321098}}
+
+
+def test_parse_query_stats_plain_int_tolerated() -> None:
+    out = json.dumps({"stat": [{"name": "user>>>x-user-1>>>traffic>>>uplink", "value": 42}]})
+    assert parse_query_stats_response(out) == {"x-user-1": {"up": 42, "down": 0}}
+
+
+def test_parse_query_stats_ignores_non_user_counters() -> None:
+    out = json.dumps(
+        {
+            "stat": [
+                {"name": "inbound>>>cloudru-tcp>>>traffic>>>uplink", "value": "100"},
+                {"name": "outbound>>>to-exit>>>traffic>>>downlink", "value": "200"},
+                {"name": "user>>>user-1>>>traffic>>>rejects", "value": "3"},
+                {"name": "user>>>user-1>>>email", "value": "weird"},
+            ]
+        }
+    )
+    assert parse_query_stats_response(out) == {}
+
+
+def test_parse_query_stats_empty_and_garbage() -> None:
+    assert parse_query_stats_response("") == {}
+    assert parse_query_stats_response("{}") == {}
+    assert parse_query_stats_response(json.dumps({"stat": []})) == {}
+    assert parse_query_stats_response("not json at all") == {}
+
+
+def test_parse_query_stats_bad_value_skipped() -> None:
+    out = json.dumps(
+        {
+            "stat": [
+                {"name": "user>>>user-1>>>traffic>>>uplink", "value": "not-a-number"},
+                {"name": "user>>>user-1>>>traffic>>>downlink", "value": "7"},
+            ]
+        }
+    )
+    # битое значение теряется, валидная сторона сохраняется
+    assert parse_query_stats_response(out) == {"user-1": {"up": 0, "down": 7}}

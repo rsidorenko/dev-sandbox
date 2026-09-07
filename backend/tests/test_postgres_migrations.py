@@ -123,6 +123,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "076_pricing_admin.sql",
         "077_web_notifications.sql",
         "078_certificate_expiry_state.sql",
+        "079_bare_xray_traffic.sql",
     ]
 
 
@@ -506,6 +507,30 @@ def test_certificate_expiry_state_migration_contract_safe_additive() -> None:
     assert "mode text not null check (mode in ('tls', 'ssh-file'))" in lowered
     assert "not_after timestamptz null" in lowered
     assert "last_alert_bucket integer null" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
+    ):
+        assert forbidden not in lowered
+
+
+def test_bare_xray_traffic_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "079_bare_xray_traffic.sql").read_text(
+        encoding="utf-8"
+    )
+    # Нормализуем whitespace (выравнивание колонок в SQL даёт множественные пробелы).
+    lowered = _squash_ws(migration).lower()
+
+    # additive: две новые таблицы учёта трафика + индекс, ничего не удаляем.
+    assert "create table if not exists bare_xray_traffic_state" in lowered
+    assert "primary key (server_id, email)" in lowered
+    assert "create table if not exists bare_xray_traffic_daily" in lowered
+    assert "primary key (stat_date, server_id, email)" in lowered
+    assert "create index if not exists idx_bare_xray_traffic_daily_email_date" in lowered
 
     for forbidden in (
         "drop table",

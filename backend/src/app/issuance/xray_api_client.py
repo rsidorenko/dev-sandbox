@@ -28,6 +28,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_API_PORT = 10085
 _GRPCURL_TIMEOUT = 15
 
+_HANDLER_SERVICE = "xray.app.proxyman.command.HandlerService"
+_STATS_SERVICE = "xray.app.stats.command.StatsService"
+
 # xray protobuf type URLs (stable, reflection-confirmed on xray 26.3.27).
 _VLESS_ACCOUNT_TYPE = "xray.proxy.vless.Account"
 _ADD_USER_OP_TYPE = "xray.app.proxyman.command.AddUserOperation"
@@ -110,6 +113,48 @@ def get_inbound_users_payload(*, tag: str) -> str:
     return json.dumps({"tag": tag})
 
 
+def query_stats_payload(*, pattern: str = "user>>>", reset: bool = False) -> str:
+    """JSON request body for StatsService/QueryStats.
+
+    Per-user traffic counters are named ``user>>><email>>>traffic>>>{uplink,downlink}``;
+    the ``user>>>`` prefix pattern matches exactly those (inbound/outbound/system
+    counters are filtered out server-side).
+    """
+    return json.dumps({"pattern": [pattern], "reset": reset})
+
+
+def parse_query_stats_response(out: str) -> dict[str, dict[str, int]]:
+    """Parse StatsService/QueryStats JSON into ``{email: {"up": n, "down": n}}``.
+
+    Traps handled:
+    - proto3 JSON serializes int64 as a **string** — coerce via ``int()`` (a plain
+      int is also accepted defensively);
+    - counters absent from the response (no traffic yet) are simply missing — the
+      caller treats them as zero via ``diff_deltas``;
+    - non-user counters (``inbound>>>…``/``outbound>>>…``) are ignored.
+    """
+    try:
+        data = json.loads(out) if out else {}
+    except json.JSONDecodeError:
+        return {}
+    stats: dict[str, dict[str, int]] = {}
+    for stat in data.get("stat", []):
+        name = stat.get("name", "")
+        parts = name.split(">>>")
+        if len(parts) != 4 or parts[0] != "user" or parts[2] != "traffic":
+            continue
+        email, direction = parts[1], parts[3]
+        if direction not in ("uplink", "downlink"):
+            continue
+        try:
+            value = int(stat.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+        entry = stats.setdefault(email, {"up": 0, "down": 0})
+        entry["up" if direction == "uplink" else "down"] = value
+    return stats
+
+
 def _flow_for_transport(transport_type: str) -> str:
     """Vision only for tcp+Reality; empty for xhttp/grpc/ws (vision is tcp-only)."""
     return REALITY_TCP_FLOW if transport_type == "tcp" else ""
@@ -149,6 +194,10 @@ class XrayApiClient:
     def server_config(self) -> XuiServerConfig:
         return self._config
 
+    @property
+    def api_port(self) -> int:
+        return self._api_port
+
     def _connect(self) -> object:
         import paramiko  # lazy — keeps module import light and test-isolated
 
@@ -169,12 +218,9 @@ class XrayApiClient:
         self._ssh = client
         return client
 
-    def _run_grpcurl(self, method: str, payload_json: str) -> tuple[bool, str]:
+    def _run_grpcurl(self, method: str, payload_json: str, *, service: str = _HANDLER_SERVICE) -> tuple[bool, str]:
         """Run grpcurl on the bare-xray host. Returns (ok, stdout). Reconnects once."""
-        cmd = (
-            f"grpcurl -plaintext -d {shlex.quote(payload_json)} localhost:{self._api_port} "
-            f"xray.app.proxyman.command.HandlerService/{method}"
-        )
+        cmd = f"grpcurl -plaintext -d {shlex.quote(payload_json)} localhost:{self._api_port} {service}/{method}"
         for attempt in (1, 2):
             try:
                 client = self._connect()
@@ -245,6 +291,19 @@ class XrayApiClient:
         except json.JSONDecodeError:
             return []
         return [u["email"] for u in data.get("users", []) if u.get("email")]
+
+    async def query_stats(self, *, pattern: str = "user>>>", reset: bool = False) -> dict[str, dict[str, int]] | None:
+        """Per-user traffic counters from StatsService/QueryStats, ``{email: {"up","down"}}``.
+
+        Returns ``None`` on transport failure (distinguishable from "no counters yet" —
+        an empty dict). Counters are per-PROCESS: they reset on xray restart, so the
+        caller must diff against stored state, never treat them as monotonic totals.
+        """
+        payload = query_stats_payload(pattern=pattern, reset=reset)
+        ok, out = await asyncio.to_thread(self._run_grpcurl, "QueryStats", payload, service=_STATS_SERVICE)
+        if not ok:
+            return None
+        return parse_query_stats_response(out)
 
     async def aclose(self) -> None:
         await asyncio.to_thread(self._reset_ssh)

@@ -411,6 +411,28 @@ class XuiVlessProvider(VlessProviderPort):
         self._bare_xray_clients = tuple(result)
         return self._bare_xray_clients
 
+    async def bare_xray_stats_hosts(self) -> list[tuple[XrayApiClient, tuple[XuiServerConfig, ...]]]:
+        """bare_xray clients grouped by (server_host, api_port) — one QueryStats poll per host.
+
+        Per-user traffic counters are per-PROCESS and carry no inbound tag: a host with
+        two inbounds (tcp :443 + xhttp :8443) would be polled — and its traffic
+        double-counted — twice if queried per inbound. The returned representative
+        client suffices for the poll; the configs tuple maps each counter's email to
+        its vpn_servers row (prefix `x-user-…` → xhttp row, `user-…` → tcp row) via
+        bare_xray_traffic.resolve_server_id.
+        """
+        clients = await self._get_bare_xray_clients()
+        groups: dict[tuple[str, int], list[XuiServerConfig]] = {}
+        representative: dict[tuple[str, int], XrayApiClient] = {}
+        for client in clients:
+            cfg = client.server_config
+            key = (cfg.server_host, client.api_port)
+            if key not in representative:
+                representative[key] = client
+                groups[key] = []
+            groups[key].append(cfg)
+        return [(representative[key], tuple(cfgs)) for key, cfgs in groups.items()]
+
     async def _bare_xray_lifecycle(self, internal_user_id: str, action: str) -> None:
         """Add ('add') or remove ('remove') the user on every bare_xray inbound via xray gRPC
         (live, no restart). Non-fatal: a failure is logged and the periodic reconcile re-applies."""

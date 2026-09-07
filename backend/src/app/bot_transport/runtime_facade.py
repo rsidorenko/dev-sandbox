@@ -1441,6 +1441,14 @@ async def _render_subscription_status(
                 device_count = snap.device_count
         if device_count is None:
             device_count = DEVICES_DEFAULT
+        # Трафик за месяц — опционально (репозиторий появляется в композиции только
+        # при включённом сборе; сбои чтения не должны ломать экран подписки).
+        monthly_traffic: int | None = None
+        if composition.traffic_stats_repo is not None and id_rec is not None:
+            try:
+                monthly_traffic = await composition.traffic_stats_repo.monthly_total_for_user(id_rec.internal_user_id)
+            except Exception:
+                monthly_traffic = None
         # Ссылка подписки показывается прямо в подменю «Моя подписка» (тот же вызов
         # get_user_config, что и в обработчике CB_MY_KEYS). Без vless_provider / identity —
         # подменю без блока ссылки (функционал экранов от этого не страдает).
@@ -1460,6 +1468,7 @@ async def _render_subscription_status(
             plan_name,
             device_count,
             remaining_days=remaining_days,
+            monthly_traffic_bytes=monthly_traffic,
         )
         if subscription_url:
             text += f"\n\n🔗 Ссылка для подписки:\n<code>{subscription_url}</code>"

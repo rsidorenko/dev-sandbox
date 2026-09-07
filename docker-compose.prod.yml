@@ -127,6 +127,8 @@ services:
       CERT_MONITOR_ENABLE: ${CERT_MONITOR_ENABLE:-}
       CERT_MONITOR_INTERVAL_SECONDS: ${CERT_MONITOR_INTERVAL_SECONDS:-86400}
       OPERATOR_ALERT_CHAT_ID: ${OPERATOR_ALERT_CHAT_ID:-}
+      TRAFFIC_STATS_ENABLE: ${TRAFFIC_STATS_ENABLE:-}
+      TRAFFIC_STATS_INTERVAL_SECONDS: ${TRAFFIC_STATS_INTERVAL_SECONDS:-300}
     volumes:
       # Bind-mount the Cloud.ru SSH key from /root/.ssh (survives deploy's rm -rf
       # /opt/bravada, which preserves only .env + ssl/). Read-only in the container.

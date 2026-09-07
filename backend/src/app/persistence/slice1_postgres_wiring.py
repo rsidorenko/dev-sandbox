@@ -9,6 +9,7 @@ import asyncpg
 
 from app.application.bootstrap import Slice1Composition, build_slice1_composition
 from app.application.telegram_access_resend import IssuanceCurrentStateRef
+from app.issuance.bare_xray_traffic import traffic_stats_enabled_from_env
 from app.issuance.service import IssuanceService
 from app.issuance.vless_issuance_adapter import VlessIssuanceAdapter
 from app.issuance.vless_provider import StubVlessProvider
@@ -32,6 +33,7 @@ from app.persistence.postgres_referral import (
 )
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
 from app.persistence.postgres_telegram_update_dedup import PostgresTelegramUpdateDedupGuard
+from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
 from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
 from app.security.config import ConfigurationError, RuntimeConfig
 
@@ -116,5 +118,8 @@ async def resolve_slice1_composition_for_runtime(
         promo_applied_repo=PostgresPromoAppliedRepository(pool),
         bot_username=os.environ.get("BOT_USERNAME", ""),
         vless_provider=vless_provider,
+        # Репозиторий появляется в композиции только при включённом сборе трафика —
+        # иначе экран «Моя подписка» показывал бы «0 МБ» до rollout'а StatsService.
+        traffic_stats_repo=(PostgresTrafficStatsRepository(pool) if traffic_stats_enabled_from_env() else None),
     )
     return composition, pool

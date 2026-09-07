@@ -501,12 +501,20 @@ def text_payment_unavailable() -> str:
     return "⚠️ Оплата временно недоступна. Попробуйте позже или обратитесь в поддержку."
 
 
+def _format_traffic(bytes_total: int) -> str:
+    """Человекочитаемый объём трафика: ГБ с двумя знаками, МБ — с одним."""
+    if bytes_total >= 1024**3:
+        return f"{bytes_total / 1024**3:.2f} ГБ"
+    return f"{bytes_total / 1024**2:.1f} МБ"
+
+
 def text_subscription_active(
     active_until: str | None,
     plan_name: str | None,
     device_count: int | None,
     *,
     remaining_days: int | None = None,
+    monthly_traffic_bytes: int | None = None,
 ) -> str:
     lines = ["<b>✅ Ваша подписка активна!</b>"]
     if remaining_days is not None:
@@ -515,6 +523,8 @@ def text_subscription_active(
         lines.append(f"📱 Устройств: {device_count}")
     if active_until:
         lines.append(f"📅 Действует до: {active_until}")
+    if monthly_traffic_bytes is not None:
+        lines.append(f"📊 Трафик за месяц: {_format_traffic(monthly_traffic_bytes)}")
     lines.extend(["", "Используйте кнопки меню для управления 📋"])
     return "\n".join(lines)
 

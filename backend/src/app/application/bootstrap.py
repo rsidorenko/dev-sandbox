@@ -60,6 +60,7 @@ from app.persistence.in_memory import (
     InMemorySubscriptionSnapshotReader,
     InMemoryUserIdentityRepository,
 )
+from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
 from app.persistence.promo_contracts import (
     PromoAppliedRepository,
     PromoCodeRepository,
@@ -104,6 +105,9 @@ class Slice1Composition:
     #: Правило подписки для бесплатных выгод. Отдельно от клиента, чтобы ошибка конфигурации
     #: не превращалась в обход проверки.
     channel_subscription_required: bool = False
+    #: Опциональный репозиторий учёта трафика bare_xray (строка «Трафик за месяц» в боте).
+    #: None в тестовых конструкциях и до включения TRAFFIC_STATS_ENABLE — экраны не страдают.
+    traffic_stats_repo: PostgresTrafficStatsRepository | None = None
 
 
 def build_slice1_composition(
@@ -134,6 +138,7 @@ def build_slice1_composition(
     bot_username: str | None = None,
     vless_provider: VlessProviderPort | None = None,
     trial_channel_gate: TelegramChannelMembershipChecker | None = None,
+    traffic_stats_repo: PostgresTrafficStatsRepository | None = None,
 ) -> Slice1Composition:
     if (identity is None) ^ (idempotency is None):
         raise ValueError("identity and idempotency must both be provided or both omitted")
@@ -218,4 +223,5 @@ def build_slice1_composition(
         vless_provider=vless_provider,
         trial_channel_gate=resolved_trial_channel_gate,
         channel_subscription_required=channel_subscription_required,
+        traffic_stats_repo=traffic_stats_repo,
     )
