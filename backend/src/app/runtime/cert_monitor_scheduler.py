@@ -113,6 +113,17 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
         port=443,
         sni="relay.strimingset.online",
     ),
+    # Helsinki egress (bare_xray с 2026-09-07): :443/:8443 — reality (SNI mrr.*,
+    # серт отдаёт nginx-camo 127.0.0.1:10443), реальный LE-серт на боксе — ssh-file.
+    # root-доступ ключом бота (установлен при конвертации), certbot renew + deploy-hook
+    # reload nginx (см. /etc/letsencrypt/renewal-hooks/deploy/ на боксе).
+    CertTarget(
+        name="egress-helsinki",
+        mode="ssh-file",
+        host="45.137.60.80",
+        ssh_user="root",
+        cert_paths=(f"{_CERTBOT_LIVE}/mrr.bravada-connect.online/fullchain.pem",),
+    ),
     # CDN-origins (ноги обхода белых списков): LT — LE до 2026-11-26, DE — self-signed 10 лет
     CertTarget(name="cdn-lt-origin", mode="tls", host="89.169.178.45", port=443),
     CertTarget(name="cdn-de-origin", mode="tls", host="93.77.160.88", port=443),

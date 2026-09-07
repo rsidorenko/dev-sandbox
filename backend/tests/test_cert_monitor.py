@@ -301,3 +301,14 @@ def test_probe_tls_not_after_real_handshake(tmp_path) -> None:
     assert probed is not None
     delta = abs(probed - not_after)
     assert delta < dt.timedelta(seconds=5)  # GEN-время vs not_valid_after_utc
+
+
+def test_registry_contains_bare_xray_egress_helsinki() -> None:
+    """Helsinki egress конвертирован в bare_xray (2026-09-07): цель обязана быть
+    ssh-file ( reality :443/:8443 серт отдаёт nginx-camo, снаружи не виден ),
+    root-доступ ключом бота, LE-путь mrr.bravada-connect.online."""
+    target = next(t for t in cm.CERT_TARGETS if t.name == "egress-helsinki")
+    assert target.mode == "ssh-file"
+    assert target.host == "45.137.60.80"
+    assert target.ssh_user == "root"
+    assert any("mrr.bravada-connect.online" in p for p in target.cert_paths)
