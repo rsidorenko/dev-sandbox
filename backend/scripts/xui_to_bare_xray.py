@@ -50,8 +50,23 @@ from scripts.canonicalize_routing import CONFIG_PATH, GRPC_API, _run
 from scripts.enable_bare_xray_stats import merge_stats_keys, stats_enabled
 
 DEFAULT_XUI_CONFIG = "/usr/local/x-ui/bin/config.json"
-XUI_XRAY_BIN = "/usr/local/x-ui/bin/xray"  # бинаррий x-ui (до phase-b /usr/local/bin/xray нет)
+# Бинаррий x-ui до phase-b (/usr/local/bin/xray ещё нет). Имя плавает между
+# инсталлами x-ui: Fresh-install кладёт `xray`, старые/ручные — `xray-linux-amd64`
+# (Helsinki egress). Авто-детект по факту на боксе + ручной флаг --xui-xray-bin.
+XUI_XRAY_BIN_CANDIDATES = ("/usr/local/x-ui/bin/xray", "/usr/local/x-ui/bin/xray-linux-amd64")
 BACKUP_SUFFIX = ".pre-bare.bak"
+
+
+def detect_xray_bin(cli) -> str:
+    """Первый существующий кандидат бинаррия xray в dist x-ui (или raise)."""
+    checks = " ; ".join(f"test -x {p} && echo {p}" for p in XUI_XRAY_BIN_CANDIDATES)
+    rc, out, _ = _run(cli, f"( {checks} ) | head -n 1")
+    found = out.strip().splitlines()[0].strip() if out.strip() else ""
+    if rc != 0 or found not in XUI_XRAY_BIN_CANDIDATES:
+        raise SystemExit(
+            "xray binary не найден в /usr/local/x-ui/bin/ — укажи --xui-xray-bin"
+        )
+    return found
 
 # Эталон api-блока bare_xray-флота (setup_relay.py + живые конфиги entries):
 # top-level listen, короткие имена сервисов.
@@ -124,6 +139,8 @@ def adapt_xui_config(config: dict) -> tuple[dict, list[str]]:
 def cmd_phase_a(args) -> int:
     cli = connect(args.host, args.user, args.key)
     try:
+        xray_bin = args.xui_xray_bin or detect_xray_bin(cli)
+        print(f"xray binary (dist x-ui): {xray_bin}")
         rc, raw, err = _run(cli, f"sudo cat {args.xui_config}")
         if rc != 0 or not raw.strip():
             print(f"cannot read x-ui config {args.xui_config}: {err[:200]}", file=sys.stderr)
@@ -137,7 +154,7 @@ def cmd_phase_a(args) -> int:
             f"sudo mkdir -p {CONFIG_PATH.rsplit('/', 1)[0]}\n"
             # кандидат пишем в /tmp; финальный config.json — только после test-gate
             "cat > /tmp/config.bare.json <<'__CFG__'\n" + payload + "\n__CFG__\n"
-            f"sudo {XUI_XRAY_BIN} run -test -config /tmp/config.bare.json 2>&1 | tail -2\n"
+            f"sudo {xray_bin} run -test -config /tmp/config.bare.json 2>&1 | tail -2\n"
         )
         rc, out, err = _run(cli, script, timeout=120)
         print(out)
@@ -163,6 +180,8 @@ def cmd_phase_a(args) -> int:
 def cmd_phase_b(args) -> int:
     cli = connect(args.host, args.user, args.key)
     try:
+        xray_bin = args.xui_xray_bin or detect_xray_bin(cli)
+        print(f"xray binary (dist x-ui): {xray_bin}")
         if args.bot_key_file:
             sftp = cli.open_sftp()
             sftp.put(args.bot_key_file, "/tmp/bot_key.pub")
@@ -170,7 +189,7 @@ def cmd_phase_b(args) -> int:
         script = (
             "set -e\n"
             "echo '--- xray binary + assets (из дистрибутива x-ui)'\n"
-            "sudo cp /usr/local/x-ui/bin/xray /usr/local/bin/xray\n"
+            f"sudo cp {xray_bin} /usr/local/bin/xray\n"
             "sudo mkdir -p /usr/local/share/xray\n"
             "sudo cp /usr/local/x-ui/bin/*.dat /usr/local/share/xray/ 2>/dev/null || echo 'WARN: no .dat assets'\n"
             "echo '--- xray.service etalon'\n"
@@ -285,6 +304,11 @@ def main() -> int:
         p.add_argument("--host", required=True)
         p.add_argument("--user", default="romtan")
         p.add_argument("--key", default="D:/tmp/cloudru_key.pem")
+        p.add_argument(
+            "--xui-xray-bin",
+            default="",
+            help="путь к бинаррию xray в dist x-ui (default: авто-детект xray/xray-linux-amd64)",
+        )
 
     for name, fn, help_ in (
         ("phase-a", cmd_phase_a, "adapt конфига x-ui + test-gate (прод не трогаем)"),
