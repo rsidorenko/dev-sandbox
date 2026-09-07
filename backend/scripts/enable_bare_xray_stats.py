@@ -60,6 +60,7 @@ from scripts.canonicalize_routing import (
 _LOGGER = logging.getLogger(__name__)
 
 STATS_SERVICE_NAME = "xray.app.stats.command.StatsService"
+_STATS_SERVICE_SHORT = "StatsService"  # форма bare_xray-флота (setup_relay.py)
 BACKUP_SUFFIX = ".pre-stats.bak"
 
 # per-user счётчики включаются на уровне policy "0" — как у всего 3x-ui флота.
@@ -104,6 +105,17 @@ TARGETS: list[StatsTarget] = [
 # --- pure-часть (юнит-тестируется без SSH) -----------------------------------
 
 
+def _stats_service_name_for(existing: list[str]) -> str:
+    """Форма имени StatsService под стиль существующего списка api.services.
+
+    bare_xray-флот (setup_relay/ручные конфиги) использует короткие имена
+    (``HandlerService``), 3x-ui — FQCN (``xray.app.stats.command.StatsService``);
+    обе формы xray принимает, но не смешиваем их в одном списке без нужды.
+    """
+    has_short = any("." not in str(s) for s in existing)
+    return _STATS_SERVICE_SHORT if has_short else STATS_SERVICE_NAME
+
+
 def stats_enabled(config: dict) -> bool:
     """Все три ключа включения StatsService уже присутствуют в конфиге."""
     if not isinstance(config.get("stats"), dict):
@@ -114,7 +126,7 @@ def stats_enabled(config: dict) -> bool:
     if not all(level0.get(flag) is True for flag in _LEVEL0_STATS_FLAGS):
         return False
     services = (config.get("api", {}) or {}).get("services")
-    return isinstance(services, list) and STATS_SERVICE_NAME in services
+    return isinstance(services, list) and (STATS_SERVICE_NAME in services or _STATS_SERVICE_SHORT in services)
 
 
 def merge_stats_keys(config: dict) -> tuple[dict, list[str]]:
@@ -145,9 +157,10 @@ def merge_stats_keys(config: dict) -> tuple[dict, list[str]]:
     api = cfg.get("api")
     if not isinstance(api, dict) or not isinstance(api.get("services"), list):
         raise ValueError("no api.services in config — HandlerService api block is a prerequisite")
-    if STATS_SERVICE_NAME not in api["services"]:
-        api["services"] = [*api["services"], STATS_SERVICE_NAME]
-        changes.append("+api.services+=StatsService")
+    stats_name = _stats_service_name_for(api["services"])
+    if stats_name not in api["services"] and STATS_SERVICE_NAME not in api["services"]:
+        api["services"] = [*api["services"], stats_name]
+        changes.append(f"+api.services+={stats_name}")
 
     return cfg, changes
 

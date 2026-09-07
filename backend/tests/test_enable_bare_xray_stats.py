@@ -67,6 +67,20 @@ def test_merge_idempotent_second_pass_no_changes() -> None:
     assert stats_enabled(merged2)
 
 
+def test_merge_matches_short_name_style_of_fleet_configs() -> None:
+    # bare_xray-флот (setup_relay.py) пишет короткие имена — StatsService должен
+    # добавляться той же формой, без смешения стилей в одном списке.
+    cfg = _base_config()
+    cfg["api"]["services"] = ["HandlerService", "ReflectionService"]
+    merged, changes = merge_stats_keys(cfg)
+    assert merged["api"]["services"] == ["HandlerService", "ReflectionService", "StatsService"]
+    assert "+api.services+=StatsService" in changes
+    assert stats_enabled(merged)
+    # повторный прогон — no-op
+    _, changes2 = merge_stats_keys(merged)
+    assert changes2 == []
+
+
 def test_merge_preserves_existing_level0_siblings_and_services() -> None:
     cfg = _base_config()
     cfg["policy"] = {"levels": {"0": {"statsUserUplink": True, "handshake": 4}}}
@@ -138,6 +152,10 @@ def test_stats_enabled_requires_all_three_keys() -> None:
     no_service = json.loads(json.dumps(merged))
     no_service["api"]["services"].remove(STATS_SERVICE_NAME)
     assert stats_enabled(no_service) is False
+    # короткая форма (стиль флота) тоже валидна как «включено»
+    short_style = json.loads(json.dumps(merged))
+    short_style["api"]["services"] = ["HandlerService", "ReflectionService", "StatsService"]
+    assert stats_enabled(short_style) is True
 
 
 # --- inbound/user-count helpers ---------------------------------------------------
