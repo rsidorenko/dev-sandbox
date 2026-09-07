@@ -29,6 +29,12 @@ from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepositor
 _LOGGER = logging.getLogger(__name__)
 
 _COLLECT_INTERVAL_SECONDS = int(os.environ.get("TRAFFIC_STATS_INTERVAL_SECONDS", "300"))
+# Жёсткая граница тика: даже если SSH-нога зависла навсегда (не покрылась таймаутами
+# клиента), advisory-lock ВСЕГДА освобождается и цикл продолжает жить. Инцидент
+# 2026-09-07: зависший handshake держал лок 10+ минут и молотил тик вхолостую.
+_TICK_HARD_TIMEOUT_SECONDS = int(os.environ.get("TRAFFIC_STATS_TICK_TIMEOUT_SECONDS", "240"))
+# Граница опроса одного хоста: медленный/зависший хост не съедает весь тик.
+_HOST_QUERY_TIMEOUT_SECONDS = int(os.environ.get("TRAFFIC_STATS_HOST_TIMEOUT_SECONDS", "60"))
 _ADVISED_LOCK_ID = 20260901
 
 
@@ -66,7 +72,7 @@ class TrafficStatsScheduler:
                 _LOGGER.info("traffic_stats tick skipped — another instance holds the lock")
                 return
             try:
-                await self._collect_and_apply()
+                await asyncio.wait_for(self._collect_and_apply(), timeout=_TICK_HARD_TIMEOUT_SECONDS)
             finally:
                 await conn.execute("SELECT pg_advisory_unlock($1)", _ADVISED_LOCK_ID)
 
@@ -77,7 +83,7 @@ class TrafficStatsScheduler:
         host_results = []
         for client, configs in hosts:
             try:
-                current = await client.query_stats()
+                current = await asyncio.wait_for(client.query_stats(), timeout=_HOST_QUERY_TIMEOUT_SECONDS)
             except Exception as exc:
                 _LOGGER.warning("traffic_stats query error server=%s: %r", client.server_id, exc)
                 continue

@@ -20,6 +20,7 @@ import base64
 import json
 import logging
 import shlex
+import time
 
 from app.issuance.xui_client import REALITY_TCP_FLOW, XuiServerConfig
 
@@ -27,6 +28,11 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_PORT = 10085
 _GRPCURL_TIMEOUT = 15
+# Запас поверх _GRPCURL_TIMEOUT на ожидание закрытия канала: recv_exit_status()
+# без дедлайна висит вечно на зависшем канале (инцидент 2026-09-07 — тик коллектора
+# и reconcile стояли 10+ минут, держа advisory-lock).
+_EXEC_GRACE_SECONDS = 10
+_EXEC_POLL_SECONDS = 0.2
 
 _HANDLER_SERVICE = "xray.app.proxyman.command.HandlerService"
 _STATS_SERVICE = "xray.app.stats.command.StatsService"
@@ -214,6 +220,10 @@ class XrayApiClient:
             look_for_keys=False,
             allow_agent=False,
             timeout=20,
+            # timeout ограничивает только TCP-connect: без banner/auth таймаутов
+            # зависший handshake (kex/auth) висит неограниченно долго.
+            banner_timeout=20,
+            auth_timeout=20,
         )
         self._ssh = client
         return client
@@ -222,9 +232,18 @@ class XrayApiClient:
         """Run grpcurl on the bare-xray host. Returns (ok, stdout). Reconnects once."""
         cmd = f"grpcurl -plaintext -d {shlex.quote(payload_json)} localhost:{self._api_port} {service}/{method}"
         for attempt in (1, 2):
+            deadline = time.monotonic() + _GRPCURL_TIMEOUT + _EXEC_GRACE_SECONDS
             try:
                 client = self._connect()
                 _, stdout, stderr = client.exec_command(cmd, timeout=_GRPCURL_TIMEOUT)
+                # Bounded-wait: exit_status_ready() поллит публичный API канала,
+                # recv_exit_status() напрямую может блокировать вечно.
+                while not stdout.channel.exit_status_ready():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"grpcurl {method} no exit status in {_GRPCURL_TIMEOUT + _EXEC_GRACE_SECONDS}s"
+                        )
+                    time.sleep(_EXEC_POLL_SECONDS)
                 rc = stdout.channel.recv_exit_status()
                 out = stdout.read().decode(errors="replace").strip()
                 if rc == 0:

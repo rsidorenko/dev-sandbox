@@ -22,7 +22,7 @@ from app.issuance.xray_api_client import (
     parse_query_stats_response,
     query_stats_payload,
 )
-from app.issuance.xui_client import REALITY_TCP_FLOW
+from app.issuance.xui_client import REALITY_TCP_FLOW, XuiServerConfig
 
 # --- mini protobuf decoder (test-only) -------------------------------------
 
@@ -209,3 +209,87 @@ def test_parse_query_stats_bad_value_skipped() -> None:
     )
     # битое значение теряется, валидная сторона сохраняется
     assert parse_query_stats_response(out) == {"user-1": {"up": 0, "down": 7}}
+
+
+# --- bounded exec wait (инцидент 2026-09-07: зависший канал клинил тик) ----------
+
+
+class _StuckChannel:
+    def exit_status_ready(self) -> bool:
+        return False
+
+
+class _StuckFile:
+    def __init__(self) -> None:
+        self.channel = _StuckChannel()
+
+    def read(self) -> bytes:
+        return b""
+
+
+class _StuckSSH:
+    def exec_command(self, cmd: str, timeout: float | None = None):
+        return None, _StuckFile(), _StuckFile()
+
+    def close(self) -> None:
+        pass
+
+
+def _bare_config(**overrides) -> XuiServerConfig:
+    kwargs: dict[str, object] = {
+        "server_id": 2,
+        "label": "de",
+        "country_code": "DE",
+        "country_flag": "x",
+        "server_host": "85.208.87.57",
+        "server_port": 443,
+        "ws_path": "/ws",
+        "tls_sni": None,
+        "panel_url": "http://panel",
+        "panel_username": "u",
+        "panel_password": "p",
+        "inbound_id": 1,
+        "transport_type": "tcp",
+        "provider_kind": "bare_xray",
+        "xray_inbound_tag": "cloudru-tcp",
+    }
+    kwargs.update(overrides)
+    return XuiServerConfig(**kwargs)  # type: ignore[arg-type]
+
+
+def test_run_grpcurl_cuts_off_channel_that_never_exits(monkeypatch, caplog) -> None:
+    """Канал без exit-status больше _GRPCURL_TIMEOUT+grace — операция обязана
+    завершиться отказом, а не висеть в recv_exit_status() вечно."""
+    import asyncio
+
+    from app.issuance import xray_api_client as xac
+
+    monkeypatch.setattr(xac, "_GRPCURL_TIMEOUT", 0.05)
+    monkeypatch.setattr(xac, "_EXEC_GRACE_SECONDS", 0)
+    monkeypatch.setattr(xac, "_EXEC_POLL_SECONDS", 0.01)
+    client = xac.XrayApiClient(_bare_config(), ssh_user="romtan", ssh_key="k")
+    client._connect = lambda: _StuckSSH()  # type: ignore[method-assign]
+    ok, out = client._run_grpcurl("GetInboundUsers", "{}")
+    assert ok is False
+    assert out == ""
+    # обе попытки исчерпаны,warning залогирован
+    assert any("exception" in r.message for r in caplog.records)
+
+    # асинхронная обёртка (to_thread) тоже не подвисает и возвращает отказ-пустоту
+    async def _emails() -> list[str]:
+        return await client.list_user_emails()
+
+    assert asyncio.run(_emails()) == []
+
+
+def test_run_grpcurl_uses_bounded_wait_constants(monkeypatch) -> None:
+    """Дедлайн пересчитывается на каждую попытку — вторая не наследует
+    потраченное время первой."""
+    from app.issuance import xray_api_client as xac
+
+    monkeypatch.setattr(xac, "_GRPCURL_TIMEOUT", 0.05)
+    monkeypatch.setattr(xac, "_EXEC_GRACE_SECONDS", 0)
+    monkeypatch.setattr(xac, "_EXEC_POLL_SECONDS", 0.01)
+    client = xac.XrayApiClient(_bare_config(), ssh_user="romtan", ssh_key="k")
+    client._connect = lambda: _StuckSSH()  # type: ignore[method-assign]
+    assert client._run_grpcurl("QueryStats", "{}", service="xray.app.stats.command.StatsService") == (False, "")

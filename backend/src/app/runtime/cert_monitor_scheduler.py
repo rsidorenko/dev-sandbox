@@ -215,6 +215,9 @@ def _ssh_exec(host: str, user: str, key: str, command: str) -> tuple[int, str]:
         look_for_keys=False,
         allow_agent=False,
         timeout=_SSH_TIMEOUT_SECONDS,
+        # как в XrayApiClient: TCP-timeout не покрывает banner/auth фазы handshake
+        banner_timeout=_SSH_TIMEOUT_SECONDS,
+        auth_timeout=_SSH_TIMEOUT_SECONDS,
     )
     try:
         _, stdout, _ = client.exec_command(command, timeout=_SSH_TIMEOUT_SECONDS)
