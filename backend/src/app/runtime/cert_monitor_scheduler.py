@@ -124,6 +124,15 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
         ssh_user="root",
         cert_paths=(f"{_CERTBOT_LIVE}/mrr.bravada-connect.online/fullchain.pem",),
     ),
+    # US egress (bare_xray с 2026-09-07): тот же паттерн — reality заимствует серт
+    # с camo 127.0.0.1:10443, LE-серт certbot/nginx, deploy-hook reload nginx установлен.
+    CertTarget(
+        name="egress-us",
+        mode="ssh-file",
+        host="77.109.125.209",
+        ssh_user="root",
+        cert_paths=(f"{_CERTBOT_LIVE}/nkk.bravada-connect.online/fullchain.pem",),
+    ),
     # CDN-origins (ноги обхода белых списков): LT — LE до 2026-11-26, DE — self-signed 10 лет
     CertTarget(name="cdn-lt-origin", mode="tls", host="89.169.178.45", port=443),
     CertTarget(name="cdn-de-origin", mode="tls", host="93.77.160.88", port=443),

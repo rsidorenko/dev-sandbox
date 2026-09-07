@@ -312,3 +312,13 @@ def test_registry_contains_bare_xray_egress_helsinki() -> None:
     assert target.host == "45.137.60.80"
     assert target.ssh_user == "root"
     assert any("mrr.bravada-connect.online" in p for p in target.cert_paths)
+
+
+def test_registry_contains_bare_xray_egress_us() -> None:
+    """US egress конвертирован в bare_xray (2026-09-07): тот же паттерн —
+    ssh-file, root ключом бота, LE-путь nkk.bravada-connect.online."""
+    target = next(t for t in cm.CERT_TARGETS if t.name == "egress-us")
+    assert target.mode == "ssh-file"
+    assert target.host == "77.109.125.209"
+    assert target.ssh_user == "root"
+    assert any("nkk.bravada-connect.online" in p for p in target.cert_paths)
