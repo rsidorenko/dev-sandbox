@@ -122,6 +122,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "075_subscription_token_permanent.sql",
         "076_pricing_admin.sql",
         "077_web_notifications.sql",
+        "078_certificate_expiry_state.sql",
     ]
 
 
@@ -481,6 +482,30 @@ def test_broadcast_promo_migration_contract_safe_additive() -> None:
     assert "expires_at timestamptz not null" in lowered
     assert "primary key (job_id, telegram_user_id)" in lowered
     assert "create index if not exists idx_broadcast_promo_claims_expires" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
+    ):
+        assert forbidden not in lowered
+
+
+def test_certificate_expiry_state_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "078_certificate_expiry_state.sql").read_text(
+        encoding="utf-8"
+    )
+    # Нормализуем whitespace (выравнивание колонок в SQL даёт множественные пробелы).
+    lowered = _squash_ws(migration).lower()
+
+    # additive: одна новая таблица состояния сертификатного мониторинга, ничего не удаляем.
+    assert "create table if not exists certificate_expiry_state" in lowered
+    assert "name text primary key" in lowered
+    assert "mode text not null check (mode in ('tls', 'ssh-file'))" in lowered
+    assert "not_after timestamptz null" in lowered
+    assert "last_alert_bucket integer null" in lowered
 
     for forbidden in (
         "drop table",

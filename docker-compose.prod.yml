@@ -121,6 +121,12 @@ services:
       CLOUDRU_SSH_KEY: "/opt/bravada/cloudru_key.pem"
       # xray gRPC API port (HandlerService) on the bare_xray box — localhost, reached over SSH.
       CLOUDRU_XRAY_API_PORT: "10085"
+      # Cert-expiry монитор (инцидент 2026-08-20): суточная проверка client-facing
+      # сертификатов + алерт оператору при days_left <= 14/7/3/1. Пусто/0 = выключен.
+      # ⚠️ environment[] — явный список: новые флаги добавлять и сюда.
+      CERT_MONITOR_ENABLE: ${CERT_MONITOR_ENABLE:-}
+      CERT_MONITOR_INTERVAL_SECONDS: ${CERT_MONITOR_INTERVAL_SECONDS:-86400}
+      OPERATOR_ALERT_CHAT_ID: ${OPERATOR_ALERT_CHAT_ID:-}
     volumes:
       # Bind-mount the Cloud.ru SSH key from /root/.ssh (survives deploy's rm -rf
       # /opt/bravada, which preserves only .env + ssl/). Read-only in the container.

@@ -8,6 +8,10 @@ import signal
 
 from app.issuance.xui_vless_provider import XuiVlessProvider
 from app.observability.logging_policy import sanitize_structured_fields
+from app.runtime.cert_monitor_scheduler import (
+    CertMonitorScheduler,
+    cert_monitor_enabled_from_env,
+)
 from app.runtime.notification_scheduler import NotificationScheduler, start_notification_scheduler
 from app.runtime.runner import PollingRunSummary
 from app.runtime.telegram_httpx_live_process import (
@@ -174,6 +178,24 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
 
+        # Certificate-expiry monitor (feature-gated, default OFF; инцидент 2026-08-20).
+        cert_monitor: CertMonitorScheduler | None = None
+        cert_monitor_task: asyncio.Task | None = None
+        if cert_monitor_enabled_from_env() and process.app.bundle.pg_pool is not None:
+            try:
+                cert_monitor = CertMonitorScheduler(
+                    pool=process.app.bundle.pg_pool,
+                    bot_token=process.app.bundle.client._bot_token,
+                )
+                cert_monitor_task = asyncio.create_task(cert_monitor.run())
+                _log_lifecycle_event(
+                    intent="startup",
+                    outcome="completed",
+                    operation="cert_monitor_scheduler_started",
+                )
+            except Exception:
+                _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
+
         try:
             summary = await process.run_until_stopped()
         except Exception:
@@ -198,6 +220,10 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
         )
         return summary
     finally:
+        if cert_monitor is not None:
+            cert_monitor.stop()
+        if cert_monitor_task is not None:
+            cert_monitor_task.cancel()
         if scheduler is not None:
             scheduler.stop()
         if scheduler_task is not None:

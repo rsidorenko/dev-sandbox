@@ -26,6 +26,10 @@ from app.persistence.slice1_postgres_wiring import (  # noqa: E402
     resolve_slice1_composition_for_runtime,
     slice1_postgres_repos_requested,
 )
+from app.runtime.cert_monitor_scheduler import (  # noqa: E402
+    CertMonitorScheduler,
+    cert_monitor_enabled_from_env,
+)
 from app.runtime.fulfillment_activation_notifier import (  # noqa: E402
     FulfillmentActivationTelegramNotifierAdapter as _FulfillmentActivationTelegramNotifier,
 )
@@ -309,6 +313,8 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
     scheduler_task: asyncio.Task | None = None
     sync_scheduler: ServerSyncScheduler | None = None
     sync_task: asyncio.Task | None = None
+    cert_monitor: CertMonitorScheduler | None = None
+    cert_monitor_task: asyncio.Task | None = None
 
     @asynccontextmanager
     async def _lifespan(_: Starlette) -> AsyncIterator[None]:
@@ -319,7 +325,9 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             scheduler, \
             scheduler_task, \
             sync_scheduler, \
-            sync_task
+            sync_task, \
+            cert_monitor, \
+            cert_monitor_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -366,8 +374,20 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 sync_task = asyncio.create_task(sync_scheduler.run())
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
+        # Certificate-expiry monitor (feature-gated, default OFF; инцидент 2026-08-20).
+        if cert_monitor_enabled_from_env() and runtime_pg_pool is not None:
+            try:
+                cert_monitor = CertMonitorScheduler(pool=runtime_pg_pool, bot_token=config.bot_token)
+                cert_monitor_task = asyncio.create_task(cert_monitor.run())
+                _LOGGER.info("cert_monitor_scheduler_started")
+            except Exception:
+                _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if cert_monitor is not None:
+            cert_monitor.stop()
+        if cert_monitor_task is not None:
+            cert_monitor_task.cancel()
         if sync_scheduler is not None:
             sync_scheduler.stop()
         if sync_task is not None:
@@ -411,7 +431,9 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
             scheduler, \
             scheduler_task, \
             sync_scheduler, \
-            sync_task
+            sync_task, \
+            cert_monitor, \
+            cert_monitor_task
         # Build postgres composition in the correct event loop (uvicorn's loop).
         composition = None
         if slice1_postgres_repos_requested():
@@ -464,8 +486,23 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
                 sync_task = asyncio.create_task(sync_scheduler.run())
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
+        # Certificate-expiry monitor (feature-gated, default OFF; инцидент 2026-08-20).
+        if cert_monitor_enabled_from_env() and (runtime_pg_pool or web_api_pool) is not None:
+            try:
+                cert_monitor = CertMonitorScheduler(
+                    pool=runtime_pg_pool or web_api_pool,  # type: ignore[arg-type]
+                    bot_token=config.bot_token,
+                )
+                cert_monitor_task = asyncio.create_task(cert_monitor.run())
+                _LOGGER.info("cert_monitor_scheduler_started")
+            except Exception:
+                _LOGGER.warning("cert_monitor_scheduler_start_failed", exc_info=True)
         _log_webhook_main_event(outcome="ready", detail="http_enabled")
         yield
+        if cert_monitor is not None:
+            cert_monitor.stop()
+        if cert_monitor_task is not None:
+            cert_monitor_task.cancel()
         if sync_scheduler is not None:
             sync_scheduler.stop()
         if sync_task is not None:
