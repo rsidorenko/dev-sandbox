@@ -129,7 +129,7 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
     CertTarget(
         name="egress-us",
         mode="ssh-file",
-        host="77.109.125.209",
+        host="77.110.125.209",
         ssh_user="root",
         cert_paths=(f"{_CERTBOT_LIVE}/nkk.bravada-connect.online/fullchain.pem",),
     ),

@@ -319,6 +319,6 @@ def test_registry_contains_bare_xray_egress_us() -> None:
     ssh-file, root ключом бота, LE-путь nkk.bravada-connect.online."""
     target = next(t for t in cm.CERT_TARGETS if t.name == "egress-us")
     assert target.mode == "ssh-file"
-    assert target.host == "77.109.125.209"
+    assert target.host == "77.110.125.209"
     assert target.ssh_user == "root"
     assert any("nkk.bravada-connect.online" in p for p in target.cert_paths)
