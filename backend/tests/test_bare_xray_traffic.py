@@ -206,14 +206,19 @@ def test_stats_hosts_separates_different_api_ports() -> None:
 
 
 class _FakeConn:
-    def __init__(self, *, fetchval_result=None, fetch_rows=None) -> None:
+    def __init__(self, *, fetchval_result=None, fetchrow_result=None, fetch_rows=None) -> None:
         self.calls: list[tuple[str, list]] = []
         self._fetchval_result = fetchval_result
+        self._fetchrow_result = fetchrow_result
         self._fetch_rows = fetch_rows or []
 
     async def fetchval(self, sql, *args):
         self.calls.append((sql, list(args)))
         return self._fetchval_result
+
+    async def fetchrow(self, sql, *args):
+        self.calls.append((sql, list(args)))
+        return self._fetchrow_result
 
     async def fetch(self, sql, *args):
         self.calls.append((sql, list(args)))
@@ -304,6 +309,29 @@ def test_monthly_total_none_coerced_to_zero() -> None:
     conn = _FakeConn(fetchval_result=None)
     repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
     assert _run(repo.monthly_total_for_user("u1")) == 0
+
+
+def test_monthly_usage_returns_directions_and_uses_msk_bounds(monkeypatch) -> None:
+    from app.persistence import postgres_traffic_stats as pts
+
+    monkeypatch.setattr(pts, "msk_month_bounds", lambda now=None: (date(2026, 9, 1), date(2026, 9, 30)))
+    conn = _FakeConn(fetchrow_result={"upload_bytes": 123, "download_bytes": 4567})
+    repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
+
+    assert _run(repo.monthly_usage_for_user("abcdefgh12345678xyz")) == (123, 4567)
+
+    sql, args = conn.calls[0]
+    assert "SUM(uplink_bytes)" in sql and "SUM(downlink_bytes)" in sql
+    assert args[0] == ["user-abcdefgh12345678", "x-user-abcdefgh12345678"]
+    assert args[1].isoformat() == "2026-09-01" and args[2].isoformat() == "2026-09-30"
+
+
+def test_monthly_usage_without_rows_is_zero() -> None:
+    from app.persistence import postgres_traffic_stats as pts
+
+    conn = _FakeConn(fetchrow_result=None)
+    repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
+    assert _run(repo.monthly_usage_for_user("u1")) == (0, 0)
 
 
 def test_per_server_maps_rows_verbatim() -> None:

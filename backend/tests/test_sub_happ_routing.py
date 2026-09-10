@@ -5,6 +5,7 @@ response for Happ imports (flag SUB_HAPP_ROUTING_ENABLE)."""
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -103,12 +104,28 @@ class _Row(dict):
         return super().get(key, default)
 
 
+class _TrafficConn:
+    def __init__(self, upload_bytes: int, download_bytes: int) -> None:
+        self._usage = {"upload_bytes": upload_bytes, "download_bytes": download_bytes}
+
+    async def fetchrow(self, *_args, **_kwargs):
+        return self._usage
+
+
 class _Pool:
-    def __init__(self, row):
+    def __init__(self, row, *, upload_bytes: int = 0, download_bytes: int = 0):
         self._row = row
+        self._traffic_conn = _TrafficConn(upload_bytes, download_bytes)
 
     async def fetchrow(self, *_args, **_kwargs):
         return self._row
+
+    def acquire(self):
+        @contextlib.asynccontextmanager
+        async def _acquire():
+            yield self._traffic_conn
+
+        return _acquire()
 
 
 class _ProviderWithToken(StubVlessProvider):
@@ -123,7 +140,7 @@ class _ProviderWithToken(StubVlessProvider):
         )
 
 
-def _client() -> TestClient:
+def _client(*, upload_bytes: int = 0, download_bytes: int = 0) -> TestClient:
     pool = _Pool(
         _Row(
             internal_user_id="u1",
@@ -132,7 +149,9 @@ def _client() -> TestClient:
             trial_expires_at=datetime.now(UTC) + timedelta(days=1),
             active_until_utc=None,
             keys_deleted_at=None,
-        )
+        ),
+        upload_bytes=upload_bytes,
+        download_bytes=download_bytes,
     )
     app = Starlette(routes=[Route("/sub/{token}", handle_subscription, methods=["GET"])])
     app.state.pool = pool
@@ -176,3 +195,11 @@ def test_header_present_for_client_param_override(monkeypatch) -> None:
     resp = _client().get("/sub/tok?client=happ", headers={"User-Agent": "curl/8"})
     assert resp.status_code == 200
     assert resp.headers["routing"].startswith(_PREFIX)
+
+
+def test_profile_metadata_includes_actual_traffic_usage(monkeypatch) -> None:
+    monkeypatch.setattr("app.web_api.subscription._PROFILE_META_ENABLE", True)
+    resp = _client(upload_bytes=123, download_bytes=4567).get("/sub/tok", headers={"User-Agent": _HAPP_UA})
+
+    assert resp.status_code == 200
+    assert resp.headers["subscription-userinfo"].startswith("upload=123; download=4567; total=0;")

@@ -19,6 +19,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, Response
 
 from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
+from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
 from app.web_api.subscription_happ_routing import build_routing_header_value
 
 _SUB_RATE_LIMIT_MAX = 30
@@ -126,7 +127,10 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
     if _PROFILE_META_ENABLE:
         # Standard headers read by Happ/Karing/v2rayN; unknown ones are ignored
         # by other clients. Title goes base64 (UTF-8 emoji is not header-safe).
-        for name, value in _profile_meta_headers(row).items():
+        upload_bytes, download_bytes = await PostgresTrafficStatsRepository(pool).monthly_usage_for_user(
+            row["internal_user_id"]
+        )
+        for name, value in _profile_meta_headers(row, upload_bytes=upload_bytes, download_bytes=download_bytes).items():
             response.headers[name] = value
     if _HAPP_ROUTING_ENABLE and _wants_happ(ua, client_param):
         # Happ adds + activates the profile from this header on import/update;
@@ -154,7 +158,13 @@ def _entitlement_active(row, *, now: datetime) -> bool:
     return trial_ok or sub_ok
 
 
-def _profile_meta_headers(row, *, now: datetime | None = None) -> dict[str, str]:
+def _profile_meta_headers(
+    row,
+    *,
+    upload_bytes: int = 0,
+    download_bytes: int = 0,
+    now: datetime | None = None,
+) -> dict[str, str]:
     """Standard subscription metadata headers for /sub/ (Happ docs → App
     management, standard parameters — no Provider ID required).
 
@@ -165,9 +175,9 @@ def _profile_meta_headers(row, *, now: datetime | None = None) -> dict[str, str]
       renewals propagate without a manual refresh.
     * ``subscription-userinfo`` — ``expire`` = the later of trial/paid windows
       (same "later wins" as _entitlement_active); Happ renders remaining days
-      from it and flips the profile to expired once it passes. Traffic fields
-      are zeroed: we sell time, not bytes, and with ``total=0`` clients show
-      the expiry only.
+      from it and flips the profile to expired once it passes. ``upload`` and
+      ``download`` contain actual traffic from the current MSK month; ``total``
+      stays zero because we sell time, not bytes, so clients show usage / ∞.
     * ``announce`` — «⏳ Осталось: N дней» with a live day count (ceil of the
       time left to the same expiry). Happ draws its own «Истекает: <дата>»
       from ``expire``; the native «N days» status chip only renders when the
@@ -188,7 +198,10 @@ def _profile_meta_headers(row, *, now: datetime | None = None) -> dict[str, str]
     expires = [d for d in (row.get("trial_expires_at"), row.get("active_until_utc")) if d is not None]
     if expires:
         expire_at = max(expires)
-        headers["subscription-userinfo"] = f"upload=0; download=0; total=0; expire={int(expire_at.timestamp())}"
+        headers["subscription-userinfo"] = (
+            f"upload={max(upload_bytes, 0)}; download={max(download_bytes, 0)}; "
+            f"total=0; expire={int(expire_at.timestamp())}"
+        )
         remaining = expire_at - (now or datetime.now(UTC))
         if remaining.total_seconds() > 0:
             days = math.ceil(remaining.total_seconds() / 86400)

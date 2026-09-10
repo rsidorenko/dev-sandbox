@@ -61,6 +61,12 @@ def test_expire_from_paid_subscription(monkeypatch) -> None:
     assert headers["subscription-userinfo"] == f"upload=0; download=0; total=0; expire={int(_PAID.timestamp())}"
 
 
+def test_traffic_usage_is_reported_while_subscription_stays_unlimited(monkeypatch) -> None:
+    monkeypatch.setenv("BOT_USERNAME", "bravada_vpn_bot")
+    headers = _profile_meta_headers(_row(active_until_utc=_PAID), upload_bytes=123, download_bytes=4567, now=_NOW)
+    assert headers["subscription-userinfo"] == (f"upload=123; download=4567; total=0; expire={int(_PAID.timestamp())}")
+
+
 def test_expire_is_later_of_trial_and_paid(monkeypatch) -> None:
     """Admin grant / renewal can leave both windows set — the later one wins
     (mirrors _entitlement_active's OR semantics)."""

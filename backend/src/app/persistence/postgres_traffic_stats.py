@@ -92,6 +92,23 @@ class PostgresTrafficStatsRepository:
             )
         return int(total or 0)
 
+    async def monthly_usage_for_user(self, internal_user_id: str) -> tuple[int, int]:
+        """Upload и download (байты) пользователя за текущий MSK-месяц."""
+        first, last = msk_month_bounds()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT COALESCE(SUM(uplink_bytes), 0) AS upload_bytes, "
+                "COALESCE(SUM(downlink_bytes), 0) AS download_bytes "
+                "FROM bare_xray_traffic_daily "
+                "WHERE email = ANY($1) AND stat_date >= $2 AND stat_date <= $3",
+                list(user_emails_for_internal(internal_user_id)),
+                first,
+                last,
+            )
+        if row is None:
+            return 0, 0
+        return int(row["upload_bytes"] or 0), int(row["download_bytes"] or 0)
+
     async def per_server_for_user(self, internal_user_id: str) -> list[dict[str, int]]:
         """Разбивка трафика пользователя за текущий MSK-месяц по server_id.
 
