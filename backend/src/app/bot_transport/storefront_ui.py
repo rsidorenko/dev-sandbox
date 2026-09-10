@@ -149,7 +149,7 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
             # (без style) и идёт после целевых действий — по референсу главного меню.
             [{"text": "👤 Моя подписка", "callback_data": CB_MY_SUB}],
             [
-                {"text": "👥 Реферальная программа", "callback_data": CB_REFERRAL},
+                {"text": "👥 Пригласить друга", "callback_data": CB_REFERRAL},
                 {"text": "💰 Баланс", "callback_data": CB_BALANCE},
             ],
             [

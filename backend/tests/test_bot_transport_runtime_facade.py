@@ -372,6 +372,7 @@ def test_main_menu_colored_action_buttons() -> None:
     order = [b.get("callback_data") for b in flat]
     assert order.index(CB_BUY_VPN) < order.index(CB_CONNECT_DEVICE) < order.index(CB_MY_SUB)
     assert by_cb[CB_MY_SUB]["text"].startswith("👤")
+    assert by_cb[CB_REFERRAL]["text"] == "👥 Пригласить друга"
 
 
 def test_my_subscription_keyboard_has_submenu_buttons_and_back_to_main() -> None:
