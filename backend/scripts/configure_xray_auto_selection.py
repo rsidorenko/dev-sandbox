@@ -69,6 +69,7 @@ class AutoSelectionProfile:
     user: str
     key_path: str
     inbound_tags: tuple[str, ...]
+    replace_outbound_tags: tuple[str, ...]
     outbound_prefix: str
     balancer_tag: str
     fallback_tag: str
@@ -139,6 +140,7 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
     user = _required_str(data, "user")
     key_path = _required_str(data, "key_path")
     inbound_tags = _string_tuple(data, "inbound_tags")
+    replace_outbound_tags = _string_tuple(data, "replace_outbound_tags")
     outbound_prefix = _required_str(data, "outbound_prefix")
     balancer_tag = _required_str(data, "balancer_tag")
     fallback_tag = _required_str(data, "fallback_tag")
@@ -161,6 +163,7 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
         ("balancer_tag", balancer_tag),
         ("service_name", service_name),
         *(("inbound_tags", tag) for tag in inbound_tags),
+        *(("replace_outbound_tags", tag) for tag in replace_outbound_tags),
     ):
         if not _TAG_RE.fullmatch(value):
             raise ValueError(f"{field_name} содержит недопустимые символы: {value!r}")
@@ -204,6 +207,7 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
         user=user,
         key_path=key_path,
         inbound_tags=inbound_tags,
+        replace_outbound_tags=replace_outbound_tags,
         outbound_prefix=outbound_prefix,
         balancer_tag=balancer_tag,
         fallback_tag=fallback_tag,
@@ -282,15 +286,36 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
     inbound_set = set(profile.inbound_tags)
     kept_rules: list[dict[str, Any]] = []
     insert_at: int | None = None
-    for rule in rules:
-        if not isinstance(rule, dict):
-            kept_rules.append(rule)
+    for source_rule in rules:
+        if not isinstance(source_rule, dict):
+            kept_rules.append(source_rule)
             continue
-        if rule.get("balancerTag") == profile.balancer_tag:
-            continue
+        rule = copy.deepcopy(source_rule)
         rule_inbounds = set(rule.get("inboundTag") or [])
-        if rule_inbounds & inbound_set and _is_terminal_rule(rule):
+        # При повторном merge сначала убираем созданные нами scoped-копии.
+        if rule.get("balancerTag") == profile.balancer_tag and rule_inbounds == inbound_set:
             continue
+        if rule.get("outboundTag") in profile.replace_outbound_tags:
+            if rule_inbounds & inbound_set and _is_terminal_rule(rule):
+                remaining = [tag for tag in rule.get("inboundTag", []) if tag not in inbound_set]
+                if not remaining:
+                    continue
+                rule["inboundTag"] = remaining
+                rule_inbounds = set(remaining)
+            elif not _is_terminal_rule(rule) and (not rule_inbounds or rule_inbounds & inbound_set):
+                scoped = copy.deepcopy(rule)
+                scoped["inboundTag"] = [
+                    tag for tag in profile.inbound_tags if not rule_inbounds or tag in rule_inbounds
+                ]
+                scoped.pop("outboundTag", None)
+                scoped["balancerTag"] = profile.balancer_tag
+                kept_rules.append(scoped)
+                if rule_inbounds:
+                    remaining = [tag for tag in rule.get("inboundTag", []) if tag not in inbound_set]
+                    if not remaining:
+                        continue
+                    rule["inboundTag"] = remaining
+                    rule_inbounds = set(remaining)
         if not rule_inbounds and _is_terminal_rule(rule) and insert_at is None:
             insert_at = len(kept_rules)
         kept_rules.append(rule)
@@ -325,7 +350,8 @@ def profile_summary(profile: AutoSelectionProfile) -> str:
     published = len(profile.publish.server_ids) if profile.publish else 0
     return (
         f"profile={profile.name} host={profile.host} inbounds={','.join(profile.inbound_tags)} "
-        f"candidates={len(profile.outbounds)} fallback={profile.fallback_tag} publish_rows={published}"
+        f"replace={','.join(profile.replace_outbound_tags)} candidates={len(profile.outbounds)} "
+        f"fallback={profile.fallback_tag} publish_rows={published}"
     )
 
 

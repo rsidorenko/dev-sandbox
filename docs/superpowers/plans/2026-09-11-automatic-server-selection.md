@@ -21,7 +21,8 @@
 ### Задача 1.2 — Реализовать идемпотентный Xray merge
 - **Файлы:** `backend/scripts/configure_xray_auto_selection.py`
 - **Что сделать:** управляемо добавить outbounds, balancer, observatory и inbound rules.
-- **Acceptance:** второй merge равен первому; не принадлежащие профилю элементы сохранены.
+- **Acceptance:** второй merge равен первому; существующие foreign-rules переведены на
+  balancer, `direct` и не принадлежащие профилю элементы сохранены.
 
 ## Фаза 2 — Безопасное применение
 

@@ -23,6 +23,7 @@
       "user": "SSH_USER",
       "key_path": "/absolute/path/to/ssh_key",
       "inbound_tags": ["ENTRY_INBOUND_TAG"],
+      "replace_outbound_tags": ["CURRENT_FIXED_EGRESS_TAG"],
       "outbound_prefix": "auto-normal-",
       "balancer_tag": "balancer-normal",
       "fallback_tag": "auto-normal-primary",
@@ -56,7 +57,9 @@
 
 Замените `999999` на ID выбранной entry-строки. В рабочем файле `server_ids` должны быть
 числами, а `realitySettings` — полностью скопированы из уже проверенного межсерверного
-outbound. Для LTE добавьте второй профиль с отдельными
+outbound. `replace_outbound_tags` перечисляет текущие foreign-egress теги: правила,
+которые раньше указывали на них, будут направлены в balancer; правила `direct` сохранятся.
+Для LTE добавьте второй профиль с отдельными
 тегами `auto-lte-*`, label `LTE Автовыбор`, флагом `📶` и `surface=happ`.
 
 ```bash

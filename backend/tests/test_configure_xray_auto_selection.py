@@ -32,6 +32,7 @@ def _profile_data() -> dict:
         "user": "operator",
         "key_path": "/secure/operator_key",
         "inbound_tags": ["auto-in"],
+        "replace_outbound_tags": ["old-fixed-route"],
         "outbound_prefix": "auto-normal-",
         "balancer_tag": "balancer-normal",
         "fallback_tag": "auto-normal-de",
@@ -67,6 +68,11 @@ def _xray_config() -> dict:
             "rules": [
                 {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
                 {"type": "field", "domain": ["domain:ru"], "outboundTag": "direct"},
+                {
+                    "type": "field",
+                    "domain": ["domain:foreign.example"],
+                    "outboundTag": "old-fixed-route",
+                },
                 {
                     "type": "field",
                     "inboundTag": ["auto-in"],
@@ -163,7 +169,20 @@ def test_merge_replaces_only_owned_sections_and_is_idempotent() -> None:
         i for i, rule in enumerate(rules) if rule.get("outboundTag") == "direct" and rule.get("network") == "tcp,udp"
     )
     assert auto_rule_index < global_fallback_index
-    assert all(rule.get("outboundTag") != "old-fixed-route" for rule in rules)
+    assert {
+        "type": "field",
+        "domain": ["domain:foreign.example"],
+        "inboundTag": ["auto-in"],
+        "balancerTag": "balancer-normal",
+    } in rules
+    assert {
+        "type": "field",
+        "domain": ["domain:foreign.example"],
+        "outboundTag": "old-fixed-route",
+    } in rules
+    assert all(
+        not (rule.get("outboundTag") == "old-fixed-route" and rule.get("inboundTag") == ["auto-in"]) for rule in rules
+    )
     assert {"type": "field", "domain": ["domain:ru"], "outboundTag": "direct"} in rules
     assert merged["observatory"] == {
         "subjectSelector": ["unrelated-", "auto-normal-"],
@@ -181,11 +200,54 @@ def test_merge_requires_existing_inbound() -> None:
         auto.merge_auto_selection(config, profile)
 
 
+def test_merge_scopes_replaced_rules_and_preserves_manual_inbound() -> None:
+    profile = auto.parse_profile(_profile_data())
+    config = _xray_config()
+    config["inbounds"].append({"tag": "manual-in", "protocol": "vless"})
+    config["routing"]["rules"] = [
+        {
+            "type": "field",
+            "inboundTag": ["auto-in", "manual-in"],
+            "domain": ["domain:foreign.example"],
+            "outboundTag": "old-fixed-route",
+        },
+        {
+            "type": "field",
+            "inboundTag": ["auto-in", "manual-in"],
+            "network": "tcp,udp",
+            "outboundTag": "old-fixed-route",
+        },
+    ]
+
+    rules = auto.merge_auto_selection(config, profile)["routing"]["rules"]
+
+    assert {
+        "type": "field",
+        "inboundTag": ["auto-in"],
+        "domain": ["domain:foreign.example"],
+        "balancerTag": "balancer-normal",
+    } in rules
+    assert {
+        "type": "field",
+        "inboundTag": ["manual-in"],
+        "domain": ["domain:foreign.example"],
+        "outboundTag": "old-fixed-route",
+    } in rules
+    assert {
+        "type": "field",
+        "inboundTag": ["manual-in"],
+        "network": "tcp,udp",
+        "outboundTag": "old-fixed-route",
+    } in rules
+    assert any(rule.get("inboundTag") == ["auto-in"] and rule.get("balancerTag") == "balancer-normal" for rule in rules)
+
+
 def test_profile_summary_does_not_disclose_outbound_credentials() -> None:
     profile = auto.parse_profile(_profile_data())
     summary = auto.profile_summary(profile)
     assert "secret-auto" not in summary
     assert "192.0.2.20" not in summary
+    assert "replace=old-fixed-route" in summary
     assert "candidates=2" in summary
 
 
