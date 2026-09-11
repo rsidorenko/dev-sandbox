@@ -302,6 +302,16 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
     rules = routing.setdefault("rules", [])
     if not isinstance(rules, list):
         raise ValueError("Xray-конфиг содержит некорректный routing.rules")
+    route_value = str(profile.vless_route)
+    conflicts = [
+        rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("vlessRoute", "")) == route_value
+        and rule.get("balancerTag") != profile.balancer_tag
+    ]
+    if conflicts:
+        raise ValueError(f"vlessRoute {route_value} уже используется чужим правилом")
     kept_rules: list[dict[str, Any]] = []
     insert_at: int | None = None
     for source_rule in rules:
@@ -316,7 +326,7 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
             if not _is_terminal_rule(rule):
                 scoped = copy.deepcopy(rule)
                 scoped.pop("outboundTag", None)
-                scoped["vlessRoute"] = str(profile.vless_route)
+                scoped["vlessRoute"] = route_value
                 scoped["balancerTag"] = profile.balancer_tag
                 kept_rules.append(scoped)
         if _is_terminal_rule(rule) and insert_at is None:
@@ -324,7 +334,7 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
         kept_rules.append(rule)
     auto_rule = {
         "type": "field",
-        "vlessRoute": str(profile.vless_route),
+        "vlessRoute": route_value,
         "network": "tcp,udp",
         "balancerTag": profile.balancer_tag,
     }

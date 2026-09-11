@@ -274,6 +274,18 @@ def test_merge_removes_legacy_inbound_scoped_balancer_rules() -> None:
     assert all(rule.get("inboundTag") != ["auto-in"] for rule in rules if rule.get("balancerTag") == "balancer-normal")
 
 
+def test_merge_rejects_vless_route_owned_by_another_rule() -> None:
+    profile = auto.parse_profile(_profile_data())
+    config = _xray_config()
+    config["routing"]["rules"].insert(
+        0,
+        {"type": "field", "vlessRoute": "65001", "outboundTag": "unrelated-proxy"},
+    )
+
+    with pytest.raises(ValueError, match="уже используется"):
+        auto.merge_auto_selection(config, profile)
+
+
 def test_profile_summary_does_not_disclose_outbound_credentials() -> None:
     profile = auto.parse_profile(_profile_data())
     summary = auto.profile_summary(profile)
