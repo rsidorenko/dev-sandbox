@@ -46,6 +46,7 @@ _MATCH_FIELDS = {
     "protocol",
     "attrs",
     "user",
+    "vlessRoute",
 }
 
 _BACKUP_SUFFIX = ".pre-auto-selection.bak"
@@ -56,9 +57,12 @@ _DEFAULT_XRAY_BIN = "/usr/local/bin/xray"
 @dataclass(frozen=True, slots=True)
 class PublishSettings:
     server_ids: tuple[int, ...]
-    label: str
-    country_flag: str
-    country_code: str
+    manual_label: str
+    manual_country_flag: str
+    manual_country_code: str
+    auto_label: str
+    auto_country_flag: str
+    auto_country_code: str
     surface: str
 
 
@@ -70,6 +74,7 @@ class AutoSelectionProfile:
     key_path: str
     inbound_tags: tuple[str, ...]
     replace_outbound_tags: tuple[str, ...]
+    vless_route: int
     outbound_prefix: str
     balancer_tag: str
     fallback_tag: str
@@ -116,16 +121,26 @@ def _parse_publish(data: Any) -> PublishSettings | None:
     surface = _required_str(data, "surface")
     if surface not in {"default", "happ", "both"}:
         raise ValueError("publish.surface должен быть default, happ или both")
-    label = _required_str(data, "label")
-    country_flag = _required_str(data, "country_flag")
-    country_code = data.get("country_code", "")
-    if not isinstance(country_code, str):
-        raise ValueError("publish.country_code должен быть строкой")
+    manual_label = _required_str(data, "manual_label")
+    manual_country_flag = _required_str(data, "manual_country_flag")
+    auto_label = _required_str(data, "auto_label")
+    auto_country_flag = _required_str(data, "auto_country_flag")
+    manual_country_code = data.get("manual_country_code", "")
+    auto_country_code = data.get("auto_country_code", "")
+    if not isinstance(manual_country_code, str):
+        raise ValueError("publish.manual_country_code должен быть строкой")
+    if not isinstance(auto_country_code, str):
+        raise ValueError("publish.auto_country_code должен быть строкой")
+    if manual_label == auto_label:
+        raise ValueError("publish manual_label и auto_label должны различаться")
     return PublishSettings(
         server_ids=tuple(raw_ids),
-        label=label,
-        country_flag=country_flag,
-        country_code=country_code,
+        manual_label=manual_label,
+        manual_country_flag=manual_country_flag,
+        manual_country_code=manual_country_code,
+        auto_label=auto_label,
+        auto_country_flag=auto_country_flag,
+        auto_country_code=auto_country_code,
         surface=surface,
     )
 
@@ -141,6 +156,7 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
     key_path = _required_str(data, "key_path")
     inbound_tags = _string_tuple(data, "inbound_tags")
     replace_outbound_tags = _string_tuple(data, "replace_outbound_tags")
+    vless_route = data.get("vless_route")
     outbound_prefix = _required_str(data, "outbound_prefix")
     balancer_tag = _required_str(data, "balancer_tag")
     fallback_tag = _required_str(data, "fallback_tag")
@@ -173,6 +189,8 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
         raise ValueError("balancer_tag не должен попадать под outbound_prefix")
     if "api" in inbound_tags:
         raise ValueError("служебный inbound 'api' нельзя направлять в автовыбор")
+    if not isinstance(vless_route, int) or isinstance(vless_route, bool) or not 61440 <= vless_route <= 65535:
+        raise ValueError("vless_route должен быть целым числом 61440..65535")
     if not isinstance(probe_url, str) or not probe_url.startswith("https://"):
         raise ValueError("probe_url должен быть HTTPS URL")
     if not isinstance(probe_interval, str) or not _INTERVAL_RE.fullmatch(probe_interval):
@@ -208,6 +226,7 @@ def parse_profile(data: dict[str, Any]) -> AutoSelectionProfile:
         key_path=key_path,
         inbound_tags=inbound_tags,
         replace_outbound_tags=replace_outbound_tags,
+        vless_route=vless_route,
         outbound_prefix=outbound_prefix,
         balancer_tag=balancer_tag,
         fallback_tag=fallback_tag,
@@ -283,7 +302,6 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
     rules = routing.setdefault("rules", [])
     if not isinstance(rules, list):
         raise ValueError("Xray-конфиг содержит некорректный routing.rules")
-    inbound_set = set(profile.inbound_tags)
     kept_rules: list[dict[str, Any]] = []
     insert_at: int | None = None
     for source_rule in rules:
@@ -291,37 +309,22 @@ def merge_auto_selection(config: dict[str, Any], profile: AutoSelectionProfile) 
             kept_rules.append(source_rule)
             continue
         rule = copy.deepcopy(source_rule)
-        rule_inbounds = set(rule.get("inboundTag") or [])
-        # При повторном merge сначала убираем созданные нами scoped-копии.
-        if rule.get("balancerTag") == profile.balancer_tag and rule_inbounds == inbound_set:
+        # Удаляем и новые route-scoped, и старые inbound-scoped правила профиля.
+        if rule.get("balancerTag") == profile.balancer_tag:
             continue
         if rule.get("outboundTag") in profile.replace_outbound_tags:
-            if rule_inbounds & inbound_set and _is_terminal_rule(rule):
-                remaining = [tag for tag in rule.get("inboundTag", []) if tag not in inbound_set]
-                if not remaining:
-                    continue
-                rule["inboundTag"] = remaining
-                rule_inbounds = set(remaining)
-            elif not _is_terminal_rule(rule) and (not rule_inbounds or rule_inbounds & inbound_set):
+            if not _is_terminal_rule(rule):
                 scoped = copy.deepcopy(rule)
-                scoped["inboundTag"] = [
-                    tag for tag in profile.inbound_tags if not rule_inbounds or tag in rule_inbounds
-                ]
                 scoped.pop("outboundTag", None)
+                scoped["vlessRoute"] = str(profile.vless_route)
                 scoped["balancerTag"] = profile.balancer_tag
                 kept_rules.append(scoped)
-                if rule_inbounds:
-                    remaining = [tag for tag in rule.get("inboundTag", []) if tag not in inbound_set]
-                    if not remaining:
-                        continue
-                    rule["inboundTag"] = remaining
-                    rule_inbounds = set(remaining)
-        if not rule_inbounds and _is_terminal_rule(rule) and insert_at is None:
+        if _is_terminal_rule(rule) and insert_at is None:
             insert_at = len(kept_rules)
         kept_rules.append(rule)
     auto_rule = {
         "type": "field",
-        "inboundTag": list(profile.inbound_tags),
+        "vlessRoute": str(profile.vless_route),
         "network": "tcp,udp",
         "balancerTag": profile.balancer_tag,
     }
@@ -350,7 +353,8 @@ def profile_summary(profile: AutoSelectionProfile) -> str:
     published = len(profile.publish.server_ids) if profile.publish else 0
     return (
         f"profile={profile.name} host={profile.host} inbounds={','.join(profile.inbound_tags)} "
-        f"replace={','.join(profile.replace_outbound_tags)} candidates={len(profile.outbounds)} "
+        f"replace={','.join(profile.replace_outbound_tags)} route={profile.vless_route} "
+        f"candidates={len(profile.outbounds)} "
         f"fallback={profile.fallback_tag} publish_rows={published}"
     )
 
@@ -442,11 +446,11 @@ def apply_profile(profile: AutoSelectionProfile, *, dry_run: bool) -> bool:
 
 
 async def publish_profile(pool: Any, profile: AutoSelectionProfile) -> list[dict[str, Any]]:
-    """Опубликовать label/surface только для ожидаемых active bare-xray строк."""
+    """Восстановить ручную строку и включить рядом дополнительный auto alias."""
     settings = profile.publish
     if settings is None:
         raise ValueError("профиль не содержит секцию publish")
-    link_fragment = quote(f"{settings.country_flag} {settings.label}", safe="")
+    manual_fragment = quote(f"{settings.manual_country_flag} {settings.manual_label}", safe="")
     async with pool.acquire() as connection, connection.transaction():
         rows = await connection.fetch(
             """UPDATE vpn_servers
@@ -454,20 +458,30 @@ async def publish_profile(pool: Any, profile: AutoSelectionProfile) -> list[dict
                    country_flag = $2,
                    country_code = $3,
                    client_surface = $4,
+                   auto_selection_route = $5,
+                   auto_selection_label = $6,
+                   auto_selection_country_flag = $7,
+                   auto_selection_country_code = $8,
                    link_template = CASE
                        WHEN COALESCE(link_template, '') = '' THEN link_template
-                       ELSE split_part(link_template, '#', 1) || '#' || $6
+                       ELSE split_part(link_template, '#', 1) || '#' || $10
                    END
-               WHERE id = ANY($5::int[])
+               WHERE id = ANY($9::int[])
                  AND is_active = TRUE
                  AND provider_kind = 'bare_xray'
-               RETURNING id, label, country_flag, country_code, client_surface""",
-            settings.label,
-            settings.country_flag,
-            settings.country_code,
+               RETURNING id, label, country_flag, country_code, client_surface,
+                         auto_selection_route, auto_selection_label,
+                         auto_selection_country_flag, auto_selection_country_code""",
+            settings.manual_label,
+            settings.manual_country_flag,
+            settings.manual_country_code,
             settings.surface,
+            profile.vless_route,
+            settings.auto_label,
+            settings.auto_country_flag,
+            settings.auto_country_code,
             list(settings.server_ids),
-            link_fragment,
+            manual_fragment,
         )
         if len(rows) != len(settings.server_ids):
             raise RuntimeError(f"ожидалось строк vpn_servers: {len(settings.server_ids)}, обновлено: {len(rows)}")

@@ -5,6 +5,11 @@
 подключаться к уже работающему VLESS/Reality или CDN-входу, а entry выбирает доступный
 зарубежный выход с минимальной задержкой.
 
+Автовыбор публикуется **дополнительной ссылкой**, а не заменяет ручной сервер. В ссылке
+меняются только служебные байты 7–8 UUID: Xray интерпретирует их как `vlessRoute`, но
+аутентифицирует соединение как того же пользователя. Поэтому новый inbound, порт и второй
+набор пользователей не нужны.
+
 Обычный и LTE-пулы настраиваются отдельными профилями. Для обычного профиля публикация
 использует `surface=both`, для LTE — `surface=happ`.
 
@@ -24,6 +29,7 @@
       "key_path": "/absolute/path/to/ssh_key",
       "inbound_tags": ["ENTRY_INBOUND_TAG"],
       "replace_outbound_tags": ["CURRENT_FIXED_EGRESS_TAG"],
+      "vless_route": 65001,
       "outbound_prefix": "auto-normal-",
       "balancer_tag": "balancer-normal",
       "fallback_tag": "auto-normal-primary",
@@ -45,9 +51,12 @@
       ],
       "publish": {
         "server_ids": [999999],
-        "label": "Автовыбор",
-        "country_flag": "⚡",
-        "country_code": "",
+        "manual_label": "Германия 1.0",
+        "manual_country_flag": "🇩🇪",
+        "manual_country_code": "DE",
+        "auto_label": "Автовыбор",
+        "auto_country_flag": "⚡",
+        "auto_country_code": "",
         "surface": "both"
       }
     }
@@ -58,9 +67,14 @@
 Замените `999999` на ID выбранной entry-строки. В рабочем файле `server_ids` должны быть
 числами, а `realitySettings` — полностью скопированы из уже проверенного межсерверного
 outbound. `replace_outbound_tags` перечисляет текущие foreign-egress теги: правила,
-которые раньше указывали на них, будут направлены в balancer; правила `direct` сохранятся.
+которые раньше указывали на них, будут продублированы для указанного `vless_route` и
+направлены в balancer; исходные правила сохранят фиксированный маршрут ручной ссылки.
+Значение `vless_route` должно быть уникальным в пределах entry-хоста и лежать в диапазоне
+61440..65535. Этот диапазон имеет старшую hex-цифру `f` и поэтому не пересекается с
+version-полем обычных UUID пользователей.
 Для LTE добавьте второй профиль с отдельными
-тегами `auto-lte-*`, label `LTE Автовыбор`, флагом `📶` и `surface=happ`.
+тегами `auto-lte-*`, другим `vless_route`, ручным label исходного обхода,
+`auto_label=LTE Автовыбор`, флагом `📶` и `surface=happ`.
 
 ```bash
 chmod 600 /secure/bravada-auto-selection.json
@@ -88,7 +102,8 @@ Dry-run должен найти все inbound-теги и показать `can
 
 Запускайте профили по одному. `--publish` допустим только с `--apply`: сначала сохраняются
 live-users, проверяется новый конфиг, создаётся backup и перезапускается Xray; только затем
-меняются label/surface и fragment custom `link_template` в `vpn_servers`.
+восстанавливаются ручные label/surface/fragment custom `link_template`, а метаданные
+дополнительной ссылки записываются в `auto_selection_*`.
 
 ```bash
 export DATABASE_URL='значение из production environment'
@@ -96,8 +111,9 @@ python -m scripts.configure_xray_auto_selection \
   --config /secure/bravada-auto-selection.json --profile normal --apply --publish
 ```
 
-После обычного профиля обновите подписку в Happ и Karing: «⚡ Автовыбор» должен быть первым.
-После LTE-профиля обновите Happ: следом должен отображаться «📶 LTE Автовыбор».
+После обычного профиля обновите подписку в Happ и Karing: одновременно должны присутствовать
+«⚡ Автовыбор» и исходный ручной сервер. После LTE-профиля обновите Happ: одновременно должны
+присутствовать «📶 LTE Автовыбор» и исходный «Обход белых списков».
 
 Проверьте два разных egress по очереди, временно отключая по одному кандидату в maintenance
 окне. Переключение должно произойти после следующего `probe_interval`; при отсутствии всех
@@ -115,9 +131,10 @@ sudo systemctl restart xray
 systemctl is-active xray
 ```
 
-Верните прежние `label`, `country_flag`, `country_code`, `client_surface` и fragment
-`link_template` у опубликованных строк отдельным точечным `UPDATE`. Не отключайте строку:
-это также отключит lifecycle/reconcile пользователей данного inbound.
+Обнулите `auto_selection_route` и поля `auto_selection_*` у опубликованных строк. Ручные
+`label`, `country_flag`, `country_code`, `client_surface` и fragment `link_template` уже
+остаются рабочими. Не отключайте строку: это также отключит lifecycle/reconcile пользователей
+данного inbound.
 
 ## Ограничения
 

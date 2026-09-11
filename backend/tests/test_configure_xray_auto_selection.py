@@ -33,6 +33,7 @@ def _profile_data() -> dict:
         "key_path": "/secure/operator_key",
         "inbound_tags": ["auto-in"],
         "replace_outbound_tags": ["old-fixed-route"],
+        "vless_route": 65001,
         "outbound_prefix": "auto-normal-",
         "balancer_tag": "balancer-normal",
         "fallback_tag": "auto-normal-de",
@@ -44,9 +45,12 @@ def _profile_data() -> dict:
         ],
         "publish": {
             "server_ids": [26],
-            "label": "Автовыбор",
-            "country_flag": "⚡",
-            "country_code": "",
+            "manual_label": "Германия 1.0",
+            "manual_country_flag": "🇩🇪",
+            "manual_country_code": "DE",
+            "auto_label": "Автовыбор",
+            "auto_country_flag": "⚡",
+            "auto_country_code": "",
             "surface": "both",
         },
     }
@@ -105,8 +109,10 @@ def test_parse_profile_accepts_normal_and_lte_contract() -> None:
             ],
             "publish": {
                 "server_ids": [34],
-                "label": "LTE Автовыбор",
-                "country_flag": "📶",
+                "manual_label": "Обход белых списков, Германия",
+                "manual_country_flag": "🌐",
+                "auto_label": "LTE Автовыбор",
+                "auto_country_flag": "📶",
                 "surface": "happ",
             },
         }
@@ -115,6 +121,7 @@ def test_parse_profile_accepts_normal_and_lte_contract() -> None:
 
     assert normal.publish is not None and normal.publish.surface == "both"
     assert lte.publish is not None and lte.publish.surface == "happ"
+    assert normal.vless_route == lte.vless_route == 65001
     assert len(normal.outbounds) == len(lte.outbounds) == 2
 
 
@@ -124,6 +131,7 @@ def test_parse_profile_accepts_normal_and_lte_contract() -> None:
         (lambda data: data.update(outbounds=data["outbounds"][:1]), "минимум два"),
         (lambda data: data.update(fallback_tag="auto-normal-missing"), "fallback_tag"),
         (lambda data: data.update(inbound_tags=["api"]), "служебный inbound"),
+        (lambda data: data.update(vless_route=0), "vless_route"),
         (lambda data: data["publish"].update(surface="unknown"), "publish.surface"),
         (
             lambda data: data["outbounds"][0].update(tag="foreign-prefix-de"),
@@ -172,7 +180,7 @@ def test_merge_replaces_only_owned_sections_and_is_idempotent() -> None:
     assert {
         "type": "field",
         "domain": ["domain:foreign.example"],
-        "inboundTag": ["auto-in"],
+        "vlessRoute": "65001",
         "balancerTag": "balancer-normal",
     } in rules
     assert {
@@ -180,9 +188,13 @@ def test_merge_replaces_only_owned_sections_and_is_idempotent() -> None:
         "domain": ["domain:foreign.example"],
         "outboundTag": "old-fixed-route",
     } in rules
-    assert all(
-        not (rule.get("outboundTag") == "old-fixed-route" and rule.get("inboundTag") == ["auto-in"]) for rule in rules
-    )
+    assert {
+        "type": "field",
+        "inboundTag": ["auto-in"],
+        "network": "tcp,udp",
+        "outboundTag": "old-fixed-route",
+    } in rules
+    assert any(rule.get("vlessRoute") == "65001" and rule.get("balancerTag") == "balancer-normal" for rule in rules)
     assert {"type": "field", "domain": ["domain:ru"], "outboundTag": "direct"} in rules
     assert merged["observatory"] == {
         "subjectSelector": ["unrelated-", "auto-normal-"],
@@ -200,7 +212,7 @@ def test_merge_requires_existing_inbound() -> None:
         auto.merge_auto_selection(config, profile)
 
 
-def test_merge_scopes_replaced_rules_and_preserves_manual_inbound() -> None:
+def test_merge_routes_only_alias_and_preserves_manual_inbound() -> None:
     profile = auto.parse_profile(_profile_data())
     config = _xray_config()
     config["inbounds"].append({"tag": "manual-in", "protocol": "vless"})
@@ -223,23 +235,43 @@ def test_merge_scopes_replaced_rules_and_preserves_manual_inbound() -> None:
 
     assert {
         "type": "field",
-        "inboundTag": ["auto-in"],
+        "inboundTag": ["auto-in", "manual-in"],
         "domain": ["domain:foreign.example"],
+        "vlessRoute": "65001",
         "balancerTag": "balancer-normal",
     } in rules
     assert {
         "type": "field",
-        "inboundTag": ["manual-in"],
+        "inboundTag": ["auto-in", "manual-in"],
         "domain": ["domain:foreign.example"],
         "outboundTag": "old-fixed-route",
     } in rules
     assert {
         "type": "field",
-        "inboundTag": ["manual-in"],
+        "inboundTag": ["auto-in", "manual-in"],
         "network": "tcp,udp",
         "outboundTag": "old-fixed-route",
     } in rules
-    assert any(rule.get("inboundTag") == ["auto-in"] and rule.get("balancerTag") == "balancer-normal" for rule in rules)
+    assert any(rule.get("vlessRoute") == "65001" and rule.get("balancerTag") == "balancer-normal" for rule in rules)
+
+
+def test_merge_removes_legacy_inbound_scoped_balancer_rules() -> None:
+    profile = auto.parse_profile(_profile_data())
+    config = _xray_config()
+    config["routing"]["rules"].insert(
+        1,
+        {
+            "type": "field",
+            "inboundTag": ["auto-in"],
+            "domain": ["domain:legacy.example"],
+            "balancerTag": "balancer-normal",
+        },
+    )
+
+    rules = auto.merge_auto_selection(config, profile)["routing"]["rules"]
+
+    assert not any(rule.get("domain") == ["domain:legacy.example"] for rule in rules)
+    assert all(rule.get("inboundTag") != ["auto-in"] for rule in rules if rule.get("balancerTag") == "balancer-normal")
 
 
 def test_profile_summary_does_not_disclose_outbound_credentials() -> None:
@@ -248,6 +280,7 @@ def test_profile_summary_does_not_disclose_outbound_credentials() -> None:
     assert "secret-auto" not in summary
     assert "192.0.2.20" not in summary
     assert "replace=old-fixed-route" in summary
+    assert "route=65001" in summary
     assert "candidates=2" in summary
 
 
@@ -389,17 +422,30 @@ class _Pool:
 async def test_publish_updates_only_guarded_bare_xray_rows() -> None:
     profile = auto.parse_profile(_profile_data())
     connection = _Connection(
-        [{"id": 26, "label": "Автовыбор", "country_flag": "⚡", "country_code": "", "client_surface": "both"}]
+        [
+            {
+                "id": 26,
+                "label": "Германия 1.0",
+                "country_flag": "🇩🇪",
+                "country_code": "DE",
+                "client_surface": "both",
+                "auto_selection_route": 65001,
+                "auto_selection_label": "Автовыбор",
+                "auto_selection_country_flag": "⚡",
+                "auto_selection_country_code": "",
+            }
+        ]
     )
     rows = await auto.publish_profile(_Pool(connection), profile)
 
-    assert rows[0]["label"] == "Автовыбор"
+    assert rows[0]["label"] == "Германия 1.0"
+    assert rows[0]["auto_selection_label"] == "Автовыбор"
     query, args = connection.call
     assert "is_active = TRUE" in query
     assert "provider_kind = 'bare_xray'" in query
     assert "split_part(link_template, '#', 1)" in query
     assert args[-2] == [26]
-    assert args[-1] == "%E2%9A%A1%20%D0%90%D0%B2%D1%82%D0%BE%D0%B2%D1%8B%D0%B1%D0%BE%D1%80"
+    assert args[-1] == "%F0%9F%87%A9%F0%9F%87%AA%20%D0%93%D0%B5%D1%80%D0%BC%D0%B0%D0%BD%D0%B8%D1%8F%201.0"
 
 
 @pytest.mark.asyncio

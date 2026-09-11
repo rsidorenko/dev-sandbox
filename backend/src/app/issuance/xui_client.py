@@ -117,6 +117,13 @@ class XuiServerConfig:
     # CLOUDRU_SSH_USER / CLOUDRU_SSH_KEY env; empty = use env (Cloud.ru stays on env). mig 059.
     ssh_user: str = ""
     ssh_key_path: str = ""
+    # Необязательная вторая ссылка на том же VLESS inbound. Xray трактует байты
+    # UUID 7–8 как vlessRoute, а остальные — как пользователя, поэтому alias не
+    # требует отдельного порта или lifecycle-клиента.
+    auto_selection_route: int = 0
+    auto_selection_label: str = ""
+    auto_selection_country_code: str = ""
+    auto_selection_country_flag: str = ""
 
 
 class XuiApiClient:

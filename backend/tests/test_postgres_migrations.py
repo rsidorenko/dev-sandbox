@@ -124,6 +124,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "077_web_notifications.sql",
         "078_certificate_expiry_state.sql",
         "079_bare_xray_traffic.sql",
+        "080_vpn_servers_auto_selection_alias.sql",
     ]
 
 
@@ -531,6 +532,27 @@ def test_bare_xray_traffic_migration_contract_safe_additive() -> None:
     assert "create table if not exists bare_xray_traffic_daily" in lowered
     assert "primary key (stat_date, server_id, email)" in lowered
     assert "create index if not exists idx_bare_xray_traffic_daily_email_date" in lowered
+
+    for forbidden in (
+        "drop table",
+        "drop column",
+        "truncate",
+        " delete from ",
+        "alter column",
+    ):
+        assert forbidden not in lowered
+
+
+def test_auto_selection_alias_migration_contract_safe_additive() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1] / "migrations" / "080_vpn_servers_auto_selection_alias.sql"
+    ).read_text(encoding="utf-8")
+    lowered = _squash_ws(migration).lower()
+
+    assert "add column if not exists auto_selection_route integer not null default 0" in lowered
+    assert "add column if not exists auto_selection_label text not null default ''" in lowered
+    assert "check (auto_selection_route = 0 or auto_selection_route between 61440 and 65535)" in lowered
+    assert "create unique index if not exists uq_vpn_servers_auto_selection_route_per_host" in lowered
 
     for forbidden in (
         "drop table",

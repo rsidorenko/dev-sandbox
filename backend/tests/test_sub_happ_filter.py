@@ -3,7 +3,10 @@ and the provider's bare_xray (Cloud.ru) link builder, plus the /sub/ entitlement
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote, urlsplit
 
 from app.issuance.vless_provider import VlessServerConfig
 from app.issuance.xui_client import XuiServerConfig
@@ -11,6 +14,7 @@ from app.issuance.xui_vless_provider import (
     XuiVlessProvider,
     _build_vless_link,
     _vless_uuid_for_transport,
+    _vless_uuid_with_route,
 )
 from app.web_api.subscription import _entitlement_active, _select_servers_for_client
 
@@ -220,6 +224,43 @@ async def test_bare_xray_servers_empty_when_none_configured() -> None:
     assert await provider._bare_xray_servers("u1") == []
 
 
+def test_vless_uuid_route_changes_only_reserved_bytes() -> None:
+    base = _vless_uuid_for_transport("u1", "tcp")
+    routed = _vless_uuid_with_route(base, 65001)
+    base_bytes = uuid.UUID(base).bytes
+    routed_bytes = uuid.UUID(routed).bytes
+
+    assert int.from_bytes(routed_bytes[6:8], "big") == 65001
+    assert routed_bytes[:6] == base_bytes[:6]
+    assert routed_bytes[8:] == base_bytes[8:]
+
+
+async def test_bare_xray_auto_selection_is_additional_link() -> None:
+    config = replace(
+        _cloudru_config(),
+        label="Германия 1.0",
+        country_code="DE",
+        country_flag="🇩🇪",
+        client_surface="both",
+        auto_selection_route=65001,
+        auto_selection_label="Автовыбор",
+        auto_selection_country_flag="⚡",
+    )
+    provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    provider._bare_xray_configs = (config,)
+
+    manual, automatic = await provider._bare_xray_servers("u1")
+
+    manual_uuid = urlsplit(manual.vless_link).username
+    automatic_uuid = urlsplit(automatic.vless_link).username
+    assert manual.server_label == "Германия 1.0"
+    assert automatic.server_label == "Автовыбор"
+    assert manual_uuid == _vless_uuid_for_transport("u1", "tcp")
+    assert automatic_uuid == _vless_uuid_with_route(manual_uuid, 65001)
+    assert unquote(urlsplit(automatic.vless_link).fragment) == "⚡ Автовыбор"
+    assert manual.surface == automatic.surface == "both"
+
+
 def test_build_vless_link_tcp_uses_row_reality_fp() -> None:
     """The tcp branch must honour the row's reality_fp (firefox for Cloud.ru, chrome
     for the fleet) — this is what makes the Happ link use fp=firefox without a template."""
@@ -255,6 +296,28 @@ def test_cdn_bypass_link_template_emitted_verbatim_per_user() -> None:
     link = _build_vless_link(_cdn_config(), "user-uuid-123")
     assert link == "vless://user-uuid-123@cdn.strimingset.ru:443?extra=OBF&type=xhttp#bypass"
     assert "extra=OBF" in link  # obfuscation preserved verbatim
+
+
+async def test_cdn_auto_selection_preserves_template_and_manual_link() -> None:
+    config = replace(
+        _cdn_config(),
+        label="Обход белых списков, Германия",
+        auto_selection_route=65002,
+        auto_selection_label="LTE Автовыбор",
+        auto_selection_country_flag="📶",
+    )
+    provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    provider._bare_xray_configs = (config,)
+
+    manual, automatic = await provider._bare_xray_servers("u1")
+
+    assert manual.server_label == "Обход белых списков, Германия"
+    assert manual.vless_link.endswith("#bypass")
+    assert "extra=OBF&type=xhttp" in automatic.vless_link
+    assert urlsplit(automatic.vless_link).username == _vless_uuid_with_route(
+        _vless_uuid_for_transport("u1", "xhttp"), 65002
+    )
+    assert unquote(urlsplit(automatic.vless_link).fragment) == "📶 LTE Автовыбор"
 
 
 def test_cdn_bypass_surface_routes_to_happ_only() -> None:

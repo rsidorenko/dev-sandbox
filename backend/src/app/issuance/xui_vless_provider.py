@@ -14,6 +14,7 @@ import secrets
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import asyncpg
 
@@ -100,6 +101,20 @@ def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str
             f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
         )
     )
+
+
+def _vless_uuid_with_route(user_uuid: str, route: int) -> str:
+    """Вернуть того же Xray-пользователя с 16-битным ``vlessRoute``.
+
+    Xray обнуляет байты 7–8 перед поиском пользователя, а исходное big-endian
+    значение передаёт в routing. Поэтому ссылка авторизуется существующим
+    пользователем и сохраняет его email/счётчики.
+    """
+    if not 1 <= route <= 65535:
+        raise ValueError("vlessRoute должен быть в диапазоне 1..65535")
+    raw = bytearray(uuid.UUID(user_uuid).bytes)
+    raw[6:8] = route.to_bytes(2, "big")
+    return str(uuid.UUID(bytes=bytes(raw)))
 
 
 async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -> str:
@@ -238,7 +253,11 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
                   COALESCE(client_surface, 'default') AS client_surface,
                   COALESCE(panel_flavor, 'standard') AS panel_flavor,
                   COALESCE(ssh_user, '') AS ssh_user,
-                  COALESCE(ssh_key_path, '') AS ssh_key_path
+                  COALESCE(ssh_key_path, '') AS ssh_key_path,
+                  COALESCE(auto_selection_route, 0) AS auto_selection_route,
+                  COALESCE(auto_selection_label, '') AS auto_selection_label,
+                  COALESCE(auto_selection_country_code, '') AS auto_selection_country_code,
+                  COALESCE(auto_selection_country_flag, '') AS auto_selection_country_flag
            FROM vpn_servers WHERE is_active = TRUE ORDER BY id"""
     )
     return tuple(
@@ -268,6 +287,10 @@ async def _load_server_configs(pool: asyncpg.Pool) -> tuple[XuiServerConfig, ...
             panel_flavor=r["panel_flavor"],
             ssh_user=r["ssh_user"],
             ssh_key_path=r["ssh_key_path"],
+            auto_selection_route=r["auto_selection_route"],
+            auto_selection_label=r["auto_selection_label"],
+            auto_selection_country_code=r["auto_selection_country_code"],
+            auto_selection_country_flag=r["auto_selection_country_flag"],
         )
         for r in rows
     )
@@ -371,16 +394,36 @@ class XuiVlessProvider(VlessProviderPort):
         [] when no bare_xray servers are configured."""
         if not self._bare_xray_configs:
             return []
-        return [
-            VlessServerConfig(
-                server_label=c.label,
-                country_code=c.country_code,
-                country_flag=c.country_flag,
-                vless_link=_build_vless_link(c, _vless_uuid_for_transport(internal_user_id, c.transport_type)),
-                surface=c.client_surface,
+        servers: list[VlessServerConfig] = []
+        for c in self._bare_xray_configs:
+            user_uuid = _vless_uuid_for_transport(internal_user_id, c.transport_type)
+            servers.append(
+                VlessServerConfig(
+                    server_label=c.label,
+                    country_code=c.country_code,
+                    country_flag=c.country_flag,
+                    vless_link=_build_vless_link(c, user_uuid),
+                    surface=c.client_surface,
+                )
             )
-            for c in self._bare_xray_configs
-        ]
+            if not c.auto_selection_route:
+                continue
+            if not c.auto_selection_label or not c.auto_selection_country_flag:
+                _LOGGER.warning("auto-selection metadata incomplete server=%s", c.server_id)
+                continue
+            routed_uuid = _vless_uuid_with_route(user_uuid, c.auto_selection_route)
+            link_without_fragment = _build_vless_link(c, routed_uuid).split("#", 1)[0]
+            fragment = quote(f"{c.auto_selection_country_flag} {c.auto_selection_label}", safe="")
+            servers.append(
+                VlessServerConfig(
+                    server_label=c.auto_selection_label,
+                    country_code=c.auto_selection_country_code,
+                    country_flag=c.auto_selection_country_flag,
+                    vless_link=f"{link_without_fragment}#{fragment}",
+                    surface=c.client_surface,
+                )
+            )
+        return servers
 
     async def _get_bare_xray_clients(self) -> tuple[XrayApiClient, ...]:
         """XrayApiClient per gRPC-managed bare_xray inbound. Per-row SSH creds (ssh_user /
