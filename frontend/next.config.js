@@ -20,7 +20,9 @@ const nextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'${developmentScriptPolicy} https://mc.yandex.ru; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://mc.yandex.ru; font-src 'self'; connect-src 'self' ${apiOrigin} https://mc.yandex.ru wss://mc.yandex.ru${upgradeInsecureRequests}`,
+              // mc.yandex.ru убран из CSP вместе с полным выключением Метрики
+              // (PD-аудит 2026-09-11): ноль внешних передач с сайта.
+              `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'${developmentScriptPolicy}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${apiOrigin}${upgradeInsecureRequests}`,
           },
         ],
       },

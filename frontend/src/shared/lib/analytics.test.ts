@@ -12,6 +12,33 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (window as unknown as { ym?: unknown }).ym;
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
+
+describe("Метрика по умолчанию выключена (PD-аудит 2026-09-11)", () => {
+  it("YM_ID пуст без NEXT_PUBLIC_YM_ID", () => {
+    expect(YM_ID).toBe("");
+  });
+
+  it("init-сниппет и пиксель — пустые строки (ничего не рендерится)", () => {
+    expect(metrikaInitScript()).toBe("");
+    expect(metrikaPixelUrl()).toBe("");
+  });
+});
+
+describe("Метрика включается только явным NEXT_PUBLIC_YM_ID", () => {
+  it("init-сниппет содержит id и tag.js, webvisor выключен", async () => {
+    vi.stubEnv("NEXT_PUBLIC_YM_ID", "123456789");
+    vi.resetModules();
+    const mod = await import("./analytics");
+    expect(mod.YM_ID).toBe("123456789");
+    const script = mod.metrikaInitScript();
+    expect(script).toContain("id=123456789");
+    expect(script).toContain("mc.yandex.ru/metrika/tag.js");
+    expect(script).toContain("webvisor:false");
+    expect(mod.metrikaPixelUrl()).toContain("/watch/123456789");
+  });
 });
 
 describe("reachGoal", () => {
@@ -36,17 +63,5 @@ describe("reachGoal", () => {
       throw new Error("boom");
     };
     expect(() => reachGoal("purchase")).not.toThrow();
-  });
-});
-
-describe("metrika URLs", () => {
-  it("pixel URL contains the YM id", () => {
-    expect(metrikaPixelUrl()).toContain(`/watch/${YM_ID}`);
-  });
-
-  it("init script contains YM id and the tag.js source", () => {
-    const script = metrikaInitScript();
-    expect(script).toContain(`id=${YM_ID}`);
-    expect(script).toContain("mc.yandex.ru/metrika/tag.js");
   });
 });
