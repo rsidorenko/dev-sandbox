@@ -150,6 +150,21 @@ def test_both_surface_served_to_happ_and_default() -> None:
     assert {s.server_label for s in kar_selected} == {"Frankfurt 2.0", "Cloud.ru 1.0"}
 
 
+def test_auto_selection_entries_are_first_for_each_client_surface() -> None:
+    servers = (
+        _server("Cloud.ru", "happ"),
+        _server("LTE Автовыбор", "happ"),
+        _server("Helsinki"),
+        _server("Автовыбор", "both"),
+    )
+
+    happ = _select_servers_for_client(servers, ua="Happ/2.0", client_param=None)
+    default = _select_servers_for_client(servers, ua="Karing/1.0", client_param=None)
+
+    assert [server.server_label for server in happ] == ["Автовыбор", "LTE Автовыбор", "Cloud.ru"]
+    assert [server.server_label for server in default] == ["Автовыбор", "Helsinki"]
+
+
 # ---------------------------------------------------------------------------
 # Provider: bare_xray (Cloud.ru) link building — surface + tcp/firefox link shape
 # ---------------------------------------------------------------------------

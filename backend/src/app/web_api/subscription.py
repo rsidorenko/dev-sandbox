@@ -250,7 +250,14 @@ def _select_servers_for_client(
     """
     want_happ = _wants_happ(ua, client_param)
     _FC = {0x59: 1, 0x0413: 2, 0x0424: 3, 0x041B: 4, 0x0421: 5, 0x041E: 6}
-    servers = sorted(servers, key=lambda s: _FC.get(ord(s.server_label[0]) if s.server_label else 0, 99))
+
+    def _sort_key(server: VlessServerConfig) -> tuple[int, int]:
+        # Виртуальные точки выбора должны быть видны до ручного списка стран.
+        auto_rank = 0 if "автовыбор" in server.server_label.lower() else 1
+        first = ord(server.server_label[0]) if server.server_label else 0
+        return auto_rank, _FC.get(first, 99)
+
+    servers = sorted(servers, key=_sort_key)
     both = [s for s in servers if s.surface == "both"]
     if want_happ:
         happ = [s for s in servers if s.surface == "happ"]
