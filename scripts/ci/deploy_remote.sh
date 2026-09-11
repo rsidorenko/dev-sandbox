@@ -6,11 +6,21 @@ set -e
 
 echo "=== Pre-deploy DB backup (страховка; БД в named-volume pgdata всё равно цела) ==="
 mkdir -p /opt/bravada-backups
-docker compose -f /opt/bravada/docker-compose.prod.yml exec -T postgres pg_dump -U vpnbot vpnbot 2>/dev/null \
-  | gzip > "/opt/bravada-backups/db-$(date +%Y%m%d-%H%M%S).sql.gz" \
-  || echo "  pg_dump skipped (non-fatal; БД в volume всё равно цела)"
+# Шифрование дампов age (публичный ключ на сервере, секретный — только у оператора):
+# PD-аудит 2026-09-11, устранение plaintext-бэкапов ПД. age/pubkey отсутствуют → plaintext + предупреждение.
+BACKUP_AGE_PUBKEY_FILE=/root/.config/age/bravada-backup.pub
+if command -v age >/dev/null 2>&1 && [ -s "$BACKUP_AGE_PUBKEY_FILE" ]; then
+  docker compose -f /opt/bravada/docker-compose.prod.yml exec -T postgres pg_dump -U vpnbot vpnbot 2>/dev/null \
+    | gzip | age -r "$(cat "$BACKUP_AGE_PUBKEY_FILE")" > "/opt/bravada-backups/db-$(date +%Y%m%d-%H%M%S).sql.gz.age" \
+    || echo "  pg_dump skipped (non-fatal; БД в volume всё равно цела)"
+else
+  echo "  WARNING: age или $BACKUP_AGE_PUBKEY_FILE не найдены — бэкап НЕ шифруется (plaintext)"
+  docker compose -f /opt/bravada/docker-compose.prod.yml exec -T postgres pg_dump -U vpnbot vpnbot 2>/dev/null \
+    | gzip > "/opt/bravada-backups/db-$(date +%Y%m%d-%H%M%S).sql.gz" \
+    || echo "  pg_dump skipped (non-fatal; БД в volume всё равно цела)"
+fi
 # Храним последние 10 дампов
-ls -t /opt/bravada-backups/db-*.sql.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
+ls -t /opt/bravada-backups/db-*.sql.gz /opt/bravada-backups/db-*.sql.gz.age 2>/dev/null | tail -n +11 | xargs -r rm -f
 
 echo "=== Preserve server-side state (.env, ssl) ==="
 cp -p /opt/bravada/backend/.env /tmp/backend.env.backup 2>/dev/null || true
