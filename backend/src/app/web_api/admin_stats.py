@@ -179,6 +179,77 @@ SELECT count(*) AS trials,
 FROM cohort
 """
 
+_TELEGRAM_ADS_CAMPAIGNS_LIMIT = 200
+_TELEGRAM_ADS_CAMPAIGNS = """
+WITH attributed AS (
+    SELECT a.campaign_key, a.internal_user_id, a.attributed_at
+    FROM telegram_ads_attributions a
+    JOIN user_identities i USING (internal_user_id)
+    WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2
+), payment_ranked AS (
+    SELECT e.internal_user_id, e.occurred_at,
+           row_number() OVER (PARTITION BY e.internal_user_id ORDER BY e.occurred_at, e.event_key) AS payment_number
+    FROM funnel_events e
+    JOIN attributed a USING (internal_user_id)
+    WHERE e.event_name = 'payment_succeeded'
+), payment_moments AS (
+    SELECT internal_user_id,
+           min(occurred_at) FILTER (WHERE payment_number = 1) AS first_paid_at,
+           min(occurred_at) FILTER (WHERE payment_number = 2) AS second_paid_at
+    FROM payment_ranked
+    GROUP BY internal_user_id
+), base AS (
+    SELECT a.campaign_key, a.internal_user_id, a.attributed_at,
+           CASE WHEN s.trial_started_at >= a.attributed_at THEN s.trial_started_at END AS trial_started_at,
+           p.first_paid_at, p.second_paid_at
+    FROM attributed a
+    LEFT JOIN subscription_snapshots s USING (internal_user_id)
+    LEFT JOIN payment_moments p USING (internal_user_id)
+), cohort AS (
+    SELECT b.*, b.trial_started_at + interval '10 days' AS deadline
+    FROM base b
+)
+SELECT campaign_key,
+       count(*) AS attributed_users,
+       count(*) FILTER (WHERE trial_started_at IS NOT NULL) AS trials_started,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
+           AND cohort.trial_started_at IS NOT NULL
+           AND e.event_name = 'setup_started' AND e.occurred_at >= cohort.trial_started_at
+       )) AS setup_started_users,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
+           AND cohort.trial_started_at IS NOT NULL
+           AND e.event_name = 'connection_confirmed' AND e.occurred_at >= cohort.trial_started_at
+       )) AS connection_confirmed_users,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
+           AND cohort.trial_started_at IS NOT NULL
+           AND e.event_name = 'checkout_opened' AND e.occurred_at >= cohort.trial_started_at
+       )) AS checkout_opened_users,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
+           AND cohort.trial_started_at IS NOT NULL
+           AND e.event_name = 'payment_created' AND e.occurred_at >= cohort.trial_started_at
+       )) AS payment_created_users,
+       count(*) FILTER (WHERE deadline <= $2) AS mature_trials,
+       count(*) FILTER (WHERE deadline > $2) AS pending_trials,
+       count(*) FILTER (WHERE deadline <= $2 AND first_paid_at >= trial_started_at
+                        AND first_paid_at < deadline) AS first_payment_users,
+       count(*) FILTER (WHERE deadline <= $2 AND first_paid_at >= trial_started_at
+                        AND first_paid_at < deadline AND second_paid_at IS NOT NULL) AS second_payment_users
+FROM cohort
+GROUP BY campaign_key
+ORDER BY attributed_users DESC, campaign_key
+LIMIT 200
+"""
+
+_TELEGRAM_ADS_CAMPAIGNS_TOTAL = (
+    "SELECT count(DISTINCT a.campaign_key) FROM telegram_ads_attributions a "
+    "JOIN user_identities i USING (internal_user_id) "
+    "WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2"
+)
+
 
 async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> dict:
     row = await pool.fetchrow(_MATURE_FUNNEL, from_ts, now)
@@ -192,6 +263,34 @@ async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -
         "converted_trials": converted,
         "trial_to_first_payment_rate": round(converted / mature, 4) if mature else None,
     }
+
+
+async def _telegram_ads_campaigns(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> list[dict]:
+    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, now)
+    result = []
+    for row in rows:
+        attributed = int(row["attributed_users"])
+        trials = int(row["trials_started"])
+        mature = int(row["mature_trials"])
+        first_payment = int(row["first_payment_users"])
+        result.append(
+            {
+                "campaign_key": row["campaign_key"],
+                "attributed_users": attributed,
+                "trials_started": trials,
+                "setup_started_users": int(row["setup_started_users"]),
+                "connection_confirmed_users": int(row["connection_confirmed_users"]),
+                "checkout_opened_users": int(row["checkout_opened_users"]),
+                "payment_created_users": int(row["payment_created_users"]),
+                "mature_trials": mature,
+                "pending_trials": int(row["pending_trials"]),
+                "first_payment_users": first_payment,
+                "second_payment_users": int(row["second_payment_users"]),
+                "trial_activation_rate": round(trials / attributed, 4) if attributed else None,
+                "trial_to_first_payment_rate": round(first_payment / mature, 4) if mature else None,
+            }
+        )
+    return result
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -279,6 +378,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         traffic_series,
         traffic_by_server,
         funnel,
+        telegram_ads_campaigns,
+        telegram_ads_campaigns_total,
     ) = await asyncio.gather(
         _revenue_series(pool, trunc, tz, from_ts),
         _revenue_kpi(pool, from_ts),
@@ -292,6 +393,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _traffic_series(pool, from_date),
         _traffic_by_server(pool, from_date),
         _mature_funnel(pool, from_ts, now),
+        _telegram_ads_campaigns(pool, from_ts, now),
+        _scalar(pool, _TELEGRAM_ADS_CAMPAIGNS_TOTAL, from_ts, now),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -323,6 +426,11 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             },
             "by_plan": active_by_plan,
             "funnel": funnel,
+            "telegram_ads": {
+                "campaigns": telegram_ads_campaigns,
+                "total_campaigns": telegram_ads_campaigns_total,
+                "truncated": telegram_ads_campaigns_total > _TELEGRAM_ADS_CAMPAIGNS_LIMIT,
+            },
             "traffic_by_server": traffic_by_server,
         }
     )

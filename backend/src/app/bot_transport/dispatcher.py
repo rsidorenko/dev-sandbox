@@ -7,6 +7,7 @@ from typing import Literal
 
 from app.application.bootstrap import Slice1Composition
 from app.application.handlers import GetSubscriptionStatusInput
+from app.application.telegram_ads_attribution import safely_record_telegram_ads_first_touch
 from app.application.telegram_command_rate_limit import TelegramCommandRateLimitKey
 from app.application.telegram_command_rate_limit_telemetry import (
     TelegramCommandRateLimitDecisionEvent,
@@ -216,8 +217,23 @@ async def dispatch_slice1_transport(
                 correlation_id=cid,
             )
             return map_slice1_support_to_transport(TransportSupportCode.SUPPORT_CONTACT, cid)
-        case NormalizedSlice1Bootstrap(input=bootstrap_input, referral_code=ref_code):
+        case NormalizedSlice1Bootstrap(
+            input=bootstrap_input,
+            referral_code=ref_code,
+            telegram_ads_campaign=ads_campaign,
+        ):
             result = await composition.bootstrap.handle(bootstrap_input)
+            if (
+                ads_campaign is not None
+                and result.outcome is OperationOutcomeCategory.SUCCESS
+                and result.internal_user_id is not None
+            ):
+                await safely_record_telegram_ads_first_touch(
+                    composition.telegram_ads_attribution,
+                    internal_user_id=result.internal_user_id,
+                    campaign_key=ads_campaign,
+                    telegram_update_id=bootstrap_input.telegram_update_id,
+                )
             if (
                 ref_code is not None
                 and result.outcome is OperationOutcomeCategory.SUCCESS

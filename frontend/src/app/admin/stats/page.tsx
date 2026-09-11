@@ -148,6 +148,7 @@ export default function AdminStatsPage() {
   const trafficData: AdminStatsTrafficPoint[] = data?.series.traffic ?? [];
   const trafficByServer = data?.traffic_by_server ?? [];
   const byPlan = data?.by_plan ?? [];
+  const telegramAds = data?.telegram_ads?.campaigns ?? [];
 
   const kpi = data?.kpi;
   const funnel = data?.funnel;
@@ -298,6 +299,68 @@ export default function AdminStatsPage() {
             </ChartCard>
           </div>
 
+          <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Telegram Ads по кампаниям</h2>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                first-touch · параметры tgads_* · максимум 200 кампаний
+              </span>
+            </div>
+            {telegramAds.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-gray-400 dark:text-gray-500">
+                Нет атрибутированных пользователей за период
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-[1180px] w-full text-left text-xs">
+                  <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
+                    <tr>
+                      {[
+                        "Кампания", "Пользователи", "Триалы", "Настройка", "Подключились",
+                        "Checkout", "Счета", "1-я оплата", "2-я оплата", "Триал → оплата",
+                      ].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
+                    {telegramAds.map((campaign) => {
+                      const paidRate = campaign.trial_to_first_payment_rate == null
+                        ? "—" : `${Math.round(campaign.trial_to_first_payment_rate * 1000) / 10}%`;
+                      return (
+                        <tr key={campaign.campaign_key} className="text-gray-700 dark:text-gray-300">
+                          <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">
+                            tgads_{campaign.campaign_key}
+                          </td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.attributed_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>
+                            {campaign.trials_started}
+                            <span className="ml-1 text-gray-400">
+                              ({Math.round((campaign.trial_activation_rate ?? 0) * 1000) / 10}%)
+                            </span>
+                          </td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.setup_started_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_confirmed_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.checkout_opened_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.payment_created_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>
+                            {campaign.first_payment_users}/{campaign.mature_trials}
+                            {campaign.pending_trials > 0 && <span className="ml-1 text-gray-400">+{campaign.pending_trials} ждут</span>}
+                          </td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.second_payment_users}</td>
+                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{paidRate}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {data?.telegram_ads?.truncated && (
+              <p className="border-t border-gray-200 px-5 py-3 text-xs text-amber-600 dark:border-zinc-700 dark:text-amber-400">
+                Показаны первые 200 из {data.telegram_ads.total_campaigns} кампаний.
+              </p>
+            )}
+          </section>
+
           {/* Трафик bare_xray: серия всегда дневная (stat_date — DATE в MSK),
               независимо от period.bucket остальных графиков */}
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -401,6 +464,8 @@ export default function AdminStatsPage() {
             за 10 дней от старта триала; незрелые триалы не входят в знаменатель. Историческая выручка до
             внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита). Трафик —
             bare_xray (сбор с 07.09.2026): up+down по всем покрытым серверам, день = MSK.
+            Telegram Ads — первый распознанный рекламный переход пользователя, не клики и не показы;
+            подтверждение подключения основано на ответе пользователя.
           </p>
         </>
       )}

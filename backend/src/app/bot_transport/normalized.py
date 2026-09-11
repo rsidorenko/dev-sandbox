@@ -9,6 +9,7 @@ from app.application.handlers import BootstrapIdentityInput, GetSubscriptionStat
 from app.application.telegram_access_resend import (
     TelegramAccessResendInput,
 )
+from app.application.telegram_ads_attribution import parse_telegram_ads_campaign
 from app.security.validation import (
     ValidationError,
     validate_telegram_update_id,
@@ -51,6 +52,7 @@ class NormalizationRejectReason(StrEnum):
 class NormalizedSlice1Bootstrap:
     input: BootstrapIdentityInput
     referral_code: str | None = None
+    telegram_ads_campaign: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +176,13 @@ def _parse_start_param(command_text: str | None) -> str | None:
     return match.group(1) if match else None
 
 
+def _extract_start_param(command_text: str | None) -> str | None:
+    if command_text is None:
+        return None
+    parts = command_text.strip().split(maxsplit=1)
+    return parts[1].strip() if len(parts) == 2 else None
+
+
 def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSlice1Result:
     """Отображает разрешённые команды slice 1 и inline callback'и во входы обработчиков."""
     # Callback takes priority over text commands
@@ -207,6 +216,7 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
             validate_telegram_update_id(envelope.telegram_update_id)
         except ValidationError:
             return NormalizedSlice1Rejected(reason=NormalizationRejectReason.INVALID_INPUT)
+        start_param = _extract_start_param(envelope.normalized_command_text)
         ref_code = _parse_start_param(envelope.normalized_command_text)
         return NormalizedSlice1Bootstrap(
             input=BootstrapIdentityInput(
@@ -215,6 +225,7 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
                 correlation_id=envelope.correlation_id,
             ),
             referral_code=ref_code,
+            telegram_ads_campaign=parse_telegram_ads_campaign(start_param),
         )
 
     return NormalizedSlice1Rejected(reason=NormalizationRejectReason.UNKNOWN_COMMAND)

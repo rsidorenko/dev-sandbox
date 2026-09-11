@@ -26,6 +26,10 @@ from app.application.telegram_access_resend import (
     TelegramAccessResendHandler,
     telegram_access_resend_enabled_from_env,
 )
+from app.application.telegram_ads_attribution import (
+    InMemoryTelegramAdsAttributionRecorder,
+    TelegramAdsAttributionRecorder,
+)
 from app.application.telegram_command_rate_limit import (
     InMemoryTelegramCommandRateLimiter,
     TelegramCommandRateLimiter,
@@ -90,6 +94,7 @@ class Slice1Composition:
     command_rate_limiter: TelegramCommandRateLimiter
     command_rate_limit_telemetry: TelegramCommandRateLimitTelemetry
     telegram_update_dedup: TelegramUpdateDedupGuard
+    telegram_ads_attribution: TelegramAdsAttributionRecorder
     referral_code_repo: ReferralCodeRepository
     referral_relationship_repo: ReferralRelationshipRepository
     referral_balance_repo: ReferralBalanceRepository
@@ -127,6 +132,7 @@ def build_slice1_composition(
     command_rate_limiter: TelegramCommandRateLimiter | None = None,
     command_rate_limit_telemetry: TelegramCommandRateLimitTelemetry | None = None,
     telegram_update_dedup: TelegramUpdateDedupGuard | None = None,
+    telegram_ads_attribution: TelegramAdsAttributionRecorder | None = None,
     referral_code_repo: ReferralCodeRepository | None = None,
     referral_relationship_repo: ReferralRelationshipRepository | None = None,
     referral_balance_repo: ReferralBalanceRepository | None = None,
@@ -159,6 +165,7 @@ def build_slice1_composition(
     delivery = outbound_delivery or InMemoryOutboundDeliveryLedger()
     cooldown = resend_cooldown or InMemoryAccessResendCooldownStore()
     dedup = telegram_update_dedup or InMemoryTelegramUpdateDedupGuard()
+    ads_attribution = telegram_ads_attribution or InMemoryTelegramAdsAttributionRecorder()
     rate_limiter = command_rate_limiter or InMemoryTelegramCommandRateLimiter()
     rate_telemetry = command_rate_limit_telemetry or StructuredLoggingTelegramCommandRateLimitTelemetry()
     enabled = (
@@ -211,6 +218,7 @@ def build_slice1_composition(
         command_rate_limiter=rate_limiter,
         command_rate_limit_telemetry=rate_telemetry,
         telegram_update_dedup=dedup,
+        telegram_ads_attribution=ads_attribution,
         referral_code_repo=ref_code,
         referral_relationship_repo=ref_rel,
         referral_balance_repo=ref_bal,

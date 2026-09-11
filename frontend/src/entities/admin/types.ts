@@ -177,6 +177,22 @@ export interface AdminStatsByPlan {
   count: number;
 }
 
+export interface AdminTelegramAdsCampaign {
+  campaign_key: string;
+  attributed_users: number;
+  trials_started: number;
+  setup_started_users: number;
+  connection_confirmed_users: number;
+  checkout_opened_users: number;
+  payment_created_users: number;
+  mature_trials: number;
+  pending_trials: number;
+  first_payment_users: number;
+  second_payment_users: number;
+  trial_activation_rate: number | null;
+  trial_to_first_payment_rate: number | null;
+}
+
 export interface AdminStatsResponse {
   ok: true;
   funnel?: {
@@ -186,6 +202,11 @@ export interface AdminStatsResponse {
     pending_trials: number;
     converted_trials: number;
     trial_to_first_payment_rate: number | null;
+  };
+  telegram_ads?: {
+    campaigns: AdminTelegramAdsCampaign[];
+    total_campaigns: number;
+    truncated: boolean;
   };
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;

@@ -32,6 +32,7 @@ from app.persistence.postgres_referral import (
     PostgresReferralTransactionRepository,
 )
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
+from app.persistence.postgres_telegram_ads_attribution import PostgresTelegramAdsAttributionRecorder
 from app.persistence.postgres_telegram_update_dedup import PostgresTelegramUpdateDedupGuard
 from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
 from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
@@ -108,6 +109,7 @@ async def resolve_slice1_composition_for_runtime(
         audit=PostgresAuditAppender(pool),
         outbound_delivery=PostgresOutboundDeliveryLedger(pool),
         telegram_update_dedup=PostgresTelegramUpdateDedupGuard(pool),
+        telegram_ads_attribution=PostgresTelegramAdsAttributionRecorder(pool),
         referral_code_repo=PostgresReferralCodeRepository(pool),
         referral_relationship_repo=PostgresReferralRelationshipRepository(pool),
         referral_balance_repo=PostgresReferralBalanceRepository(pool),

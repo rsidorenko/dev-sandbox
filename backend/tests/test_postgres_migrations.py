@@ -126,6 +126,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "079_bare_xray_traffic.sql",
         "080_vpn_servers_auto_selection_alias.sql",
         "081_funnel_foundation.sql",
+        "082_telegram_ads_attribution.sql",
     ]
 
 
