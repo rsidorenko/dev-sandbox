@@ -179,6 +179,14 @@ export interface AdminStatsByPlan {
 
 export interface AdminStatsResponse {
   ok: true;
+  funnel?: {
+    window_days: number;
+    trials: number;
+    mature_trials: number;
+    pending_trials: number;
+    converted_trials: number;
+    trial_to_first_payment_rate: number | null;
+  };
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;
   series: {

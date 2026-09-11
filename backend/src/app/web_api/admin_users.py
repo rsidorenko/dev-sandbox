@@ -27,7 +27,7 @@ _ADD_DAYS_MAX = 3650
 # как в postgres_referral; в fetch передаётся по имени, поэтому S608 не срабатывает.
 
 _LIST_SEARCH = (
-    "SELECT i.internal_user_id, i.telegram_user_id, COALESCE(i.trial_used, FALSE) AS trial_used, "
+    "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
     "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
     "FROM user_identities i "
@@ -42,7 +42,7 @@ _LIST_SEARCH = (
 )
 
 _LIST_NO_SEARCH = (
-    "SELECT i.internal_user_id, i.telegram_user_id, COALESCE(i.trial_used, FALSE) AS trial_used, "
+    "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
     "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
     "FROM user_identities i "
@@ -65,7 +65,7 @@ _COUNT_SEARCH = (
 )
 
 _GET_BY_ID = (
-    "SELECT i.internal_user_id, i.telegram_user_id, COALESCE(i.trial_used, FALSE) AS trial_used, "
+    "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
     "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
     "FROM user_identities i "
@@ -86,6 +86,7 @@ def _row_to_user(row: asyncpg.Record) -> dict:
         "telegram_user_id": row["telegram_user_id"],
         "email": row["email"],
         "trial_used": bool(row["trial_used"]),
+        "is_internal": bool(row["is_internal"]),
         "subscription_state": row["state_label"],
         "is_active": bool(
             row["state_label"] == "active" and active_until is not None and active_until > datetime.now(UTC)
@@ -108,6 +109,44 @@ def _parse_limit_offset(request: Request) -> tuple[int, int]:
     except ValueError:
         offset = 0
     return limit, offset
+
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_set_internal(request: Request) -> JSONResponse:
+    """Меняет только аналитический флаг, с причиной и аудитом в одной транзакции."""
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return safe_json_error(400, "invalid_json")
+    if not isinstance(body, dict) or type(body.get("is_internal")) is not bool:
+        return safe_json_error(400, "invalid_internal_flag")
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 300:
+        return safe_json_error(400, "invalid_reason")
+    uid = request.path_params["internal_user_id"]
+    value = body["is_internal"]
+    async with request.app.state.pool.acquire() as conn:
+        async with conn.transaction():
+            old = await conn.fetchval(
+                "SELECT is_internal FROM user_identities WHERE internal_user_id = $1 FOR UPDATE", uid
+            )
+            if old is None:
+                return safe_json_error(404, "user_not_found")
+            if old != value:
+                await conn.execute(
+                    "UPDATE user_identities SET is_internal = $2 WHERE internal_user_id = $1", uid, value
+                )
+                await conn.execute(
+                    "INSERT INTO analytics_internal_audit (internal_user_id, actor, reason, old_value, new_value) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    uid,
+                    _admin_actor(request),
+                    reason.strip(),
+                    old,
+                    value,
+                )
+    return JSONResponse({"ok": True, "internal_user_id": uid, "is_internal": value})
 
 
 @_with_admin_auth

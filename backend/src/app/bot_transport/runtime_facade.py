@@ -15,6 +15,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from app.application.bootstrap import Slice1Composition
+from app.application.funnel_events import callback_interaction, record_interaction
 from app.application.plan_pricing import get_plan_pricing
 from app.application.purchase_handler import (
     PurchaseSummary,
@@ -1909,6 +1910,13 @@ async def _process_yookassa_payment(
     from app.bot_transport.payment_message_registry import set_pending_payment_for_user
 
     set_pending_payment_for_user(uid, result.payment_id)
+    await record_interaction(
+        _get_pool_from_composition(composition),
+        event_name="payment_created",
+        surface="telegram",
+        dedup_key=f"yookassa:{result.payment_id}",
+        telegram_user_id=uid,
+    )
 
     display_name = plan_display_name(plan_id)
     if discount_kopecks > 0 and resolved.price.winner == WINNER_GLOBAL:
@@ -2029,6 +2037,13 @@ async def _process_cryptobot_payment(
     from app.bot_transport.payment_message_registry import set_pending_payment_for_user
 
     set_pending_payment_for_user(uid, result.invoice_id)
+    await record_interaction(
+        _get_pool_from_composition(composition),
+        event_name="payment_created",
+        surface="telegram",
+        dedup_key=f"cryptobot:{result.invoice_id}",
+        telegram_user_id=uid,
+    )
 
     display_name = plan_display_name(plan_id)
     if discount_kopecks > 0 and resolved.price.winner == WINNER_GLOBAL:
@@ -2534,6 +2549,18 @@ async def _render_storefront_response(
 
     cid = transport.correlation_id
     uid = _extract_user_id_from_update(update)
+    interaction = callback_interaction(code) if is_callback else None
+    callback = update.get("callback_query")
+    callback_id = callback.get("id") if isinstance(callback, Mapping) else None
+    if interaction is not None and isinstance(callback_id, str):
+        await record_interaction(
+            _get_pool_from_composition(composition),
+            event_name=interaction[0],
+            platform=interaction[1],
+            surface="telegram",
+            dedup_key=callback_id,
+            telegram_user_id=uid,
+        )
 
     text: str = text_error_generic()
     keyboard: dict[str, Any] | None = None

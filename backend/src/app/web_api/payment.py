@@ -15,6 +15,7 @@ from app.application.balance_payment_service import (
     add_device_from_balance,
     pay_plan_from_balance,
 )
+from app.application.funnel_events import record_interaction
 from app.application.plan_pricing import (
     charge_metadata_fields,
     get_plan_pricing,
@@ -214,6 +215,13 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         if created is None:
             return safe_json_error(502, "payment_creation_failed")
         invoice_id, pay_url = created
+        await record_interaction(
+            request.app.state.pool,
+            event_name="payment_created",
+            surface="web",
+            dedup_key=f"cryptobot:{invoice_id}",
+            internal_user_id=internal_user_id,
+        )
         return JSONResponse(
             {
                 "ok": True,
@@ -278,6 +286,13 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         _LOGGER.exception("yookassa create_payment failed")
         return safe_json_error(502, "payment_creation_failed")
 
+    await record_interaction(
+        request.app.state.pool,
+        event_name="payment_created",
+        surface="web",
+        dedup_key=f"yookassa:{result.payment_id}",
+        internal_user_id=internal_user_id,
+    )
     return JSONResponse(
         {
             "ok": True,

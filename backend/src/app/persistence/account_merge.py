@@ -66,6 +66,19 @@ async def merge_web_account_if_needed(
             if web_row is None:
                 return False
 
+            # Внутренний аккаунт не становится коммерческим после объединения.
+            await conn.execute(
+                "WITH changed AS ("
+                " UPDATE user_identities SET is_internal = TRUE"
+                " WHERE internal_user_id IN ($1, $2) AND NOT is_internal"
+                " AND EXISTS (SELECT 1 FROM user_identities WHERE internal_user_id IN ($1, $2) AND is_internal)"
+                " RETURNING internal_user_id)"
+                " INSERT INTO analytics_internal_audit (internal_user_id, actor, reason, old_value, new_value)"
+                " SELECT internal_user_id, 'account_merge', 'Объединение с внутренним аккаунтом', FALSE, TRUE FROM changed",
+                old_id,
+                new_id,
+            )
+
             # ------------------------------------------------------------------
             # Migrate the web account's data onto the real identity. Invariant: the
             # real Telegram identity (new_id) WINS every conflict — if it already

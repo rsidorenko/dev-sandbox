@@ -125,6 +125,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "078_certificate_expiry_state.sql",
         "079_bare_xray_traffic.sql",
         "080_vpn_servers_auto_selection_alias.sql",
+        "081_funnel_foundation.sql",
     ]
 
 

@@ -82,6 +82,9 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
     inviter_id = _telegram_internal_id(_INVITER_TG)
     inviter2_id = _telegram_internal_id(_INVITER2_TG)
     async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM analytics_internal_audit WHERE internal_user_id = ANY($1::text[])", [web_id, tg_id]
+        )
         # user_emails has an FK to user_identities -> delete it first.
         await conn.execute("DELETE FROM user_emails WHERE email = $1", _TEST_EMAIL)
         await conn.execute(
@@ -109,7 +112,8 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         )
 
 
-def test_merge_detects_negative_id_web_account_and_reassigns_email(pg_url: str) -> None:
+@pytest.mark.parametrize("internal_side", [None, "web", "telegram"])
+def test_merge_detects_negative_id_web_account_and_reassigns_email(pg_url: str, internal_side: str | None) -> None:
     """REGRESSION: a web-only account has a NEGATIVE telegram_user_id. The merge
     must find it (``<= 0``) and reassign its verified email onto the real identity.
     Before the fix (``= 0``) it found nothing and returned False."""
@@ -138,8 +142,22 @@ def test_merge_detects_negative_id_web_account_and_reassigns_email(pg_url: str) 
                     _telegram_internal_id(_REAL_TG),
                 )
 
+            if internal_side is not None:
+                await pool.execute(
+                    "UPDATE user_identities SET is_internal = TRUE WHERE internal_user_id = $1",
+                    web_internal if internal_side == "web" else _telegram_internal_id(_REAL_TG),
+                )
             merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
             assert merged is True, "merge must detect a negative-id web-only account"
+            flags = await pool.fetch(
+                "SELECT is_internal FROM user_identities WHERE internal_user_id = ANY($1::text[])",
+                [web_internal, _telegram_internal_id(_REAL_TG)],
+            )
+            assert all(row["is_internal"] == (internal_side is not None) for row in flags)
+            assert await pool.fetchval(
+                "SELECT count(*) FROM analytics_internal_audit WHERE internal_user_id = ANY($1::text[])",
+                [web_internal, _telegram_internal_id(_REAL_TG)],
+            ) == (0 if internal_side is None else 1)
 
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(

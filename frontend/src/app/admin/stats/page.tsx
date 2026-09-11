@@ -150,7 +150,9 @@ export default function AdminStatsPage() {
   const byPlan = data?.by_plan ?? [];
 
   const kpi = data?.kpi;
-  const ratePct = kpi?.trial_to_paid_rate == null ? null : Math.round(kpi.trial_to_paid_rate * 100);
+  const funnel = data?.funnel;
+  const ratePct = funnel?.trial_to_first_payment_rate == null
+    ? null : Math.round(funnel.trial_to_first_payment_rate * 1000) / 10;
 
   return (
     <div>
@@ -192,9 +194,11 @@ export default function AdminStatsPage() {
             <KpiCard label="Триалы" value={(kpi?.trials_started ?? 0).toLocaleString("ru-RU")} sub="активировано" />
             <KpiCard label="Активных" value={(kpi?.active_subscriptions ?? 0).toLocaleString("ru-RU")} sub="подписок сейчас" />
             <KpiCard
-              label="Конверсия"
+              label="Триал → первая оплата"
               value={ratePct == null ? "—" : `${ratePct}%`}
-              sub="триал → платный"
+              sub={funnel
+                ? `${funnel.converted_trials} из ${funnel.mature_trials} зрелых · ожидают ${funnel.pending_trials} · окно ${funnel.window_days} дней`
+                : "Когортные данные недоступны"}
             />
             <KpiCard
               label="Трафик"
@@ -392,8 +396,9 @@ export default function AdminStatsPage() {
           </div>
 
           <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
-            Выручка — только реальные платежи через YooKassa (status=accepted в ledger). Внутренние и
-            операторские гранты (grant_subscription, manual_grant) исключены. Историческая выручка до
+            Выручка — принятые платёжные факты в ledger. Помеченные внутренние аккаунты и
+            операторские гранты исключены. Конверсия — первая внешняя оплата подписки в RUB
+            за 10 дней от старта триала; незрелые триалы не входят в знаменатель. Историческая выручка до
             внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита). Трафик —
             bare_xray (сбор с 07.09.2026): up+down по всем покрытым серверам, день = MSK.
           </p>

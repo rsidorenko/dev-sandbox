@@ -81,6 +81,7 @@ _REVENUE_SERIES = (
     "COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, COUNT(*) AS n "
     "FROM billing_events_ledger "
     "WHERE status = 'accepted' AND event_effective_at >= $3 "
+    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = billing_events_ledger.internal_user_id AND i.is_internal) "
     "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant' "
     "GROUP BY bucket ORDER BY bucket"
 )
@@ -89,25 +90,28 @@ _REVENUE_KPI = (
     "SELECT COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, "
     "COUNT(*) AS payments, COUNT(DISTINCT internal_user_id) AS paying_users "
     "FROM billing_events_ledger WHERE status = 'accepted' AND event_effective_at >= $1 "
+    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = billing_events_ledger.internal_user_id AND i.is_internal) "
     "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant'"
 )
 
 _NEW_USERS_SERIES = (
     "SELECT date_trunc($1, created_at AT TIME ZONE $2) AS bucket, COUNT(*) AS n "
-    "FROM user_identities WHERE created_at >= $3 GROUP BY bucket ORDER BY bucket"
+    "FROM user_identities WHERE created_at >= $3 AND NOT is_internal GROUP BY bucket ORDER BY bucket"
 )
 
-_NEW_USERS_KPI = "SELECT COUNT(*) FROM user_identities WHERE created_at >= $1"
+_NEW_USERS_KPI = "SELECT COUNT(*) FROM user_identities WHERE created_at >= $1 AND NOT is_internal"
 
 _TRIALS_SERIES = (
     "SELECT date_trunc($1, trial_started_at AT TIME ZONE $2) AS bucket, COUNT(*) AS n "
     "FROM subscription_snapshots "
     "WHERE trial_started_at IS NOT NULL AND trial_started_at >= $3 "
+    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal) "
     "GROUP BY bucket ORDER BY bucket"
 )
 
 _TRIALS_KPI = (
     "SELECT COUNT(*) FROM subscription_snapshots WHERE trial_started_at IS NOT NULL AND trial_started_at >= $1"
+    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal)"
 )
 
 # Конверсия триал→платный за период: доля юзеров с триалом в окне, у которых есть ≥1 accepted-факт.
@@ -120,11 +124,13 @@ _TRIAL_PAID = (
     ")) AS converted "
     "FROM subscription_snapshots t "
     "WHERE t.trial_started_at IS NOT NULL AND t.trial_started_at >= $1"
+    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = t.internal_user_id AND i.is_internal)"
 )
 
 _ACTIVE_BY_PLAN = (
     "SELECT plan_id, COUNT(*) AS n FROM subscription_snapshots "
     "WHERE state_label = 'active' AND active_until_utc > now() AND plan_id IS NOT NULL "
+    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal) "
     "GROUP BY plan_id ORDER BY n DESC"
 )
 
@@ -147,7 +153,45 @@ _TRAFFIC_BY_SERVER = (
     "GROUP BY t.server_id, label ORDER BY gb DESC"
 )
 
-_ACTIVE_TOTAL = "SELECT COUNT(*) FROM subscription_snapshots WHERE state_label = 'active' AND active_until_utc > now()"
+_ACTIVE_TOTAL = (
+    "SELECT COUNT(*) FROM subscription_snapshots WHERE state_label = 'active' AND active_until_utc > now()"
+    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal)"
+)
+
+_MATURE_FUNNEL = """
+WITH trials AS (
+    SELECT t.internal_user_id, t.trial_started_at,
+           t.trial_started_at + interval '10 days' AS deadline
+    FROM subscription_snapshots t
+    JOIN user_identities i USING (internal_user_id)
+    WHERE NOT i.is_internal AND t.trial_started_at >= $1 AND t.trial_started_at <= $2
+), cohort AS (
+    SELECT t.*, (SELECT min(e.occurred_at) FROM funnel_events e
+                 WHERE e.internal_user_id = t.internal_user_id
+                   AND e.event_name = 'payment_succeeded') AS first_paid_at
+    FROM trials t
+)
+SELECT count(*) AS trials,
+       count(*) FILTER (WHERE deadline <= $2) AS mature_trials,
+       count(*) FILTER (WHERE deadline > $2) AS pending_trials,
+       count(*) FILTER (WHERE deadline <= $2 AND first_paid_at >= trial_started_at
+                        AND first_paid_at < deadline) AS converted_trials
+FROM cohort
+"""
+
+
+async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> dict:
+    row = await pool.fetchrow(_MATURE_FUNNEL, from_ts, now)
+    mature = int(row["mature_trials"])
+    converted = int(row["converted_trials"])
+    return {
+        "window_days": 10,
+        "trials": int(row["trials"]),
+        "mature_trials": mature,
+        "pending_trials": int(row["pending_trials"]),
+        "converted_trials": converted,
+        "trial_to_first_payment_rate": round(converted / mature, 4) if mature else None,
+    }
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -234,6 +278,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         active_total,
         traffic_series,
         traffic_by_server,
+        funnel,
     ) = await asyncio.gather(
         _revenue_series(pool, trunc, tz, from_ts),
         _revenue_kpi(pool, from_ts),
@@ -246,6 +291,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _scalar(pool, _ACTIVE_TOTAL),  # запрос без параметров — текущий живой gauge
         _traffic_series(pool, from_date),
         _traffic_by_server(pool, from_date),
+        _mature_funnel(pool, from_ts, now),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -276,6 +322,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
                 "traffic": traffic_series,
             },
             "by_plan": active_by_plan,
+            "funnel": funnel,
             "traffic_by_server": traffic_by_server,
         }
     )
