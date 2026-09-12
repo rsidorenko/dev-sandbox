@@ -20,8 +20,11 @@ echo "Migrations applied."
 # Start HTTP server (webhook + API) in the foreground.
 # Telegram bot operates in webhook mode: updates are pushed by Telegram
 # to /telegram/webhook instead of us polling getUpdates.
+# --no-access-log: uvicorn access-лог дублирует nginx строка-в-строку и писал
+# /sub/<token> в открытом виде (PD-audit R-04); nginx ведёт маскированный лог.
 echo "Starting HTTP server on port ${PORT:-8000}..."
 exec uvicorn app.runtime.telegram_webhook_main:app \
   --host 0.0.0.0 \
   --port "${PORT:-8000}" \
-  --log-level info
+  --log-level info \
+  --no-access-log

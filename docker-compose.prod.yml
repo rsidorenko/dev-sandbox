@@ -5,6 +5,14 @@
 #
 # Variables are read from backend/.env (or .env at repo root).
 # Copy .env.example to .env and fill in real values before first run.
+#
+# PD-audit R-05: у всех контейнеров был json-file без opts — логи росли без
+# предела внутри жизни контейнера. 10m×3 на каждый сервис.
+x-logging: &default_logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   postgres:
@@ -17,6 +25,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     command: ["postgres", "-c", "password_encryption=md5"]
+    logging: *default_logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpnbot} -d ${POSTGRES_DB:-vpnbot}"]
       interval: 3s
@@ -146,6 +155,7 @@ services:
       - /opt/bravada-downloads:/var/www/downloads:ro
     expose:
       - "8000"
+    logging: *default_logging
 
   frontend:
     build:
@@ -159,6 +169,7 @@ services:
       - backend
     expose:
       - "3000"
+    logging: *default_logging
 
   nginx:
     image: nginx:alpine
@@ -171,6 +182,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    logging: *default_logging
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - certbot-www:/var/www/certbot:ro
@@ -192,6 +204,7 @@ services:
       - certbot-www:/var/www/certbot
       - certs:/etc/letsencrypt
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    logging: *default_logging
 
 volumes:
   pgdata:
