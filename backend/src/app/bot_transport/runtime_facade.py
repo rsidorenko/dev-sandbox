@@ -51,6 +51,7 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_FAST_ANDROID,
     CB_CONNECT_FAST_IOS,
     CB_CONNECT_FAST_MAC,
+    CB_CONNECT_FAST_PROBLEM,
     CB_CONNECT_FAST_WIN,
     CB_CONNECT_IOS,
     CB_CONNECT_MAC,
@@ -138,7 +139,9 @@ from app.bot_transport.storefront_ui import (
     confirm_pay_keyboard,
     connect_device_keyboard,
     connect_fast_platform,
+    connect_fast_problem_platform,
     connect_fastpath_keyboard,
+    connect_fastpath_problem_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
     ios_app_chooser_keyboard,
@@ -231,6 +234,7 @@ from app.bot_transport.storefront_ui import (
     text_channel_subscription_check_failed,
     text_connect_device,
     text_connect_fastpath,
+    text_connect_fastpath_problem,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -1003,6 +1007,8 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
     if code in _ALWAYS_STOREFRONT:
         return True
     if is_callback and code in _CALLBACK_ONLY_STOREFRONT:
+        return True
+    if is_callback and connect_fast_problem_platform(code) is not None:
         return True
     return bool(
         is_callback
@@ -2705,6 +2711,14 @@ async def _render_storefront_response(
 
     elif code in (CB_CONNECT_FAST_IOS, CB_CONNECT_FAST_ANDROID, CB_CONNECT_FAST_MAC, CB_CONNECT_FAST_WIN):
         text, keyboard = await _render_connect_fastpath(code, uid, composition)
+
+    elif code.startswith(CB_CONNECT_FAST_PROBLEM):
+        platform = connect_fast_problem_platform(code)
+        if platform is None:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_CONNECT_DEVICE)
+        else:
+            text = text_connect_fastpath_problem(platform)
+            keyboard = connect_fastpath_problem_keyboard(platform)
 
     elif code == CB_CONNECT_WIN:
         text = win_step_1_text()

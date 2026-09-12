@@ -70,6 +70,12 @@ def callback_interaction(code: str) -> tuple[str, str] | None:
     """Маппинг существующих callback без изменения маршрутизации бота."""
     if code == "connect_device":
         return "setup_started", ""
+    fast_problem_prefix = "connect_fast_problem:"
+    if code.startswith(fast_problem_prefix):
+        platform = code[len(fast_problem_prefix) :]
+        if platform in ("ios", "android", "mac", "win"):
+            return "connection_problem", platform
+        return None
     for platform in ("ios", "android", "mac", "win", "tv"):
         if code in (f"connect_{platform}", f"connect_fast_{platform}"):
             return "platform_selected", platform

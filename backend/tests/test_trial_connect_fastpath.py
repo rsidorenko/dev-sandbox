@@ -9,25 +9,33 @@ import pytest
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport.runtime_facade import handle_slice1_telegram_update_to_rendered_message
 from app.bot_transport.storefront_ui import (
-    CB_ANDROID_NO,
+    CB_ANDROID_HAPP_STEP,
+    CB_ANDROID_RETRY,
+    CB_ANDROID_STEP,
     CB_ANDROID_YES,
     CB_CONNECT_ANDROID,
     CB_CONNECT_DEVICE,
     CB_CONNECT_FAST_ANDROID,
     CB_CONNECT_FAST_IOS,
     CB_CONNECT_FAST_MAC,
+    CB_CONNECT_FAST_PROBLEM,
     CB_CONNECT_FAST_WIN,
     CB_CONNECT_IOS,
     CB_CONNECT_MAC,
     CB_CONNECT_TV,
     CB_CONNECT_WIN,
-    CB_IOS_NO,
+    CB_IOS_HAPP_STEP,
+    CB_IOS_RETRY,
+    CB_IOS_STEP,
     CB_IOS_YES,
-    CB_MAC_NO,
+    CB_MAC_HAPP_STEP,
+    CB_MAC_RETRY,
+    CB_MAC_STEP,
     CB_MAC_YES,
     CB_MAIN_MENU,
     CB_TRIAL,
-    CB_WIN_NO,
+    CB_WIN_RETRY,
+    CB_WIN_STEP,
     CB_WIN_YES,
     connect_device_keyboard,
     no_subscription_keyboard,
@@ -128,10 +136,16 @@ def test_trial_activation_immediately_offers_platforms() -> None:
 @pytest.mark.parametrize(
     ("fast_callback", "details_callback", "success_callback", "problem_callback", "app_name"),
     [
-        (CB_CONNECT_FAST_IOS, CB_CONNECT_IOS, CB_IOS_YES, CB_IOS_NO, "Happ"),
-        (CB_CONNECT_FAST_ANDROID, CB_CONNECT_ANDROID, CB_ANDROID_YES, CB_ANDROID_NO, "Happ"),
-        (CB_CONNECT_FAST_MAC, CB_CONNECT_MAC, CB_MAC_YES, CB_MAC_NO, "Happ"),
-        (CB_CONNECT_FAST_WIN, CB_CONNECT_WIN, CB_WIN_YES, CB_WIN_NO, "Karing"),
+        (CB_CONNECT_FAST_IOS, CB_CONNECT_IOS, CB_IOS_YES, f"{CB_CONNECT_FAST_PROBLEM}ios", "Happ"),
+        (
+            CB_CONNECT_FAST_ANDROID,
+            CB_CONNECT_ANDROID,
+            CB_ANDROID_YES,
+            f"{CB_CONNECT_FAST_PROBLEM}android",
+            "Happ",
+        ),
+        (CB_CONNECT_FAST_MAC, CB_CONNECT_MAC, CB_MAC_YES, f"{CB_CONNECT_FAST_PROBLEM}mac", "Happ"),
+        (CB_CONNECT_FAST_WIN, CB_CONNECT_WIN, CB_WIN_YES, f"{CB_CONNECT_FAST_PROBLEM}win", "Karing"),
     ],
 )
 def test_fastpath_is_one_screen_with_copy_result_and_details(
@@ -167,6 +181,164 @@ def test_fastpath_is_one_screen_with_copy_result_and_details(
         assert all(_SUBSCRIPTION_URL not in str(button.get("callback_data", "")) for button in buttons)
         if fast_callback == CB_CONNECT_FAST_WIN:
             assert any(str(button.get("url", "")).endswith("?open=karing") for button in buttons)
+
+    _run(main())
+
+
+@pytest.mark.parametrize(
+    ("platform", "fast_callback", "recommended_app", "alternative_callback"),
+    [
+        ("ios", CB_CONNECT_FAST_IOS, "Happ", CB_CONNECT_IOS),
+        ("android", CB_CONNECT_FAST_ANDROID, "Happ", CB_CONNECT_ANDROID),
+        ("mac", CB_CONNECT_FAST_MAC, "Happ", CB_CONNECT_MAC),
+        ("win", CB_CONNECT_FAST_WIN, "Karing", CB_CONNECT_WIN),
+    ],
+)
+def test_fastpath_problem_retries_same_platform_and_app(
+    platform: str,
+    fast_callback: str,
+    recommended_app: str,
+    alternative_callback: str,
+) -> None:
+    async def main() -> None:
+        composition = build_slice1_composition(vless_provider=_FastpathProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _start_update(), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_TRIAL, update_id=2),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        fast = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(fast_callback, update_id=3),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        problem_callback = f"{CB_CONNECT_FAST_PROBLEM}{platform}"
+        assert problem_callback in {button.get("callback_data") for button in _buttons(fast.reply_markup)}
+
+        problem = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(problem_callback, update_id=4),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        problem_buttons = _buttons(problem.reply_markup)
+        problem_callbacks = {button.get("callback_data") for button in problem_buttons}
+        assert {fast_callback, alternative_callback, CB_CONNECT_DEVICE} <= problem_callbacks
+        assert any(button.get("text") == "🔄 Повторить подключение" for button in problem_buttons)
+
+        repeated = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(fast_callback, update_id=5),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        assert "Подключение за минуту" in repeated.message_text
+        assert recommended_app in repeated.message_text
+        assert _SUBSCRIPTION_URL in repeated.message_text
+
+    _run(main())
+
+
+@pytest.mark.parametrize(
+    ("problem_callback", "alternative_callback", "expected_callbacks"),
+    [
+        (
+            f"{CB_CONNECT_FAST_PROBLEM}ios",
+            CB_CONNECT_IOS,
+            {f"{CB_IOS_HAPP_STEP}1", f"{CB_IOS_STEP}1"},
+        ),
+        (
+            f"{CB_CONNECT_FAST_PROBLEM}android",
+            CB_CONNECT_ANDROID,
+            {f"{CB_ANDROID_HAPP_STEP}1", f"{CB_ANDROID_STEP}1"},
+        ),
+        (
+            f"{CB_CONNECT_FAST_PROBLEM}mac",
+            CB_CONNECT_MAC,
+            {f"{CB_MAC_HAPP_STEP}1", f"{CB_MAC_STEP}1"},
+        ),
+    ],
+)
+def test_fastpath_problem_can_open_app_chooser(
+    problem_callback: str,
+    alternative_callback: str,
+    expected_callbacks: set[str],
+) -> None:
+    async def main() -> None:
+        composition = build_slice1_composition(vless_provider=_FastpathProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _start_update(), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_TRIAL, update_id=2), composition, correlation_id=new_correlation_id()
+        )
+        problem = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(problem_callback, update_id=3), composition, correlation_id=new_correlation_id()
+        )
+        assert any(button.get("text") == "🔁 Выбрать другое приложение" for button in _buttons(problem.reply_markup))
+
+        chooser = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(alternative_callback, update_id=4), composition, correlation_id=new_correlation_id()
+        )
+        assert expected_callbacks <= {button.get("callback_data") for button in _buttons(chooser.reply_markup)}
+
+    _run(main())
+
+
+def test_windows_fastpath_problem_keeps_karing_details() -> None:
+    async def main() -> None:
+        composition = build_slice1_composition(vless_provider=_FastpathProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _start_update(), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_TRIAL, update_id=2), composition, correlation_id=new_correlation_id()
+        )
+        problem = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_CONNECT_FAST_PROBLEM}win", update_id=3),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        assert any(button.get("text") == "🧭 Пошаговая инструкция Karing" for button in _buttons(problem.reply_markup))
+
+        details = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_CONNECT_WIN, update_id=4), composition, correlation_id=new_correlation_id()
+        )
+        assert "Karing" in details.message_text
+        assert f"{CB_WIN_STEP}2" in {button.get("callback_data") for button in _buttons(details.reply_markup)}
+
+    _run(main())
+
+
+@pytest.mark.parametrize(
+    ("retry_callback", "expected_next_callback", "expected_back_callback"),
+    [
+        (CB_IOS_RETRY, f"{CB_IOS_STEP}2", CB_CONNECT_IOS),
+        (CB_ANDROID_RETRY, f"{CB_ANDROID_STEP}2", CB_CONNECT_ANDROID),
+        (CB_MAC_RETRY, f"{CB_MAC_STEP}2", CB_CONNECT_MAC),
+        (CB_WIN_RETRY, f"{CB_WIN_STEP}2", CB_CONNECT_DEVICE),
+    ],
+)
+def test_detailed_retry_starts_selected_karing_flow_again(
+    retry_callback: str,
+    expected_next_callback: str,
+    expected_back_callback: str,
+) -> None:
+    async def main() -> None:
+        composition = build_slice1_composition(vless_provider=_FastpathProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _start_update(), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_TRIAL, update_id=2), composition, correlation_id=new_correlation_id()
+        )
+        retried = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(retry_callback, update_id=3), composition, correlation_id=new_correlation_id()
+        )
+        assert "Karing" in retried.message_text
+        callbacks = {button.get("callback_data") for button in _buttons(retried.reply_markup)}
+        assert {expected_next_callback, expected_back_callback} <= callbacks
 
     _run(main())
 

@@ -65,6 +65,7 @@ CB_CONNECT_FAST_WIN = "connect_fast_win"
 CB_CONNECT_FAST_ANDROID = "connect_fast_android"
 CB_CONNECT_FAST_IOS = "connect_fast_ios"
 CB_CONNECT_FAST_MAC = "connect_fast_mac"
+CB_CONNECT_FAST_PROBLEM = "connect_fast_problem:"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
@@ -1931,6 +1932,7 @@ _FAST_PLATFORM_BY_CALLBACK = {
     CB_CONNECT_FAST_MAC: "mac",
     CB_CONNECT_FAST_WIN: "win",
 }
+_FAST_CALLBACK_BY_PLATFORM = {platform: callback for callback, platform in _FAST_PLATFORM_BY_CALLBACK.items()}
 _FAST_PLATFORM_TITLE = {
     "ios": "📱 iPhone",
     "android": "🤖 Android",
@@ -1955,16 +1957,48 @@ _FAST_SUCCESS_CALLBACK = {
     "mac": CB_MAC_YES,
     "win": CB_WIN_YES,
 }
-_FAST_PROBLEM_CALLBACK = {
-    "ios": CB_IOS_NO,
-    "android": CB_ANDROID_NO,
-    "mac": CB_MAC_NO,
-    "win": CB_WIN_NO,
-}
+_FAST_PROBLEM_CALLBACK = {platform: f"{CB_CONNECT_FAST_PROBLEM}{platform}" for platform in _FAST_CALLBACK_BY_PLATFORM}
 
 
 def connect_fast_platform(callback_data: str) -> str | None:
     return _FAST_PLATFORM_BY_CALLBACK.get(callback_data)
+
+
+def connect_fast_problem_platform(callback_data: str) -> str | None:
+    if not callback_data.startswith(CB_CONNECT_FAST_PROBLEM):
+        return None
+    platform = callback_data[len(CB_CONNECT_FAST_PROBLEM) :]
+    return platform if platform in _FAST_CALLBACK_BY_PLATFORM else None
+
+
+def text_connect_fastpath_problem(platform: str) -> str:
+    if platform == "win":
+        fallback = "откройте пошаговую инструкцию Karing"
+    else:
+        fallback = "выберите другое приложение"
+    return f"😕 Подключение не получилось.\n\nПовторите короткий способ, {fallback} или напишите в поддержку — поможем."
+
+
+def connect_fastpath_problem_keyboard(platform: str) -> dict[str, Any]:
+    fast_callback = _FAST_CALLBACK_BY_PLATFORM.get(platform)
+    details_callback = _FAST_DETAILS_CALLBACK.get(platform)
+    if fast_callback is None or details_callback is None:
+        return back_only_keyboard(CB_CONNECT_DEVICE)
+
+    rows: list[list[dict[str, Any]]] = [
+        [{"text": "🔄 Повторить подключение", "callback_data": fast_callback}],
+    ]
+    if platform == "win":
+        rows.append([{"text": "🧭 Пошаговая инструкция Karing", "callback_data": details_callback}])
+    else:
+        rows.append([{"text": "🔁 Выбрать другое приложение", "callback_data": details_callback}])
+    rows.extend(
+        [
+            [{"text": "💬 Написать в поддержку", "url": _SUPPORT_URL}],
+            [{"text": "↩️ К выбору устройства", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
+    return _inline_kb(rows)
 
 
 def text_connect_fastpath(platform: str, subscription_url: str) -> str:

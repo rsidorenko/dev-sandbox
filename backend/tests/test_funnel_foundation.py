@@ -62,6 +62,15 @@ def test_callback_mapping(platform):
     assert callback_interaction("main_menu") is None
 
 
+@pytest.mark.parametrize("platform", ["ios", "android", "mac", "win"])
+def test_fastpath_problem_callback_mapping(platform):
+    assert callback_interaction(f"connect_fast_problem:{platform}") == ("connection_problem", platform)
+
+
+def test_fastpath_problem_callback_rejects_unknown_platform():
+    assert callback_interaction("connect_fast_problem:unknown") is None
+
+
 @pytest.fixture
 async def pool(monkeypatch):
     url = os.environ.get("DATABASE_URL")
