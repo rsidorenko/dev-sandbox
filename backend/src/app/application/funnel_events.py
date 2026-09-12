@@ -71,7 +71,7 @@ def callback_interaction(code: str) -> tuple[str, str] | None:
     if code == "connect_device":
         return "setup_started", ""
     for platform in ("ios", "android", "mac", "win", "tv"):
-        if code == f"connect_{platform}":
+        if code in (f"connect_{platform}", f"connect_fast_{platform}"):
             return "platform_selected", platform
         if code == f"{platform}_yes":
             return "connection_confirmed", platform

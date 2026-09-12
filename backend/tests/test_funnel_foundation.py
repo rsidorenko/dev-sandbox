@@ -54,6 +54,7 @@ async def test_failure_timeout_and_cancellation(monkeypatch, caplog):
 @pytest.mark.parametrize("platform", ["ios", "android", "mac", "win", "tv"])
 def test_callback_mapping(platform):
     assert callback_interaction(f"connect_{platform}") == ("platform_selected", platform)
+    assert callback_interaction(f"connect_fast_{platform}") == ("platform_selected", platform)
     assert callback_interaction(f"{platform}_yes") == ("connection_confirmed", platform)
     assert callback_interaction(f"{platform}_no") == ("connection_problem", platform)
     assert callback_interaction("connect_device") == ("setup_started", "")

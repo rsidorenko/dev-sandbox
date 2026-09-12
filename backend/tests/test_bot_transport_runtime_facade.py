@@ -811,9 +811,10 @@ def test_android_karing_is_clean_and_happ_branch_has_v2raytune() -> None:
         assert any("v2rayTune" in t for t in labels), labels
 
 
-def test_facade_callback_trial_returns_menu_not_key_list() -> None:
-    """Trial activation returns the short main-menu confirmation, NOT the full key list
+def test_facade_callback_trial_returns_fastpath_not_key_list() -> None:
+    """Trial activation returns the short device selector, NOT the full key list
     (which exceeds Telegram's 4096-char limit with many servers and gets rejected)."""
+    from app.bot_transport.storefront_ui import CB_CONNECT_FAST_IOS, CB_MAIN_MENU
     from app.issuance.vless_provider import StubVlessProvider
 
     async def main() -> None:
@@ -825,10 +826,11 @@ def test_facade_callback_trial_returns_menu_not_key_list() -> None:
             _callback_update(callback_data=CB_TRIAL, update_id=2), c, correlation_id=new_correlation_id()
         )
         assert "активирован" in pkg.message_text.lower()
-        # short menu confirmation, not the long key list
+        # Короткий выбор устройства, а не длинный список ключей.
         assert len(pkg.message_text) < 700
         btns = [b.get("callback_data") for row in pkg.reply_markup["inline_keyboard"] for b in row]
-        assert CB_BUY_VPN in btns  # main-menu keyboard
+        assert CB_CONNECT_FAST_IOS in btns
+        assert CB_MAIN_MENU in btns
 
     _run(main())
 

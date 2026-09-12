@@ -48,6 +48,10 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_ANDROID,
     CB_CONNECT_DEVICE,
     CB_CONNECT_DONE,
+    CB_CONNECT_FAST_ANDROID,
+    CB_CONNECT_FAST_IOS,
+    CB_CONNECT_FAST_MAC,
+    CB_CONNECT_FAST_WIN,
     CB_CONNECT_IOS,
     CB_CONNECT_MAC,
     CB_CONNECT_NEXT,
@@ -133,6 +137,8 @@ from app.bot_transport.storefront_ui import (
     channel_subscribe_gate_keyboard,
     confirm_pay_keyboard,
     connect_device_keyboard,
+    connect_fast_platform,
+    connect_fastpath_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
     ios_app_chooser_keyboard,
@@ -224,6 +230,7 @@ from app.bot_transport.storefront_ui import (
     text_buy_vpn_intro,
     text_channel_subscription_check_failed,
     text_connect_device,
+    text_connect_fastpath,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -260,9 +267,11 @@ from app.bot_transport.storefront_ui import (
     text_single_server_key,
     text_subscription_active,
     text_subscription_expired,
+    text_trial_connect_fastpath,
     text_trial_subscribe_required,
     text_trial_subscribe_still_missing,
     text_welcome,
+    trial_connect_fastpath_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -405,6 +414,41 @@ def _step_1_for_retry(code: str) -> tuple[str, dict[str, Any] | None]:
     if code == CB_ANDROID_RETRY:
         return android_step_1_text(), android_step_1_keyboard()
     return ios_step_1_text(), ios_step_1_keyboard()
+
+
+async def _render_connect_fastpath(
+    code: str,
+    uid: int | None,
+    composition: Slice1Composition,
+) -> tuple[str, dict[str, Any] | None]:
+    platform = connect_fast_platform(code)
+    if platform is None:
+        return text_error_generic(), back_only_keyboard(CB_CONNECT_DEVICE)
+    if not await _has_active_subscription(composition, uid):
+        return text_no_subscription(), no_subscription_keyboard()
+    if uid is None or composition.vless_provider is None:
+        return text_keys_not_available(), back_only_keyboard(CB_CONNECT_DEVICE)
+
+    id_rec = await composition.identity.find_by_telegram_user_id(uid)
+    if id_rec is None:
+        return text_keys_not_available(), back_only_keyboard(CB_CONNECT_DEVICE)
+
+    from app.issuance.vless_provider import VlessProviderOutcome
+
+    try:
+        vless_result = await composition.vless_provider.get_user_config(
+            internal_user_id=id_rec.internal_user_id,
+        )
+    except Exception:
+        logging.getLogger(__name__).warning("connect_fastpath.config_unavailable platform=%s", platform)
+        return text_keys_not_available(), back_only_keyboard(CB_CONNECT_DEVICE)
+    if vless_result.outcome != VlessProviderOutcome.SUCCESS or vless_result.config is None:
+        return text_keys_not_available(), back_only_keyboard(CB_CONNECT_DEVICE)
+
+    subscription_url = vless_result.config.subscription_url
+    if not subscription_url:
+        return text_keys_not_available(), back_only_keyboard(CB_CONNECT_DEVICE)
+    return text_connect_fastpath(platform, subscription_url), connect_fastpath_keyboard(platform, subscription_url)
 
 
 async def _render_platform_step(
@@ -906,6 +950,10 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_CONNECT_ANDROID,
         CB_CONNECT_IOS,
         CB_CONNECT_MAC,
+        CB_CONNECT_FAST_WIN,
+        CB_CONNECT_FAST_ANDROID,
+        CB_CONNECT_FAST_IOS,
+        CB_CONNECT_FAST_MAC,
         CB_CONNECT_NEXT,
         CB_CONNECT_DONE,
         CB_REFERRAL,
@@ -1199,17 +1247,11 @@ async def _handle_trial_activation(
         )
     )
 
-    # Trial activated: show the main menu (NOT the full key list — it can exceed
-    # Telegram's 4096-char limit and get rejected). The user reaches their keys via
-    # "Мои ключи" / "Подключить устройство". trial_used is now TRUE, so the menu's
-    # trial button is hidden. The "⏳ Идёт генерация ключей…" interim message +
-    # delete-and-show-menu choreography is handled by the runtime (process_batch),
-    # which detects CB_TRIAL and shows feedback during the slow key creation.
-    return (
-        "✅ <b>Пробный период активирован!</b>\n\n"
-        "Ключи сгенерированы. Откройте «🔐 Мои ключи» или «📱 Подключить устройство».\n\n" + text_main_menu(),
-        main_menu_keyboard(),
-    )
+    # Сразу ведём к первому полезному действию — подключению устройства. Полный
+    # список ключей не показываем: он может превысить лимит Telegram в 4096 знаков.
+    # Главное меню остаётся доступно отдельной кнопкой, а старые подробные
+    # инструкции не удаляются и используются как fallback из fast path.
+    return text_trial_connect_fastpath(), trial_connect_fastpath_keyboard()
 
 
 def _broadcast_bonus_unavailable_text() -> str:
@@ -2552,6 +2594,20 @@ async def _render_storefront_response(
     interaction = callback_interaction(code) if is_callback else None
     callback = update.get("callback_query")
     callback_id = callback.get("id") if isinstance(callback, Mapping) else None
+    if code in (CB_CONNECT_FAST_IOS, CB_CONNECT_FAST_ANDROID, CB_CONNECT_FAST_MAC, CB_CONNECT_FAST_WIN) and isinstance(
+        callback_id, str
+    ):
+        # После активации триала fast path открывается напрямую, без отдельного
+        # callback connect_device. Фиксируем начало настройки здесь; при входе из
+        # главного меню повтор не искажает метрику, потому что отчёт считает людей.
+        await record_interaction(
+            _get_pool_from_composition(composition),
+            event_name="setup_started",
+            platform="",
+            surface="telegram",
+            dedup_key=f"{callback_id}:setup",
+            telegram_user_id=uid,
+        )
     if interaction is not None and isinstance(callback_id, str):
         await record_interaction(
             _get_pool_from_composition(composition),
@@ -2646,6 +2702,9 @@ async def _render_storefront_response(
             text, keyboard = text_connect_device(), connect_device_keyboard()
         else:
             text, keyboard = text_no_subscription(), no_subscription_keyboard()
+
+    elif code in (CB_CONNECT_FAST_IOS, CB_CONNECT_FAST_ANDROID, CB_CONNECT_FAST_MAC, CB_CONNECT_FAST_WIN):
+        text, keyboard = await _render_connect_fastpath(code, uid, composition)
 
     elif code == CB_CONNECT_WIN:
         text = win_step_1_text()
@@ -3136,7 +3195,17 @@ async def _render_storefront_response(
 
     parse_mode = None if rich_message is not None else "HTML"
     # Connection step initial renders (CB_CONNECT_*) also use HTML step texts
-    if code in (CB_CONNECT_IOS, CB_CONNECT_MAC, CB_CONNECT_TV, CB_CONNECT_WIN, CB_CONNECT_ANDROID):
+    if code in (
+        CB_CONNECT_IOS,
+        CB_CONNECT_MAC,
+        CB_CONNECT_TV,
+        CB_CONNECT_WIN,
+        CB_CONNECT_ANDROID,
+        CB_CONNECT_FAST_IOS,
+        CB_CONNECT_FAST_ANDROID,
+        CB_CONNECT_FAST_MAC,
+        CB_CONNECT_FAST_WIN,
+    ):
         parse_mode = "HTML"
     # iOS/Mac/TV/Win/Android steps use HTML for bold headers and code formatting
     if code.startswith(CB_IOS_STEP) or code == CB_IOS_RETRY:

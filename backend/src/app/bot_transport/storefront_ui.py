@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -60,6 +61,10 @@ CB_CONNECT_WIN = "connect_win"
 CB_CONNECT_ANDROID = "connect_android"
 CB_CONNECT_IOS = "connect_ios"
 CB_CONNECT_MAC = "connect_mac"
+CB_CONNECT_FAST_WIN = "connect_fast_win"
+CB_CONNECT_FAST_ANDROID = "connect_fast_android"
+CB_CONNECT_FAST_IOS = "connect_fast_ios"
+CB_CONNECT_FAST_MAC = "connect_fast_mac"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
@@ -700,21 +705,22 @@ def text_connect_device() -> str:
     return "<b>📱 Выберите ваше устройство:</b>"
 
 
-def connect_device_keyboard() -> dict[str, Any]:
-    return _inline_kb(
+def _connect_device_rows() -> list[list[dict[str, Any]]]:
+    return [
         [
-            [
-                {"text": "🖥 Windows", "callback_data": CB_CONNECT_WIN},
-                {"text": "🤖 Android", "callback_data": CB_CONNECT_ANDROID},
-            ],
-            [
-                {"text": "📱 iPhone", "callback_data": CB_CONNECT_IOS},
-                {"text": "💻 Mac", "callback_data": CB_CONNECT_MAC},
-            ],
-            [{"text": "📺 Телевизор", "callback_data": CB_CONNECT_TV}],
-            [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+            {"text": "🖥 Windows", "callback_data": CB_CONNECT_FAST_WIN},
+            {"text": "🤖 Android", "callback_data": CB_CONNECT_FAST_ANDROID},
+        ],
+        [
+            {"text": "📱 iPhone", "callback_data": CB_CONNECT_FAST_IOS},
+            {"text": "💻 Mac", "callback_data": CB_CONNECT_FAST_MAC},
+        ],
+        [{"text": "📺 Телевизор", "callback_data": CB_CONNECT_TV}],
+    ]
+
+
+def connect_device_keyboard() -> dict[str, Any]:
+    return _inline_kb([*_connect_device_rows(), [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}]])
 
 
 # ─── App chooser (Happ vs Karing) for ios/android/mac ───────────────
@@ -1919,6 +1925,98 @@ def win_problem_keyboard() -> dict[str, Any]:
     )
 
 
+_FAST_PLATFORM_BY_CALLBACK = {
+    CB_CONNECT_FAST_IOS: "ios",
+    CB_CONNECT_FAST_ANDROID: "android",
+    CB_CONNECT_FAST_MAC: "mac",
+    CB_CONNECT_FAST_WIN: "win",
+}
+_FAST_PLATFORM_TITLE = {
+    "ios": "📱 iPhone",
+    "android": "🤖 Android",
+    "mac": "💻 Mac",
+    "win": "🖥 Windows",
+}
+_FAST_APP_DOWNLOAD = {
+    "ios": ("⬇️ Установить Happ", _IOS_HAPP_APPSTORE_URL),
+    "android": ("⬇️ Установить Happ", _ANDROID_HAPP_PLAYSTORE_URL),
+    "mac": ("⬇️ Установить Happ", _IOS_HAPP_APPSTORE_URL),
+    "win": ("⬇️ Установить Karing", _WIN_KARING_GITHUB_URL),
+}
+_FAST_DETAILS_CALLBACK = {
+    "ios": CB_CONNECT_IOS,
+    "android": CB_CONNECT_ANDROID,
+    "mac": CB_CONNECT_MAC,
+    "win": CB_CONNECT_WIN,
+}
+_FAST_SUCCESS_CALLBACK = {
+    "ios": CB_IOS_YES,
+    "android": CB_ANDROID_YES,
+    "mac": CB_MAC_YES,
+    "win": CB_WIN_YES,
+}
+_FAST_PROBLEM_CALLBACK = {
+    "ios": CB_IOS_NO,
+    "android": CB_ANDROID_NO,
+    "mac": CB_MAC_NO,
+    "win": CB_WIN_NO,
+}
+
+
+def connect_fast_platform(callback_data: str) -> str | None:
+    return _FAST_PLATFORM_BY_CALLBACK.get(callback_data)
+
+
+def text_connect_fastpath(platform: str, subscription_url: str) -> str:
+    title = _FAST_PLATFORM_TITLE.get(platform, "📱 Устройство")
+    safe_url = escape(subscription_url)
+    if platform == "win":
+        steps = (
+            "1. Установите <b>Karing</b>.\n"
+            "2. Нажмите «Импортировать в Karing» — ключи добавятся автоматически.\n"
+            "3. В Karing выберите сервер и включите VPN."
+        )
+    else:
+        steps = (
+            "1. Установите <b>Happ</b>.\n"
+            "2. Скопируйте ссылку, затем в Happ нажмите «+» → «Подписка» и вставьте её.\n"
+            "3. Выберите сервер и включите VPN."
+        )
+    return (
+        f"{title} <b>Подключение за минуту</b>\n\n"
+        f"{steps}\n\n"
+        "<b>Ваша ссылка:</b>\n"
+        f"<code>{safe_url}</code>\n\n"
+        "Если короткий способ не подойдёт, откройте подробную инструкцию."
+    )
+
+
+def connect_fastpath_keyboard(platform: str, subscription_url: str) -> dict[str, Any]:
+    download = _FAST_APP_DOWNLOAD.get(platform)
+    details_callback = _FAST_DETAILS_CALLBACK.get(platform, CB_CONNECT_DEVICE)
+    success_callback = _FAST_SUCCESS_CALLBACK.get(platform, CB_CONNECT_DONE)
+    problem_callback = _FAST_PROBLEM_CALLBACK.get(platform, CB_CONNECT_DEVICE)
+    rows: list[list[dict[str, Any]]] = []
+    if download is not None:
+        rows.append([{"text": download[0], "url": download[1]}])
+    if platform == "win" and subscription_url.startswith(("https://", "http://")):
+        separator = "&" if "?" in subscription_url else "?"
+        rows.append([{"text": "🔑 Импортировать в Karing", "url": f"{subscription_url}{separator}open=karing"}])
+    if 1 <= len(subscription_url) <= 256:
+        rows.append([{"text": "📋 Скопировать ссылку", "copy_text": {"text": subscription_url}}])
+    rows.extend(
+        [
+            [
+                {"text": "✅ VPN работает", "callback_data": success_callback},
+                {"text": "❓ Не получилось", "callback_data": problem_callback},
+            ],
+            [{"text": "🧭 Подробная инструкция", "callback_data": details_callback}],
+            [{"text": "↩️ К выбору устройства", "callback_data": CB_CONNECT_DEVICE}],
+        ]
+    )
+    return _inline_kb(rows)
+
+
 def text_subscription_url(config: VlessUserConfig) -> str:
     return (
         "<b>📎 Ссылка для приложений:</b>\n\n"
@@ -2349,6 +2447,18 @@ def trial_activated_keyboard() -> dict[str, Any]:
             [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ]
     )
+
+
+def text_trial_connect_fastpath() -> str:
+    return (
+        "✅ <b>Пробный период активирован!</b>\n\n"
+        "Доступ открыт на 3 дня, ключи уже готовы.\n"
+        "Выберите устройство — основная настройка займёт около минуты."
+    )
+
+
+def trial_connect_fastpath_keyboard() -> dict[str, Any]:
+    return _inline_kb([*_connect_device_rows(), [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}]])
 
 
 # ─── Custom days flow ──────────────────────────────────────────────
