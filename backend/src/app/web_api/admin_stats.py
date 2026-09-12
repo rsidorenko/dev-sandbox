@@ -186,12 +186,22 @@ WITH attributed AS (
     FROM telegram_ads_attributions a
     JOIN user_identities i USING (internal_user_id)
     WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2
-), payment_ranked AS (
-    SELECT e.internal_user_id, e.occurred_at,
-           row_number() OVER (PARTITION BY e.internal_user_id ORDER BY e.occurred_at, e.event_key) AS payment_number
-    FROM funnel_events e
+), external_payments AS (
+    SELECT b.internal_user_id, b.event_effective_at AS occurred_at,
+           b.internal_fact_ref AS event_key, b.amount_minor_units::bigint AS amount_kopecks
+    FROM billing_events_ledger b
     JOIN attributed a USING (internal_user_id)
-    WHERE e.event_name = 'payment_succeeded'
+    WHERE b.status = 'accepted' AND b.event_type = 'subscription_activated'
+      AND b.billing_provider_key IN ('yookassa', 'yookassa_v1', 'cryptobot', 'cryptobot_v1')
+      AND b.internal_fact_ref NOT LIKE 'grant:%'
+      AND b.amount_minor_units > 0 AND b.currency_code = 'RUB'
+      AND b.event_effective_at <= $2
+), payment_ranked AS (
+    SELECT p.*,
+           row_number() OVER (
+               PARTITION BY p.internal_user_id ORDER BY p.occurred_at, p.event_key
+           ) AS payment_number
+    FROM external_payments p
 ), payment_moments AS (
     SELECT internal_user_id,
            min(occurred_at) FILTER (WHERE payment_number = 1) AS first_paid_at,
@@ -206,49 +216,88 @@ WITH attributed AS (
     LEFT JOIN subscription_snapshots s USING (internal_user_id)
     LEFT JOIN payment_moments p USING (internal_user_id)
 ), cohort AS (
-    SELECT b.*, b.trial_started_at + interval '10 days' AS deadline
+    SELECT b.*, b.trial_started_at + interval '10 days' AS deadline,
+           b.trial_started_at IS NOT NULL
+           AND b.first_paid_at >= b.trial_started_at
+           AND b.first_paid_at < b.trial_started_at + interval '10 days' AS acquired
     FROM base b
-)
-SELECT campaign_key,
-       count(*) AS attributed_users,
-       count(*) FILTER (WHERE trial_started_at IS NOT NULL) AS trials_started,
-       count(*) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
-           AND cohort.trial_started_at IS NOT NULL
-           AND e.event_name = 'setup_started' AND e.occurred_at >= cohort.trial_started_at
+), cohort_with_revenue AS (
+    SELECT c.*,
+           CASE WHEN c.acquired THEN COALESCE((
+               SELECT sum(p.amount_kopecks) FROM external_payments p
+               WHERE p.internal_user_id = c.internal_user_id
+                 AND p.occurred_at >= c.first_paid_at
+           ), 0)::bigint ELSE 0::bigint END AS revenue_kopecks
+    FROM cohort c
+), spend AS (
+    SELECT campaign_key, sum(amount_kopecks)::bigint AS spend_kopecks
+    FROM telegram_ads_spend_daily
+    WHERE spend_date >= $3 AND spend_date <= $4
+    GROUP BY campaign_key
+), campaign_keys AS (
+    SELECT campaign_key FROM attributed
+    UNION
+    SELECT campaign_key FROM spend
+), campaign_stats AS (
+SELECT k.campaign_key,
+       count(c.internal_user_id) AS attributed_users,
+       count(c.internal_user_id) FILTER (WHERE c.trial_started_at IS NOT NULL) AS trials_started,
+       count(c.internal_user_id) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+           AND c.trial_started_at IS NOT NULL
+           AND e.event_name = 'setup_started' AND e.occurred_at >= c.trial_started_at
        )) AS setup_started_users,
-       count(*) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
-           AND cohort.trial_started_at IS NOT NULL
-           AND e.event_name = 'connection_confirmed' AND e.occurred_at >= cohort.trial_started_at
+       count(c.internal_user_id) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+           AND c.trial_started_at IS NOT NULL
+           AND e.event_name = 'connection_confirmed' AND e.occurred_at >= c.trial_started_at
        )) AS connection_confirmed_users,
-       count(*) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
-           AND cohort.trial_started_at IS NOT NULL
-           AND e.event_name = 'checkout_opened' AND e.occurred_at >= cohort.trial_started_at
+       count(c.internal_user_id) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+           AND c.trial_started_at IS NOT NULL
+           AND e.event_name = 'checkout_opened' AND e.occurred_at >= c.trial_started_at
        )) AS checkout_opened_users,
-       count(*) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = cohort.internal_user_id
-           AND cohort.trial_started_at IS NOT NULL
-           AND e.event_name = 'payment_created' AND e.occurred_at >= cohort.trial_started_at
+       count(c.internal_user_id) FILTER (WHERE EXISTS (
+           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+           AND c.trial_started_at IS NOT NULL
+           AND e.event_name = 'payment_created' AND e.occurred_at >= c.trial_started_at
        )) AS payment_created_users,
-       count(*) FILTER (WHERE deadline <= $2) AS mature_trials,
-       count(*) FILTER (WHERE deadline > $2) AS pending_trials,
-       count(*) FILTER (WHERE deadline <= $2 AND first_paid_at >= trial_started_at
-                        AND first_paid_at < deadline) AS first_payment_users,
-       count(*) FILTER (WHERE deadline <= $2 AND first_paid_at >= trial_started_at
-                        AND first_paid_at < deadline AND second_paid_at IS NOT NULL) AS second_payment_users
-FROM cohort
-GROUP BY campaign_key
-ORDER BY attributed_users DESC, campaign_key
+       count(c.internal_user_id) FILTER (WHERE c.deadline <= $2) AS mature_trials,
+       count(c.internal_user_id) FILTER (WHERE c.deadline > $2) AS pending_trials,
+       count(c.internal_user_id) FILTER (WHERE c.deadline <= $2 AND c.acquired) AS first_payment_users,
+       count(c.internal_user_id) FILTER (
+           WHERE c.deadline <= $2 AND c.acquired AND c.second_paid_at IS NOT NULL
+       ) AS second_payment_users,
+       count(c.internal_user_id) FILTER (WHERE c.acquired) AS acquired_users,
+       COALESCE(sum(c.revenue_kopecks), 0)::bigint AS revenue_kopecks,
+       COALESCE(max(s.spend_kopecks), 0)::bigint AS spend_kopecks
+FROM campaign_keys k
+LEFT JOIN cohort_with_revenue c ON c.campaign_key = k.campaign_key
+LEFT JOIN spend s ON s.campaign_key = k.campaign_key
+GROUP BY k.campaign_key
+)
+SELECT campaign_stats.*,
+       sum(spend_kopecks) OVER ()::bigint AS total_spend_kopecks,
+       sum(revenue_kopecks) OVER ()::bigint AS total_revenue_kopecks,
+       sum(attributed_users) OVER ()::bigint AS total_attributed_users,
+       sum(trials_started) OVER ()::bigint AS total_trials_started,
+       sum(acquired_users) OVER ()::bigint AS total_acquired_users
+FROM campaign_stats
+ORDER BY spend_kopecks DESC, attributed_users DESC, campaign_key
 LIMIT 200
 """
 
-_TELEGRAM_ADS_CAMPAIGNS_TOTAL = (
-    "SELECT count(DISTINCT a.campaign_key) FROM telegram_ads_attributions a "
-    "JOIN user_identities i USING (internal_user_id) "
-    "WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2"
+_TELEGRAM_ADS_CAMPAIGNS_TOTAL = """
+WITH campaign_keys AS (
+    SELECT a.campaign_key FROM telegram_ads_attributions a
+    JOIN user_identities i USING (internal_user_id)
+    WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2
+    UNION
+    SELECT campaign_key FROM telegram_ads_spend_daily
+    WHERE spend_date >= $3 AND spend_date <= $4
 )
+SELECT count(*) FROM campaign_keys
+"""
 
 
 async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> dict:
@@ -265,14 +314,23 @@ async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -
     }
 
 
-async def _telegram_ads_campaigns(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> list[dict]:
-    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, now)
+async def _telegram_ads_campaigns(
+    pool: asyncpg.Pool,
+    from_ts: datetime,
+    now: datetime,
+    from_date: date,
+    to_date: date,
+) -> dict:
+    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, now, from_date, to_date)
     result = []
     for row in rows:
         attributed = int(row["attributed_users"])
         trials = int(row["trials_started"])
         mature = int(row["mature_trials"])
         first_payment = int(row["first_payment_users"])
+        acquired = int(row["acquired_users"])
+        spend_kopecks = int(row["spend_kopecks"])
+        revenue_kopecks = int(row["revenue_kopecks"])
         result.append(
             {
                 "campaign_key": row["campaign_key"],
@@ -286,11 +344,53 @@ async def _telegram_ads_campaigns(pool: asyncpg.Pool, from_ts: datetime, now: da
                 "pending_trials": int(row["pending_trials"]),
                 "first_payment_users": first_payment,
                 "second_payment_users": int(row["second_payment_users"]),
+                "acquired_users": acquired,
+                "spend_rubles": round(spend_kopecks / 100, 2),
+                "revenue_rubles": round(revenue_kopecks / 100, 2),
+                "cost_per_attributed_user_rubles": (round(spend_kopecks / 100 / attributed, 2) if attributed else None),
+                "cost_per_trial_rubles": round(spend_kopecks / 100 / trials, 2) if trials else None,
+                "cac_rubles": round(spend_kopecks / 100 / acquired, 2) if acquired else None,
+                "roas": round(revenue_kopecks / spend_kopecks, 4) if spend_kopecks else None,
                 "trial_activation_rate": round(trials / attributed, 4) if attributed else None,
                 "trial_to_first_payment_rate": round(first_payment / mature, 4) if mature else None,
             }
         )
-    return result
+    if not rows:
+        economics = _telegram_ads_economics([])
+    else:
+        total_spend = int(rows[0]["total_spend_kopecks"]) / 100
+        total_revenue = int(rows[0]["total_revenue_kopecks"]) / 100
+        economics = _telegram_ads_economics(
+            [
+                {
+                    "spend_rubles": total_spend,
+                    "revenue_rubles": total_revenue,
+                    "attributed_users": int(rows[0]["total_attributed_users"]),
+                    "trials_started": int(rows[0]["total_trials_started"]),
+                    "acquired_users": int(rows[0]["total_acquired_users"]),
+                }
+            ]
+        )
+    return {"campaigns": result, "economics": economics}
+
+
+def _telegram_ads_economics(campaigns: list[dict]) -> dict:
+    spend_rubles = round(sum(float(row["spend_rubles"]) for row in campaigns), 2)
+    revenue_rubles = round(sum(float(row["revenue_rubles"]) for row in campaigns), 2)
+    attributed = sum(int(row["attributed_users"]) for row in campaigns)
+    trials = sum(int(row["trials_started"]) for row in campaigns)
+    acquired = sum(int(row["acquired_users"]) for row in campaigns)
+    return {
+        "spend_rubles": spend_rubles,
+        "revenue_rubles": revenue_rubles,
+        "attributed_users": attributed,
+        "trials_started": trials,
+        "acquired_users": acquired,
+        "cost_per_attributed_user_rubles": round(spend_rubles / attributed, 2) if attributed else None,
+        "cost_per_trial_rubles": round(spend_rubles / trials, 2) if trials else None,
+        "cac_rubles": round(spend_rubles / acquired, 2) if acquired else None,
+        "roas": round(revenue_rubles / spend_rubles, 4) if spend_rubles else None,
+    }
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -363,6 +463,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
     now = datetime.now(UTC)
     # stat_date — DATE в MSK: нижняя граница окна в той же зоне, чтобы 1d/7d совпали с рядом.
     from_date = from_ts.astimezone(ZoneInfo(tz)).date()
+    to_date = now.astimezone(ZoneInfo(tz)).date()
 
     # Все агрегаты — независимы, гоняем параллельно (каждый берёт своё соединение из pool).
     (
@@ -378,7 +479,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         traffic_series,
         traffic_by_server,
         funnel,
-        telegram_ads_campaigns,
+        telegram_ads_report,
         telegram_ads_campaigns_total,
     ) = await asyncio.gather(
         _revenue_series(pool, trunc, tz, from_ts),
@@ -393,8 +494,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _traffic_series(pool, from_date),
         _traffic_by_server(pool, from_date),
         _mature_funnel(pool, from_ts, now),
-        _telegram_ads_campaigns(pool, from_ts, now),
-        _scalar(pool, _TELEGRAM_ADS_CAMPAIGNS_TOTAL, from_ts, now),
+        _telegram_ads_campaigns(pool, from_ts, now, from_date, to_date),
+        _scalar(pool, _TELEGRAM_ADS_CAMPAIGNS_TOTAL, from_ts, now, from_date, to_date),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -427,7 +528,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "by_plan": active_by_plan,
             "funnel": funnel,
             "telegram_ads": {
-                "campaigns": telegram_ads_campaigns,
+                "campaigns": telegram_ads_report["campaigns"],
+                "economics": telegram_ads_report["economics"],
                 "total_campaigns": telegram_ads_campaigns_total,
                 "truncated": telegram_ads_campaigns_total > _TELEGRAM_ADS_CAMPAIGNS_LIMIT,
             },

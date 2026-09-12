@@ -189,8 +189,39 @@ export interface AdminTelegramAdsCampaign {
   pending_trials: number;
   first_payment_users: number;
   second_payment_users: number;
+  /** Клиенты с глобально первой оплатой в 10-дневном окне после триала. */
+  acquired_users: number;
+  spend_rubles: number;
+  revenue_rubles: number;
+  cost_per_attributed_user_rubles: number | null;
+  cost_per_trial_rubles: number | null;
+  cac_rubles: number | null;
+  /** Выручка / расход, коэффициент x. */
+  roas: number | null;
   trial_activation_rate: number | null;
   trial_to_first_payment_rate: number | null;
+}
+
+export interface AdminTelegramAdsEconomics {
+  spend_rubles: number;
+  revenue_rubles: number;
+  attributed_users: number;
+  trials_started: number;
+  acquired_users: number;
+  cost_per_attributed_user_rubles: number | null;
+  cost_per_trial_rubles: number | null;
+  cac_rubles: number | null;
+  roas: number | null;
+}
+
+export interface AdminTelegramAdsSpend {
+  campaign_key: string;
+  spend_date: string;
+  amount_kopecks: number;
+  amount_rubles: string;
+  updated_by: string;
+  updated_at: string | null;
+  changed: boolean;
 }
 
 export interface AdminStatsResponse {
@@ -205,6 +236,7 @@ export interface AdminStatsResponse {
   };
   telegram_ads?: {
     campaigns: AdminTelegramAdsCampaign[];
+    economics: AdminTelegramAdsEconomics;
     total_campaigns: number;
     truncated: boolean;
   };

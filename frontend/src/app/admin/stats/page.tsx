@@ -69,6 +69,25 @@ function formatRubles(n: number): string {
   return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`;
 }
 
+function formatRublesNullable(n: number | null): string {
+  return n == null ? "—" : `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽`;
+}
+
+function formatRoas(n: number | null): string {
+  return n == null ? "—" : `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}×`;
+}
+
+function todayInMoscow(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
 function formatGb(n: number): string {
   return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ГБ`;
 }
@@ -108,6 +127,12 @@ export default function AdminStatsPage() {
   const [data, setData] = useState<AdminStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [spendCampaign, setSpendCampaign] = useState("");
+  const [spendDate, setSpendDate] = useState(todayInMoscow);
+  const [spendAmount, setSpendAmount] = useState("");
+  const [spendSaving, setSpendSaving] = useState(false);
+  const [spendMessage, setSpendMessage] = useState("");
+  const [spendError, setSpendError] = useState("");
 
   const load = useCallback(async (p: AdminStatsPeriod) => {
     setLoading(true);
@@ -149,6 +174,33 @@ export default function AdminStatsPage() {
   const trafficByServer = data?.traffic_by_server ?? [];
   const byPlan = data?.by_plan ?? [];
   const telegramAds = data?.telegram_ads?.campaigns ?? [];
+  const economics = data?.telegram_ads?.economics;
+
+  const saveSpend = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSpendSaving(true);
+    setSpendError("");
+    setSpendMessage("");
+    const result = await adminApi.setTelegramAdsSpend({
+      campaign_key: spendCampaign,
+      spend_date: spendDate,
+      amount_rubles: spendAmount,
+    });
+    if (result.ok) {
+      setSpendCampaign(result.data.spend.campaign_key);
+      setSpendAmount("");
+      setSpendMessage(result.data.spend.changed ? "Расход сохранён." : "Расход уже был таким — изменений нет.");
+      await load(period);
+    } else if (result.error === "unauthorized") {
+      window.location.href = `/admin/login?next=${encodeURIComponent("/admin/stats")}`;
+      return;
+    } else if (result.error === "csrf_validation_failed") {
+      setSpendError("Сессия устарела. Обновите страницу и повторите.");
+    } else {
+      setSpendError("Не удалось сохранить расход. Проверьте кампанию, дату и сумму.");
+    }
+    setSpendSaving(false);
+  };
 
   const kpi = data?.kpi;
   const funnel = data?.funnel;
@@ -301,23 +353,81 @@ export default function AdminStatsPage() {
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Telegram Ads по кампаниям</h2>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Экономика Telegram Ads</h2>
               <span className="text-xs text-gray-400 dark:text-gray-500">
-                first-touch · параметры tgads_* · максимум 200 кампаний
+                first-touch · метки ads_* и tgads_* · ручной расход в ₽
               </span>
+            </div>
+            <form onSubmit={saveSpend} className="border-b border-gray-200 px-5 py-4 dark:border-zinc-700">
+              <div className="grid gap-3 sm:grid-cols-[minmax(180px,1fr)_170px_170px_auto] sm:items-end">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                  Кампания
+                  <input
+                    value={spendCampaign}
+                    onChange={(event) => setSpendCampaign(event.target.value)}
+                    list="telegram-ads-campaigns"
+                    placeholder="apk_01 или ads_apk_01"
+                    required
+                    className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+                  />
+                  <datalist id="telegram-ads-campaigns">
+                    {telegramAds.map((campaign) => <option key={campaign.campaign_key} value={campaign.campaign_key} />)}
+                  </datalist>
+                </label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                  Дата расхода
+                  <input
+                    type="date"
+                    min="2025-01-01"
+                    max={todayInMoscow()}
+                    value={spendDate}
+                    onChange={(event) => setSpendDate(event.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                  Расход, ₽
+                  <input
+                    inputMode="decimal"
+                    value={spendAmount}
+                    onChange={(event) => setSpendAmount(event.target.value)}
+                    placeholder="1000.00"
+                    required
+                    className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+                  />
+                </label>
+                <button type="submit" disabled={spendSaving} className={adminBtnPrimary}>
+                  {spendSaving ? "Сохраняем…" : "Сохранить"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                Сумма заменяет расход этой кампании за выбранный день. Введите 0, чтобы удалить запись.
+              </p>
+              {spendError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{spendError}</p>}
+              {spendMessage && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{spendMessage}</p>}
+            </form>
+            <div className="grid grid-cols-2 gap-3 border-b border-gray-200 p-5 dark:border-zinc-700 sm:grid-cols-3 lg:grid-cols-6">
+              <KpiCard label="Расход" value={formatRubles(economics?.spend_rubles ?? 0)} sub="за выбранный период" />
+              <KpiCard label="Клиенты" value={(economics?.acquired_users ?? 0).toLocaleString("ru-RU")} sub="первая оплата ≤ 10 дней" />
+              <KpiCard label="CAC" value={formatRublesNullable(economics?.cac_rubles ?? null)} sub="расход / клиенты" />
+              <KpiCard label="Рекламная выручка" value={formatRubles(economics?.revenue_rubles ?? 0)} sub="с продлениями" />
+              <KpiCard label="ROAS" value={formatRoas(economics?.roas ?? null)} sub="выручка / расход" />
+              <KpiCard label="Цена триала" value={formatRublesNullable(economics?.cost_per_trial_rubles ?? null)} sub="расход / триалы" />
             </div>
             {telegramAds.length === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-gray-400 dark:text-gray-500">
-                Нет атрибутированных пользователей за период
+                Нет атрибуций или расходов за период
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[1180px] w-full text-left text-xs">
+                <table className="min-w-[1820px] w-full text-left text-xs">
                   <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
                     <tr>
                       {[
-                        "Кампания", "Пользователи", "Триалы", "Настройка", "Подключились",
-                        "Checkout", "Счета", "1-я оплата", "2-я оплата", "Триал → оплата",
+                        "Кампания", "Расход", "Пользователи", "Цена польз.", "Триалы", "Цена триала",
+                        "Настройка", "Подключились", "Checkout", "Счета", "Клиенты", "CAC",
+                        "Выручка", "ROAS", "Зрелая 1-я оплата", "2-я оплата", "Триал → оплата",
                       ].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}
                     </tr>
                   </thead>
@@ -328,19 +438,26 @@ export default function AdminStatsPage() {
                       return (
                         <tr key={campaign.campaign_key} className="text-gray-700 dark:text-gray-300">
                           <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">
-                            tgads_{campaign.campaign_key}
+                            {campaign.campaign_key}
                           </td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{formatRubles(campaign.spend_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.attributed_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{formatRublesNullable(campaign.cost_per_attributed_user_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>
                             {campaign.trials_started}
                             <span className="ml-1 text-gray-400">
                               ({Math.round((campaign.trial_activation_rate ?? 0) * 1000) / 10}%)
                             </span>
                           </td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{formatRublesNullable(campaign.cost_per_trial_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.setup_started_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_confirmed_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.checkout_opened_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.payment_created_users}</td>
+                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{campaign.acquired_users}</td>
+                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{formatRublesNullable(campaign.cac_rubles)}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{formatRubles(campaign.revenue_rubles)}</td>
+                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{formatRoas(campaign.roas)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>
                             {campaign.first_payment_users}/{campaign.mature_trials}
                             {campaign.pending_trials > 0 && <span className="ml-1 text-gray-400">+{campaign.pending_trials} ждут</span>}

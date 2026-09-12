@@ -124,6 +124,8 @@ async def pool():
     try:
         yield pool
     finally:
+        await pool.execute("DELETE FROM telegram_ads_spend_actions WHERE campaign_key LIKE 'test_tgads_%'")
+        await pool.execute("DELETE FROM telegram_ads_spend_daily WHERE campaign_key LIKE 'test_tgads_%'")
         await pool.execute("DELETE FROM funnel_interactions WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
         await pool.execute("DELETE FROM billing_events_ledger WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
         await pool.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
@@ -197,7 +199,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
     )
 
     touch = now - timedelta(days=20)
-    converted = await add_user(pool, "converted", 1, touch, "apk_01")
+    converted = await add_user(pool, "converted", 1, touch, "test_tgads_apk_01")
     trial = touch + timedelta(hours=1)
     await add_trial(pool, converted, trial)
     for event in ("setup_started", "connection_confirmed", "checkout_opened", "payment_created"):
@@ -205,30 +207,47 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
     await add_payment(pool, converted, f"{_PREFIX}paid-1", trial + timedelta(days=1))
     await add_payment(pool, converted, f"{_PREFIX}paid-2", trial + timedelta(days=15))
 
-    pending = await add_user(pool, "pending", 2, now - timedelta(days=2), "apk_01")
+    pending = await add_user(pool, "pending", 2, now - timedelta(days=2), "test_tgads_apk_01")
     await add_trial(pool, pending, now - timedelta(days=1))
     await add_interaction(pool, pending, "setup_started", now - timedelta(hours=12))
 
-    no_pay = await add_user(pool, "no-pay", 3, touch, "tiktok_02")
+    no_pay = await add_user(pool, "no-pay", 3, touch, "test_tgads_tiktok_02")
     await add_trial(pool, no_pay, trial)
 
-    pre_paid = await add_user(pool, "pre-paid", 4, touch, "tiktok_02")
+    pre_paid = await add_user(pool, "pre-paid", 4, touch, "test_tgads_tiktok_02")
     await add_payment(pool, pre_paid, f"{_PREFIX}pre", touch - timedelta(days=1))
     await add_trial(pool, pre_paid, trial)
     await add_payment(pool, pre_paid, f"{_PREFIX}renewal", trial + timedelta(days=1))
 
-    returning = await add_user(pool, "returning", 6, touch, "tiktok_02")
+    returning = await add_user(pool, "returning", 6, touch, "test_tgads_tiktok_02")
     await add_interaction(pool, returning, "setup_started", touch + timedelta(hours=1))
 
-    internal = await add_user(pool, "internal", 5, touch, "apk_01", internal=True)
+    internal = await add_user(pool, "internal", 5, touch, "test_tgads_apk_01", internal=True)
     await add_trial(pool, internal, trial)
     await add_payment(pool, internal, f"{_PREFIX}internal", trial + timedelta(days=1))
 
-    rows = await _telegram_ads_campaigns(pool, now - timedelta(days=30), now)
+    await pool.execute(
+        "INSERT INTO telegram_ads_spend_daily "
+        "(campaign_key,spend_date,amount_kopecks,updated_by) VALUES ($1,$2,$3,'test')",
+        "test_tgads_apk_01",
+        touch.date(),
+        100_000,
+    )
+    await pool.execute(
+        "INSERT INTO telegram_ads_spend_daily "
+        "(campaign_key,spend_date,amount_kopecks,updated_by) VALUES ($1,$2,$3,'test')",
+        "test_tgads_empty_01",
+        touch.date(),
+        50_000,
+    )
+
+    from_ts = now - timedelta(days=30)
+    report = await _telegram_ads_campaigns(pool, from_ts, now, from_ts.date(), now.date())
+    rows = report["campaigns"]
     rows.sort(key=lambda row: row["campaign_key"])
     assert rows == [
         {
-            "campaign_key": "apk_01",
+            "campaign_key": "test_tgads_apk_01",
             "attributed_users": 2,
             "trials_started": 2,
             "setup_started_users": 2,
@@ -239,11 +258,40 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "pending_trials": 1,
             "first_payment_users": 1,
             "second_payment_users": 1,
+            "acquired_users": 1,
+            "spend_rubles": 1000.0,
+            "revenue_rubles": 338.0,
+            "cost_per_attributed_user_rubles": 500.0,
+            "cost_per_trial_rubles": 500.0,
+            "cac_rubles": 1000.0,
+            "roas": 0.338,
             "trial_activation_rate": 1.0,
             "trial_to_first_payment_rate": 1.0,
         },
         {
-            "campaign_key": "tiktok_02",
+            "campaign_key": "test_tgads_empty_01",
+            "attributed_users": 0,
+            "trials_started": 0,
+            "setup_started_users": 0,
+            "connection_confirmed_users": 0,
+            "checkout_opened_users": 0,
+            "payment_created_users": 0,
+            "mature_trials": 0,
+            "pending_trials": 0,
+            "first_payment_users": 0,
+            "second_payment_users": 0,
+            "acquired_users": 0,
+            "spend_rubles": 500.0,
+            "revenue_rubles": 0.0,
+            "cost_per_attributed_user_rubles": None,
+            "cost_per_trial_rubles": None,
+            "cac_rubles": None,
+            "roas": 0.0,
+            "trial_activation_rate": None,
+            "trial_to_first_payment_rate": None,
+        },
+        {
+            "campaign_key": "test_tgads_tiktok_02",
             "attributed_users": 3,
             "trials_started": 2,
             "setup_started_users": 0,
@@ -254,7 +302,25 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "pending_trials": 0,
             "first_payment_users": 0,
             "second_payment_users": 0,
+            "acquired_users": 0,
+            "spend_rubles": 0.0,
+            "revenue_rubles": 0.0,
+            "cost_per_attributed_user_rubles": 0.0,
+            "cost_per_trial_rubles": 0.0,
+            "cac_rubles": None,
+            "roas": None,
             "trial_activation_rate": round(2 / 3, 4),
             "trial_to_first_payment_rate": 0.0,
         },
     ]
+    assert report["economics"] == {
+        "spend_rubles": 1500.0,
+        "revenue_rubles": 338.0,
+        "attributed_users": 5,
+        "trials_started": 4,
+        "acquired_users": 1,
+        "cost_per_attributed_user_rubles": 300.0,
+        "cost_per_trial_rubles": 375.0,
+        "cac_rubles": 1500.0,
+        "roas": round(338 / 1500, 4),
+    }

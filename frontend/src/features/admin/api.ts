@@ -12,6 +12,7 @@ import type {
   AdminPromocodesResponse,
   AdminStatsPeriod,
   AdminStatsResponse,
+  AdminTelegramAdsSpend,
   AdminUsersResponse,
   BroadcastBonusConfig,
   BroadcastButtonsPayload,
@@ -106,6 +107,12 @@ export const adminApi = {
   stats(period: AdminStatsPeriod, tz = "Europe/Moscow") {
     const q = new URLSearchParams({ period, tz });
     return adminFetch<AdminStatsResponse>(`/api/v1/admin/stats?${q.toString()}`);
+  },
+  setTelegramAdsSpend(payload: { campaign_key: string; spend_date: string; amount_rubles: string }) {
+    return adminFetch<{ ok: true; spend: AdminTelegramAdsSpend }>("/api/v1/admin/telegram-ads/spend", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   },
   createPromocode(payload: AdminPromocodePayload) {
     return adminFetch<{ promocode: AdminPromocode }>("/api/v1/admin/promocodes", {
