@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -229,6 +230,61 @@ WITH attributed AS (
                  AND p.occurred_at >= c.first_paid_at
            ), 0)::bigint ELSE 0::bigint END AS revenue_kopecks
     FROM cohort c
+), cohort_with_signals AS (
+    SELECT c.*,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'setup_started'
+                     AND e.occurred_at >= c.trial_started_at) AS setup_started,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'platform_selected'
+                     AND e.occurred_at >= c.trial_started_at) AS platform_selected,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'connection_confirmed'
+                     AND e.occurred_at >= c.trial_started_at) AS connection_confirmed,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'connection_problem'
+                     AND e.occurred_at >= c.trial_started_at) AS connection_problem,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'checkout_opened'
+                     AND e.occurred_at >= c.trial_started_at) AS checkout_opened,
+           EXISTS (SELECT 1 FROM funnel_events e
+                   WHERE e.internal_user_id = c.internal_user_id
+                     AND c.trial_started_at IS NOT NULL
+                     AND e.event_name = 'payment_created'
+                     AND e.occurred_at >= c.trial_started_at) AS payment_created,
+           EXISTS (SELECT 1 FROM bare_xray_traffic_daily t
+                   WHERE c.trial_started_at IS NOT NULL
+                     AND t.email IN ('user-' || left(c.internal_user_id, 16),
+                                     'x-user-' || left(c.internal_user_id, 16))
+                     AND t.stat_date >= (c.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                     AND t.stat_date >= $3 AND t.stat_date <= $4
+                     AND t.uplink_bytes + t.downlink_bytes > 0) AS first_vpn_traffic,
+           EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+                   AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
+                   AND e.platform = 'ios' AND e.occurred_at >= c.trial_started_at) AS platform_ios,
+           EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+                   AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
+                   AND e.platform = 'android' AND e.occurred_at >= c.trial_started_at) AS platform_android,
+           EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+                   AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
+                   AND e.platform = 'mac' AND e.occurred_at >= c.trial_started_at) AS platform_mac,
+           EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+                   AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
+                   AND e.platform = 'win' AND e.occurred_at >= c.trial_started_at) AS platform_win,
+           EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
+                   AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
+                   AND e.platform = 'tv' AND e.occurred_at >= c.trial_started_at) AS platform_tv
+    FROM cohort_with_revenue c
 ), spend AS (
     SELECT campaign_key, sum(amount_kopecks)::bigint AS spend_kopecks
     FROM telegram_ads_spend_daily
@@ -242,26 +298,18 @@ WITH attributed AS (
 SELECT k.campaign_key,
        count(c.internal_user_id) AS attributed_users,
        count(c.internal_user_id) FILTER (WHERE c.trial_started_at IS NOT NULL) AS trials_started,
-       count(c.internal_user_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
-           AND c.trial_started_at IS NOT NULL
-           AND e.event_name = 'setup_started' AND e.occurred_at >= c.trial_started_at
-       )) AS setup_started_users,
-       count(c.internal_user_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
-           AND c.trial_started_at IS NOT NULL
-           AND e.event_name = 'connection_confirmed' AND e.occurred_at >= c.trial_started_at
-       )) AS connection_confirmed_users,
-       count(c.internal_user_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
-           AND c.trial_started_at IS NOT NULL
-           AND e.event_name = 'checkout_opened' AND e.occurred_at >= c.trial_started_at
-       )) AS checkout_opened_users,
-       count(c.internal_user_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
-           AND c.trial_started_at IS NOT NULL
-           AND e.event_name = 'payment_created' AND e.occurred_at >= c.trial_started_at
-       )) AS payment_created_users,
+       count(c.internal_user_id) FILTER (WHERE c.setup_started) AS setup_started_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_selected) AS platform_selected_users,
+       count(c.internal_user_id) FILTER (WHERE c.first_vpn_traffic) AS first_vpn_traffic_users,
+       count(c.internal_user_id) FILTER (WHERE c.connection_confirmed) AS connection_confirmed_users,
+       count(c.internal_user_id) FILTER (WHERE c.connection_problem) AS connection_problem_users,
+       count(c.internal_user_id) FILTER (WHERE c.checkout_opened) AS checkout_opened_users,
+       count(c.internal_user_id) FILTER (WHERE c.payment_created) AS payment_created_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_ios) AS platform_ios_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_android) AS platform_android_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_mac) AS platform_mac_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_win) AS platform_win_users,
+       count(c.internal_user_id) FILTER (WHERE c.platform_tv) AS platform_tv_users,
        count(c.internal_user_id) FILTER (WHERE c.deadline <= $2) AS mature_trials,
        count(c.internal_user_id) FILTER (WHERE c.deadline > $2) AS pending_trials,
        count(c.internal_user_id) FILTER (WHERE c.deadline <= $2 AND c.acquired) AS first_payment_users,
@@ -272,7 +320,7 @@ SELECT k.campaign_key,
        COALESCE(sum(c.revenue_kopecks), 0)::bigint AS revenue_kopecks,
        COALESCE(max(s.spend_kopecks), 0)::bigint AS spend_kopecks
 FROM campaign_keys k
-LEFT JOIN cohort_with_revenue c ON c.campaign_key = k.campaign_key
+LEFT JOIN cohort_with_signals c ON c.campaign_key = k.campaign_key
 LEFT JOIN spend s ON s.campaign_key = k.campaign_key
 GROUP BY k.campaign_key
 )
@@ -281,6 +329,22 @@ SELECT campaign_stats.*,
        sum(revenue_kopecks) OVER ()::bigint AS total_revenue_kopecks,
        sum(attributed_users) OVER ()::bigint AS total_attributed_users,
        sum(trials_started) OVER ()::bigint AS total_trials_started,
+       sum(setup_started_users) OVER ()::bigint AS total_setup_started_users,
+       sum(platform_selected_users) OVER ()::bigint AS total_platform_selected_users,
+       sum(first_vpn_traffic_users) OVER ()::bigint AS total_first_vpn_traffic_users,
+       sum(connection_confirmed_users) OVER ()::bigint AS total_connection_confirmed_users,
+       sum(connection_problem_users) OVER ()::bigint AS total_connection_problem_users,
+       sum(checkout_opened_users) OVER ()::bigint AS total_checkout_opened_users,
+       sum(payment_created_users) OVER ()::bigint AS total_payment_created_users,
+       sum(mature_trials) OVER ()::bigint AS total_mature_trials,
+       sum(pending_trials) OVER ()::bigint AS total_pending_trials,
+       sum(first_payment_users) OVER ()::bigint AS total_first_payment_users,
+       sum(second_payment_users) OVER ()::bigint AS total_second_payment_users,
+       sum(platform_ios_users) OVER ()::bigint AS total_platform_ios_users,
+       sum(platform_android_users) OVER ()::bigint AS total_platform_android_users,
+       sum(platform_mac_users) OVER ()::bigint AS total_platform_mac_users,
+       sum(platform_win_users) OVER ()::bigint AS total_platform_win_users,
+       sum(platform_tv_users) OVER ()::bigint AS total_platform_tv_users,
        sum(acquired_users) OVER ()::bigint AS total_acquired_users
 FROM campaign_stats
 ORDER BY spend_kopecks DESC, attributed_users DESC, campaign_key
@@ -337,7 +401,10 @@ async def _telegram_ads_campaigns(
                 "attributed_users": attributed,
                 "trials_started": trials,
                 "setup_started_users": int(row["setup_started_users"]),
+                "platform_selected_users": int(row["platform_selected_users"]),
+                "first_vpn_traffic_users": int(row["first_vpn_traffic_users"]),
                 "connection_confirmed_users": int(row["connection_confirmed_users"]),
+                "connection_problem_users": int(row["connection_problem_users"]),
                 "checkout_opened_users": int(row["checkout_opened_users"]),
                 "payment_created_users": int(row["payment_created_users"]),
                 "mature_trials": mature,
@@ -353,6 +420,13 @@ async def _telegram_ads_campaigns(
                 "roas": round(revenue_kopecks / spend_kopecks, 4) if spend_kopecks else None,
                 "trial_activation_rate": round(trials / attributed, 4) if attributed else None,
                 "trial_to_first_payment_rate": round(first_payment / mature, 4) if mature else None,
+                "platform_users": {
+                    "ios": int(row["platform_ios_users"]),
+                    "android": int(row["platform_android_users"]),
+                    "mac": int(row["platform_mac_users"]),
+                    "win": int(row["platform_win_users"]),
+                    "tv": int(row["platform_tv_users"]),
+                },
             }
         )
     if not rows:
@@ -371,7 +445,42 @@ async def _telegram_ads_campaigns(
                 }
             ]
         )
-    return {"campaigns": result, "economics": economics}
+    return {
+        "campaigns": result,
+        "economics": economics,
+        "funnel": _telegram_ads_funnel(rows[0] if rows else None),
+    }
+
+
+def _telegram_ads_funnel(totals: Mapping[str, object] | None) -> dict:
+    def value(name: str) -> int:
+        if totals is None:
+            return 0
+        return int(totals[f"total_{name}"])
+
+    return {
+        "attributed_users": value("attributed_users"),
+        "trials_started": value("trials_started"),
+        "setup_started_users": value("setup_started_users"),
+        "platform_selected_users": value("platform_selected_users"),
+        "first_vpn_traffic_users": value("first_vpn_traffic_users"),
+        "connection_confirmed_users": value("connection_confirmed_users"),
+        "connection_problem_users": value("connection_problem_users"),
+        "checkout_opened_users": value("checkout_opened_users"),
+        "payment_created_users": value("payment_created_users"),
+        "mature_trials": value("mature_trials"),
+        "pending_trials": value("pending_trials"),
+        "first_payment_users": value("first_payment_users"),
+        "second_payment_users": value("second_payment_users"),
+        "acquired_users": value("acquired_users"),
+        "platform_users": {
+            "ios": value("platform_ios_users"),
+            "android": value("platform_android_users"),
+            "mac": value("platform_mac_users"),
+            "win": value("platform_win_users"),
+            "tv": value("platform_tv_users"),
+        },
+    }
 
 
 def _telegram_ads_economics(campaigns: list[dict]) -> dict:
@@ -530,6 +639,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],
                 "economics": telegram_ads_report["economics"],
+                "funnel": telegram_ads_report["funnel"],
                 "total_campaigns": telegram_ads_campaigns_total,
                 "truncated": telegram_ads_campaigns_total > _TELEGRAM_ADS_CAMPAIGNS_LIMIT,
             },

@@ -20,6 +20,7 @@ import type {
   AdminStatsCountPoint,
   AdminStatsRevenuePoint,
   AdminStatsTrafficPoint,
+  AdminTelegramAdsPlatformUsers,
 } from "@/entities/admin/types";
 import { Alert } from "@/shared/ui/Alert";
 
@@ -75,6 +76,25 @@ function formatRublesNullable(n: number | null): string {
 
 function formatRoas(n: number | null): string {
   return n == null ? "—" : `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}×`;
+}
+
+function formatStepRate(current: number, previous: number): string {
+  if (previous === 0) return "—";
+  return `${(current / previous * 100).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%`;
+}
+
+function formatPlatforms(platforms: AdminTelegramAdsPlatformUsers): string {
+  const labels: [keyof AdminTelegramAdsPlatformUsers, string][] = [
+    ["ios", "iOS"],
+    ["android", "Android"],
+    ["mac", "macOS"],
+    ["win", "Windows"],
+    ["tv", "TV"],
+  ];
+  const visible = labels
+    .filter(([key]) => platforms[key] > 0)
+    .map(([key, label]) => `${label}: ${platforms[key]}`);
+  return visible.length > 0 ? visible.join(" · ") : "—";
 }
 
 function todayInMoscow(): string {
@@ -175,6 +195,16 @@ export default function AdminStatsPage() {
   const byPlan = data?.by_plan ?? [];
   const telegramAds = data?.telegram_ads?.campaigns ?? [];
   const economics = data?.telegram_ads?.economics;
+  const telegramFunnel = data?.telegram_ads?.funnel;
+  const funnelSteps = telegramFunnel ? [
+    { label: "Триалы", value: telegramFunnel.trials_started },
+    { label: "Открыли подключение", value: telegramFunnel.setup_started_users },
+    { label: "Первый VPN-трафик", value: telegramFunnel.first_vpn_traffic_users },
+    { label: "Подтвердили работу", value: telegramFunnel.connection_confirmed_users },
+    { label: "Checkout", value: telegramFunnel.checkout_opened_users },
+    { label: "Счёт создан", value: telegramFunnel.payment_created_users },
+    { label: "Оплата", value: telegramFunnel.acquired_users },
+  ] : [];
 
   const saveSpend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -415,18 +445,69 @@ export default function AdminStatsPage() {
               <KpiCard label="ROAS" value={formatRoas(economics?.roas ?? null)} sub="выручка / расход" />
               <KpiCard label="Цена триала" value={formatRublesNullable(economics?.cost_per_trial_rubles ?? null)} sub="расход / триалы" />
             </div>
+            {telegramFunnel && (
+              <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
+                <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Воронка рекламного трафика</h3>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    уникальные пользователи · конверсия относительно предыдущего шага
+                  </span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+                  {funnelSteps.map((step, index) => (
+                    <div key={step.label} className="relative rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{step.label}</div>
+                      <div className={`mt-1 text-xl font-semibold text-gray-900 dark:text-gray-100 ${adminNum}`}>{step.value}</div>
+                      <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        {index === 0 ? `${formatStepRate(step.value, telegramFunnel.attributed_users)} от атрибуций` : `${formatStepRate(step.value, funnelSteps[index - 1].value)} к предыдущему`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Атрибутировано: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.attributed_users}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Выбрали платформу: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.platform_selected_users}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Сообщили о проблеме: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.connection_problem_users}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Платформы: <span className="font-semibold">{formatPlatforms(telegramFunnel.platform_users)}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Зрелые триалы: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.mature_trials}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Ожидают 10 дней: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.pending_trials}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Первая оплата зрелых: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.first_payment_users}</span>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 px-3 py-2 text-gray-600 dark:bg-zinc-900/50 dark:text-gray-300">
+                    Вторая оплата: <span className={`font-semibold ${adminNum}`}>{telegramFunnel.second_payment_users}</span>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+                  Первый VPN-трафик определяется по дневному сборщику up+down. Поэтому внутри одного дня порядок относительно других событий приблизительный.
+                </p>
+              </div>
+            )}
             {telegramAds.length === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-gray-400 dark:text-gray-500">
                 Нет атрибуций или расходов за период
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[1820px] w-full text-left text-xs">
+                <table className="min-w-[2300px] w-full text-left text-xs">
                   <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
                     <tr>
                       {[
                         "Кампания", "Расход", "Пользователи", "Цена польз.", "Триалы", "Цена триала",
-                        "Настройка", "Подключились", "Checkout", "Счета", "Клиенты", "CAC",
+                        "Открыли подключение", "Выбрали платформу", "Платформы", "Первый VPN-трафик",
+                        "Подтвердили работу", "Сообщили о проблеме", "Checkout", "Счета", "Клиенты", "CAC",
                         "Выручка", "ROAS", "Зрелая 1-я оплата", "2-я оплата", "Триал → оплата",
                       ].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}
                     </tr>
@@ -451,7 +532,11 @@ export default function AdminStatsPage() {
                           </td>
                           <td className={`px-4 py-3 ${adminNum}`}>{formatRublesNullable(campaign.cost_per_trial_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.setup_started_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.platform_selected_users}</td>
+                          <td className="whitespace-nowrap px-4 py-3">{formatPlatforms(campaign.platform_users)}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.first_vpn_traffic_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_confirmed_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_problem_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.checkout_opened_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.payment_created_users}</td>
                           <td className={`px-4 py-3 font-medium ${adminNum}`}>{campaign.acquired_users}</td>

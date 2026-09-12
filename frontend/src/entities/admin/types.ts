@@ -182,7 +182,10 @@ export interface AdminTelegramAdsCampaign {
   attributed_users: number;
   trials_started: number;
   setup_started_users: number;
+  platform_selected_users: number;
+  first_vpn_traffic_users: number;
   connection_confirmed_users: number;
+  connection_problem_users: number;
   checkout_opened_users: number;
   payment_created_users: number;
   mature_trials: number;
@@ -200,6 +203,33 @@ export interface AdminTelegramAdsCampaign {
   roas: number | null;
   trial_activation_rate: number | null;
   trial_to_first_payment_rate: number | null;
+  platform_users: AdminTelegramAdsPlatformUsers;
+}
+
+export interface AdminTelegramAdsPlatformUsers {
+  ios: number;
+  android: number;
+  mac: number;
+  win: number;
+  tv: number;
+}
+
+export interface AdminTelegramAdsFunnel {
+  attributed_users: number;
+  trials_started: number;
+  setup_started_users: number;
+  platform_selected_users: number;
+  first_vpn_traffic_users: number;
+  connection_confirmed_users: number;
+  connection_problem_users: number;
+  checkout_opened_users: number;
+  payment_created_users: number;
+  mature_trials: number;
+  pending_trials: number;
+  first_payment_users: number;
+  second_payment_users: number;
+  acquired_users: number;
+  platform_users: AdminTelegramAdsPlatformUsers;
 }
 
 export interface AdminTelegramAdsEconomics {
@@ -237,6 +267,7 @@ export interface AdminStatsResponse {
   telegram_ads?: {
     campaigns: AdminTelegramAdsCampaign[];
     economics: AdminTelegramAdsEconomics;
+    funnel: AdminTelegramAdsFunnel;
     total_campaigns: number;
     truncated: boolean;
   };

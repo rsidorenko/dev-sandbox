@@ -6,6 +6,7 @@ import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import asyncpg
 import pytest
@@ -126,6 +127,10 @@ async def pool():
     finally:
         await pool.execute("DELETE FROM telegram_ads_spend_actions WHERE campaign_key LIKE 'test_tgads_%'")
         await pool.execute("DELETE FROM telegram_ads_spend_daily WHERE campaign_key LIKE 'test_tgads_%'")
+        await pool.execute(
+            "DELETE FROM bare_xray_traffic_daily WHERE email LIKE 'user-test-tgads-%' "
+            "OR email LIKE 'x-user-test-tgads-%'"
+        )
         await pool.execute("DELETE FROM funnel_interactions WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
         await pool.execute("DELETE FROM billing_events_ledger WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
         await pool.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE $1", f"{_PREFIX}%")
@@ -173,13 +178,14 @@ async def add_payment(pool, uid: str, ref: str, when: datetime):
     )
 
 
-async def add_interaction(pool, uid: str, event: str, when: datetime):
+async def add_interaction(pool, uid: str, event: str, when: datetime, *, platform: str = ""):
     await pool.execute(
-        "INSERT INTO funnel_interactions (internal_user_id,event_name,surface,dedup_key,occurred_at) "
-        "VALUES ($1,$2,'telegram',$3,$4)",
+        "INSERT INTO funnel_interactions (internal_user_id,event_name,surface,platform,dedup_key,occurred_at) "
+        "VALUES ($1,$2,'telegram',$3,$4,$5)",
         uid,
         event,
-        f"{uid}:{event}",
+        platform,
+        f"{uid}:{event}:{platform}",
         when,
     )
 
@@ -204,15 +210,45 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
     await add_trial(pool, converted, trial)
     for event in ("setup_started", "connection_confirmed", "checkout_opened", "payment_created"):
         await add_interaction(pool, converted, event, trial + timedelta(hours=1))
+    await add_interaction(pool, converted, "platform_selected", trial + timedelta(hours=1), platform="android")
+    await pool.execute(
+        "INSERT INTO bare_xray_traffic_daily "
+        "(stat_date,server_id,email,uplink_bytes,downlink_bytes) VALUES ($1,$2,$3,$4,$5)",
+        trial.astimezone(ZoneInfo("Europe/Moscow")).date(),
+        990001,
+        f"user-{converted[:16]}",
+        1024,
+        2048,
+    )
     await add_payment(pool, converted, f"{_PREFIX}paid-1", trial + timedelta(days=1))
     await add_payment(pool, converted, f"{_PREFIX}paid-2", trial + timedelta(days=15))
 
     pending = await add_user(pool, "pending", 2, now - timedelta(days=2), "test_tgads_apk_01")
     await add_trial(pool, pending, now - timedelta(days=1))
     await add_interaction(pool, pending, "setup_started", now - timedelta(hours=12))
+    await add_interaction(pool, pending, "platform_selected", now - timedelta(hours=12), platform="ios")
+    await add_interaction(pool, pending, "connection_problem", now - timedelta(hours=11), platform="ios")
+    await pool.execute(
+        "INSERT INTO bare_xray_traffic_daily "
+        "(stat_date,server_id,email,uplink_bytes,downlink_bytes) VALUES ($1,$2,$3,$4,$5)",
+        now.astimezone(ZoneInfo("Europe/Moscow")).date(),
+        990002,
+        f"x-user-{pending[:16]}",
+        4096,
+        8192,
+    )
 
     no_pay = await add_user(pool, "no-pay", 3, touch, "test_tgads_tiktok_02")
     await add_trial(pool, no_pay, trial)
+    await pool.execute(
+        "INSERT INTO bare_xray_traffic_daily "
+        "(stat_date,server_id,email,uplink_bytes,downlink_bytes) VALUES ($1,$2,$3,$4,$5)",
+        (trial - timedelta(days=1)).astimezone(ZoneInfo("Europe/Moscow")).date(),
+        990003,
+        f"user-{no_pay[:16]}",
+        16384,
+        32768,
+    )
 
     pre_paid = await add_user(pool, "pre-paid", 4, touch, "test_tgads_tiktok_02")
     await add_payment(pool, pre_paid, f"{_PREFIX}pre", touch - timedelta(days=1))
@@ -251,7 +287,10 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "attributed_users": 2,
             "trials_started": 2,
             "setup_started_users": 2,
+            "platform_selected_users": 2,
+            "first_vpn_traffic_users": 2,
             "connection_confirmed_users": 1,
+            "connection_problem_users": 1,
             "checkout_opened_users": 1,
             "payment_created_users": 1,
             "mature_trials": 1,
@@ -267,13 +306,17 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "roas": 0.338,
             "trial_activation_rate": 1.0,
             "trial_to_first_payment_rate": 1.0,
+            "platform_users": {"ios": 1, "android": 1, "mac": 0, "win": 0, "tv": 0},
         },
         {
             "campaign_key": "test_tgads_empty_01",
             "attributed_users": 0,
             "trials_started": 0,
             "setup_started_users": 0,
+            "platform_selected_users": 0,
+            "first_vpn_traffic_users": 0,
             "connection_confirmed_users": 0,
+            "connection_problem_users": 0,
             "checkout_opened_users": 0,
             "payment_created_users": 0,
             "mature_trials": 0,
@@ -289,13 +332,17 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "roas": 0.0,
             "trial_activation_rate": None,
             "trial_to_first_payment_rate": None,
+            "platform_users": {"ios": 0, "android": 0, "mac": 0, "win": 0, "tv": 0},
         },
         {
             "campaign_key": "test_tgads_tiktok_02",
             "attributed_users": 3,
             "trials_started": 2,
             "setup_started_users": 0,
+            "platform_selected_users": 0,
+            "first_vpn_traffic_users": 0,
             "connection_confirmed_users": 0,
+            "connection_problem_users": 0,
             "checkout_opened_users": 0,
             "payment_created_users": 0,
             "mature_trials": 2,
@@ -311,6 +358,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "roas": None,
             "trial_activation_rate": round(2 / 3, 4),
             "trial_to_first_payment_rate": 0.0,
+            "platform_users": {"ios": 0, "android": 0, "mac": 0, "win": 0, "tv": 0},
         },
     ]
     assert report["economics"] == {
@@ -323,4 +371,21 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
         "cost_per_trial_rubles": 375.0,
         "cac_rubles": 1500.0,
         "roas": round(338 / 1500, 4),
+    }
+    assert report["funnel"] == {
+        "attributed_users": 5,
+        "trials_started": 4,
+        "setup_started_users": 2,
+        "platform_selected_users": 2,
+        "first_vpn_traffic_users": 2,
+        "connection_confirmed_users": 1,
+        "connection_problem_users": 1,
+        "checkout_opened_users": 1,
+        "payment_created_users": 1,
+        "mature_trials": 3,
+        "pending_trials": 1,
+        "first_payment_users": 1,
+        "second_payment_users": 1,
+        "acquired_users": 1,
+        "platform_users": {"ios": 1, "android": 1, "mac": 0, "win": 0, "tv": 0},
     }

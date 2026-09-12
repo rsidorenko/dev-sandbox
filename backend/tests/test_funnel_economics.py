@@ -17,7 +17,7 @@ from app.web_api.admin_ad_spend import (
     _parse_amount_kopecks,
     _parse_spend_date,
 )
-from app.web_api.admin_stats import _telegram_ads_economics
+from app.web_api.admin_stats import _telegram_ads_economics, _telegram_ads_funnel
 from app.web_api.app import build_web_api_app
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -100,6 +100,26 @@ def test_economics_summary_preserves_zero_denominators():
         "cost_per_trial_rubles": None,
         "cac_rubles": None,
         "roas": None,
+    }
+
+
+def test_telegram_ads_funnel_preserves_all_zero_metrics():
+    assert _telegram_ads_funnel(None) == {
+        "attributed_users": 0,
+        "trials_started": 0,
+        "setup_started_users": 0,
+        "platform_selected_users": 0,
+        "first_vpn_traffic_users": 0,
+        "connection_confirmed_users": 0,
+        "connection_problem_users": 0,
+        "checkout_opened_users": 0,
+        "payment_created_users": 0,
+        "mature_trials": 0,
+        "pending_trials": 0,
+        "first_payment_users": 0,
+        "second_payment_users": 0,
+        "acquired_users": 0,
+        "platform_users": {"ios": 0, "android": 0, "mac": 0, "win": 0, "tv": 0},
     }
 
 
