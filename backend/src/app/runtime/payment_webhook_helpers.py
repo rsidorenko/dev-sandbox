@@ -10,10 +10,13 @@ behaves the same regardless of provider — referral commissions, promo redempti
 and amount anti-tamper included.
 
 The payment context is normalized into a flat ``metadata: dict[str, str]`` with
-the same keys YooKassa already uses (``plan_id, device_count, telegram_user_id,
-internal_user_id, discount_kopecks, promo_code, kind, new_device_count,
-expected_amount_kopecks``). CryptoBot encodes these into its single ``payload``
-string and decodes them back into the same dict before calling these helpers.
+the same keys YooKassa already uses (``plan_id, device_count, internal_user_id,
+discount_kopecks, promo_code, kind, new_device_count,
+expected_amount_kopecks``). ``telegram_user_id`` остаётся в контракте только как
+legacy-поле in-flight платежей, созданных до его удаления из исходящих metadata
+(PD-audit R-08); новые платежи его не несут. CryptoBot encodes these into its
+single ``payload`` string and decodes them back into the same dict before
+calling these helpers.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from typing import Any
 import asyncpg
 from starlette.responses import JSONResponse
 
+from app.persistence.postgres_user_identity import telegram_user_id_from_internal
 from app.runtime.fulfillment_processor import (
     FulfillmentActivationTelegramNotifier,
     FulfillmentInput,
@@ -114,26 +118,36 @@ def base_amount_from_metadata(metadata: dict[str, Any]) -> int | None:
     return value if value > 0 else None
 
 
-def parse_add_device_metadata(metadata: dict[str, str]) -> tuple[int, int, int] | None:
+def parse_add_device_metadata(metadata: dict[str, str]) -> tuple[str, int, int] | None:
     """Parse kind=add_device payment metadata.
 
-    Returns ``(telegram_user_id, new_device_count, expected_amount_kopecks)`` or
-    ``None`` when any required field is missing/invalid or new_device_count is out
-    of the supported 1..20 range. Pure (no I/O) so it can be unit-tested directly.
+    Returns ``(internal_user_id, new_device_count, expected_amount_kopecks)`` or
+    ``None`` when the user identity is missing/invalid or new_device_count is out
+    of the supported 1..20 range. The identity is taken from
+    ``metadata.internal_user_id`` (canonical since R-14: web-only accounts are
+    ``web_<hash>``, NOT ``f"u{telegram_user_id}"``); legacy in-flight payments
+    without the field are derived from a positive ``telegram_user_id``.
+    Pure (no I/O) so it can be unit-tested directly.
     """
+    internal_user_id = str(metadata.get("internal_user_id", "") or "").strip()
+    if not internal_user_id:
+        try:
+            telegram_user_id = int(metadata.get("telegram_user_id", ""))
+        except (ValueError, TypeError):
+            return None
+        if telegram_user_id <= 0:
+            return None
+        internal_user_id = f"u{telegram_user_id}"
     try:
-        telegram_user_id = int(metadata.get("telegram_user_id", ""))
         new_device_count = int(metadata.get("new_device_count", "0"))
         expected_amount_kopecks = int(metadata.get("expected_amount_kopecks", "0"))
     except (ValueError, TypeError):
-        return None
-    if telegram_user_id <= 0:
         return None
     if new_device_count < 1 or new_device_count > 20:
         return None
     if expected_amount_kopecks <= 0:
         return None
-    return telegram_user_id, new_device_count, expected_amount_kopecks
+    return internal_user_id, new_device_count, expected_amount_kopecks
 
 
 def validate_add_device_amount(expected_amount_kopecks: int, paid_kopecks: int | None) -> bool:
@@ -153,9 +167,14 @@ def resolve_subscription_internal_user_id(metadata: dict[str, Any], telegram_use
     Prefers the id set at payment creation (``metadata.internal_user_id``) — correct
     for web-only (email) accounts, whose identity is ``web_<hash>`` rather than
     ``f"u{telegram_user_id}"``. Falls back to the Telegram convention for legacy /
-    Telegram payments that don't carry the field. Pure (no I/O) → unit-tested directly.
+    Telegram payments that don't carry the field. Returns ``""`` when neither is
+    available (no explicit id + non-positive tg-id) so the caller rejects the
+    payload. Pure (no I/O) → unit-tested directly.
     """
-    return metadata.get("internal_user_id") or f"u{telegram_user_id}"
+    explicit = str(metadata.get("internal_user_id", "") or "").strip()
+    if explicit:
+        return explicit
+    return f"u{telegram_user_id}" if telegram_user_id > 0 else ""
 
 
 async def redeem_webhook_promo(
@@ -279,7 +298,7 @@ async def apply_add_device_topup(
     if parsed is None:
         _LOGGER.warning("%s webhook: invalid add_device metadata ref=%s", provider_key, payment_ref)
         return safe_json_error(400, "invalid_payload")
-    telegram_user_id, new_device_count, expected_amount_kopecks = parsed
+    internal_user_id, new_device_count, expected_amount_kopecks = parsed
 
     if not validate_add_device_amount(expected_amount_kopecks, paid_kopecks):
         _LOGGER.warning(
@@ -290,8 +309,6 @@ async def apply_add_device_topup(
             payment_ref,
         )
         return safe_json_error(409, "amount_mismatch")
-
-    internal_user_id = f"u{telegram_user_id}"
 
     _LOGGER.info(
         "%s webhook: add_device verified ref=%s user=%s new_devices=%d",
@@ -337,9 +354,17 @@ async def apply_add_device_topup(
             BillingEventLedgerStatus,
         )
         from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
-        from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
+        from app.persistence.postgres_user_identity import (
+            PostgresUserIdentityRepository,
+            telegram_user_id_from_internal as _tg_from_internal,
+        )
 
-        await PostgresUserIdentityRepository(pool).create_if_absent(telegram_user_id)
+        # R-08: у новых платежей identity-строка уже существует (creation
+        # резолвит её из БД); create_if_absent — страховка только для
+        # u<tg>-identity. web_<hash>-строки создаёт веб-регистрация.
+        legacy_tg = _tg_from_internal(internal_user_id)
+        if legacy_tg is not None and legacy_tg > 0:
+            await PostgresUserIdentityRepository(pool).create_if_absent(legacy_tg)
         await PostgresAtomicBillingIngestion(pool).ingest_normalized_billing_fact(
             NormalizedBillingFactInput(
                 billing_provider_key=provider_key,
@@ -449,12 +474,13 @@ async def fulfill_subscription_payment(
     except (ValueError, TypeError):
         device_count = 5
 
+    # R-08: tg-id в metadata опционален (новые платежи несут только
+    # internal_user_id). 0 = «неизвестен» — восстановим ниже из identity.
     telegram_user_id_raw = metadata.get("telegram_user_id", "")
     try:
         telegram_user_id = int(telegram_user_id_raw)
     except (ValueError, TypeError):
-        _LOGGER.warning("%s webhook: missing or invalid telegram_user_id ref=%s", provider_key, external_payment_id)
-        return safe_json_error(400, "invalid_payload")
+        telegram_user_id = 0
 
     from app.application.plan_pricing import get_plan_pricing
 
@@ -495,6 +521,13 @@ async def fulfill_subscription_payment(
     amount_kopecks = expected_kopecks
 
     internal_user_id = resolve_subscription_internal_user_id(metadata, telegram_user_id)
+    if not internal_user_id:
+        _LOGGER.warning("%s webhook: no user identity in metadata ref=%s", provider_key, external_payment_id)
+        return safe_json_error(400, "invalid_payload")
+    if telegram_user_id <= 0:
+        # u<tg>-identity → восстановить tg-id (нотификации/рефералки);
+        # web_<hash> → 0 (у web-only аккаунта нет Telegram-чата).
+        telegram_user_id = telegram_user_id_from_internal(internal_user_id) or 0
     period_days = plan.duration_days
 
     _LOGGER.info(

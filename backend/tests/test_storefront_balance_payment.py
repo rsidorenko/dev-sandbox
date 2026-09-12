@@ -332,7 +332,9 @@ def test_add_device_yookassa_creates_real_checkout(monkeypatch):
 
     # Payment created for the top-up cost: 2 extra devices × 80 ₽ = 160 ₽ (1m/30d plan).
     assert fake.created["amount_rubles"] == 160
-    assert fake.created["telegram_user_id"] == 204
+    # R-08: tg-id наружу не отправляется — вебхук исполняет по internal_user_id.
+    assert "telegram_user_id" not in fake.created
+    assert fake.created["metadata"]["internal_user_id"] == "u204"
     assert fake.created["metadata"]["kind"] == "add_device"
     assert fake.created["metadata"]["new_device_count"] == "7"
     assert fake.created["metadata"]["expected_amount_kopecks"] == "16000"

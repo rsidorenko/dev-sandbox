@@ -1906,6 +1906,9 @@ async def _process_yookassa_payment(
     # promo_code кладётся ТОЛЬКО при победе промокода — глобальная скидка код не расходует.
     payment_metadata: dict[str, str] = {}
     internal_user_id = await _get_internal_user_id(composition, uid)
+    # R-08: tg-id наружу не отправляем — вебхук исполняет по internal_user_id.
+    # Для TG-аккаунтов fallback f"u{uid}" совпадает с прежним derive вебхука.
+    payment_metadata["internal_user_id"] = internal_user_id or f"u{uid}"
     promo = None
     promo_code = None
     if internal_user_id is not None:
@@ -1946,7 +1949,6 @@ async def _process_yookassa_payment(
             amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=device_count,
-            telegram_user_id=uid,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — {plan_display_name(plan_id)}",
             metadata=payment_metadata,
@@ -2030,16 +2032,17 @@ async def _process_cryptobot_payment(
     # CryptoBot carries the FULL context in its payload (no client-side injection).
     # Итог — best-of(промокод, глобальная): base_amount_kopecks фиксирует базу,
     # promo_code кладётся ТОЛЬКО при победе промокода (глобальная код не расходует).
+    # R-08: tg-id наружу не отправляем; fallback f"u{uid}" = прежнему derive вебхука.
     context: dict[str, object] = {
         "plan_id": plan_id,
         "device_count": str(device_count),
-        "telegram_user_id": str(uid),
+        "internal_user_id": None,
     }
     internal_user_id = await _get_internal_user_id(composition, uid)
+    context["internal_user_id"] = internal_user_id or f"u{uid}"
     promo = None
     promo_code = None
     if internal_user_id is not None:
-        context["internal_user_id"] = internal_user_id
         from app.application.promo_service import resolve_active_promo
 
         active = await resolve_active_promo(
@@ -2335,6 +2338,7 @@ async def _process_add_device_yookassa(
     expected_amount_kopecks = cost_rubles * 100
     add_device_meta: dict[str, str] = {
         "kind": "add_device",
+        "internal_user_id": internal_user_id,
         "new_device_count": str(new_count),
         "expected_amount_kopecks": str(expected_amount_kopecks),
     }
@@ -2368,7 +2372,6 @@ async def _process_add_device_yookassa(
             amount_rubles=charge_rubles,
             plan_id=snap.plan_id or "1m",
             device_count=new_count,
-            telegram_user_id=uid,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — добавление устройств ({current}→{new_count})",
             metadata=add_device_meta,
@@ -2448,9 +2451,11 @@ async def _process_add_device_cryptobot(
 
     charge_rubles = cost_rubles
     expected_amount_kopecks = cost_rubles * 100
+    # R-08: tg-id наружу не отправляем; identity — через internal_user_id
+    # (гарантированно не None: проверено выше до построения контекста).
     context: dict[str, object] = {
         "kind": "add_device",
-        "telegram_user_id": str(uid),
+        "internal_user_id": internal_user_id,
         "new_device_count": str(new_count),
         "expected_amount_kopecks": str(expected_amount_kopecks),
     }

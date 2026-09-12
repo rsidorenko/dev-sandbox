@@ -189,11 +189,11 @@ async def handle_create_payment(request: Request) -> JSONResponse:
 
     if payment_method == "crypto":
         # CryptoBot carries the FULL context in its payload string (no client-side
-        # injection like YooKassa), so include plan/device/telegram identity here.
+        # injection like YooKassa). R-08: tg-id наружу не отправляем — вебхук
+        # исполняет по internal_user_id.
         context: dict[str, object] = {
             "plan_id": plan_id,
             "device_count": str(device_count),
-            "telegram_user_id": str(telegram_user_id),
             "internal_user_id": internal_user_id,
         }
         # base_amount_kopecks — фиксация цены на момент создания (вебхук сверяет
@@ -280,7 +280,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=device_count,
-            telegram_user_id=telegram_user_id,
             return_url=return_url,
             description=f"Bravada VPN — {plan_display_name_safe(plan_id)}",
             metadata=payment_metadata,
@@ -384,7 +383,16 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         return safe_json_error(400, "invalid_device_count")
 
     pool = request.app.state.pool
-    internal_user_id = f"u{telegram_user_id}"
+    # R-14: web-only аккаунты имеют internal_user_id "web_<hash>", а НЕ
+    # f"u{telegram_user_id}" (их tg-id — синтетический отрицательный).
+    # Резолвим настоящий id из identity-строки, как основной /payment/create.
+    identity = await pool.fetchrow(
+        "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+        telegram_user_id,
+    )
+    if identity is None:
+        return safe_json_error(404, "identity_not_found")
+    internal_user_id = identity["internal_user_id"]
     snap = await pool.fetchrow(
         "SELECT device_count, plan_id, state_label FROM subscription_snapshots WHERE internal_user_id = $1",
         internal_user_id,
@@ -428,6 +436,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     expected_amount_kopecks = active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
     add_device_meta: dict[str, str] = {
         "kind": "add_device",
+        "internal_user_id": internal_user_id,
         "new_device_count": str(new_device_count),
         "expected_amount_kopecks": str(expected_amount_kopecks),
     }
@@ -445,7 +454,8 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     return_url = os.environ.get(ENV_RETURN_URL, "https://bravada-connect.ru").strip().rstrip("/")
 
     if payment_method == "crypto":
-        context: dict[str, object] = {**add_device_meta, "telegram_user_id": str(telegram_user_id)}
+        # internal_user_id уже в add_device_meta; tg-id наружу не отправляем (R-08).
+        context: dict[str, object] = {**add_device_meta}
         created = await _cryptobot_create(
             amount_rubles=charge_rubles,
             description=f"Bravada VPN - add devices ({current}->{new_device_count})",
@@ -479,7 +489,6 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
             amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=new_device_count,
-            telegram_user_id=telegram_user_id,
             return_url=f"{return_url}/dashboard",
             description=f"Bravada VPN — добавление устройств ({current}→{new_device_count})",
             metadata=add_device_meta,

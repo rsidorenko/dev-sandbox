@@ -110,9 +110,23 @@ def test_source_relies_on_api_when_no_forwarded_header() -> None:
 def test_parse_add_device_metadata_valid() -> None:
     from app.runtime.payment_webhook_helpers import parse_add_device_metadata as _parse_add_device_metadata
 
+    # Legacy in-flight платеж (до R-08): только tg-id → derive f"u{tg}".
     assert _parse_add_device_metadata(
         {"telegram_user_id": "123", "new_device_count": "7", "expected_amount_kopecks": "16000"}
-    ) == (123, 7, 16000)
+    ) == ("u123", 7, 16000)
+    # Новый платёж: canonical internal_user_id (web-only = web_<hash>, R-14).
+    assert _parse_add_device_metadata(
+        {"internal_user_id": "web_abc123", "new_device_count": "7", "expected_amount_kopecks": "16000"}
+    ) == ("web_abc123", 7, 16000)
+    # Явный internal_user_id побеждает остаточный синтетический tg-id.
+    assert _parse_add_device_metadata(
+        {
+            "internal_user_id": "web_abc123",
+            "telegram_user_id": "-1",
+            "new_device_count": "7",
+            "expected_amount_kopecks": "16000",
+        }
+    ) == ("web_abc123", 7, 16000)
 
 
 def test_parse_add_device_metadata_rejects_out_of_range_count() -> None:
@@ -255,6 +269,17 @@ def test_resolve_internal_user_id_ignores_empty_metadata_value() -> None:
     )
 
     assert _resolve_subscription_internal_user_id({"internal_user_id": ""}, 456) == "u456"
+
+
+def test_resolve_internal_user_id_empty_when_no_identity_at_all() -> None:
+    """R-08: без metadata.internal_user_id и без положительного tg идентичности нет —
+    «» означает «отклонить payload» (вызывающий код вернёт 400 invalid_payload)."""
+    from app.runtime.payment_webhook_helpers import (
+        resolve_subscription_internal_user_id as _resolve_subscription_internal_user_id,
+    )
+
+    assert _resolve_subscription_internal_user_id({}, 0) == ""
+    assert _resolve_subscription_internal_user_id({}, -1) == ""
 
 
 # ── metadata цен: base_amount_kopecks / discount_kopecks (промо ИЛИ акция) ───

@@ -3,9 +3,11 @@
 CryptoBot's ``createInvoice`` accepts a single arbitrary ``payload`` string that is
 echoed back verbatim in the webhook/update and in ``getInvoices``. We use it the
 same way YooKassa uses its ``metadata`` dict: to round-trip the payment context
-(``plan_id, device_count, telegram_user_id, internal_user_id, promo, kind, ...``)
-from creation to the webhook, so the shared fulfillment helpers receive the same
-``metadata: dict[str, str]`` shape regardless of provider.
+(``plan_id, device_count, internal_user_id, promo, kind, ...``) from creation to
+the webhook, so the shared fulfillment helpers receive the same
+``metadata: dict[str, str]`` shape regardless of provider. ``telegram_user_id``
+остаётся только в legacy in-flight payload'ах, созданных до R-08 (PD-audit):
+новые платежи tg-id наружу не несут.
 
 Encoding is base64url(JSON) — robust against separators/unicode and well within
 CryptoBot's payload length budget.

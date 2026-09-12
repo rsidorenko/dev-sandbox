@@ -655,7 +655,11 @@ async def process_fulfillment(
 
     try:
         identity_repo = PostgresUserIdentityRepository(pool)
-        await identity_repo.create_if_absent(inp.telegram_user_id)
+        # R-08: tg-id опционален (web-only → 0); create_if_absent — страховка
+        # только для настоящих Telegram-аккаунтов, иначе создалась бы мусорная
+        # u0-строка. Identity web-only аккаунтов создаёт веб-регистрация.
+        if inp.telegram_user_id > 0:
+            await identity_repo.create_if_absent(inp.telegram_user_id)
 
         # --- DB-only transaction: ingest + apply + snapshot (fast, no HTTP) ---
         async with pool.acquire() as conn, conn.transaction():

@@ -63,7 +63,6 @@ class YooKassaClient:
         amount_rubles: int,
         plan_id: str,
         device_count: int,
-        telegram_user_id: int,
         return_url: str,
         description: str = "Bravada VPN subscription",
         metadata: dict[str, str] | None = None,
@@ -100,10 +99,11 @@ class YooKassaClient:
                     },
                 ],
             },
+            # R-08 (PD-audit): telegram_user_id наружу не отправляем — вебхук
+            # исполняет по metadata.internal_user_id, которое кладёт caller.
             "metadata": {
                 "plan_id": plan_id,
                 "device_count": str(device_count),
-                "telegram_user_id": str(telegram_user_id),
                 **(metadata or {}),
             },
         }
