@@ -10,7 +10,7 @@ from typing import Protocol
 
 _LOGGER = logging.getLogger(__name__)
 _CAMPAIGN_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
-_START_PREFIX = "tgads_"
+_START_PREFIXES = ("tgads_", "ads_")
 
 
 def parse_telegram_ads_campaign(start_param: str | None) -> str | None:
@@ -18,9 +18,10 @@ def parse_telegram_ads_campaign(start_param: str | None) -> str | None:
     if not isinstance(start_param, str):
         return None
     normalized = start_param.strip().lower()
-    if not normalized.startswith(_START_PREFIX):
+    prefix = next((candidate for candidate in _START_PREFIXES if normalized.startswith(candidate)), None)
+    if prefix is None:
         return None
-    campaign = normalized[len(_START_PREFIX) :]
+    campaign = normalized[len(prefix) :]
     return campaign if _CAMPAIGN_RE.fullmatch(campaign) else None
 
 

@@ -33,13 +33,19 @@ _PREFIX = "test-tgads-"
     ("value", "expected"),
     [
         ("tgads_apk_01", "apk_01"),
+        ("ads_apk_01", "apk_01"),
         ("TGADS_Channel-Video_A", "channel-video_a"),
+        ("ADS_Channel-Video_A", "channel-video_a"),
         ("tgads_a" + "1" * 47, "a" + "1" * 47),
+        ("ads_a" + "1" * 47, "a" + "1" * 47),
         ("ref_abcd", None),
         ("tgads_", None),
+        ("ads_", None),
         ("tgads__bad", None),
+        ("ads_bad.dot", None),
         ("tgads_bad.dot", None),
         ("tgads_a" + "1" * 48, None),
+        ("ads_a" + "1" * 48, None),
         (None, None),
     ],
 )
@@ -57,10 +63,11 @@ def envelope(text: str, *, uid: int = 991001, update_id: int = 1) -> TransportIn
 
 
 def test_normalized_start_keeps_referral_and_ads_separate():
-    ads = parse_slice1_transport(envelope("/start tgads_apk_01"))
-    assert isinstance(ads, NormalizedSlice1Bootstrap)
-    assert ads.telegram_ads_campaign == "apk_01"
-    assert ads.referral_code is None
+    for prefix in ("tgads_", "ads_"):
+        ads = parse_slice1_transport(envelope(f"/start {prefix}apk_01"))
+        assert isinstance(ads, NormalizedSlice1Bootstrap)
+        assert ads.telegram_ads_campaign == "apk_01"
+        assert ads.referral_code is None
 
     referral = parse_slice1_transport(envelope("/start ref_abcd"))
     assert isinstance(referral, NormalizedSlice1Bootstrap)
@@ -70,7 +77,7 @@ def test_normalized_start_keeps_referral_and_ads_separate():
 
 async def test_dispatch_records_immutable_first_touch_and_retries():
     composition = build_slice1_composition()
-    await dispatch_slice1_transport(envelope("/start tgads_apk_01", update_id=1), composition)
+    await dispatch_slice1_transport(envelope("/start ads_apk_01", update_id=1), composition)
     await dispatch_slice1_transport(envelope("/start tgads_tiktok_02", update_id=2), composition)
     recorder = composition.telegram_ads_attribution
     assert isinstance(recorder, InMemoryTelegramAdsAttributionRecorder)
