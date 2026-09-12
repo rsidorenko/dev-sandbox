@@ -354,15 +354,12 @@ async def apply_add_device_topup(
             BillingEventLedgerStatus,
         )
         from app.persistence.postgres_billing_ingestion_atomic import PostgresAtomicBillingIngestion
-        from app.persistence.postgres_user_identity import (
-            PostgresUserIdentityRepository,
-            telegram_user_id_from_internal as _tg_from_internal,
-        )
+        from app.persistence.postgres_user_identity import PostgresUserIdentityRepository
 
         # R-08: у новых платежей identity-строка уже существует (creation
         # резолвит её из БД); create_if_absent — страховка только для
         # u<tg>-identity. web_<hash>-строки создаёт веб-регистрация.
-        legacy_tg = _tg_from_internal(internal_user_id)
+        legacy_tg = telegram_user_id_from_internal(internal_user_id)
         if legacy_tg is not None and legacy_tg > 0:
             await PostgresUserIdentityRepository(pool).create_if_absent(legacy_tg)
         await PostgresAtomicBillingIngestion(pool).ingest_normalized_billing_fact(
