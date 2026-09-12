@@ -45,6 +45,19 @@ function NotificationBody({ item }: { item: WebNotification }) {
   );
 }
 
+function TrialActionLink({ item }: { item: WebNotification }) {
+  if (item.kind !== "trial_expiring" && item.kind !== "trial_expired") return null;
+
+  return (
+    <a
+      href="/#tariffs"
+      className="mt-2 inline-flex items-center rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700"
+    >
+      Выбрать тариф
+    </a>
+  );
+}
+
 function ClaimButton({
   item,
   claiming,
@@ -197,6 +210,7 @@ export function NotificationsBell() {
                     {KIND_BADGES[item.kind] || item.kind}
                   </span>
                   <NotificationBody item={item} />
+                  <TrialActionLink item={item} />
                   <ClaimButton item={item} claiming={claimingId === item.id} onClaim={handleClaim} />
                 </div>
               ))

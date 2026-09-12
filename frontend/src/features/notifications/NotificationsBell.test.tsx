@@ -109,6 +109,30 @@ describe("NotificationsBell", () => {
     expect(para.className).toContain("whitespace-pre-line");
   });
 
+  it.each(["trial_expiring", "trial_expired"] as const)(
+    "показывает CTA к тарифам для уведомления %s",
+    async (kind) => {
+      api.list.mockResolvedValue(LIST_OK([makeNotification({ kind })]));
+      const user = userEvent.setup();
+      render(<NotificationsBell />);
+      await user.click(screen.getByRole("button", { name: "Уведомления" }));
+      expect(await screen.findByRole("link", { name: "Выбрать тариф" })).toHaveAttribute(
+        "href",
+        "/#tariffs",
+      );
+    },
+  );
+
+  it("не показывает trial CTA для остальных сервисных уведомлений", async () => {
+    api.list.mockResolvedValue(
+      LIST_OK([makeNotification({ kind: "subscription_expiring" })]),
+    );
+    const user = userEvent.setup();
+    render(<NotificationsBell />);
+    await user.click(screen.getByRole("button", { name: "Уведомления" }));
+    expect(screen.queryByRole("link", { name: "Выбрать тариф" })).not.toBeInTheDocument();
+  });
+
   it("кнопка клейма: eligible → успех → чип «Получено»", async () => {
     api.list.mockResolvedValue(
       LIST_OK([

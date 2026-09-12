@@ -16,14 +16,34 @@ from app.bot_transport.storefront_ui import (
 
 
 def text_trial_expiring() -> tuple[str, dict[str, Any]]:
+    """Совместимый alias для обычного предупреждения об окончании триала."""
+    return text_trial_expiring_24h()
+
+
+def text_trial_expiring_24h() -> tuple[str, dict[str, Any]]:
     text = (
-        "⏳ Бесплатный период заканчивается!\n\n"
-        "Через 24 часа доступ к VPN будет приостановлен.\n"
-        "Оформите подписку, чтобы продолжить пользоваться VPN."
+        "⏳ До конца бесплатного периода осталось меньше суток.\n\n"
+        "VPN уже настроен: ключи, устройства и параметры подключения сохранятся.\n"
+        "Выберите тариф заранее, чтобы продолжить пользоваться VPN без перерыва."
     )
     keyboard = _inline_kb(
         [
-            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🔑 Продолжить без перерыва", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+    return text, keyboard
+
+
+def text_trial_expiring_6h() -> tuple[str, dict[str, Any]]:
+    text = (
+        "⚡ Бесплатный период закончится через несколько часов.\n\n"
+        "После этого VPN приостановится, но повторно устанавливать приложение и добавлять ключи не придётся.\n"
+        "Выберите тариф — после оплаты доступ продолжится с текущими настройками."
+    )
+    keyboard = _inline_kb(
+        [
+            [{"text": "🔑 Сохранить доступ", "callback_data": CB_BUY_VPN}],
             [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ]
     )
@@ -33,13 +53,28 @@ def text_trial_expiring() -> tuple[str, dict[str, Any]]:
 def text_trial_expired() -> tuple[str, dict[str, Any]]:
     text = (
         "❌ Бесплатный период закончился.\n\n"
-        "Доступ к VPN приостановлен.\n"
-        "Ваши ключи сохранены — при оформлении подписки они активируются автоматически.\n\n"
-        "У вас есть 20 дней, после чего ключи будут удалены."
+        "Доступ к VPN приостановлен, но ключи и настройки сохранены.\n"
+        "Выберите тариф и оплатите его — доступ восстановится автоматически, без повторной установки.\n\n"
+        "Ключи сохраняются ещё 20 дней."
     )
     keyboard = _inline_kb(
         [
-            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
+            [{"text": "🔑 Возобновить VPN", "callback_data": CB_BUY_VPN}],
+            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
+    return text, keyboard
+
+
+def text_trial_expired_followup() -> tuple[str, dict[str, Any]]:
+    text = (
+        "🔐 Ваш VPN всё ещё готов к продолжению.\n\n"
+        "Ключи, устройства и настройки сохранены. Выберите тариф и оплатите его — доступ вернётся автоматически.\n"
+        "Повторно устанавливать приложение или настраивать подключение не нужно."
+    )
+    keyboard = _inline_kb(
+        [
+            [{"text": "🔑 Вернуть доступ", "callback_data": CB_BUY_VPN}],
             [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
         ]
     )

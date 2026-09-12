@@ -202,18 +202,21 @@ def test_grace_period_skips_recently_deactivated():
     provider.delete_user.assert_not_called()
 
 
-def test_run_checks_calls_all_five_stages():
-    """_run_checks must call all 5 lifecycle stages."""
+def test_run_checks_calls_all_lifecycle_stages():
+    """_run_checks вызывает все этапы trial и subscription lifecycle."""
     pool = _FakePool()
     provider = _make_provider()
     sched = NotificationScheduler(pool=pool, bot_token="tok", vless_provider=provider)
 
     with (
         patch.object(sched, "_check_trial_expiring", new_callable=AsyncMock) as m1,
-        patch.object(sched, "_check_trial_expired", new_callable=AsyncMock) as m2,
-        patch.object(sched, "_check_subscription_expiring", new_callable=AsyncMock) as m3,
-        patch.object(sched, "_check_subscription_expired", new_callable=AsyncMock) as m4,
-        patch.object(sched, "_check_keys_grace_period_expired", new_callable=AsyncMock) as m5,
+        patch.object(sched, "_check_trial_expiring_urgent", new_callable=AsyncMock) as m2,
+        patch.object(sched, "_check_trial_expired", new_callable=AsyncMock) as m3,
+        patch.object(sched, "_check_trial_expired_paywall", new_callable=AsyncMock) as m4,
+        patch.object(sched, "_check_trial_expired_followup", new_callable=AsyncMock) as m5,
+        patch.object(sched, "_check_subscription_expiring", new_callable=AsyncMock) as m6,
+        patch.object(sched, "_check_subscription_expired", new_callable=AsyncMock) as m7,
+        patch.object(sched, "_check_keys_grace_period_expired", new_callable=AsyncMock) as m8,
     ):
         _run(sched._run_checks())
 
@@ -222,6 +225,9 @@ def test_run_checks_calls_all_five_stages():
     m3.assert_called_once()
     m4.assert_called_once()
     m5.assert_called_once()
+    m6.assert_called_once()
+    m7.assert_called_once()
+    m8.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════

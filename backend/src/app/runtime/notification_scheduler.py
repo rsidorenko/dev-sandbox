@@ -1,12 +1,8 @@
 """Background notification scheduler for subscription/trial lifecycle events.
 
 Runs as an async task alongside the bot polling loop.
-Checks every 60 minutes for:
-1. Trials expiring in <24h
-2. Trials expired → deactivate keys
-3. Subscriptions expiring in 3 days
-4. Subscriptions expired → deactivate keys
-5. Subscriptions expired >20 days → permanently delete keys
+Checks every 60 minutes for trial conversion stages, subscription expiry,
+key lifecycle and referral offers.
 """
 
 from __future__ import annotations
@@ -32,7 +28,9 @@ from app.bot_transport.notification_texts import (
     text_subscription_expired,
     text_subscription_expiring,
     text_trial_expired,
+    text_trial_expired_followup,
     text_trial_expiring,
+    text_trial_expiring_6h,
 )
 from app.issuance.vless_provider import VlessProviderOutcome, VlessProviderPort
 from app.persistence.postgres_web_notifications import PostgresWebNotificationRepository
@@ -43,6 +41,11 @@ _CHECK_INTERVAL_SECONDS = int(os.environ.get("NOTIFICATION_CHECK_INTERVAL_SECOND
 _EXPIRY_WARNING_HOURS = int(os.environ.get("NOTIFICATION_EXPIRY_WARNING_HOURS", "72"))
 _GRACE_PERIOD_DAYS = int(os.environ.get("NOTIFICATION_GRACE_PERIOD_DAYS", "20"))
 _ADVISORY_LOCK_ID = 20260608
+_TRIAL_WARNING_HOURS = 24
+_TRIAL_URGENT_HOURS = 6
+_TRIAL_PAYWALL_RETRY_HOURS = 48
+_TRIAL_FOLLOWUP_DELAY_HOURS = 24
+_TRIAL_FOLLOWUP_WINDOW_HOURS = 48
 # Окно «недавней активации» для реферального оффера: 25 ч > 24 ч каденции тиков,
 # чтобы каждого недавно активировавшего пользователя (триал или оплата) поймал хотя бы один тик.
 _REFERRAL_OFFER_RECENT_HOURS = 25
@@ -51,7 +54,10 @@ _REFERRAL_OFFER_RECENT_HOURS = 25
 # (контракт-тест в test_notification_scheduler_web.py). body — исходный текст уведомления.
 _WEB_KINDS: dict[str, tuple[str, str]] = {
     "trial_expiring": ("trial_expiring", "Триал заканчивается"),
+    "trial_expiring_24h": ("trial_expiring", "До конца триала меньше суток"),
+    "trial_expiring_6h": ("trial_expiring", "До конца триала несколько часов"),
     "trial_expired": ("trial_expired", "Триал истёк"),
+    "trial_expired_followup_24h": ("trial_expired", "VPN можно возобновить"),
     "subscription_expiring_3d": ("subscription_expiring", "Подписка заканчивается"),
     "subscription_expired": ("subscription_expired", "Подписка истекла"),
     "keys_deleted": ("key_deleted", "Ключи удалены"),
@@ -127,7 +133,10 @@ class NotificationScheduler:
         _LOGGER.info("notification_scheduler.run_checks at=%s", now.isoformat())
 
         await self._check_trial_expiring(now)
+        await self._check_trial_expiring_urgent(now)
         await self._check_trial_expired(now)
+        await self._check_trial_expired_paywall(now)
+        await self._check_trial_expired_followup(now)
         await self._check_subscription_expiring(now)
         await self._check_subscription_expired(now)
         await self._check_keys_grace_period_expired(now)
@@ -237,15 +246,26 @@ class NotificationScheduler:
         return True
 
     async def _check_trial_expiring(self, now: datetime) -> None:
-        """Trials expiring in <24h: send warning (batch)."""
+        """Обычное предупреждение в непересекающемся окне (6 ч; 24 ч]."""
         rows = await self._pool.fetch(
-            """SELECT s.internal_user_id, s.trial_expires_at
+            """SELECT s.internal_user_id,
+                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at
                FROM subscription_snapshots s
                WHERE s.state_label = 'active'
                AND s.trial_expires_at IS NOT NULL
-               AND s.trial_expires_at > NOW()
-               AND s.trial_expires_at < NOW() + INTERVAL '24 hours'
-               AND s.plan_id IS NULL""",
+               AND COALESCE(s.active_until_utc, s.trial_expires_at)
+                   <= NOW() + make_interval(hours => $1)
+               AND COALESCE(s.active_until_utc, s.trial_expires_at)
+                   > NOW() + make_interval(hours => $2)
+               AND s.plan_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = ANY($3::text[])
+               )""",
+            _TRIAL_WARNING_HOURS,
+            _TRIAL_URGENT_HOURS,
+            ["trial_expiring", "trial_expiring_24h"],
         )
         if not rows:
             return
@@ -254,7 +274,42 @@ class NotificationScheduler:
             *[
                 self._send_notification(
                     internal_user_id=row["internal_user_id"],
-                    notification_type="trial_expiring",
+                    notification_type="trial_expiring_24h",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
+
+    async def _check_trial_expiring_urgent(self, now: datetime) -> None:
+        """Срочное предупреждение в окне (0 ч; 6 ч]."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id,
+                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at
+               FROM subscription_snapshots s
+               WHERE s.state_label = 'active'
+               AND s.trial_expires_at IS NOT NULL
+               AND COALESCE(s.active_until_utc, s.trial_expires_at) > NOW()
+               AND COALESCE(s.active_until_utc, s.trial_expires_at)
+                   <= NOW() + make_interval(hours => $1)
+               AND s.plan_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = $2
+               )""",
+            _TRIAL_URGENT_HOURS,
+            "trial_expiring_6h",
+        )
+        if not rows:
+            return
+        text, keyboard = text_trial_expiring_6h()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="trial_expiring_6h",
                     text=text,
                     keyboard=keyboard,
                 )
@@ -263,7 +318,7 @@ class NotificationScheduler:
         )
 
     async def _check_trial_expired(self, now: datetime) -> None:
-        """Expired trials: deactivate keys, send notification."""
+        """Завершённые триалы: отозвать ключи и зафиксировать приостановку."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id
                FROM subscription_snapshots s
@@ -293,13 +348,74 @@ class NotificationScheduler:
                    WHERE internal_user_id = $1""",
                 uid,
             )
-            text, keyboard = text_trial_expired()
-            await self._send_notification(
-                internal_user_id=uid,
-                notification_type="trial_expired",
-                text=text,
-                keyboard=keyboard,
-            )
+
+    async def _check_trial_expired_paywall(self, now: datetime) -> None:
+        """Paywall после фактической деактивации; сбой доставки ретраится следующим тиком."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id
+               FROM subscription_snapshots s
+               WHERE s.state_label = 'expired'
+               AND s.trial_expires_at IS NOT NULL
+               AND s.plan_id IS NULL
+               AND s.keys_deactivated_at IS NOT NULL
+               AND s.keys_deactivated_at >= NOW() - make_interval(hours => $1)
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = $2
+               )""",
+            _TRIAL_PAYWALL_RETRY_HOURS,
+            "trial_expired",
+        )
+        if not rows:
+            return
+        text, keyboard = text_trial_expired()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="trial_expired",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
+
+    async def _check_trial_expired_followup(self, now: datetime) -> None:
+        """Одно напоминание через 24–48 часов после приостановки триала."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id
+               FROM subscription_snapshots s
+               WHERE s.state_label = 'expired'
+               AND s.trial_expires_at IS NOT NULL
+               AND s.plan_id IS NULL
+               AND s.keys_deactivated_at IS NOT NULL
+               AND s.keys_deactivated_at <= NOW() - make_interval(hours => $1)
+               AND s.keys_deactivated_at > NOW() - make_interval(hours => $2)
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = $3
+               )""",
+            _TRIAL_FOLLOWUP_DELAY_HOURS,
+            _TRIAL_FOLLOWUP_WINDOW_HOURS,
+            "trial_expired_followup_24h",
+        )
+        if not rows:
+            return
+        text, keyboard = text_trial_expired_followup()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="trial_expired_followup_24h",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
 
     async def _check_subscription_expiring(self, now: datetime) -> None:
         """Subscriptions expiring in 3 days: send renewal reminder (batch)."""
