@@ -128,6 +128,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "081_funnel_foundation.sql",
         "082_telegram_ads_attribution.sql",
         "083_telegram_ads_spend.sql",
+        "084_admin_user_reset_actions.sql",
     ]
 
 

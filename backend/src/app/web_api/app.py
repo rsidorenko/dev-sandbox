@@ -44,6 +44,7 @@ from app.web_api.admin_users import (
     handle_admin_add_days,
     handle_admin_get_user,
     handle_admin_list_users,
+    handle_admin_reset_test_account,
     handle_admin_set_internal,
 )
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
@@ -264,6 +265,11 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route(
             "/api/v1/admin/users/{internal_user_id}/add-days",
             handle_admin_add_days,
+            methods=["POST"],
+        ),
+        Route(
+            "/api/v1/admin/users/{internal_user_id}/reset-test-account",
+            handle_admin_reset_test_account,
             methods=["POST"],
         ),
         Route("/api/v1/admin/promocodes", handle_admin_list_promocodes, methods=["GET"]),

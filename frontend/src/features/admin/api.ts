@@ -12,6 +12,7 @@ import type {
   AdminPromocodesResponse,
   AdminStatsPeriod,
   AdminStatsResponse,
+  AdminTestUserResetResponse,
   AdminTelegramAdsSpend,
   AdminUsersResponse,
   BroadcastBonusConfig,
@@ -135,6 +136,18 @@ export const adminApi = {
     return adminFetch<AdminAddDaysResponse>(
       `/api/v1/admin/users/${encodeURIComponent(internal_user_id)}/add-days`,
       { method: "POST", body: JSON.stringify({ days }) },
+    );
+  },
+  setInternal(internal_user_id: string, is_internal: boolean, reason: string) {
+    return adminFetch<{ internal_user_id: string; is_internal: boolean }>(
+      `/api/v1/admin/users/${encodeURIComponent(internal_user_id)}/internal`,
+      { method: "POST", body: JSON.stringify({ is_internal, reason }) },
+    );
+  },
+  resetTestAccount(internal_user_id: string, confirmation_telegram_user_id: number, reason: string) {
+    return adminFetch<AdminTestUserResetResponse>(
+      `/api/v1/admin/users/${encodeURIComponent(internal_user_id)}/reset-test-account`,
+      { method: "POST", body: JSON.stringify({ confirmation_telegram_user_id, reason }) },
     );
   },
   broadcastEstimate(payload: { categories: string[]; explicit_targets?: string[] }) {

@@ -476,10 +476,12 @@ class XuiVlessProvider(VlessProviderPort):
             groups[key].append(cfg)
         return [(representative[key], tuple(cfgs)) for key, cfgs in groups.items()]
 
-    async def _bare_xray_lifecycle(self, internal_user_id: str, action: str) -> None:
+    async def _bare_xray_lifecycle(self, internal_user_id: str, action: str) -> int:
         """Add ('add') or remove ('remove') the user on every bare_xray inbound via xray gRPC
-        (live, no restart). Non-fatal: a failure is logged and the periodic reconcile re-applies."""
+        (live, no restart). Returns the number of failed inbounds; обычные lifecycle-вызовы
+        полагаются на периодический reconcile, а destructive admin reset проверяет результат."""
         clients = await self._get_bare_xray_clients()
+        failed = 0
         for client in clients:
             transport = client.server_config.transport_type
             email = _email_from_internal(internal_user_id, transport_type=transport)
@@ -490,6 +492,7 @@ class XuiVlessProvider(VlessProviderPort):
                 else:
                     await client.remove_client(email=email)
             except Exception as exc:
+                failed += 1
                 _LOGGER.warning(
                     "xray_api %s failed server=%s user=%s: %r",
                     action,
@@ -497,6 +500,7 @@ class XuiVlessProvider(VlessProviderPort):
                     internal_user_id[:8],
                     exc,
                 )
+        return failed
 
     async def _close_clients(self) -> None:
         if self._clients is None:
@@ -858,17 +862,19 @@ class XuiVlessProvider(VlessProviderPort):
             user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.delete_client(user_uuid=user_uuid)
 
-        any_deleted = False
+        panel_failed = False
         if clients:
             raw = await _run_sequential_per_panel(clients, _delete)
-            any_deleted = any(
-                not isinstance(r, Exception) and r.outcome in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
+            panel_failed = any(
+                isinstance(r, Exception) or r.outcome not in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND) for _, r in raw
             )
 
         # bare_xray: live remove on every bare_xray inbound (must run even with no xui panels).
-        await self._bare_xray_lifecycle(internal_user_id, "remove")
+        bare_failed = await self._bare_xray_lifecycle(internal_user_id, "remove") or 0
 
-        if any_deleted or self._bare_xray_configs:
+        if panel_failed or bare_failed:
+            return VlessProviderResult(outcome=VlessProviderOutcome.ERROR)
+        if clients or self._bare_xray_configs:
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 

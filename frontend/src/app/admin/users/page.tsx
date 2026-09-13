@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi } from "@/features/admin/api";
 import { AddDaysModal } from "@/features/admin/AddDaysModal";
 import { StatusLegend } from "@/features/admin/StatusLegend";
+import { InternalAccountModal, ResetTestAccountModal } from "@/features/admin/TestAccountModals";
 import {
   FACET_NAMES,
   FACET_TITLES,
@@ -40,6 +41,9 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [collapsedFacets, setCollapsedFacets] = useState<Set<FacetName>>(new Set());
   const [addDaysUser, setAddDaysUser] = useState<AdminUser | null>(null);
+  const [internalUser, setInternalUser] = useState<AdminUser | null>(null);
+  const [resetUser, setResetUser] = useState<AdminUser | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,6 +186,7 @@ export default function AdminUsersPage() {
         </div>
 
         {error && <Alert className="mb-4">{error}</Alert>}
+        {actionMessage && <Alert variant="info" className="mb-4">{actionMessage}</Alert>}
 
         <StatusLegend />
 
@@ -227,24 +232,33 @@ export default function AdminUsersPage() {
                 <th className={`${adminTh} w-28`}>До</th>
                 <th className={`${adminTh} w-28 text-right`}>Баланс</th>
                 <th className={`${adminTh} w-16 text-center`}>Триал</th>
-                <th className={`${adminTh} w-28 text-right`}>Действия</th>
+                <th className={`${adminTh} w-24 text-center`}>Тип</th>
+                <th className={`${adminTh} w-52 text-right`}>Действия</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
                     Загрузка…
                   </td>
                 </tr>
               ) : visible.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
                     {anyFilterActive ? "Под фльтр ничего не подходит" : "Нет пользователей"}
                   </td>
                 </tr>
               ) : (
-                visible.map((u) => <UserRow key={u.internal_user_id} u={u} onAddDays={() => setAddDaysUser(u)} />)
+                visible.map((u) => (
+                  <UserRow
+                    key={u.internal_user_id}
+                    u={u}
+                    onAddDays={() => setAddDaysUser(u)}
+                    onToggleInternal={() => setInternalUser(u)}
+                    onReset={() => setResetUser(u)}
+                  />
+                ))
               )}
             </tbody>
           </table>
@@ -253,12 +267,46 @@ export default function AdminUsersPage() {
         {addDaysUser && (
           <AddDaysModal user={addDaysUser} onClose={() => setAddDaysUser(null)} onSaved={() => void load()} />
         )}
+        {internalUser && (
+          <InternalAccountModal
+            user={internalUser}
+            onClose={() => setInternalUser(null)}
+            onSaved={() => {
+              setActionMessage(internalUser.is_internal ? "Тестовая метка снята." : "Аккаунт помечен тестовым.");
+              setInternalUser(null);
+              void load();
+            }}
+          />
+        )}
+        {resetUser && (
+          <ResetTestAccountModal
+            user={resetUser}
+            onClose={() => setResetUser(null)}
+            onReset={(result) => {
+              setActionMessage(
+                `Тестовый аккаунт ${result.telegram_user_id} сброшен. Теперь отправьте боту /start.`,
+              );
+              setResetUser(null);
+              void load();
+            }}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function UserRow({ u, onAddDays }: { u: AdminUser; onAddDays: () => void }) {
+function UserRow({
+  u,
+  onAddDays,
+  onToggleInternal,
+  onReset,
+}: {
+  u: AdminUser;
+  onAddDays: () => void;
+  onToggleInternal: () => void;
+  onReset: () => void;
+}) {
   return (
     <tr className={adminRow}>
       <td className={`${adminTd} ${adminMono} text-xs text-gray-600 dark:text-gray-400`}>{u.telegram_user_id}</td>
@@ -272,15 +320,42 @@ function UserRow({ u, onAddDays }: { u: AdminUser; onAddDays: () => void }) {
       </td>
       <td className={`${adminTd} ${adminNum} text-right`}>{u.balance_rubles.toFixed(2)} ₽</td>
       <td className={`${adminTd} text-center text-gray-500`}>{u.trial_used ? "исп." : "—"}</td>
-      <td className={`${adminTd} text-right`}>
-        <button
-          type="button"
-          title="Грант дней подписки (продлить или создать)"
-          onClick={onAddDays}
-          className="text-sm font-semibold text-brand-600 transition hover:text-brand-700"
+      <td className={`${adminTd} text-center`}>
+        <span
+          className={u.is_internal
+            ? "inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+            : "text-xs text-gray-400"}
         >
-          + Дни
-        </button>
+          {u.is_internal ? "Тестовый" : "Обычный"}
+        </span>
+      </td>
+      <td className={`${adminTd} text-right`}>
+        <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+          <button
+            type="button"
+            title="Грант дней подписки (продлить или создать)"
+            onClick={onAddDays}
+            className="text-sm font-semibold text-brand-600 transition hover:text-brand-700"
+          >
+            + Дни
+          </button>
+          <button
+            type="button"
+            onClick={onToggleInternal}
+            className="text-xs font-medium text-gray-500 transition hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            {u.is_internal ? "Снять метку" : "Сделать тестовым"}
+          </button>
+          {u.is_internal && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="text-xs font-semibold text-red-600 transition hover:text-red-700 dark:text-red-400"
+            >
+              Сбросить
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );

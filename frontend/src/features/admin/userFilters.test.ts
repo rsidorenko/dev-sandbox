@@ -16,6 +16,7 @@ function user(over: Partial<AdminUser> = {}): AdminUser {
     telegram_user_id: 1,
     email: null,
     trial_used: false,
+    is_internal: false,
     subscription_state: null,
     is_active: false,
     active_until: null,

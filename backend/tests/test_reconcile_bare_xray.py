@@ -338,3 +338,17 @@ def test_revoke_and_delete_bare_xray_with_no_xui_panels():
     r2 = _run(p_del.delete_user(internal_user_id="u4"))
     assert r2.outcome == VlessProviderOutcome.SUCCESS, r2.outcome
     assert life_del == [("u4", "remove")], life_del
+
+
+def test_delete_user_reports_error_when_bare_xray_remove_failed():
+    """Destructive reset не должен удалять БД, если хотя бы один inbound не очищен."""
+    provider, _ = _bare_xray_only_provider()
+
+    async def failed_lifecycle(_uid, _action):
+        return 1
+
+    provider._bare_xray_lifecycle = failed_lifecycle  # type: ignore[method-assign]
+
+    result = _run(provider.delete_user(internal_user_id="u5"))
+
+    assert result.outcome == VlessProviderOutcome.ERROR

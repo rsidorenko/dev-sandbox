@@ -9,6 +9,14 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.application.admin_test_user_reset import (
+    AdminTestUserConfirmationError,
+    AdminTestUserNotFoundError,
+    AdminTestUserReasonError,
+    AdminTestUserRequiredError,
+    AdminTestUserVpnDeleteError,
+    reset_test_user,
+)
 from app.application.subscription_grant import grant_subscription_days
 from app.domain.status_view import remaining_days
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
@@ -291,6 +299,59 @@ async def handle_admin_add_days(request: Request) -> JSONResponse:
             "device_count_unchanged": result.device_count,
             "provisioning": result.provisioning,
             "servers_ok": result.servers_ok,
+            "correlation_id": result.correlation_id,
+        }
+    )
+
+
+@_with_admin_auth
+@_with_admin_csrf
+async def handle_admin_reset_test_account(request: Request) -> JSONResponse:
+    """Полностью сбрасывает только явно помеченный internal/test account."""
+
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return safe_json_error(400, "invalid_json")
+    if not isinstance(body, dict):
+        return safe_json_error(400, "invalid_request")
+
+    confirmation = body.get("confirmation_telegram_user_id")
+    if type(confirmation) is not int or confirmation <= 0:
+        return safe_json_error(400, "invalid_confirmation")
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 300:
+        return safe_json_error(400, "invalid_reason")
+
+    internal_user_id = request.path_params["internal_user_id"]
+    try:
+        result = await reset_test_user(
+            pool=request.app.state.pool,
+            vless_provider=getattr(request.app.state, "vless_provider", None),
+            internal_user_id=internal_user_id,
+            confirmation_telegram_user_id=confirmation,
+            reason=reason.strip(),
+            actor=_admin_actor(request),
+        )
+    except AdminTestUserNotFoundError:
+        return safe_json_error(404, "user_not_found")
+    except AdminTestUserRequiredError:
+        return safe_json_error(409, "test_account_required")
+    except AdminTestUserConfirmationError:
+        return safe_json_error(409, "confirmation_mismatch")
+    except AdminTestUserReasonError:
+        return safe_json_error(400, "invalid_reason")
+    except AdminTestUserVpnDeleteError:
+        _LOGGER.warning("admin_test_user_reset_vpn_delete_failed user=%s", internal_user_id)
+        return safe_json_error(502, "vpn_delete_failed")
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "telegram_user_id": result.telegram_user_id,
+            "internal_user_id": result.internal_user_id,
+            "vpn_outcome": result.vpn_outcome,
+            "deleted_rows": result.deleted_rows,
             "correlation_id": result.correlation_id,
         }
     )

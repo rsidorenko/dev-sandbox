@@ -5,6 +5,7 @@ export interface AdminUser {
   telegram_user_id: number;
   email: string | null;
   trial_used: boolean;
+  is_internal: boolean;
   subscription_state: string | null;
   is_active: boolean;
   active_until: string | null;
@@ -32,6 +33,14 @@ export interface AdminAddDaysResponse {
   device_count_unchanged: number | null;
   provisioning: string;
   servers_ok: number;
+  correlation_id: string;
+}
+
+export interface AdminTestUserResetResponse {
+  telegram_user_id: number;
+  internal_user_id: string;
+  vpn_outcome: "success" | "not_found";
+  deleted_rows: Record<string, number>;
   correlation_id: string;
 }
 

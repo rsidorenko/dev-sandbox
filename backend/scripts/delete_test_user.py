@@ -1,13 +1,14 @@
-"""Operator: hard-delete a test user — revoke VLESS keys everywhere + remove all DB rows.
+"""Операторский CLI для безопасного сброса internal/test аккаунта.
 
-Reuses XuiVlessProvider.delete_user (revokes on xui panels + bare_xray via gRPC), then
-hard-deletes every row for the user across the 12 tables that reference internal_user_id /
-telegram_user_id, then runs reconcile_all_users (h1 panel rebuilds its client list without the
-user; bare_xray orphan removal confirms). Idempotent-ish.
+Основной интерфейс операции находится в админке. Скрипт оставлен для аварийного
+операторского доступа и использует тот же application service с теми же защитами.
 
-Usage: in production container with DATABASE_URL.
-  python delete_test_user.py --telegram-id 123
+Запуск внутри production-контейнера:
+  python delete_test_user.py --telegram-id 123 --confirm-telegram-id 123 --reason "Повторный тест"
 """
+
+from __future__ import annotations
+
 import argparse
 import asyncio
 import os
@@ -16,62 +17,54 @@ import sys
 sys.path.insert(0, "/app/src")
 
 
-async def main(tg: int) -> None:
+async def main(*, telegram_id: int, confirmation: int, reason: str) -> None:
     import asyncpg
+
+    from app.application.admin_test_user_reset import AdminTestUserResetError, reset_test_user
     from app.issuance.xui_vless_provider import XuiVlessProvider
 
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=4)
+    provider = XuiVlessProvider(pool)
     try:
-        row = await pool.fetchrow(
-            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id=$1", tg)
-        if not row:
-            print(f"tg={tg} not found in user_identities — nothing to delete")
+        internal_user_id = await pool.fetchval(
+            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
+            telegram_id,
+        )
+        if internal_user_id is None:
+            print(f"Telegram ID {telegram_id}: пользователь не найден")
             return
-        uid = row["internal_user_id"]
-        print(f"=== deleting tg={tg} internal_user_id={uid} ===")
-
-        # 1) revoke VLESS keys on all xui panels + bare_xray (tested provider path)
-        vp = XuiVlessProvider(pool)
-        res = await vp.delete_user(internal_user_id=uid)
-        print(f"delete_user (xui+bare_xray) outcome={res.outcome}")
-        await vp.aclose()
-
-        # 2) hard-delete all DB rows (FK-safe: children first, user_identities last)
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                for stmt in (
-                    "DELETE FROM billing_subscription_apply_audit_events WHERE internal_user_id=$1",
-                    "DELETE FROM billing_subscription_apply_records WHERE internal_user_id=$1",
-                    "DELETE FROM billing_events_ledger WHERE internal_user_id=$1",
-                    "DELETE FROM issuance_state WHERE internal_user_id=$1",
-                    "DELETE FROM notification_log WHERE internal_user_id=$1",
-                    "DELETE FROM referral_transactions WHERE internal_user_id=$1",
-                    "DELETE FROM referral_balances WHERE internal_user_id=$1",
-                    "DELETE FROM referral_codes WHERE internal_user_id=$1",
-                    "DELETE FROM referral_relationships WHERE referrer_user_id=$1 OR referred_user_id=$1",
-                    "DELETE FROM email_verification_codes WHERE telegram_user_id=$1",
-                    "DELETE FROM user_emails WHERE telegram_user_id=$1",
-                    "DELETE FROM subscription_snapshots WHERE internal_user_id=$1",
-                    "DELETE FROM user_identities WHERE telegram_user_id=$1",
-                ):
-                    arg = tg if "telegram_user_id" in stmt else uid
-                    await conn.execute(stmt, arg)
-        print("DB rows deleted (12 tables)")
-
-        # 3) reconcile: h1 rebuilds without the user; bare_xray orphan cleanup confirms
-        vp2 = XuiVlessProvider(pool)
-        added, failed, total = await vp2.reconcile_all_users()
-        print(f"reconcile: added={added} failed={failed} total={total} (h1 rebuilt, bare_xray orphans removed)")
-        await vp2.aclose()
-
-        # 4) verify
-        n = await pool.fetchval("SELECT count(*) FROM user_identities WHERE telegram_user_id=$1", tg)
-        print(f"VERIFY: tg={tg} remaining in user_identities = {n}  ({'OK' if n == 0 else 'STILL PRESENT'})")
+        try:
+            result = await reset_test_user(
+                pool=pool,
+                vless_provider=provider,
+                internal_user_id=str(internal_user_id),
+                confirmation_telegram_user_id=confirmation,
+                reason=reason.strip(),
+                actor="delete_test_user.py",
+            )
+        except AdminTestUserResetError as exc:
+            print(f"Сброс отклонён: {type(exc).__name__}")
+            raise SystemExit(2) from exc
+        total = sum(result.deleted_rows.values())
+        print(
+            f"Сброс выполнен: telegram_id={result.telegram_user_id}, "
+            f"vpn={result.vpn_outcome}, удалено строк={total}, correlation_id={result.correlation_id}"
+        )
     finally:
+        await provider.aclose()
         await pool.close()
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--telegram-id", type=int, required=True)
-    asyncio.run(main(p.parse_args().telegram_id))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--telegram-id", type=int, required=True)
+    parser.add_argument("--confirm-telegram-id", type=int, required=True)
+    parser.add_argument("--reason", required=True)
+    arguments = parser.parse_args()
+    asyncio.run(
+        main(
+            telegram_id=arguments.telegram_id,
+            confirmation=arguments.confirm_telegram_id,
+            reason=arguments.reason,
+        )
+    )
