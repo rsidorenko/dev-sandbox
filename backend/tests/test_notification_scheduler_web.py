@@ -28,6 +28,8 @@ _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
 _WEB_TG = -9_100_000_001
 _LINKED_TG = 9_100_000_002
 _INTERNAL = "sched_web_test_user"
+_FORBIDDEN_TG = 9_100_000_003
+_FORBIDDEN_INTERNAL = "sched_tg_forbidden_test_user"
 
 
 # --- Фейки --------------------------------------------------------------------
@@ -47,6 +49,8 @@ class _FakeConn:
 
     async def fetchrow(self, sql: str, *args):
         if "INSERT INTO web_notifications" in sql:
+            if self._pool.web_failure:
+                raise RuntimeError("temporary web failure")
             self._pool.web_inserts.append({"sql": sql, "args": args})
             return {"id": 1}
         return None
@@ -55,11 +59,20 @@ class _FakeConn:
 class _FakePool:
     """Скриптованный пул: идентичность (tg_id + has_email), дедуп, лог-вставки."""
 
-    def __init__(self, *, tg_id: int, has_email: bool, dedup: bool = False, identity_missing: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        tg_id: int,
+        has_email: bool,
+        dedup: bool = False,
+        identity_missing: bool = False,
+        web_failure: bool = False,
+    ) -> None:
         self.tg_id = tg_id
         self.has_email = has_email
         self.dedup = dedup
         self.identity_missing = identity_missing
+        self.web_failure = web_failure
         self.web_inserts: list[dict] = []
         self.log_inserts: list[tuple] = []
 
@@ -150,7 +163,7 @@ def test_web_only_user_gets_web_notification_without_tg_call():
     assert args[2] == "Триал заканчивается"
     assert json.loads(args[4]) == {"notification_type": "trial_expiring"}
     assert http.calls == []  # TG не дёргался
-    assert pool.log_inserts == [(_INTERNAL, "trial_expiring")]
+    assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "delivered")]
 
 
 def test_non_broadcast_web_notification_does_not_expose_telegram_html() -> None:
@@ -204,6 +217,33 @@ def test_tg_failure_without_email_no_log_retry_next_tick():
     assert _send(_scheduler(pool, http), pool) is False
     assert pool.web_inserts == []
     assert pool.log_inserts == []  # без лога → ретрай следующим тиком
+
+
+def test_tg_forbidden_without_email_records_terminal_failure() -> None:
+    pool = _FakePool(tg_id=_LINKED_TG, has_email=False)
+    http = _FakeHttp(status_code=403)
+
+    assert _send(_scheduler(pool, http), pool) is False
+    assert pool.web_inserts == []
+    assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "terminal_failure")]
+
+
+def test_tg_forbidden_with_successful_web_is_delivered() -> None:
+    pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
+    http = _FakeHttp(status_code=403)
+
+    assert _send(_scheduler(pool, http), pool) is True
+    assert len(pool.web_inserts) == 1
+    assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "delivered")]
+
+
+def test_tg_forbidden_does_not_hide_retryable_web_failure() -> None:
+    pool = _FakePool(tg_id=_LINKED_TG, has_email=True, web_failure=True)
+    http = _FakeHttp(status_code=403)
+
+    assert _send(_scheduler(pool, http), pool) is False
+    assert pool.web_inserts == []
+    assert pool.log_inserts == []
 
 
 def test_dedup_skips_both_channels():
@@ -328,6 +368,65 @@ def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
                 await c.execute("DELETE FROM user_emails WHERE telegram_user_id = $1", _WEB_TG)
                 await c.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1", _INTERNAL)
                 await c.execute("DELETE FROM user_identities WHERE telegram_user_id = $1", _WEB_TG)
+            await pool.close()
+
+    asyncio.run(_run())
+
+
+def test_tg_forbidden_is_persisted_as_terminal_failure(pg_url) -> None:
+    async def _run() -> None:
+        import asyncpg
+
+        from app.persistence.postgres_migrations import apply_postgres_migrations
+
+        pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+        try:
+            await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM notification_log WHERE internal_user_id = $1", _FORBIDDEN_INTERNAL)
+                await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1", _FORBIDDEN_TG)
+                await conn.execute(
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)",
+                    _FORBIDDEN_TG,
+                    _FORBIDDEN_INTERNAL,
+                )
+
+            scheduler = NotificationScheduler(pool=pool, bot_token="test-token", vless_provider=_StubProvider())
+            scheduler._http_client = _FakeHttp(status_code=403)
+
+            assert (
+                await scheduler._send_notification(
+                    internal_user_id=_FORBIDDEN_INTERNAL,
+                    notification_type="trial_expiring_24h",
+                    text="Тест",
+                    keyboard={"inline_keyboard": []},
+                )
+                is False
+            )
+            row = await pool.fetchrow(
+                "SELECT delivery_status FROM notification_log "
+                "WHERE internal_user_id = $1 AND notification_type = 'trial_expiring_24h'",
+                _FORBIDDEN_INTERNAL,
+            )
+            assert row is not None
+            assert row["delivery_status"] == "terminal_failure"
+
+            # Дедуп-запись закрывает следующую попытку без повторного Bot API вызова.
+            scheduler._http_client.calls.clear()
+            assert (
+                await scheduler._send_notification(
+                    internal_user_id=_FORBIDDEN_INTERNAL,
+                    notification_type="trial_expiring_24h",
+                    text="Тест",
+                    keyboard={"inline_keyboard": []},
+                )
+                is False
+            )
+            assert scheduler._http_client.calls == []
+        finally:
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM notification_log WHERE internal_user_id = $1", _FORBIDDEN_INTERNAL)
+                await conn.execute("DELETE FROM user_identities WHERE telegram_user_id = $1", _FORBIDDEN_TG)
             await pool.close()
 
     asyncio.run(_run())

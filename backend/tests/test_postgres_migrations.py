@@ -129,6 +129,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "082_telegram_ads_attribution.sql",
         "083_telegram_ads_spend.sql",
         "084_admin_user_reset_actions.sql",
+        "085_notification_log_delivery_status.sql",
     ]
 
 
@@ -544,6 +545,20 @@ def test_bare_xray_traffic_migration_contract_safe_additive() -> None:
         " delete from ",
         "alter column",
     ):
+        assert forbidden not in lowered
+
+
+def test_notification_delivery_status_migration_contract_safe_additive() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1] / "migrations" / "085_notification_log_delivery_status.sql"
+    ).read_text(encoding="utf-8")
+    lowered = _squash_ws(migration).lower()
+
+    assert "add column if not exists delivery_status text not null default 'delivered'" in lowered
+    assert "check (delivery_status in ('delivered', 'terminal_failure'))" in lowered
+    assert "notification_log_delivery_status_check" in lowered
+
+    for forbidden in ("drop table", "drop column", "truncate", " delete from "):
         assert forbidden not in lowered
 
 

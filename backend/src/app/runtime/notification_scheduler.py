@@ -340,6 +340,8 @@ class NotificationScheduler:
             return False
 
         delivered = False
+        retryable_failure = False
+        telegram_terminal_failure = False
 
         # --- Веб-канал (у кого есть verified email — «может залогиниться») ---
         web_kind = _WEB_KINDS.get(notification_type)
@@ -355,6 +357,7 @@ class NotificationScheduler:
                 )
                 delivered = True
             except Exception:
+                retryable_failure = True
                 _LOGGER.exception("notification_web_insert_failed user=%s type=%s", internal_user_id, notification_type)
 
         # --- TG-канал ---
@@ -375,7 +378,15 @@ class NotificationScheduler:
                         "reply_markup": tg_keyboard,
                     },
                 )
-                if resp.status_code != 200:
+                if resp.status_code == 403:
+                    telegram_terminal_failure = True
+                    _LOGGER.info(
+                        "notification_send_terminal user=%s type=%s status=403",
+                        internal_user_id,
+                        notification_type,
+                    )
+                elif resp.status_code != 200:
+                    retryable_failure = True
                     _LOGGER.warning(
                         "notification_send_failed user=%s type=%s status=%d",
                         internal_user_id,
@@ -385,20 +396,23 @@ class NotificationScheduler:
                 else:
                     delivered = True
             except Exception:
+                retryable_failure = True
                 _LOGGER.debug("notification_send_error user=%s", internal_user_id, exc_info=True)
 
-        if not delivered:
-            # Нет ни одного успешного канала — дедуп-запись не пишем, ретрай следующим тиком.
+        terminal_failure = telegram_terminal_failure and not delivered and not retryable_failure
+        if not delivered and not terminal_failure:
+            # Временный сбой доступного канала — без дедупа, ретрай следующим тиком.
             return False
 
-        # Log notification (одна запись на оба канала)
+        # Одна запись на оба канала: успешная доставка либо терминально закрытая попытка.
         await self._pool.execute(
-            """INSERT INTO notification_log (internal_user_id, notification_type)
-               VALUES ($1, $2) ON CONFLICT DO NOTHING""",
+            """INSERT INTO notification_log (internal_user_id, notification_type, delivery_status)
+               VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
             internal_user_id,
             notification_type,
+            "delivered" if delivered else "terminal_failure",
         )
-        return True
+        return delivered
 
     async def _check_trial_expiring(self, now: datetime) -> None:
         """Обычное предупреждение в непересекающемся окне (6 ч; 24 ч]."""
