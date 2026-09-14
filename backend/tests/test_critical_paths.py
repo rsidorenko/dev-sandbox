@@ -209,6 +209,9 @@ def test_run_checks_calls_all_lifecycle_stages():
     sched = NotificationScheduler(pool=pool, bot_token="tok", vless_provider=provider)
 
     with (
+        patch.object(sched, "_check_trial_activation_nudge", new_callable=AsyncMock) as early1,
+        patch.object(sched, "_check_trial_connection_nudge", new_callable=AsyncMock) as early2,
+        patch.object(sched, "_check_checkout_abandoned", new_callable=AsyncMock) as early3,
         patch.object(sched, "_check_trial_expiring", new_callable=AsyncMock) as m1,
         patch.object(sched, "_check_trial_expiring_urgent", new_callable=AsyncMock) as m2,
         patch.object(sched, "_check_trial_expired", new_callable=AsyncMock) as m3,
@@ -220,6 +223,9 @@ def test_run_checks_calls_all_lifecycle_stages():
     ):
         _run(sched._run_checks())
 
+    early1.assert_called_once()
+    early2.assert_called_once()
+    early3.assert_called_once()
     m1.assert_called_once()
     m2.assert_called_once()
     m3.assert_called_once()

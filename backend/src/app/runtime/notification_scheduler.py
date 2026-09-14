@@ -1,8 +1,8 @@
 """Background notification scheduler for subscription/trial lifecycle events.
 
 Runs as an async task alongside the bot polling loop.
-Checks every 60 minutes for trial conversion stages, subscription expiry,
-key lifecycle and referral offers.
+Checks with a configurable cadence for trial conversion stages, subscription
+expiry, key lifecycle and referral offers.
 """
 
 from __future__ import annotations
@@ -11,7 +11,9 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import asyncpg
 import httpx
@@ -22,11 +24,14 @@ from app.bot_transport.custom_emoji import (
     custom_emoji_enabled_from_env,
 )
 from app.bot_transport.notification_texts import (
+    text_checkout_abandoned,
     text_keys_deleted,
     text_referral_offer_paid,
     text_referral_offer_trial,
     text_subscription_expired,
     text_subscription_expiring,
+    text_trial_activation_nudge,
+    text_trial_connection_nudge,
     text_trial_expired,
     text_trial_expired_followup,
     text_trial_expiring,
@@ -37,7 +42,7 @@ from app.persistence.postgres_web_notifications import PostgresWebNotificationRe
 
 _LOGGER = logging.getLogger(__name__)
 
-_CHECK_INTERVAL_SECONDS = int(os.environ.get("NOTIFICATION_CHECK_INTERVAL_SECONDS", "3600"))
+_CHECK_INTERVAL_SECONDS = int(os.environ.get("NOTIFICATION_CHECK_INTERVAL_SECONDS", "900"))
 _EXPIRY_WARNING_HOURS = int(os.environ.get("NOTIFICATION_EXPIRY_WARNING_HOURS", "72"))
 _GRACE_PERIOD_DAYS = int(os.environ.get("NOTIFICATION_GRACE_PERIOD_DAYS", "20"))
 _ADVISORY_LOCK_ID = 20260608
@@ -46,24 +51,44 @@ _TRIAL_URGENT_HOURS = 6
 _TRIAL_PAYWALL_RETRY_HOURS = 48
 _TRIAL_FOLLOWUP_DELAY_HOURS = 24
 _TRIAL_FOLLOWUP_WINDOW_HOURS = 48
-# Окно «недавней активации» для реферального оффера: 25 ч > 24 ч каденции тиков,
-# чтобы каждого недавно активировавшего пользователя (триал или оплата) поймал хотя бы один тик.
+_ACTIVATION_NUDGE_DELAY_MINUTES = 15
+_ACTIVATION_NUDGE_WINDOW_HOURS = 48
+_CONNECTION_NUDGE_DELAY_MINUTES = 15
+_CHECKOUT_NUDGE_DELAY_MINUTES = 30
+_CHECKOUT_NUDGE_WINDOW_HOURS = 24
+# Окно «недавней активации» платной подписки оставляет запас относительно cadence,
+# чтобы после первой оплаты пользователь попал хотя бы в один тик.
 _REFERRAL_OFFER_RECENT_HOURS = 25
 
 # Веб-канал: notification_type → (kind, title). kind ⊆ CHECK-множества миграции 077
 # (контракт-тест в test_notification_scheduler_web.py). body — исходный текст уведомления.
 _WEB_KINDS: dict[str, tuple[str, str]] = {
+    "trial_activation_nudge_15m": ("broadcast", "Бесплатный VPN готов"),
+    "trial_connection_nudge_15m": ("broadcast", "Завершите подключение"),
     "trial_expiring": ("trial_expiring", "Триал заканчивается"),
     "trial_expiring_24h": ("trial_expiring", "До конца триала меньше суток"),
     "trial_expiring_6h": ("trial_expiring", "До конца триала несколько часов"),
     "trial_expired": ("trial_expired", "Триал истёк"),
     "trial_expired_followup_24h": ("trial_expired", "VPN можно возобновить"),
+    "checkout_abandoned_30m": ("trial_expiring", "Оплата не завершена"),
     "subscription_expiring_3d": ("subscription_expiring", "Подписка заканчивается"),
     "subscription_expired": ("subscription_expired", "Подписка истекла"),
     "keys_deleted": ("key_deleted", "Ключи удалены"),
     "referral_offer_trial": ("referral_offer", "Реферальная программа"),
     "referral_offer_paid": ("referral_offer", "Реферальная программа"),
 }
+
+_MSK = ZoneInfo("Europe/Moscow")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _format_msk_datetime(value: datetime) -> str:
+    return value.astimezone(_MSK).strftime("%d.%m в %H:%M")
+
+
+def _web_notification_body(text: str, *, kind: str) -> str:
+    """Веб рендерит HTML только для broadcast; у остальных типов убираем Telegram-теги."""
+    return text if kind == "broadcast" else _HTML_TAG_RE.sub("", text)
 
 
 def _referral_offer_enabled(env_getter=os.environ.get) -> bool:
@@ -87,14 +112,14 @@ class NotificationScheduler:
         self._http_client: httpx.AsyncClient | None = None
 
     async def run(self) -> None:
-        """Main loop: run checks every hour."""
+        """Main loop: run checks with the configured cadence."""
         self._running = True
         while self._running:
             try:
                 await self._run_checks()
             except Exception:
                 _LOGGER.exception("notification_scheduler_check_error")
-            await self._sleep(60 * 60)  # 1 hour
+            await self._sleep(_CHECK_INTERVAL_SECONDS)
 
     def stop(self) -> None:
         self._running = False
@@ -132,6 +157,9 @@ class NotificationScheduler:
         now = datetime.now(UTC)
         _LOGGER.info("notification_scheduler.run_checks at=%s", now.isoformat())
 
+        await self._check_trial_activation_nudge(now)
+        await self._check_trial_connection_nudge(now)
+        await self._check_checkout_abandoned(now)
         await self._check_trial_expiring(now)
         await self._check_trial_expiring_urgent(now)
         await self._check_trial_expired(now)
@@ -143,6 +171,133 @@ class NotificationScheduler:
         if _referral_offer_enabled():
             await self._check_referral_offer_trial(now)
             await self._check_referral_offer_paid(now)
+
+    async def _check_trial_activation_nudge(self, now: datetime) -> None:
+        """Одно касание новым пользователям, которые не запустили доступный триал."""
+        rows = await self._pool.fetch(
+            """SELECT u.internal_user_id
+               FROM user_identities u
+               LEFT JOIN subscription_snapshots s ON s.internal_user_id = u.internal_user_id
+               WHERE u.is_internal = FALSE
+               AND u.trial_used = FALSE
+               AND u.created_at <= NOW() - make_interval(mins => $1)
+               AND u.created_at > NOW() - make_interval(hours => $2)
+               AND s.trial_started_at IS NULL
+               AND s.plan_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = u.internal_user_id
+                   AND n.notification_type = $3
+               )""",
+            _ACTIVATION_NUDGE_DELAY_MINUTES,
+            _ACTIVATION_NUDGE_WINDOW_HOURS,
+            "trial_activation_nudge_15m",
+        )
+        if not rows:
+            return
+        text, keyboard = text_trial_activation_nudge()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="trial_activation_nudge_15m",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
+
+    async def _check_trial_connection_nudge(self, now: datetime) -> None:
+        """Одно касание активного триала без первого VPN-трафика."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id,
+                      COALESCE((
+                          SELECT e.platform FROM funnel_interactions e
+                          WHERE e.internal_user_id = s.internal_user_id
+                            AND e.event_name = 'platform_selected'
+                            AND e.occurred_at >= s.trial_started_at
+                          ORDER BY e.occurred_at DESC LIMIT 1
+                      ), '') AS platform
+               FROM subscription_snapshots s
+               JOIN user_identities u ON u.internal_user_id = s.internal_user_id
+               WHERE u.is_internal = FALSE
+               AND s.state_label = 'active'
+               AND s.plan_id IS NULL
+               AND s.trial_started_at IS NOT NULL
+               AND s.trial_started_at <= NOW() - make_interval(mins => $1)
+               AND COALESCE(s.active_until_utc, s.trial_expires_at) > NOW()
+               AND NOT EXISTS (
+                   SELECT 1 FROM bare_xray_traffic_daily t
+                   WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
+                                     'x-user-' || left(s.internal_user_id, 16))
+                     AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                     AND t.uplink_bytes + t.downlink_bytes > 0
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = $2
+               )""",
+            _CONNECTION_NUDGE_DELAY_MINUTES,
+            "trial_connection_nudge_15m",
+        )
+        if not rows:
+            return
+
+        async def _notify(row: asyncpg.Record) -> None:
+            text, keyboard = text_trial_connection_nudge(platform=row["platform"])
+            await self._send_notification(
+                internal_user_id=row["internal_user_id"],
+                notification_type="trial_connection_nudge_15m",
+                text=text,
+                keyboard=keyboard,
+            )
+
+        await asyncio.gather(*[_notify(row) for row in rows])
+
+    async def _check_checkout_abandoned(self, now: datetime) -> None:
+        """Одно напоминание, если checkout триала не завершён за полчаса."""
+        rows = await self._pool.fetch(
+            """SELECT s.internal_user_id
+               FROM subscription_snapshots s
+               JOIN user_identities u ON u.internal_user_id = s.internal_user_id
+               JOIN LATERAL (
+                   SELECT max(e.occurred_at) AS opened_at
+                   FROM funnel_interactions e
+                   WHERE e.internal_user_id = s.internal_user_id
+                     AND e.event_name = 'checkout_opened'
+                     AND e.occurred_at >= s.trial_started_at
+               ) checkout ON checkout.opened_at IS NOT NULL
+               WHERE u.is_internal = FALSE
+               AND s.state_label = 'active'
+               AND s.plan_id IS NULL
+               AND s.trial_started_at IS NOT NULL
+               AND checkout.opened_at <= NOW() - make_interval(mins => $1)
+               AND checkout.opened_at > NOW() - make_interval(hours => $2)
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = $3
+               )""",
+            _CHECKOUT_NUDGE_DELAY_MINUTES,
+            _CHECKOUT_NUDGE_WINDOW_HOURS,
+            "checkout_abandoned_30m",
+        )
+        if not rows:
+            return
+        text, keyboard = text_checkout_abandoned()
+        await asyncio.gather(
+            *[
+                self._send_notification(
+                    internal_user_id=row["internal_user_id"],
+                    notification_type="checkout_abandoned_30m",
+                    text=text,
+                    keyboard=keyboard,
+                )
+                for row in rows
+            ]
+        )
 
     async def _send_notification(
         self,
@@ -195,7 +350,7 @@ class NotificationScheduler:
                     internal_user_id=internal_user_id,
                     kind=kind,
                     title=title,
-                    body=text,
+                    body=_web_notification_body(text, kind=kind),
                     payload={"notification_type": notification_type},
                 )
                 delivered = True
@@ -249,7 +404,21 @@ class NotificationScheduler:
         """Обычное предупреждение в непересекающемся окне (6 ч; 24 ч]."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id,
-                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at
+                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at,
+                      EXISTS (
+                          SELECT 1 FROM bare_xray_traffic_daily t
+                          WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
+                                            'x-user-' || left(s.internal_user_id, 16))
+                            AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                            AND t.uplink_bytes + t.downlink_bytes > 0
+                      ) AS has_traffic,
+                      COALESCE((
+                          SELECT e.platform FROM funnel_interactions e
+                          WHERE e.internal_user_id = s.internal_user_id
+                            AND e.event_name = 'platform_selected'
+                            AND e.occurred_at >= s.trial_started_at
+                          ORDER BY e.occurred_at DESC LIMIT 1
+                      ), '') AS platform
                FROM subscription_snapshots s
                WHERE s.state_label = 'active'
                AND s.trial_expires_at IS NOT NULL
@@ -269,24 +438,41 @@ class NotificationScheduler:
         )
         if not rows:
             return
-        text, keyboard = text_trial_expiring()
-        await asyncio.gather(
-            *[
-                self._send_notification(
-                    internal_user_id=row["internal_user_id"],
-                    notification_type="trial_expiring_24h",
-                    text=text,
-                    keyboard=keyboard,
-                )
-                for row in rows
-            ]
-        )
+
+        async def _notify(row: asyncpg.Record) -> None:
+            text, keyboard = text_trial_expiring(
+                active_until=_format_msk_datetime(row["access_expires_at"]),
+                has_traffic=bool(row["has_traffic"]),
+                platform=row["platform"],
+            )
+            await self._send_notification(
+                internal_user_id=row["internal_user_id"],
+                notification_type="trial_expiring_24h",
+                text=text,
+                keyboard=keyboard,
+            )
+
+        await asyncio.gather(*[_notify(row) for row in rows])
 
     async def _check_trial_expiring_urgent(self, now: datetime) -> None:
         """Срочное предупреждение в окне (0 ч; 6 ч]."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id,
-                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at
+                      COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at,
+                      EXISTS (
+                          SELECT 1 FROM bare_xray_traffic_daily t
+                          WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
+                                            'x-user-' || left(s.internal_user_id, 16))
+                            AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                            AND t.uplink_bytes + t.downlink_bytes > 0
+                      ) AS has_traffic,
+                      COALESCE((
+                          SELECT e.platform FROM funnel_interactions e
+                          WHERE e.internal_user_id = s.internal_user_id
+                            AND e.event_name = 'platform_selected'
+                            AND e.occurred_at >= s.trial_started_at
+                          ORDER BY e.occurred_at DESC LIMIT 1
+                      ), '') AS platform
                FROM subscription_snapshots s
                WHERE s.state_label = 'active'
                AND s.trial_expires_at IS NOT NULL
@@ -304,18 +490,21 @@ class NotificationScheduler:
         )
         if not rows:
             return
-        text, keyboard = text_trial_expiring_6h()
-        await asyncio.gather(
-            *[
-                self._send_notification(
-                    internal_user_id=row["internal_user_id"],
-                    notification_type="trial_expiring_6h",
-                    text=text,
-                    keyboard=keyboard,
-                )
-                for row in rows
-            ]
-        )
+
+        async def _notify(row: asyncpg.Record) -> None:
+            text, keyboard = text_trial_expiring_6h(
+                active_until=_format_msk_datetime(row["access_expires_at"]),
+                has_traffic=bool(row["has_traffic"]),
+                platform=row["platform"],
+            )
+            await self._send_notification(
+                internal_user_id=row["internal_user_id"],
+                notification_type="trial_expiring_6h",
+                text=text,
+                keyboard=keyboard,
+            )
+
+        await asyncio.gather(*[_notify(row) for row in rows])
 
     async def _check_trial_expired(self, now: datetime) -> None:
         """Завершённые триалы: отозвать ключи и зафиксировать приостановку."""
@@ -426,13 +615,20 @@ class NotificationScheduler:
                AND s.plan_id IS NOT NULL
                AND s.active_until_utc > NOW()
                AND s.active_until_utc < NOW() + INTERVAL '3 days'
-               AND s.active_until_utc > NOW() + INTERVAL '2 days'""",
+               AND s.active_until_utc > NOW() + INTERVAL '2 days'
+               AND NOT EXISTS (
+                   SELECT 1 FROM notification_log n
+                   WHERE n.internal_user_id = s.internal_user_id
+                   AND n.notification_type = 'subscription_expiring_3d'
+                   AND n.sent_at >= s.active_until_utc - INTERVAL '3 days'
+                   AND n.sent_at < s.active_until_utc
+               )""",
         )
         if not rows:
             return
 
         async def _notify(row: asyncpg.Record) -> None:
-            text, keyboard = text_subscription_expiring(row["active_until_utc"].date().isoformat())
+            text, keyboard = text_subscription_expiring(_format_msk_datetime(row["active_until_utc"]))
             await self._send_notification(
                 internal_user_id=row["internal_user_id"],
                 notification_type="subscription_expiring_3d",
@@ -512,11 +708,7 @@ class NotificationScheduler:
             )
 
     async def _check_referral_offer_trial(self, now: datetime) -> None:
-        """Recent TRIAL activations: send the referral offer once per user (once-ever via NOT EXISTS).
-
-        Window = _REFERRAL_OFFER_RECENT_HOURS (>1 tick cadence) so each freshly-activated trial user is
-        caught by at least one hourly tick. Web-only (tg_id <= 0) получают оффер веб-каналом
-        (без фильтра по знаку; дедуп — notification_log, как и у TG)."""
+        """Активные триалы с первым VPN-трафиком: один реферальный оффер."""
         rows = await self._pool.fetch(
             """SELECT s.internal_user_id
                 FROM subscription_snapshots s
@@ -524,13 +716,18 @@ class NotificationScheduler:
                 WHERE s.state_label = 'active'
                 AND s.plan_id IS NULL
                 AND s.trial_expires_at IS NOT NULL
-                AND s.updated_at > NOW() - make_interval(hours => $1)
+                AND EXISTS (
+                    SELECT 1 FROM bare_xray_traffic_daily t
+                    WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
+                                      'x-user-' || left(s.internal_user_id, 16))
+                      AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                      AND t.uplink_bytes + t.downlink_bytes > 0
+                )
                 AND NOT EXISTS (
                     SELECT 1 FROM notification_log nl
                     WHERE nl.internal_user_id = s.internal_user_id
                     AND nl.notification_type = 'referral_offer_trial'
                 )""",
-            _REFERRAL_OFFER_RECENT_HOURS,
         )
         if not rows:
             return
@@ -550,8 +747,7 @@ class NotificationScheduler:
     async def _check_referral_offer_paid(self, now: datetime) -> None:
         """Recent PAID activations (first payment or renewal): send the referral offer once per user.
 
-        Different text from the trial offer, so a trial→paid user gets TWO distinct pushes, never a repeat.
-        Once-ever via NOT EXISTS (renewal/reactivation won't re-send).
+        Пользователь, уже видевший trial-оффер, не получает второй оффер после оплаты.
 
         Excludes users whose most recent snapshot update was a FREE grant (grant_subscription_days:
         referral bonus, broadcast gift button, admin add-days). A grant bumps ``updated_at`` and
@@ -571,7 +767,7 @@ class NotificationScheduler:
                 AND NOT EXISTS (
                     SELECT 1 FROM notification_log nl
                     WHERE nl.internal_user_id = s.internal_user_id
-                    AND nl.notification_type = 'referral_offer_paid'
+                    AND nl.notification_type = ANY($2::text[])
                 )
                 AND NOT EXISTS (
                     SELECT 1 FROM admin_subscription_actions a
@@ -581,6 +777,7 @@ class NotificationScheduler:
                     AND a.created_at <= s.updated_at + INTERVAL '5 minutes'
                 )""",
             _REFERRAL_OFFER_RECENT_HOURS,
+            ["referral_offer_trial", "referral_offer_paid"],
         )
         if not rows:
             return

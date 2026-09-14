@@ -9,73 +9,146 @@ from typing import Any
 
 from app.bot_transport.storefront_ui import (
     CB_BUY_VPN,
-    CB_MAIN_MENU,
+    CB_CONNECT_DEVICE,
+    CB_CONNECT_FAST_ANDROID,
+    CB_CONNECT_FAST_IOS,
+    CB_CONNECT_FAST_MAC,
+    CB_CONNECT_FAST_WIN,
+    CB_HELP,
     CB_REFERRAL,
+    CB_TRIAL,
     _inline_kb,
 )
 
+_FAST_CONNECT_CALLBACKS = {
+    "android": CB_CONNECT_FAST_ANDROID,
+    "ios": CB_CONNECT_FAST_IOS,
+    "mac": CB_CONNECT_FAST_MAC,
+    "win": CB_CONNECT_FAST_WIN,
+}
 
-def text_trial_expiring() -> tuple[str, dict[str, Any]]:
-    """Совместимый alias для обычного предупреждения об окончании триала."""
-    return text_trial_expiring_24h()
+
+def _connect_callback(platform: str) -> str:
+    return _FAST_CONNECT_CALLBACKS.get(platform, CB_CONNECT_DEVICE)
 
 
-def text_trial_expiring_24h() -> tuple[str, dict[str, Any]]:
+def text_trial_activation_nudge() -> tuple[str, dict[str, Any]]:
     text = (
-        "⏳ До конца бесплатного периода осталось меньше суток.\n\n"
-        "VPN уже настроен: ключи, устройства и параметры подключения сохранятся.\n"
-        "Выберите тариф заранее, чтобы продолжить пользоваться VPN без перерыва."
+        "👋 <b>Ваш бесплатный VPN готов к запуску</b>\n\n"
+        "Откройте полный доступ на 3 дня — без оплаты и привязки карты. "
+        "После активации останется выбрать устройство и подключиться."
+    )
+    keyboard = _inline_kb([[{"text": "🎁 Запустить бесплатные 3 дня", "callback_data": CB_TRIAL, "style": "success"}]])
+    return text, keyboard
+
+
+def text_trial_connection_nudge(*, platform: str = "") -> tuple[str, dict[str, Any]]:
+    text = (
+        "🔌 <b>Остался последний шаг</b>\n\n"
+        "Пробный доступ уже активен, но VPN ещё не передавал трафик. "
+        "Откройте подключение — настройка обычно занимает около минуты."
     )
     keyboard = _inline_kb(
-        [
-            [{"text": "🔑 Продолжить без перерыва", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
+        [[{"text": "📱 Завершить подключение", "callback_data": _connect_callback(platform), "style": "primary"}]]
     )
     return text, keyboard
 
 
-def text_trial_expiring_6h() -> tuple[str, dict[str, Any]]:
+def text_checkout_abandoned() -> tuple[str, dict[str, Any]]:
     text = (
-        "⚡ Бесплатный период закончится через несколько часов.\n\n"
-        "После этого VPN приостановится, но повторно устанавливать приложение и добавлять ключи не придётся.\n"
-        "Выберите тариф — после оплаты доступ продолжится с текущими настройками."
+        "💳 <b>Оплата не была завершена</b>\n\n"
+        "VPN можно продолжить без повторной настройки. Вернитесь к тарифам и выберите удобный период доступа."
     )
-    keyboard = _inline_kb(
-        [
-            [{"text": "🔑 Сохранить доступ", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
+    keyboard = _inline_kb([[{"text": "⚡ Вернуться к тарифам", "callback_data": CB_BUY_VPN, "style": "success"}]])
+    return text, keyboard
+
+
+def text_trial_expiring(
+    *,
+    active_until: str | None = None,
+    has_traffic: bool = True,
+    platform: str = "",
+) -> tuple[str, dict[str, Any]]:
+    """Совместимый alias для обычного предупреждения об окончании триала."""
+    return text_trial_expiring_24h(active_until=active_until, has_traffic=has_traffic, platform=platform)
+
+
+def text_trial_expiring_24h(
+    *,
+    active_until: str | None = None,
+    has_traffic: bool = True,
+    platform: str = "",
+) -> tuple[str, dict[str, Any]]:
+    title = (
+        f"Бесплатный доступ действует до {active_until}"
+        if active_until
+        else "До конца бесплатного доступа меньше суток"
     )
+    if has_traffic:
+        text = (
+            f"⏳ <b>{title}</b>\n\n"
+            "Вы уже подключали Bravada VPN. Выберите тариф заранее, "
+            "чтобы соединение продолжило работать без перерыва."
+        )
+        keyboard = _inline_kb([[{"text": "⚡ Продлить без перерыва", "callback_data": CB_BUY_VPN, "style": "success"}]])
+    else:
+        text = (
+            f"🔌 <b>{title}</b>\n\n"
+            "Похоже, VPN ещё не удалось проверить. Завершите подключение сейчас — "
+            "настройка обычно занимает около минуты."
+        )
+        keyboard = _inline_kb(
+            [[{"text": "📱 Завершить подключение", "callback_data": _connect_callback(platform), "style": "primary"}]]
+        )
+    return text, keyboard
+
+
+def text_trial_expiring_6h(
+    *,
+    active_until: str | None = None,
+    has_traffic: bool = True,
+    platform: str = "",
+) -> tuple[str, dict[str, Any]]:
+    paid_title = f"VPN приостановится {active_until}" if active_until else "VPN приостановится через несколько часов"
+    trial_title = (
+        f"Пробный доступ закончится {active_until}"
+        if active_until
+        else "Пробный доступ закончится через несколько часов"
+    )
+    if has_traffic:
+        text = (
+            f"⚡ <b>{paid_title}</b>\n\n"
+            "Приложение и настройки сохранятся. Выберите тариф, "
+            "чтобы Bravada продолжил работать без отключения."
+        )
+        keyboard = _inline_kb([[{"text": "🔑 Сохранить доступ", "callback_data": CB_BUY_VPN, "style": "success"}]])
+    else:
+        text = f"⚡ <b>{trial_title}</b>\n\nVPN ещё не передавал трафик. У вас остаётся время проверить подключение."
+        keyboard = _inline_kb(
+            [[{"text": "📱 Проверить VPN", "callback_data": _connect_callback(platform), "style": "primary"}]]
+        )
     return text, keyboard
 
 
 def text_trial_expired() -> tuple[str, dict[str, Any]]:
     text = (
-        "❌ Бесплатный период закончился.\n\n"
-        "Доступ к VPN приостановлен, но ключи и настройки сохранены.\n"
-        "Выберите тариф и оплатите его — доступ восстановится автоматически, без повторной установки.\n\n"
-        "Ключи сохраняются ещё 20 дней."
+        "🔒 <b>Bravada VPN приостановлен</b>\n\n"
+        "Бесплатные 3 дня закончились, но приложение и настройки сохранены. "
+        "После оплаты доступ вернётся автоматически — подключать всё заново не придётся."
     )
-    keyboard = _inline_kb(
-        [
-            [{"text": "🔑 Возобновить VPN", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+    keyboard = _inline_kb([[{"text": "⚡ Вернуть VPN", "callback_data": CB_BUY_VPN, "style": "success"}]])
     return text, keyboard
 
 
 def text_trial_expired_followup() -> tuple[str, dict[str, Any]]:
     text = (
-        "🔐 Ваш VPN всё ещё готов к продолжению.\n\n"
-        "Ключи, устройства и настройки сохранены. Выберите тариф и оплатите его — доступ вернётся автоматически.\n"
-        "Повторно устанавливать приложение или настраивать подключение не нужно."
+        "🔐 <b>Ваш VPN можно вернуть в один клик</b>\n\n"
+        "Подключение сохранено. Выберите тариф — доступ включится автоматически сразу после оплаты."
     )
     keyboard = _inline_kb(
         [
-            [{"text": "🔑 Вернуть доступ", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
+            [{"text": "⚡ Возобновить VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
+            [{"text": "❓ Нужна помощь", "callback_data": CB_HELP}],
         ]
     )
     return text, keyboard
@@ -83,70 +156,53 @@ def text_trial_expired_followup() -> tuple[str, dict[str, Any]]:
 
 def text_subscription_expiring(active_until: str) -> tuple[str, dict[str, Any]]:
     text = (
-        f"⏳ Подписка заканчивается!\n\n"
-        f"Действует до: {active_until}\n\n"
-        f"Продлите подписку, чтобы не потерять доступ к VPN."
+        "⏳ <b>Подписка Bravada скоро закончится</b>\n\n"
+        f"Доступ работает до <b>{active_until}</b>. Продлите подписку заранее, "
+        "чтобы VPN не приостанавливался."
     )
-    keyboard = _inline_kb(
-        [
-            [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+    keyboard = _inline_kb([[{"text": "⚡ Продлить без перерыва", "callback_data": CB_BUY_VPN, "style": "success"}]])
     return text, keyboard
 
 
 def text_subscription_expired() -> tuple[str, dict[str, Any]]:
     text = (
-        "❌ Подписка истекла.\n\n"
-        "Доступ к VPN приостановлен.\n"
-        "Ваши ключи сохранены — при продлении они активируются автоматически.\n\n"
-        "У вас есть 20 дней, после чего ключи будут удалены."
+        "🔒 <b>Подписка Bravada закончилась</b>\n\n"
+        "VPN приостановлен, но подключение сохранено ещё на 20 дней. "
+        "Продлите подписку — доступ восстановится автоматически."
     )
-    keyboard = _inline_kb(
-        [
-            [{"text": "💳 Продлить подписку", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+    keyboard = _inline_kb([[{"text": "⚡ Восстановить VPN", "callback_data": CB_BUY_VPN, "style": "success"}]])
     return text, keyboard
 
 
 def text_keys_deleted() -> tuple[str, dict[str, Any]]:
     text = (
-        "🗑 Ключи удалены.\n\n"
-        "Поскольку подписка не была продлена в течение 20 дней, "
-        "ваши VPN-ключи были удалены.\n\n"
-        "При оформлении новой подписки вам будут выданы новые ключи."
+        "ℹ️ <b>Настройки предыдущего подключения удалены</b>\n\n"
+        "После окончания подписки прошло 20 дней. При новой покупке Bravada "
+        "автоматически создаст новое подключение."
     )
-    keyboard = _inline_kb(
-        [
-            [{"text": "🔑 Купить подписку", "callback_data": CB_BUY_VPN}],
-            [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}],
-        ]
-    )
+    keyboard = _inline_kb([[{"text": "📱 Подключить снова", "callback_data": CB_BUY_VPN, "style": "success"}]])
     return text, keyboard
 
 
 def text_referral_offer_trial() -> tuple[str, dict[str, Any]]:
-    """Реферальный оффер после оформления триала (once-ever)."""
+    """Реферальный оффер после первого реального трафика в триале (once-ever)."""
     text = (
-        "🎁 Пока вы пробуете Bravada\n\n"
-        "Получите <b>бесплатный месяц</b> за каждого друга, который оформит подписку от 1 месяца.\n"
-        "1 друг = <b>+30 дней</b> к вашей подписке.\n\n"
-        "Нажмите кнопку ниже, чтобы получить свою ссылку:"
+        "🎁 <b>Хотите пользоваться Bravada бесплатно?</b>\n\n"
+        "Пригласите друга: когда он оформит подписку от 1 месяца, "
+        "вам добавятся <b>30 дней VPN</b>.\n\n"
+        "1 друг = <b>+30 дней</b>."
     )
-    keyboard = _inline_kb([[{"text": "🎁 Получить реферальную ссылку", "callback_data": CB_REFERRAL}]])
+    keyboard = _inline_kb([[{"text": "🎁 Получить свою ссылку", "callback_data": CB_REFERRAL}]])
     return text, keyboard
 
 
 def text_referral_offer_paid() -> tuple[str, dict[str, Any]]:
-    """Реферальный оффер после первой оплаты (once-ever). Другой текст — не повтор trial-оффера."""
+    """Реферальный оффер после первой оплаты для тех, кто не видел trial-оффер."""
     text = (
-        "🎁 Спасибо за подписку!\n\n"
-        "Пригласите друга — и получите <b>бесплатный месяц</b> за его подписку от 1 месяца.\n"
-        "1 друг = <b>+30 дней</b> к вашей подписке.\n\n"
-        "Нажмите кнопку ниже, чтобы получить свою ссылку:"
+        "🎁 <b>Подписку можно продлевать бесплатно</b>\n\n"
+        "Пригласите друга: когда он оформит подписку от 1 месяца, "
+        "вам добавятся <b>30 дней VPN</b>.\n\n"
+        "1 друг = <b>+30 дней</b>."
     )
-    keyboard = _inline_kb([[{"text": "🎁 Получить реферальную ссылку", "callback_data": CB_REFERRAL}]])
+    keyboard = _inline_kb([[{"text": "🎁 Получить свою ссылку", "callback_data": CB_REFERRAL}]])
     return text, keyboard

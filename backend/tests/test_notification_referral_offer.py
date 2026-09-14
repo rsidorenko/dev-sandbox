@@ -15,14 +15,14 @@ def _callback_data(keyboard: dict) -> list[str]:
 def test_referral_offer_trial_text_and_keyboard() -> None:
     text, keyboard = text_referral_offer_trial()
     assert "+30 дней" in text
-    assert "бесплатный месяц" in text
+    assert "пользоваться Bravada бесплатно" in text
     assert CB_REFERRAL in _callback_data(keyboard)
 
 
 def test_referral_offer_paid_text_and_keyboard() -> None:
     text, keyboard = text_referral_offer_paid()
     assert "+30 дней" in text
-    assert "бесплатный месяц" in text
+    assert "продлевать бесплатно" in text
     assert CB_REFERRAL in _callback_data(keyboard)
 
 

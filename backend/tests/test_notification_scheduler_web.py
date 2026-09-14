@@ -153,6 +153,24 @@ def test_web_only_user_gets_web_notification_without_tg_call():
     assert pool.log_inserts == [(_INTERNAL, "trial_expiring")]
 
 
+def test_non_broadcast_web_notification_does_not_expose_telegram_html() -> None:
+    pool = _FakePool(tg_id=_WEB_TG, has_email=True)
+    http = _FakeHttp()
+    scheduler = _scheduler(pool, http)
+
+    result = asyncio.run(
+        scheduler._send_notification(
+            internal_user_id=_INTERNAL,
+            notification_type="trial_expiring",
+            text="⏳ <b>Доступ до 15.09</b>",
+            keyboard={"inline_keyboard": []},
+        )
+    )
+
+    assert result is True
+    assert pool.web_inserts[0]["args"][3] == "⏳ Доступ до 15.09"
+
+
 def test_linked_user_gets_both_channels_and_single_log_row():
     pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
     http = _FakeHttp()
@@ -262,6 +280,13 @@ def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
                     "ON CONFLICT (internal_user_id) DO NOTHING",
                     _INTERNAL,
                 )
+                await c.execute(
+                    "INSERT INTO bare_xray_traffic_daily "
+                    "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
+                    "VALUES ((NOW() AT TIME ZONE 'Europe/Moscow')::date, 99101, $1, 1, 1) "
+                    "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET uplink_bytes = 1, downlink_bytes = 1",
+                    f"user-{_INTERNAL[:16]}",
+                )
 
             sched = NotificationScheduler(pool=pool, bot_token="test-token", vless_provider=_StubProvider())
             http = _FakeHttp()
@@ -294,6 +319,10 @@ def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
             assert int(count or 0) == 1
         finally:
             async with pool.acquire() as c:
+                await c.execute(
+                    "DELETE FROM bare_xray_traffic_daily WHERE server_id = 99101 AND email = $1",
+                    f"user-{_INTERNAL[:16]}",
+                )
                 await c.execute("DELETE FROM notification_log WHERE internal_user_id = $1", _INTERNAL)
                 await c.execute("DELETE FROM web_notifications WHERE internal_user_id = $1", _INTERNAL)
                 await c.execute("DELETE FROM user_emails WHERE telegram_user_id = $1", _WEB_TG)
