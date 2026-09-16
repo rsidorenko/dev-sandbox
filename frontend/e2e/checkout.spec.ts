@@ -63,4 +63,13 @@ test.describe("Checkout (/payment/[planId])", () => {
     // 10 дней × 15 ₽ = 150 ₽.
     await expect(checkout.payButton(150)).toBeVisible();
   });
+
+  test("recovery URL restores plan, devices and payment method", async ({ page }) => {
+    await mockApi(page, { profile: "auth" });
+    const checkout = new CheckoutPage(page);
+    await checkout.goto("3m?devices=8&method=crypto");
+    await expect(checkout.deviceSlider()).toHaveValue("8");
+    // 699 ₽ + 3 дополнительных устройства × 240 ₽ за 90 дней.
+    await expect(checkout.cryptoPayButton()).toContainText(/1.419 ₽/);
+  });
 });

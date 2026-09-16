@@ -184,6 +184,27 @@ def test_non_broadcast_web_notification_does_not_expose_telegram_html() -> None:
     assert pool.web_inserts[0]["args"][3] == "⏳ Доступ до 15.09"
 
 
+def test_web_notification_merges_safe_action_payload() -> None:
+    pool = _FakePool(tg_id=_WEB_TG, has_email=True)
+    scheduler = _scheduler(pool, _FakeHttp())
+
+    result = asyncio.run(
+        scheduler._send_notification(
+            internal_user_id=_INTERNAL,
+            notification_type="checkout_abandoned_30m",
+            text="Заказ сохранён",
+            keyboard={"inline_keyboard": []},
+            web_payload={"action": {"href": "/payment/3m?devices=8", "label": "Продолжить заказ"}},
+        )
+    )
+
+    assert result is True
+    assert json.loads(pool.web_inserts[0]["args"][4]) == {
+        "notification_type": "checkout_abandoned_30m",
+        "action": {"href": "/payment/3m?devices=8", "label": "Продолжить заказ"},
+    }
+
+
 def test_linked_user_gets_both_channels_and_single_log_row():
     pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
     http = _FakeHttp()

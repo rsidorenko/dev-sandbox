@@ -15,7 +15,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from app.application.bootstrap import Slice1Composition
-from app.application.funnel_events import callback_interaction, record_interaction
+from app.application.funnel_events import callback_interaction, checkout_context_from_callback, record_interaction
 from app.application.plan_pricing import get_plan_pricing
 from app.application.purchase_handler import (
     PurchaseSummary,
@@ -1964,6 +1964,9 @@ async def _process_yookassa_payment(
         surface="telegram",
         dedup_key=f"yookassa:{result.payment_id}",
         telegram_user_id=uid,
+        plan_id=plan_id,
+        device_count=device_count,
+        payment_method="card",
     )
 
     display_name = plan_display_name(plan_id)
@@ -2091,6 +2094,9 @@ async def _process_cryptobot_payment(
         surface="telegram",
         dedup_key=f"cryptobot:{result.invoice_id}",
         telegram_user_id=uid,
+        plan_id=plan_id,
+        device_count=device_count,
+        payment_method="crypto",
     )
 
     display_name = plan_display_name(plan_id)
@@ -2615,6 +2621,7 @@ async def _render_storefront_response(
             telegram_user_id=uid,
         )
     if interaction is not None and isinstance(callback_id, str):
+        checkout_context = checkout_context_from_callback(code)
         await record_interaction(
             _get_pool_from_composition(composition),
             event_name=interaction[0],
@@ -2622,6 +2629,8 @@ async def _render_storefront_response(
             surface="telegram",
             dedup_key=callback_id,
             telegram_user_id=uid,
+            plan_id=checkout_context[0] if checkout_context is not None else None,
+            device_count=checkout_context[1] if checkout_context is not None else None,
         )
 
     text: str = text_error_generic()

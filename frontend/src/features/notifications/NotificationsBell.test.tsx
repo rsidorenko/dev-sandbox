@@ -133,6 +133,45 @@ describe("NotificationsBell", () => {
     expect(screen.queryByRole("link", { name: "Выбрать тариф" })).not.toBeInTheDocument();
   });
 
+  it("возвращает в точный checkout из payload", async () => {
+    api.list.mockResolvedValue(
+      LIST_OK([
+        makeNotification({
+          kind: "trial_expiring",
+          payload: {
+            action: {
+              href: "/payment/3m?devices=8&method=crypto",
+              label: "Продолжить заказ",
+            },
+          },
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<NotificationsBell />);
+    await user.click(screen.getByRole("button", { name: "Уведомления" }));
+    expect(await screen.findByRole("link", { name: "Продолжить заказ" })).toHaveAttribute(
+      "href",
+      "/payment/3m?devices=8&method=crypto",
+    );
+    expect(screen.queryByRole("link", { name: "Выбрать тариф" })).not.toBeInTheDocument();
+  });
+
+  it("не рендерит внешний action из payload", async () => {
+    api.list.mockResolvedValue(
+      LIST_OK([
+        makeNotification({
+          kind: "subscription_expiring",
+          payload: { action: { href: "https://evil.example", label: "Перейти" } },
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<NotificationsBell />);
+    await user.click(screen.getByRole("button", { name: "Уведомления" }));
+    expect(screen.queryByRole("link", { name: "Перейти" })).not.toBeInTheDocument();
+  });
+
   it("кнопка клейма: eligible → успех → чип «Получено»", async () => {
     api.list.mockResolvedValue(
       LIST_OK([

@@ -157,7 +157,7 @@ def test_early_conversion_messages_use_existing_routes() -> None:
     activation_text, activation_keyboard = text_trial_activation_nudge()
     connection_text, connection_keyboard = text_trial_connection_nudge(platform="android")
     fallback_text, fallback_keyboard = text_trial_connection_nudge(platform="")
-    checkout_text, checkout_keyboard = text_checkout_abandoned()
+    checkout_text, checkout_keyboard = text_checkout_abandoned(plan_id="3m", device_count=8)
 
     assert "без оплаты и привязки карты" in activation_text
     assert activation_keyboard["inline_keyboard"][0][0]["callback_data"] == CB_TRIAL
@@ -166,7 +166,11 @@ def test_early_conversion_messages_use_existing_routes() -> None:
     assert fallback_keyboard["inline_keyboard"][0][0]["callback_data"] == CB_CONNECT_DEVICE
     assert fallback_text == connection_text
     assert "Оплата не была завершена" in checkout_text
-    assert checkout_keyboard["inline_keyboard"][0][0]["callback_data"] == CB_BUY_VPN
+    assert "3 месяца, 8 устройств" in checkout_text
+    assert checkout_keyboard["inline_keyboard"][0][0]["callback_data"] == "confirm_pay:3m:8"
+
+    _, legacy_checkout_keyboard = text_checkout_abandoned()
+    assert legacy_checkout_keyboard["inline_keyboard"][0][0]["callback_data"] == CB_BUY_VPN
 
 
 def test_trial_expiry_cta_depends_on_real_traffic() -> None:

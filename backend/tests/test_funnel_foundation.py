@@ -9,7 +9,7 @@ import asyncpg
 import httpx
 import pytest
 
-from app.application.funnel_events import callback_interaction, record_interaction
+from app.application.funnel_events import callback_interaction, checkout_context_from_callback, record_interaction
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.web_api.admin_stats import _mature_funnel
 from app.web_api.app import build_web_api_app
@@ -30,6 +30,9 @@ async def test_disabled_and_invalid_events_do_not_access_pool(monkeypatch):
     monkeypatch.setenv("FUNNEL_EVENTS_ENABLE", "1")
     assert not await record_interaction(pool, **{**args, "event_name": "vless://secret"})
     assert not await record_interaction(pool, **{**args, "platform": "secret"})
+    assert not await record_interaction(pool, **{**args, "plan_id": "unknown"})
+    assert not await record_interaction(pool, **{**args, "device_count": 100})
+    assert not await record_interaction(pool, **{**args, "payment_method": "secret"})
     pool.execute.assert_not_called()
 
 
@@ -69,6 +72,34 @@ def test_fastpath_problem_callback_mapping(platform):
 
 def test_fastpath_problem_callback_rejects_unknown_platform():
     assert callback_interaction("connect_fast_problem:unknown") is None
+
+
+def test_checkout_context_parser_supports_fixed_and_custom_plans():
+    assert checkout_context_from_callback("confirm_pay:3m:5") == ("3m", 5)
+    assert checkout_context_from_callback("confirm_pay:custom:45:12") == ("custom:45", 12)
+    assert checkout_context_from_callback("confirm_pay:unknown:5") is None
+    assert checkout_context_from_callback("confirm_pay:3m:21") is None
+    assert checkout_context_from_callback("main_menu") is None
+
+
+async def test_valid_checkout_context_is_bound_as_separate_sql_fields(monkeypatch):
+    monkeypatch.setenv("FUNNEL_EVENTS_ENABLE", "1")
+    pool = AsyncMock()
+
+    assert await record_interaction(
+        pool,
+        event_name="payment_created",
+        surface="web",
+        dedup_key="payment:1",
+        internal_user_id="user-1",
+        plan_id="3m",
+        device_count=8,
+        payment_method="card",
+    )
+
+    sql, *args = pool.execute.await_args.args
+    assert "plan_id, device_count, payment_method" in sql
+    assert args[-3:] == ["3m", 8, "card"]
 
 
 @pytest.fixture

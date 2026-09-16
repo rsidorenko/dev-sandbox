@@ -33,6 +33,10 @@ export class CheckoutPage {
     return this.page.locator('input[type="range"]');
   }
 
+  cryptoPayButton(): Locator {
+    return this.page.getByRole("button", { name: /Оплатить криптовалютой/ });
+  }
+
   emailGateLink(): Locator {
     return this.page.getByRole("link", { name: "Войти по email" });
   }

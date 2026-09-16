@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from datetime import UTC, datetime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -37,6 +38,7 @@ from app.bot_transport.notification_texts import (
     text_trial_expiring,
     text_trial_expiring_6h,
 )
+from app.domain.plans import get_plan
 from app.issuance.vless_provider import VlessProviderOutcome, VlessProviderPort
 from app.persistence.postgres_web_notifications import PostgresWebNotificationRepository
 
@@ -89,6 +91,19 @@ def _format_msk_datetime(value: datetime) -> str:
 def _web_notification_body(text: str, *, kind: str) -> str:
     """Веб рендерит HTML только для broadcast; у остальных типов убираем Telegram-теги."""
     return text if kind == "broadcast" else _HTML_TAG_RE.sub("", text)
+
+
+def _checkout_resume_path(
+    plan_id: str | None,
+    device_count: int | None,
+    payment_method: str | None,
+) -> str | None:
+    if plan_id is None or get_plan(plan_id) is None or device_count is None or not 5 <= device_count <= 20:
+        return None
+    path = f"/payment/{quote(plan_id, safe=':')}?devices={device_count}"
+    if payment_method in ("card", "crypto"):
+        path += f"&method={payment_method}"
+    return path
 
 
 def _referral_offer_enabled(env_getter=os.environ.get) -> bool:
@@ -259,16 +274,20 @@ class NotificationScheduler:
     async def _check_checkout_abandoned(self, now: datetime) -> None:
         """Одно напоминание, если checkout триала не завершён за полчаса."""
         rows = await self._pool.fetch(
-            """SELECT s.internal_user_id
+            """SELECT s.internal_user_id, checkout.plan_id, checkout.device_count,
+                      checkout.payment_method, checkout.surface
                FROM subscription_snapshots s
                JOIN user_identities u ON u.internal_user_id = s.internal_user_id
                JOIN LATERAL (
-                   SELECT max(e.occurred_at) AS opened_at
+                   SELECT e.occurred_at AS opened_at, e.plan_id, e.device_count,
+                          e.payment_method, e.surface
                    FROM funnel_interactions e
                    WHERE e.internal_user_id = s.internal_user_id
-                     AND e.event_name = 'checkout_opened'
+                     AND e.event_name IN ('checkout_opened', 'payment_created')
                      AND e.occurred_at >= s.trial_started_at
-               ) checkout ON checkout.opened_at IS NOT NULL
+                   ORDER BY e.occurred_at DESC
+                   LIMIT 1
+               ) checkout ON TRUE
                WHERE u.is_internal = FALSE
                AND s.state_label = 'active'
                AND s.plan_id IS NULL
@@ -286,18 +305,25 @@ class NotificationScheduler:
         )
         if not rows:
             return
-        text, keyboard = text_checkout_abandoned()
-        await asyncio.gather(
-            *[
-                self._send_notification(
-                    internal_user_id=row["internal_user_id"],
-                    notification_type="checkout_abandoned_30m",
-                    text=text,
-                    keyboard=keyboard,
-                )
-                for row in rows
-            ]
-        )
+
+        async def _notify(row: asyncpg.Record) -> None:
+            plan_id = row["plan_id"]
+            device_count = row["device_count"]
+            payment_method = row["payment_method"]
+            text, keyboard = text_checkout_abandoned(plan_id=plan_id, device_count=device_count)
+            resume_path = _checkout_resume_path(plan_id, device_count, payment_method)
+            web_payload = None
+            if resume_path is not None:
+                web_payload = {"action": {"href": resume_path, "label": "Продолжить заказ"}}
+            await self._send_notification(
+                internal_user_id=row["internal_user_id"],
+                notification_type="checkout_abandoned_30m",
+                text=text,
+                keyboard=keyboard,
+                web_payload=web_payload,
+            )
+
+        await asyncio.gather(*[_notify(row) for row in rows])
 
     async def _send_notification(
         self,
@@ -306,6 +332,7 @@ class NotificationScheduler:
         notification_type: str,
         text: str,
         keyboard: dict,
+        web_payload: dict | None = None,
     ) -> bool:
         """Двухканальная доставка: веб (verified email) + Telegram (tg_id > 0).
 
@@ -348,12 +375,15 @@ class NotificationScheduler:
         if has_email and web_kind is not None:
             try:
                 kind, title = web_kind
+                payload = {"notification_type": notification_type}
+                if web_payload:
+                    payload.update(web_payload)
                 await PostgresWebNotificationRepository(self._pool).insert_one(
                     internal_user_id=internal_user_id,
                     kind=kind,
                     title=title,
                     body=_web_notification_body(text, kind=kind),
-                    payload={"notification_type": notification_type},
+                    payload=payload,
                 )
                 delivered = True
             except Exception:

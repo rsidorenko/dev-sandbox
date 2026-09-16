@@ -131,6 +131,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "084_admin_user_reset_actions.sql",
         "085_notification_log_delivery_status.sql",
         "086_trial_first_traffic.sql",
+        "087_checkout_recovery_context.sql",
     ]
 
 
@@ -576,6 +577,23 @@ def test_trial_first_traffic_migration_contract_safe_additive() -> None:
     assert "create index if not exists idx_subscription_trial_waiting_first_traffic" in lowered
 
     for forbidden in ("drop table", "drop column", "truncate", " delete from ", "alter column"):
+        assert forbidden not in lowered
+
+
+def test_checkout_recovery_context_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "087_checkout_recovery_context.sql").read_text(
+        encoding="utf-8"
+    )
+    lowered = _squash_ws(migration).lower()
+
+    assert "add column if not exists plan_id text null" in lowered
+    assert "add column if not exists device_count integer null" in lowered
+    assert "add column if not exists payment_method text null" in lowered
+    assert "device_count between 5 and 20" in lowered
+    assert "payment_method in ('card', 'crypto')" in lowered
+    assert "create index if not exists idx_funnel_checkout_recovery_latest" in lowered
+
+    for forbidden in ("drop table", "drop column", "truncate", " delete from "):
         assert forbidden not in lowered
 
 

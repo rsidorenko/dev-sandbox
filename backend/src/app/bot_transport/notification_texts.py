@@ -9,6 +9,7 @@ from typing import Any
 
 from app.bot_transport.storefront_ui import (
     CB_BUY_VPN,
+    CB_CONFIRM_PAY,
     CB_CONNECT_DEVICE,
     CB_CONNECT_FAST_ANDROID,
     CB_CONNECT_FAST_IOS,
@@ -19,6 +20,7 @@ from app.bot_transport.storefront_ui import (
     CB_TRIAL,
     _inline_kb,
 )
+from app.domain.plans import get_plan, plan_display_name
 
 _FAST_CONNECT_CALLBACKS = {
     "android": CB_CONNECT_FAST_ANDROID,
@@ -54,7 +56,30 @@ def text_trial_connection_nudge(*, platform: str = "") -> tuple[str, dict[str, A
     return text, keyboard
 
 
-def text_checkout_abandoned() -> tuple[str, dict[str, Any]]:
+def text_checkout_abandoned(
+    *,
+    plan_id: str | None = None,
+    device_count: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    if plan_id is not None and get_plan(plan_id) is not None and device_count is not None and 5 <= device_count <= 20:
+        display_name = plan_display_name(plan_id)
+        text = (
+            "💳 <b>Оплата не была завершена</b>\n\n"
+            f"Ваш заказ сохранён: {display_name}, {device_count} устройств. "
+            "Продолжите с того же места — цену и скидку проверим перед оплатой."
+        )
+        keyboard = _inline_kb(
+            [
+                [
+                    {
+                        "text": f"⚡ Продолжить: {display_name}, {device_count} устр.",
+                        "callback_data": f"{CB_CONFIRM_PAY}{plan_id}:{device_count}",
+                        "style": "success",
+                    }
+                ]
+            ]
+        )
+        return text, keyboard
     text = (
         "💳 <b>Оплата не была завершена</b>\n\n"
         "VPN можно продолжить без повторной настройки. Вернитесь к тарифам и выберите удобный период доступа."

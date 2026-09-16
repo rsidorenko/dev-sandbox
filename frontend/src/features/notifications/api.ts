@@ -11,6 +11,11 @@ export interface NotificationBonus {
   ttl_days?: number;
 }
 
+export interface NotificationAction {
+  href: string;
+  label: string;
+}
+
 export interface WebNotification {
   id: number;
   kind:
@@ -27,6 +32,7 @@ export interface WebNotification {
   payload: {
     job_id?: string;
     bonus?: NotificationBonus;
+    action?: NotificationAction;
     notification_type?: string;
   };
   created_at: string;

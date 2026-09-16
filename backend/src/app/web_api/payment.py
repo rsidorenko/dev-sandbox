@@ -221,6 +221,9 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             surface="web",
             dedup_key=f"cryptobot:{invoice_id}",
             internal_user_id=internal_user_id,
+            plan_id=plan_id,
+            device_count=device_count,
+            payment_method="crypto",
         )
         return JSONResponse(
             {
@@ -292,6 +295,9 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         surface="web",
         dedup_key=f"yookassa:{result.payment_id}",
         internal_user_id=internal_user_id,
+        plan_id=plan_id,
+        device_count=device_count,
+        payment_method="card",
     )
     return JSONResponse(
         {

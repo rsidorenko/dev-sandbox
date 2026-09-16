@@ -12,9 +12,9 @@ import asyncpg
 import pytest
 
 import app.runtime.notification_scheduler as scheduler_module
-from app.bot_transport.storefront_ui import CB_BUY_VPN, CB_CONNECT_FAST_ANDROID, CB_TRIAL
+from app.bot_transport.storefront_ui import CB_CONFIRM_PAY, CB_CONNECT_FAST_ANDROID, CB_TRIAL
 from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.runtime.notification_scheduler import NotificationScheduler, _format_msk_datetime
+from app.runtime.notification_scheduler import NotificationScheduler, _checkout_resume_path, _format_msk_datetime
 
 _MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -76,20 +76,40 @@ def test_connection_nudge_requires_no_traffic_and_keeps_platform_fast_path() -> 
 
 
 def test_checkout_nudge_is_bounded_and_only_for_unpaid_trial() -> None:
-    pool = _Pool([{"internal_user_id": "u3"}])
+    pool = _Pool(
+        [
+            {
+                "internal_user_id": "u3",
+                "plan_id": "3m",
+                "device_count": 8,
+                "payment_method": "crypto",
+                "surface": "web",
+            }
+        ]
+    )
     scheduler = _scheduler(pool)
 
     _run(scheduler._check_checkout_abandoned(datetime.now(UTC)))
 
     sql, args = pool.fetch_calls[0]
-    assert "e.event_name = 'checkout_opened'" in sql
+    assert "e.event_name IN ('checkout_opened', 'payment_created')" in sql
+    assert "ORDER BY e.occurred_at DESC" in sql
     assert "checkout.opened_at <= NOW() - make_interval(mins => $1)" in sql
     assert "checkout.opened_at > NOW() - make_interval(hours => $2)" in sql
     assert "s.plan_id IS NULL" in sql
     assert args == (30, 24, "checkout_abandoned_30m")
     sent = scheduler._send_notification.await_args.kwargs
     assert sent["notification_type"] == "checkout_abandoned_30m"
-    assert sent["keyboard"]["inline_keyboard"][0][0]["callback_data"] == CB_BUY_VPN
+    assert sent["keyboard"]["inline_keyboard"][0][0]["callback_data"] == f"{CB_CONFIRM_PAY}3m:8"
+    assert sent["web_payload"] == {
+        "action": {"href": "/payment/3m?devices=8&method=crypto", "label": "Продолжить заказ"}
+    }
+
+
+def test_checkout_resume_path_rejects_invalid_context() -> None:
+    assert _checkout_resume_path("custom:45", 12, "card") == "/payment/custom:45?devices=12&method=card"
+    assert _checkout_resume_path("unknown", 5, "card") is None
+    assert _checkout_resume_path("3m", 21, "card") is None
 
 
 def test_subscription_warning_deduplicates_current_expiry_window() -> None:

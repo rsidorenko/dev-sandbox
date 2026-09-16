@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from unittest.mock import AsyncMock
 
 from app.application.bootstrap import build_slice1_composition
 from app.bot_transport.message_catalog import RenderedMessagePackage
@@ -527,7 +528,12 @@ def test_facade_callback_devices_changes_count() -> None:
     _run(main())
 
 
-def test_facade_callback_confirm_pay_renders_summary() -> None:
+def test_facade_callback_confirm_pay_renders_summary_and_records_context(monkeypatch) -> None:
+    import app.bot_transport.runtime_facade as runtime_facade
+
+    record = AsyncMock(return_value=True)
+    monkeypatch.setattr(runtime_facade, "record_interaction", record)
+
     async def main() -> None:
         from app.application.purchase_handler import build_purchase_summary
 
@@ -539,6 +545,9 @@ def test_facade_callback_confirm_pay_renders_summary() -> None:
         assert pkg.message_text == text_purchase_summary(summary)
 
     _run(main())
+    checkout_call = next(call for call in record.await_args_list if call.kwargs["event_name"] == "checkout_opened")
+    assert checkout_call.kwargs["plan_id"] == "1m"
+    assert checkout_call.kwargs["device_count"] == 5
 
 
 def test_facade_callback_my_keys_not_available() -> None:
