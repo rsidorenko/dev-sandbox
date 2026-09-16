@@ -12,7 +12,7 @@ test.describe("Trial activation (/trial)", () => {
     await mockApi(page, { profile: "auth", trialActivate: "ok" });
     await page.goto("/trial");
     await expect(page.getByText(/Готово!/)).toBeVisible();
-    await expect(page.getByText(/3 дня активны/)).toBeVisible();
+    await expect(page.getByText(/3 дня начнутся после первого подключения/)).toBeVisible();
   });
 
   test("already-used trial shows the 'used' state via precheck", async ({ page }) => {

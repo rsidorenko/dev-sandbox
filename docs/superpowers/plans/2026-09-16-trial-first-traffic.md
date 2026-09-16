@@ -59,6 +59,6 @@
 - [x] `.venv/bin/python scripts/run_mvp_repo_release_health_check.py` — проходит
 - [x] Targeted ruff для изменённых Python-файлов — чист; полный repo-lint сохраняет 52
   существующие ошибки в операторских scripts вне этого изменения
-- [x] Frontend test/lint/build проходят
+- [x] Frontend test/lint/build и targeted Playwright `e2e/trial.spec.ts` проходят
 - [x] Коммит сфокусирован, сообщение на русском, без `Co-Authored-By`
 - [x] Spec и plan соответствуют реализации
