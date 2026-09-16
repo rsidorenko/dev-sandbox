@@ -104,9 +104,14 @@ class TrafficStatsScheduler:
                 continue
             host_results.append((configs, current, state))
         batch = build_batch(host_results)
-        await self._repo.apply_batch(batch)
+        started_trials = await self._repo.apply_batch(batch)
         if batch:
-            _LOGGER.info("traffic_stats tick ok hosts=%s samples=%s", len(host_results), len(batch))
+            _LOGGER.info(
+                "traffic_stats tick ok hosts=%s samples=%s trials_started=%s",
+                len(host_results),
+                len(batch),
+                started_trials,
+            )
 
 
 def start_traffic_stats_scheduler(*, pool: asyncpg.Pool, vless_provider: XuiVlessProvider) -> TrafficStatsScheduler:

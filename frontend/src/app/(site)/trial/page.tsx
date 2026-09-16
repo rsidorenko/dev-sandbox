@@ -102,10 +102,11 @@ export default function TrialPage() {
                 ✅
               </div>
               <h1 className="mt-4 text-xl font-bold text-gray-900 dark:text-gray-100">
-                Готово! {siteConfig.trialDays} дня активны
+                Готово! Ключи для триала созданы
               </h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Ключи и ссылка подписки — в личном кабинете.
+                Полные {siteConfig.trialDays} дня начнутся после первого подключения. Подключите VPN в
+                течение {siteConfig.trialDays} дней — ключи и ссылка уже доступны в личном кабинете.
               </p>
               <div className="mt-6 flex flex-col gap-2">
                 <Link

@@ -124,6 +124,7 @@ def test_trial_activation_immediately_offers_platforms() -> None:
         )
 
         assert "Пробный период активирован" in package.message_text
+        assert "Полные 3 дня начнутся после первого подключения" in package.message_text
         assert "Выберите устройство" in package.message_text
         callbacks = {button.get("callback_data") for button in _buttons(package.reply_markup)}
         assert {CB_CONNECT_FAST_IOS, CB_CONNECT_FAST_ANDROID, CB_CONNECT_FAST_MAC, CB_CONNECT_FAST_WIN} <= callbacks

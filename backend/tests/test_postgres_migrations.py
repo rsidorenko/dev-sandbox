@@ -130,6 +130,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "083_telegram_ads_spend.sql",
         "084_admin_user_reset_actions.sql",
         "085_notification_log_delivery_status.sql",
+        "086_trial_first_traffic.sql",
     ]
 
 
@@ -559,6 +560,22 @@ def test_notification_delivery_status_migration_contract_safe_additive() -> None
     assert "notification_log_delivery_status_check" in lowered
 
     for forbidden in ("drop table", "drop column", "truncate", " delete from "):
+        assert forbidden not in lowered
+
+
+def test_trial_first_traffic_migration_contract_safe_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "086_trial_first_traffic.sql").read_text(
+        encoding="utf-8"
+    )
+    lowered = _squash_ws(migration).lower()
+
+    assert "add column if not exists trial_first_traffic_at timestamptz null" in lowered
+    assert "set trial_first_traffic_at = s.trial_started_at" in lowered
+    assert "bare_xray_traffic_daily" in lowered
+    assert "t.uplink_bytes + t.downlink_bytes > 0" in lowered
+    assert "create index if not exists idx_subscription_trial_waiting_first_traffic" in lowered
+
+    for forbidden in ("drop table", "drop column", "truncate", " delete from ", "alter column"):
         assert forbidden not in lowered
 
 

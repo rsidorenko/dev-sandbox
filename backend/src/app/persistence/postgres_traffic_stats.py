@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncpg
 
+from app.domain.trial import TRIAL_DURATION_DAYS
 from app.issuance.bare_xray_traffic import (
     TrafficSample,
     msk_month_bounds,
@@ -39,18 +40,23 @@ class PostgresTrafficStatsRepository:
             )
         return {row["email"]: {"up": row["uplink_last"], "down": row["downlink_last"]} for row in rows}
 
-    async def apply_batch(self, batch: list[TrafficSample]) -> None:
+    async def apply_batch(self, batch: list[TrafficSample]) -> int:
         """Одна транзакция: дневная аккумуляция дельт + абсолюты в state.
 
         daily получает ``delta_*`` (прирост), state — абсолютные ``uplink/downlink``
         (последнее показание счётчика для следующего диффа). Атомарность
         обязательна: state должен отражать ровно те показания, чьи дельты попали
         в daily — иначе тик, упавший между двумя записями, породил бы двойной
-        подсчёт при повторе. Пустой батч — no-op без коннекта.
+        подсчёт при повторе. В этой же транзакции первый положительный прирост
+        один раз переносит clock активного триала на фактическое подключение.
+        Возвращает число стартовавших по трафику триалов. Пустой батч — no-op
+        без коннекта.
         """
         if not batch:
-            return
+            return 0
         stat_date = msk_stat_date()
+        positive_emails = sorted({row.email for row in batch if row.delta_up > 0 or row.delta_down > 0})
+        started_trials = 0
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.executemany(
@@ -77,6 +83,35 @@ class PostgresTrafficStatsRepository:
                     """,
                     [(row.server_id, row.email, row.uplink, row.downlink) for row in batch],
                 )
+                if positive_emails:
+                    rows = await conn.fetch(
+                        """
+                        UPDATE subscription_snapshots s
+                        SET trial_first_traffic_at = NOW(),
+                            trial_started_at = NOW(),
+                            trial_expires_at = NOW() + make_interval(days => $2),
+                            active_until_utc = NOW() + make_interval(days => $2),
+                            updated_at = NOW()
+                        WHERE s.state_label = 'active'
+                          AND s.plan_id IS NULL
+                          AND s.trial_started_at IS NOT NULL
+                          AND s.trial_first_traffic_at IS NULL
+                          AND s.trial_expires_at > NOW()
+                          AND EXISTS (
+                              SELECT 1
+                              FROM unnest($1::text[]) AS observed(email)
+                              WHERE observed.email IN (
+                                  'user-' || left(s.internal_user_id, 16),
+                                  'x-user-' || left(s.internal_user_id, 16)
+                              )
+                          )
+                        RETURNING s.internal_user_id
+                        """,
+                        positive_emails,
+                        TRIAL_DURATION_DAYS,
+                    )
+                    started_trials = len(rows)
+        return started_trials
 
     async def monthly_total_for_user(self, internal_user_id: str) -> int:
         """Суммарный трафик (up+down, байты) пользователя за текущий MSK-месяц."""

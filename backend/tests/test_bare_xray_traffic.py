@@ -264,11 +264,15 @@ def test_apply_batch_daily_gets_deltas_state_gets_absolutes(monkeypatch) -> None
     conn = _FakeConn()
     repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
 
-    _run(repo.apply_batch([_sample(), _sample(server_id=3, email="x-user-1", up=30, down=40, dup=20, ddown=20)]))
+    started = _run(
+        repo.apply_batch([_sample(), _sample(server_id=3, email="x-user-1", up=30, down=40, dup=20, ddown=20)])
+    )
 
-    assert len(conn.calls) == 2
+    assert started == 0
+    assert len(conn.calls) == 3
     daily_sql, daily_rows = conn.calls[0]
     state_sql, state_rows = conn.calls[1]
+    trial_sql, trial_args = conn.calls[2]
     assert "INSERT INTO bare_xray_traffic_daily" in daily_sql
     assert "+ EXCLUDED.uplink_bytes" in daily_sql
     assert [r[3] for r in daily_rows] == [50, 20]  # дельты up
@@ -276,13 +280,49 @@ def test_apply_batch_daily_gets_deltas_state_gets_absolutes(monkeypatch) -> None
     assert "INSERT INTO bare_xray_traffic_state" in state_sql
     assert [r[2] for r in state_rows] == [150, 30]  # абсолюты up
     assert [r[3] for r in state_rows] == [700, 40]  # абсолюты down
+    assert "trial_first_traffic_at IS NULL" in trial_sql
+    assert "s.plan_id IS NULL" in trial_sql
+    assert "s.trial_expires_at > NOW()" in trial_sql
+    assert trial_args == [["user-1", "x-user-1"], 3]
+
+
+def test_apply_batch_reports_started_trials_and_deduplicates_positive_emails() -> None:
+    from app.persistence import postgres_traffic_stats as pts
+
+    conn = _FakeConn(fetch_rows=[{"internal_user_id": "u1"}])
+    repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
+
+    started = _run(
+        repo.apply_batch(
+            [
+                _sample(server_id=2, email="user-1", dup=1, ddown=0),
+                _sample(server_id=3, email="user-1", dup=0, ddown=2),
+            ]
+        )
+    )
+
+    assert started == 1
+    _, trial_args = conn.calls[2]
+    assert trial_args[0] == ["user-1"]
+
+
+def test_apply_batch_zero_delta_does_not_start_trial() -> None:
+    from app.persistence import postgres_traffic_stats as pts
+
+    conn = _FakeConn()
+    repo = pts.PostgresTrafficStatsRepository(_FakePool(conn))
+
+    started = _run(repo.apply_batch([_sample(dup=0, ddown=0)]))
+
+    assert started == 0
+    assert len(conn.calls) == 2
 
 
 def test_apply_batch_empty_is_noop() -> None:
     from app.persistence import postgres_traffic_stats as pts
 
     pool = _FakePool(_FakeConn())
-    _run(pts.PostgresTrafficStatsRepository(pool).apply_batch([]))
+    assert _run(pts.PostgresTrafficStatsRepository(pool).apply_batch([])) == 0
     assert pool.acquired == 0
 
 
@@ -416,6 +456,7 @@ class _FakeRepo:
 
     async def apply_batch(self, batch):
         self.batches.append(list(batch))
+        return 0
 
 
 class _FakeProvider:
