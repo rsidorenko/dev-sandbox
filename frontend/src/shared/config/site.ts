@@ -60,7 +60,7 @@ export const siteConfig = {
       price: 249,
       priceLabel: "249 ₽",
       perDay: "≈ 8 ₽/день",
-      popular: true,
+      popular: false,
     },
     {
       id: "3m",
@@ -69,7 +69,7 @@ export const siteConfig = {
       price: 699,
       priceLabel: "699 ₽",
       perDay: "≈ 8 ₽/день",
-      popular: false,
+      popular: true,
     },
     {
       id: "6m",

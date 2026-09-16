@@ -47,8 +47,12 @@ function PaymentForm() {
     const d = searchParams.get("devices");
     return d ? Math.max(DEFAULT_DEVICES, parseInt(d) || DEFAULT_DEVICES) : DEFAULT_DEVICES;
   });
+  const [showDeviceOptions, setShowDeviceOptions] = useState(() => deviceCount > DEFAULT_DEVICES);
   const [loading, setLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() =>
+    searchParams.get("method") === "crypto" ? "crypto" : "card",
+  );
+  const [showPaymentOptions, setShowPaymentOptions] = useState(() => paymentMethod === "crypto");
   const [errorMsg, setErrorMsg] = useState("");
   const [paymentResult, setPaymentResult] = useState<{
     status: string;
@@ -89,6 +93,11 @@ function PaymentForm() {
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoError, setPromoError] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
+  const [showPromo, setShowPromo] = useState(false);
+
+  useEffect(() => {
+    if (appliedPromo) setShowPromo(true);
+  }, [appliedPromo]);
 
   // Держим preview скидки актуальным для текущего тарифа И количества устройств:
   // срабатывает при входе с уже закреплённым промокодом и при изменении слайдера.
@@ -278,78 +287,118 @@ function PaymentForm() {
             </div>
           </div>
 
-          <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Количество устройств: <strong>{deviceCount}</strong>
-            </label>
-            <input
-              type="range"
-              min={5}
-              max={20}
-              value={deviceCount}
-              onChange={(e) => setDeviceCount(parseInt(e.target.value))}
-              className="mt-2 w-full accent-brand-600"
-            />
-            <div className="flex justify-between text-xs text-gray-400">
-              <span>5</span><span>10</span><span>15</span><span>20</span>
+          <div className="mt-6 rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                  {deviceCount} устройств включено
+                </p>
+                {!showDeviceOptions && (
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    Подходит для телефона, компьютера и семьи
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeviceOptions(!showDeviceOptions)}
+                className="shrink-0 text-xs font-semibold text-brand-700 hover:underline dark:text-brand-300"
+              >
+                {showDeviceOptions ? "Скрыть" : "Нужно больше?"}
+              </button>
             </div>
-            {extraDevices > 0 && (
-              <p className="mt-1 text-xs text-gray-400">
-                Доп. устройства: {extraDevices} &times; {Math.round(EXTRA_DEVICE_PRICE / 30 * info.durationDays)} ₽ = {extraCost.toLocaleString("ru-RU")} ₽
-              </p>
+            {showDeviceOptions && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Количество устройств: <strong>{deviceCount}</strong>
+                </label>
+                <input
+                  type="range"
+                  min={5}
+                  max={20}
+                  value={deviceCount}
+                  onChange={(e) => setDeviceCount(parseInt(e.target.value))}
+                  className="mt-2 w-full accent-brand-600"
+                />
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>5</span>
+                  <span>10</span>
+                  <span>15</span>
+                  <span>20</span>
+                </div>
+                {extraDevices > 0 && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Доп. устройства: {extraDevices} &times;{" "}
+                    {Math.round((EXTRA_DEVICE_PRICE / 30) * info.durationDays)} ₽ ={" "}
+                    {extraCost.toLocaleString("ru-RU")} ₽
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
-          {/* Промокод: точка ввода в оплате (Фаза 4). Скидку считает бэкенд. */}
-          <div className="mt-6 rounded-xl border border-gray-100 p-4 dark:border-zinc-700">
-            {appliedPromo ? (
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                <div className="text-sm">
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">
-                    🎁 {appliedPromo.code}
-                  </span>{" "}
-                  <span className="font-semibold text-brand-700 dark:text-brand-300">
-                    {appliedPromo.discount_label}
-                  </span>
-                  {!promoPreviewValid && (
-                    <span className="ml-2 text-xs text-gray-400">
-                      нажмите «Применить» после выбора устройств
+          {!showPromo && (
+            <button
+              type="button"
+              onClick={() => setShowPromo(true)}
+              className="mt-4 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
+            >
+              Есть промокод?
+            </button>
+          )}
+
+          {/* Промокод раскрывается по запросу; скидку по-прежнему считает backend. */}
+          {showPromo && (
+            <div className="mt-4 rounded-xl border border-gray-100 p-4 dark:border-zinc-700">
+              {appliedPromo ? (
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="text-sm">
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      🎁 {appliedPromo.code}
+                    </span>{" "}
+                    <span className="font-semibold text-brand-700 dark:text-brand-300">
+                      {appliedPromo.discount_label}
                     </span>
-                  )}
+                    {!promoPreviewValid && (
+                      <span className="ml-2 text-xs text-gray-400">
+                        нажмите «Применить» после выбора устройств
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearPromo}
+                    className="text-xs font-medium text-gray-500 transition hover:text-gray-700 dark:text-gray-400"
+                  >
+                    Убрать
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleClearPromo}
-                  className="text-xs font-medium text-gray-500 transition hover:text-gray-700 dark:text-gray-400"
-                >
-                  Убрать
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleApplyPromo} className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="text"
-                  autoCapitalize="characters"
-                  autoCorrect="off"
-                  value={promoCodeInput}
-                  onChange={(e) => setPromoCodeInput(e.target.value)}
-                  placeholder="Промокод"
-                  className="block w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm uppercase transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
-                  disabled={promoBusy}
-                />
-                <button
-                  type="submit"
-                  disabled={promoBusy}
-                  className="shrink-0 rounded-lg border border-brand-200 bg-brand-50 px-5 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
-                >
-                  {promoBusy ? "Проверка…" : "Применить"}
-                </button>
-              </form>
-            )}
-            {promoError && (
-              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{promoError}</p>
-            )}
-          </div>
+              ) : (
+                <form onSubmit={handleApplyPromo} className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    value={promoCodeInput}
+                    onChange={(e) => setPromoCodeInput(e.target.value)}
+                    placeholder="Промокод"
+                    className="block w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm uppercase transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
+                    disabled={promoBusy}
+                  />
+                  <button
+                    type="submit"
+                    disabled={promoBusy}
+                    className="shrink-0 rounded-lg border border-brand-200 bg-brand-50 px-5 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
+                  >
+                    {promoBusy ? "Проверка…" : "Применить"}
+                  </button>
+                </form>
+              )}
+              {promoError && (
+                <p className="mt-2 text-xs text-red-600 dark:text-red-400">{promoError}</p>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3 dark:bg-zinc-700/50">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Итого</span>
@@ -417,34 +466,50 @@ function PaymentForm() {
             </button>
           )}
 
-          {/* Способ оплаты: карта или крипта (CryptoBot). Крипта — способ оплаты, рубль остаётся
-              номиналом (цена та же); после клика бэкенд отдаёт payment_url инвойса CryptoBot. */}
+          {/* Карта/СБП — основной путь. Крипта остаётся доступной как альтернативный способ. */}
           <div className="mt-6">
-            <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Способ оплаты</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {paymentMethod === "crypto" ? "Оплата криптовалютой" : "Карта или СБП"}
+              </p>
               <button
                 type="button"
-                onClick={() => setPaymentMethod("card")}
-                className={`rounded-lg border py-2 text-sm font-semibold transition ${
-                  paymentMethod === "card"
-                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
-                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
-                }`}
+                onClick={() => {
+                  const next = !showPaymentOptions;
+                  setShowPaymentOptions(next);
+                  if (!next) setPaymentMethod("card");
+                }}
+                className="text-xs font-semibold text-brand-700 hover:underline dark:text-brand-300"
               >
-                💳 Картой
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethod("crypto")}
-                className={`rounded-lg border py-2 text-sm font-semibold transition ${
-                  paymentMethod === "crypto"
-                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
-                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
-                }`}
-              >
-                ₮ Криптой
+                {showPaymentOptions ? "Скрыть варианты" : "Другой способ"}
               </button>
             </div>
+            {showPaymentOptions && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("card")}
+                  className={`rounded-lg border py-2 text-sm font-semibold transition ${
+                    paymentMethod === "card"
+                      ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+                  }`}
+                >
+                  💳 Карта / СБП
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("crypto")}
+                  className={`rounded-lg border py-2 text-sm font-semibold transition ${
+                    paymentMethod === "crypto"
+                      ? "border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-300"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+                  }`}
+                >
+                  ₮ Криптовалюта
+                </button>
+              </div>
+            )}
           </div>
 
           <button
@@ -455,8 +520,8 @@ function PaymentForm() {
             {loading
               ? "Обработка..."
               : paymentMethod === "crypto"
-                ? `Оплатить криптой ${displayTotal.toLocaleString("ru-RU")} ₽`
-                : `Оплатить картой ${displayTotal.toLocaleString("ru-RU")} ₽`}
+                ? `Оплатить криптовалютой ${displayTotal.toLocaleString("ru-RU")} ₽`
+                : `Перейти к оплате ${displayTotal.toLocaleString("ru-RU")} ₽`}
           </button>
 
           <p className="mt-4 text-center text-xs text-gray-400">

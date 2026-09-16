@@ -2,10 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { auth, paymentApi, params } = vi.hoisted(() => ({
+const { auth, paymentApi, params, navigation } = vi.hoisted(() => ({
   auth: { authenticated: true, loading: false, profile: null as null | { referral: { balance_rubles: number; code: string; referrals_count: number } } },
   paymentApi: { create: vi.fn(), payWithBalance: vi.fn() },
   params: { planId: "1m" },
+  navigation: { query: "" },
 }));
 
 vi.mock("@/shared/lib/auth", () => ({
@@ -19,7 +20,7 @@ vi.mock("@/shared/lib/auth", () => ({
 vi.mock("@/entities/payment/api", () => ({ paymentApi }));
 vi.mock("next/navigation", () => ({
   useParams: () => params,
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigation.query),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/payment/1m",
 }));
@@ -33,6 +34,7 @@ beforeEach(() => {
   auth.loading = false;
   auth.profile = null;
   params.planId = "1m";
+  navigation.query = "";
   paymentApi.create.mockReset();
   paymentApi.payWithBalance.mockReset();
   Object.defineProperty(window, "location", {
@@ -65,19 +67,38 @@ describe("Checkout (payment/[planId])", () => {
   it("renders the checkout form with the base total for an authenticated visitor", () => {
     render(<PaymentPage />);
     expect(screen.getByText("Оформление подписки")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Оплатить картой 249 ₽/ })).toBeInTheDocument();
+    expect(screen.getByText("5 устройств включено")).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Перейти к оплате 249 ₽/ })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Промокод")).not.toBeInTheDocument();
   });
 
-  it("updates the total when the device slider increases", () => {
+  it("reveals extra devices on demand and updates the total", async () => {
+    const user = userEvent.setup();
     render(<PaymentPage />);
-    const slider = document.querySelector(
-      'input[type="range"]',
-    ) as HTMLInputElement;
+    await user.click(screen.getByRole("button", { name: "Нужно больше?" }));
+    const slider = screen.getByRole("slider");
     fireEvent.change(slider, { target: { value: "10" } });
     // 5 доп. устройств × round(80/30*30)=80 → +400 → 249+400 = 649.
     expect(
-      screen.getByRole("button", { name: /Оплатить картой 649 ₽/ }),
+      screen.getByRole("button", { name: /Перейти к оплате 649 ₽/ }),
     ).toBeInTheDocument();
+  });
+
+  it("restores the device picker from the devices query parameter", () => {
+    navigation.query = "devices=9";
+    render(<PaymentPage />);
+    expect(screen.getByRole("slider")).toHaveValue("9");
+    expect(screen.getByText("9 устройств включено")).toBeInTheDocument();
+  });
+
+  it("reveals promo and alternative payment options only on demand", async () => {
+    const user = userEvent.setup();
+    render(<PaymentPage />);
+    await user.click(screen.getByRole("button", { name: "Есть промокод?" }));
+    expect(screen.getByPlaceholderText("Промокод")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Другой способ" }));
+    expect(screen.getByRole("button", { name: /Криптовалюта/ })).toBeInTheDocument();
   });
 
   it("shows the balance-pay button when the user has enough balance", () => {
@@ -128,7 +149,7 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
-    await user.click(screen.getByRole("button", { name: /Оплатить/ }));
+    await user.click(screen.getByRole("button", { name: /Перейти к оплате/ }));
     await waitFor(() => {
       expect(window.location.href).toBe("https://pay.example/x");
     });
@@ -146,7 +167,7 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
-    await user.click(screen.getByRole("button", { name: /Оплатить/ }));
+    await user.click(screen.getByRole("button", { name: /Перейти к оплате/ }));
     expect(
       await screen.findByText("Оплата временно недоступна"),
     ).toBeInTheDocument();

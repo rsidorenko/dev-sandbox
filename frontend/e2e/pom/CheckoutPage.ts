@@ -17,14 +17,16 @@ export class CheckoutPage {
   }
 
   payButton(amount?: number): Locator {
-    // Card-pay button text is "Оплатить картой N ₽" (the balance-pay button is
-    // "Оплатить с баланса …" — matched separately). Without an amount, default to
-    // the card button.
+    // Основной CTA — «Перейти к оплате N ₽»; balance-кнопка матчится отдельно.
     const name =
       amount === undefined
-        ? /Оплатить картой/
-        : new RegExp(`Оплатить.*${amount} ₽`);
+        ? /Перейти к оплате/
+        : new RegExp(`Перейти к оплате ${amount} ₽`);
     return this.page.getByRole("button", { name });
+  }
+
+  showDeviceOptions(): Locator {
+    return this.page.getByRole("button", { name: "Нужно больше?" });
   }
 
   deviceSlider(): Locator {

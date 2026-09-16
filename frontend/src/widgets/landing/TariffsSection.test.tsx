@@ -4,11 +4,23 @@ import { describe, expect, it } from "vitest";
 import { TariffsSection } from "./TariffsSection";
 
 describe("TariffsSection", () => {
-  it("renders a tab pill for every tariff", () => {
+  it("shows three primary tariffs and recommends three months", () => {
     render(<TariffsSection />);
-    expect(screen.getByRole("button", { name: /1 день/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /1 месяц/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /3 месяца/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /1 год/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /1 день/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Рекомендуем")).toBeInTheDocument();
+    expect(screen.getByText("699 ₽")).toBeInTheDocument();
+  });
+
+  it("reveals short, six-month and custom variants on demand", async () => {
+    const user = userEvent.setup();
+    render(<TariffsSection />);
+    await user.click(screen.getByRole("button", { name: /Другие сроки/ }));
+    expect(screen.getByRole("button", { name: /1 день/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /6 месяцев/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Свой срок" })).toBeInTheDocument();
   });
 
   it("selecting '1 год' shows the price and the 'Лучшая цена' badge", async () => {
@@ -39,7 +51,8 @@ describe("TariffsSection", () => {
   it("the custom-tariff toggle shows 'Свой тариф' and links to /payment/custom:30", async () => {
     const user = userEvent.setup();
     render(<TariffsSection />);
-    await user.click(screen.getByRole("button", { name: /Свой тариф/ }));
+    await user.click(screen.getByRole("button", { name: /Другие сроки/ }));
+    await user.click(screen.getByRole("button", { name: "Свой срок" }));
     expect(
       screen.getByRole("heading", { name: "Свой тариф" }),
     ).toBeInTheDocument();

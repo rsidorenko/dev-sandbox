@@ -17,10 +17,12 @@ const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
 const DEFAULT_DEVICES = 5;
 const MIN_CUSTOM_DAYS = 1;
 const MAX_CUSTOM_DAYS = 365;
+const PRIMARY_TARIFF_IDS = new Set(["1m", "3m", "365d"]);
 
 export function TariffsSection() {
   const tariffs = siteConfig.tariffs;
   const [selected, setSelected] = useState<string>(tariffs.find((t) => t.popular)?.id ?? tariffs[0].id);
+  const [showMore, setShowMore] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const [customDays, setCustomDays] = useState(30);
   const { applied } = usePromocode();
@@ -29,6 +31,8 @@ export function TariffsSection() {
 
   const priceFor = (t: Tariff): number => prices[t.id] ?? t.price;
   const activeTariff = tariffs.find((t) => t.id === selected);
+  const primaryTariffs = tariffs.filter((t) => PRIMARY_TARIFF_IDS.has(t.id));
+  const otherTariffs = tariffs.filter((t) => !PRIMARY_TARIFF_IDS.has(t.id));
 
   return (
     <section id="tariffs" className="bg-gray-50 py-20 dark:bg-zinc-800/50">
@@ -45,7 +49,7 @@ export function TariffsSection() {
         {/* Tab pills */}
         <Reveal className="mt-10 flex justify-center">
           <div className="inline-flex max-w-full flex-wrap justify-center gap-2 rounded-2xl bg-white p-2 pt-4 shadow-sm dark:bg-zinc-800 dark:shadow-none">
-            {tariffs.map((t) => {
+            {primaryTariffs.map((t) => {
               const sp = savingsPctForPlan(t.id);
               const isBest = t.id === "365d";
               return (
@@ -78,6 +82,37 @@ export function TariffsSection() {
           </div>
         </Reveal>
 
+        {showMore && (
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {otherTariffs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setSelected(t.id);
+                  setShowCustom(false);
+                }}
+                className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  selected === t.id && !showCustom
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "border border-gray-200 bg-white text-gray-600 hover:border-brand-300 hover:text-brand-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+            <button
+              onClick={() => setShowCustom(true)}
+              className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                showCustom
+                  ? "bg-brand-600 text-white shadow-sm"
+                  : "border border-gray-200 bg-white text-gray-600 hover:border-brand-300 hover:text-brand-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300"
+              }`}
+            >
+              Свой срок
+            </button>
+          </div>
+        )}
+
         {/* Detail card */}
         <div key={showCustom ? "custom" : selected} className="animate-fade-in-up">
           {showCustom ? (
@@ -93,17 +128,22 @@ export function TariffsSection() {
           ) : null}
         </div>
 
-        {/* Custom tariff toggle */}
+        {/* Второстепенные варианты не конкурируют с тремя основными тарифами. */}
         <div className="mt-8 flex justify-center">
           <button
-            onClick={() => setShowCustom(!showCustom)}
-            className={`inline-flex items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-3 text-sm font-semibold transition ${
-              showCustom
-                ? "border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-600 dark:bg-brand-900/20 dark:text-brand-300"
-                : "border-gray-300 bg-white text-gray-700 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300 dark:hover:border-brand-500 dark:hover:text-brand-300"
-            }`}
+            onClick={() => {
+              const next = !showMore;
+              setShowMore(next);
+              if (!next) {
+                setShowCustom(false);
+                if (!PRIMARY_TARIFF_IDS.has(selected)) setSelected("3m");
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-900/20"
           >
-            {showCustom ? "↩ Назад к тарифам" : `📦 Свой тариф — от ${CUSTOM_PRICE_PER_DAY} ₽/день`}
+            {showMore
+              ? "Скрыть другие варианты"
+              : `Другие сроки и свой тариф от ${CUSTOM_PRICE_PER_DAY} ₽/день`}
           </button>
         </div>
       </div>
@@ -155,7 +195,7 @@ function TariffCard({
       <div className="relative rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-800 dark:shadow-none">
         {(tariff.popular || isBest) && (
           <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-4 py-1 text-xs font-bold text-white">
-            {isBest ? "Лучшая цена" : "Популярный"}
+            {isBest ? "Лучшая цена" : "Рекомендуем"}
           </span>
         )}
 

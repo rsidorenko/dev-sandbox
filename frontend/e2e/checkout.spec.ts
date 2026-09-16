@@ -29,6 +29,8 @@ test.describe("Checkout (/payment/[planId])", () => {
     const checkout = new CheckoutPage(page);
     await checkout.goto("1m");
     await expect(checkout.heading()).toBeVisible();
+    await expect(checkout.deviceSlider()).toBeHidden();
+    await checkout.showDeviceOptions().click();
     // 5 доп. устройств × round(80/30*30)=80 → +400 → 249+400 = 649.
     await checkout.deviceSlider().fill("10");
     await expect(checkout.payButton(649)).toBeVisible();
