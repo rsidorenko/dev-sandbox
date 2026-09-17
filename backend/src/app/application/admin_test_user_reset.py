@@ -160,6 +160,7 @@ async def reset_test_user(
                     "DELETE FROM admin_subscription_actions WHERE internal_user_id = $1",
                 ),
                 ("funnel_interactions", "DELETE FROM funnel_interactions WHERE internal_user_id = $1"),
+                ("experiment_assignments", "DELETE FROM experiment_assignments WHERE internal_user_id = $1"),
                 (
                     "telegram_ads_attributions",
                     "DELETE FROM telegram_ads_attributions WHERE internal_user_id = $1",

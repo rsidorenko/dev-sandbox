@@ -186,6 +186,28 @@ export interface AdminStatsByPlan {
   count: number;
 }
 
+export interface AdminProductFunnel {
+  registered_users: number;
+  trial_started_users: number;
+  setup_started_users: number;
+  platform_selected_users: number;
+  connection_confirmed_users: number;
+  checkout_opened_users: number;
+  payment_created_users: number;
+  payment_succeeded_users: number;
+}
+
+export interface AdminExperimentResult {
+  experiment_key: string;
+  variant: string;
+  exposures: number;
+  payment_created_users: number;
+  paid_users: number;
+  revenue_rubles: number;
+  checkout_rate: number | null;
+  paid_rate: number | null;
+}
+
 export interface AdminTelegramAdsCampaign {
   campaign_key: string;
   attributed_users: number;
@@ -280,6 +302,8 @@ export interface AdminStatsResponse {
     total_campaigns: number;
     truncated: boolean;
   };
+  product_funnel?: AdminProductFunnel;
+  experiments?: AdminExperimentResult[];
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;
   series: {

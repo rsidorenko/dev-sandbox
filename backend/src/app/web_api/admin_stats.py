@@ -159,6 +159,69 @@ _ACTIVE_TOTAL = (
     " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal)"
 )
 
+_PRODUCT_FUNNEL = """
+WITH period_events AS (
+    SELECT f.internal_user_id, f.event_name
+    FROM funnel_events f
+    JOIN user_identities i USING (internal_user_id)
+    WHERE NOT i.is_internal AND f.occurred_at >= $1 AND f.occurred_at <= $2
+)
+SELECT
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'registered') AS registered_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'trial_started') AS trial_started_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'setup_started') AS setup_started_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'platform_selected') AS platform_selected_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'connection_confirmed') AS connection_confirmed_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'checkout_opened') AS checkout_opened_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'payment_created') AS payment_created_users,
+    count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'payment_succeeded') AS payment_succeeded_users
+FROM period_events
+"""
+
+_EXPERIMENT_RESULTS = """
+WITH assignments AS (
+    SELECT a.internal_user_id, a.experiment_key, a.variant, a.assigned_at
+    FROM experiment_assignments a
+    JOIN user_identities i USING (internal_user_id)
+    WHERE NOT i.is_internal AND a.assigned_at >= $1 AND a.assigned_at <= $2
+), payment_created AS (
+    SELECT DISTINCT a.internal_user_id, a.experiment_key
+    FROM assignments a
+    JOIN funnel_interactions f
+      ON f.internal_user_id = a.internal_user_id
+     AND f.event_name = 'payment_created'
+     AND f.occurred_at >= a.assigned_at
+     AND f.occurred_at <= $2
+), paid AS (
+    SELECT a.internal_user_id, a.experiment_key,
+           COALESCE(sum(b.amount_minor_units), 0)::bigint AS revenue_kopecks
+    FROM assignments a
+    JOIN billing_events_ledger b
+      ON b.internal_user_id = a.internal_user_id
+     AND b.status = 'accepted'
+     AND b.event_type = 'subscription_activated'
+     AND b.billing_provider_key IN ('yookassa', 'yookassa_v1', 'cryptobot', 'cryptobot_v1')
+     AND b.internal_fact_ref NOT LIKE 'grant:%'
+     AND b.amount_minor_units > 0
+     AND b.currency_code = 'RUB'
+     AND b.event_effective_at >= a.assigned_at
+     AND b.event_effective_at <= $2
+    GROUP BY a.internal_user_id, a.experiment_key
+)
+SELECT a.experiment_key, a.variant,
+       count(*)::int AS exposures,
+       count(pc.internal_user_id)::int AS payment_created_users,
+       count(p.internal_user_id)::int AS paid_users,
+       COALESCE(sum(p.revenue_kopecks), 0)::bigint AS revenue_kopecks
+FROM assignments a
+LEFT JOIN payment_created pc
+  ON pc.internal_user_id = a.internal_user_id AND pc.experiment_key = a.experiment_key
+LEFT JOIN paid p
+  ON p.internal_user_id = a.internal_user_id AND p.experiment_key = a.experiment_key
+GROUP BY a.experiment_key, a.variant
+ORDER BY a.experiment_key, a.variant
+"""
+
 _MATURE_FUNNEL = """
 WITH trials AS (
     SELECT t.internal_user_id, t.trial_started_at,
@@ -555,6 +618,33 @@ async def _traffic_by_server(pool: asyncpg.Pool, from_date: date) -> list[dict]:
     return [{"label": r["label"], "gb": float(r["gb"]), "users": int(r["users"])} for r in rows]
 
 
+async def _product_funnel(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict[str, int]:
+    row = await pool.fetchrow(_PRODUCT_FUNNEL, from_ts, to_ts)
+    return {key: int(row[key] or 0) for key in row.keys()}
+
+
+async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> list[dict]:
+    rows = await pool.fetch(_EXPERIMENT_RESULTS, from_ts, to_ts)
+    results: list[dict] = []
+    for row in rows:
+        exposures = int(row["exposures"] or 0)
+        created = int(row["payment_created_users"] or 0)
+        paid = int(row["paid_users"] or 0)
+        results.append(
+            {
+                "experiment_key": row["experiment_key"],
+                "variant": row["variant"],
+                "exposures": exposures,
+                "payment_created_users": created,
+                "paid_users": paid,
+                "revenue_rubles": round(int(row["revenue_kopecks"] or 0) / 100, 2),
+                "checkout_rate": round(created / exposures, 4) if exposures else None,
+                "paid_rate": round(paid / exposures, 4) if exposures else None,
+            }
+        )
+    return results
+
+
 @_with_admin_auth
 async def handle_admin_stats(request: Request) -> JSONResponse:
     """GET /api/v1/admin/stats?period=7d&tz=Europe/Moscow — агрегированный дашборд статистики."""
@@ -590,6 +680,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         funnel,
         telegram_ads_report,
         telegram_ads_campaigns_total,
+        product_funnel,
+        experiments,
     ) = await asyncio.gather(
         _revenue_series(pool, trunc, tz, from_ts),
         _revenue_kpi(pool, from_ts),
@@ -605,6 +697,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _mature_funnel(pool, from_ts, now),
         _telegram_ads_campaigns(pool, from_ts, now, from_date, to_date),
         _scalar(pool, _TELEGRAM_ADS_CAMPAIGNS_TOTAL, from_ts, now, from_date, to_date),
+        _product_funnel(pool, from_ts, now),
+        _experiment_results(pool, from_ts, now),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -636,6 +730,8 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             },
             "by_plan": active_by_plan,
             "funnel": funnel,
+            "product_funnel": product_funnel,
+            "experiments": experiments,
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],
                 "economics": telegram_ads_report["economics"],

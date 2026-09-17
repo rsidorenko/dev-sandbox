@@ -85,6 +85,9 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         await conn.execute(
             "DELETE FROM analytics_internal_audit WHERE internal_user_id = ANY($1::text[])", [web_id, tg_id]
         )
+        await conn.execute(
+            "DELETE FROM experiment_assignments WHERE internal_user_id = ANY($1::text[])", [web_id, tg_id]
+        )
         # user_emails has an FK to user_identities -> delete it first.
         await conn.execute("DELETE FROM user_emails WHERE email = $1", _TEST_EMAIL)
         await conn.execute(
@@ -225,6 +228,11 @@ def test_merge_migrates_subscription_and_referral_from_web_to_telegram(pg_url: s
                     web_internal,
                     inviter_internal,
                 )
+                await conn.execute(
+                    "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant) "
+                    "VALUES ($1, 'checkout_reassurance_v1', 'reassurance')",
+                    web_internal,
+                )
 
             merged = await merge_web_account_if_needed(pool, _REAL_TG, _TEST_EMAIL)
             assert merged is True
@@ -240,6 +248,20 @@ def test_merge_migrates_subscription_and_referral_from_web_to_telegram(pg_url: s
                     web_internal,
                 )
                 assert old_snap is None, "web account snapshot must be migrated, not duplicated"
+
+                experiment = await conn.fetchrow(
+                    "SELECT variant FROM experiment_assignments "
+                    "WHERE internal_user_id = $1 AND experiment_key = 'checkout_reassurance_v1'",
+                    tg_internal,
+                )
+                assert experiment is not None and experiment["variant"] == "reassurance"
+                assert (
+                    await conn.fetchval(
+                        "SELECT count(*) FROM experiment_assignments WHERE internal_user_id = $1",
+                        web_internal,
+                    )
+                    == 0
+                )
 
                 rel = await conn.fetchrow(
                     "SELECT referrer_user_id, level FROM referral_relationships"

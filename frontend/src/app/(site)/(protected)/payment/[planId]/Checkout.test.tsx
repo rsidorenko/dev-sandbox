@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { auth, paymentApi, params, navigation } = vi.hoisted(() => ({
+const { auth, paymentApi, experimentApi, params, navigation } = vi.hoisted(() => ({
   auth: { authenticated: true, loading: false, profile: null as null | { referral: { balance_rubles: number; code: string; referrals_count: number } } },
   paymentApi: { create: vi.fn(), payWithBalance: vi.fn() },
+  experimentApi: { resolve: vi.fn() },
   params: { planId: "1m" },
   navigation: { query: "" },
 }));
@@ -18,6 +19,7 @@ vi.mock("@/shared/lib/auth", () => ({
   }),
 }));
 vi.mock("@/entities/payment/api", () => ({ paymentApi }));
+vi.mock("@/entities/experiment/api", () => ({ experimentApi }));
 vi.mock("next/navigation", () => ({
   useParams: () => params,
   useSearchParams: () => new URLSearchParams(navigation.query),
@@ -37,6 +39,14 @@ beforeEach(() => {
   navigation.query = "";
   paymentApi.create.mockReset();
   paymentApi.payWithBalance.mockReset();
+  experimentApi.resolve.mockReset();
+  experimentApi.resolve.mockResolvedValue({
+    ok: true,
+    data: {
+      ok: true,
+      experiment: { key: "checkout_reassurance_v1", variant: "control", assigned_at: "2026-09-17T00:00:00Z" },
+    },
+  });
   Object.defineProperty(window, "location", {
     value: { ...originalLocation, href: "" },
     writable: true,
@@ -71,6 +81,30 @@ describe("Checkout (payment/[planId])", () => {
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Перейти к оплате 249 ₽/ })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Промокод")).not.toBeInTheDocument();
+  });
+
+  it("shows reassurance copy only for the reassurance experiment variant", async () => {
+    experimentApi.resolve.mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        experiment: {
+          key: "checkout_reassurance_v1",
+          variant: "reassurance",
+          assigned_at: "2026-09-17T00:00:00Z",
+        },
+      },
+    });
+    render(<PaymentPage />);
+    expect(await screen.findByText(/Безопасная оплата/)).toBeInTheDocument();
+  });
+
+  it("keeps the control checkout when experiment resolution fails", async () => {
+    experimentApi.resolve.mockResolvedValue({ ok: false, error: "network_error" });
+    render(<PaymentPage />);
+    await waitFor(() => expect(experimentApi.resolve).toHaveBeenCalled());
+    expect(screen.queryByText(/Безопасная оплата/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Перейти к оплате 249 ₽/ })).toBeInTheDocument();
   });
 
   it("reveals extra devices on demand and updates the total", async () => {

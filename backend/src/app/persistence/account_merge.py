@@ -170,6 +170,25 @@ async def merge_web_account_if_needed(
                     old_id,
                 )
 
+            # Эксперимент следует за человеком при web→Telegram merge. Если обе
+            # личности уже видели эксперимент, сохраняем самый ранний вариант:
+            # именно он был первой реальной экспозицией и должен определять анализ.
+            await conn.execute(
+                "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant, assigned_at) "
+                "SELECT $1, experiment_key, variant, assigned_at FROM experiment_assignments "
+                "WHERE internal_user_id = $2 "
+                "ON CONFLICT (internal_user_id, experiment_key) DO UPDATE SET "
+                "variant = CASE WHEN EXCLUDED.assigned_at < experiment_assignments.assigned_at "
+                "THEN EXCLUDED.variant ELSE experiment_assignments.variant END, "
+                "assigned_at = LEAST(EXCLUDED.assigned_at, experiment_assignments.assigned_at)",
+                new_id,
+                old_id,
+            )
+            await conn.execute(
+                "DELETE FROM experiment_assignments WHERE internal_user_id = $1",
+                old_id,
+            )
+
             # --- Referral: always migrate (idempotent, Telegram wins conflicts) ---
             # referral_codes PK = internal_user_id -> drop web's if Telegram has one.
             await conn.execute(

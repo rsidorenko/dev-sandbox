@@ -49,6 +49,7 @@ from app.web_api.admin_users import (
 )
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
+from app.web_api.experiments import handle_resolve_experiment
 from app.web_api.middleware import require_auth, require_csrf
 from app.web_api.notifications import (
     handle_list_notifications,
@@ -187,6 +188,11 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/auth/logout", handle_logout, methods=["POST"]),
         # Profile
         Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
+        Route(
+            "/api/v1/user/experiments/resolve",
+            _with_auth(_with_csrf(handle_resolve_experiment)),
+            methods=["POST"],
+        ),
         # Referral dashboard (stats, conversion, recent transactions)
         Route("/api/v1/user/referral", _with_auth(handle_get_referral_stats), methods=["GET"]),
         # Extended, filtered transaction history (clean fields only — no webhook data)

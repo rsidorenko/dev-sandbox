@@ -196,6 +196,18 @@ export default function AdminStatsPage() {
   const telegramAds = data?.telegram_ads?.campaigns ?? [];
   const economics = data?.telegram_ads?.economics;
   const telegramFunnel = data?.telegram_ads?.funnel;
+  const productFunnel = data?.product_funnel;
+  const experiments = data?.experiments ?? [];
+  const productFunnelSteps = productFunnel ? [
+    { label: "Регистрация", value: productFunnel.registered_users },
+    { label: "Триал", value: productFunnel.trial_started_users },
+    { label: "Подключение", value: productFunnel.setup_started_users },
+    { label: "Выбор платформы", value: productFunnel.platform_selected_users },
+    { label: "VPN работает", value: productFunnel.connection_confirmed_users },
+    { label: "Checkout", value: productFunnel.checkout_opened_users },
+    { label: "Счёт создан", value: productFunnel.payment_created_users },
+    { label: "Оплата", value: productFunnel.payment_succeeded_users },
+  ] : [];
   const funnelSteps = telegramFunnel ? [
     { label: "Триалы", value: telegramFunnel.trials_started },
     { label: "Открыли подключение", value: telegramFunnel.setup_started_users },
@@ -380,6 +392,70 @@ export default function AdminStatsPage() {
               </ResponsiveContainer>
             </ChartCard>
           </div>
+
+          <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Продуктовая аналитика</h2>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                first-party · уникальные пользователи · без служебных аккаунтов
+              </span>
+            </div>
+            {productFunnelSteps.length > 0 && (
+              <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+                  {productFunnelSteps.map((step, index) => (
+                    <div key={step.label} className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{step.label}</div>
+                      <div className={`mt-1 text-xl font-semibold text-gray-900 dark:text-gray-100 ${adminNum}`}>{step.value}</div>
+                      <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        {index === 0 ? "за период" : `${formatStepRate(step.value, productFunnelSteps[index - 1].value)} к предыдущему`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+                  Шаги считаются как события внутри выбранного периода, а не как закрытая когорта. Для trial → paid используйте зрелую когорту выше.
+                </p>
+              </div>
+            )}
+            <div className="px-5 py-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эксперименты</h3>
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                Оплата и выручка учитываются только после первой экспозиции варианта. Не выбирайте победителя на малой выборке.
+              </p>
+            </div>
+            {experiments.length === 0 ? (
+              <div className="border-t border-gray-200 px-5 py-8 text-center text-sm text-gray-400 dark:border-zinc-700 dark:text-gray-500">
+                Нет экспозиций экспериментов за период
+              </div>
+            ) : (
+              <div className="overflow-x-auto border-t border-gray-200 dark:border-zinc-700">
+                <table className="w-full min-w-[900px] text-left text-xs">
+                  <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
+                    <tr>
+                      {["Эксперимент", "Вариант", "Экспозиции", "Счёт создан", "CR в счёт", "Оплатили", "CR в оплату", "Выручка"].map((label) => (
+                        <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
+                    {experiments.map((experiment) => (
+                      <tr key={`${experiment.experiment_key}:${experiment.variant}`} className="text-gray-700 dark:text-gray-300">
+                        <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">{experiment.experiment_key}</td>
+                        <td className="px-4 py-3 font-mono">{experiment.variant}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.exposures}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.payment_created_users}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.checkout_rate == null ? "—" : `${Math.round(experiment.checkout_rate * 1000) / 10}%`}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.paid_users}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.paid_rate == null ? "—" : `${Math.round(experiment.paid_rate * 1000) / 10}%`}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{formatRubles(experiment.revenue_rubles)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">

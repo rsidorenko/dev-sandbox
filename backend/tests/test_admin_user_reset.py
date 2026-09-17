@@ -74,6 +74,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
                 "DELETE FROM admin_subscription_actions WHERE internal_user_id = ANY($1::text[])", user_ids
             )
             await conn.execute("DELETE FROM funnel_interactions WHERE internal_user_id = ANY($1::text[])", user_ids)
+            await conn.execute("DELETE FROM experiment_assignments WHERE internal_user_id = ANY($1::text[])", user_ids)
             await conn.execute(
                 "DELETE FROM telegram_ads_attributions WHERE internal_user_id = ANY($1::text[])", user_ids
             )
@@ -172,6 +173,11 @@ async def _fill_user_state(pool: asyncpg.Pool, telegram_user_id: int, internal_u
     await pool.execute(
         "INSERT INTO funnel_interactions (internal_user_id,event_name,surface,dedup_key) "
         "VALUES ($1,'setup_started','telegram','reset-setup')",
+        internal_user_id,
+    )
+    await pool.execute(
+        "INSERT INTO experiment_assignments (internal_user_id,experiment_key,variant) "
+        "VALUES ($1,'checkout_reassurance_v1','control')",
         internal_user_id,
     )
     await pool.execute(
@@ -341,12 +347,16 @@ def test_admin_reset_test_account_full_flow(pg_url: str, admin_env: None) -> Non
             assert body["vpn_outcome"] == "success"
             assert body["deleted_rows"]["user_identities"] == 1
             assert body["deleted_rows"]["bare_xray_traffic_daily"] == 2
+            assert body["deleted_rows"]["experiment_assignments"] == 1
             assert await pool.fetchval("SELECT count(*) FROM user_identities WHERE internal_user_id=$1", uid) == 0
             assert (
                 await pool.fetchval("SELECT count(*) FROM subscription_snapshots WHERE internal_user_id=$1", uid) == 0
             )
             assert await pool.fetchval("SELECT count(*) FROM billing_events_ledger WHERE internal_user_id=$1", uid) == 0
             assert await pool.fetchval("SELECT count(*) FROM funnel_interactions WHERE internal_user_id=$1", uid) == 0
+            assert (
+                await pool.fetchval("SELECT count(*) FROM experiment_assignments WHERE internal_user_id=$1", uid) == 0
+            )
             assert (
                 await pool.fetchval("SELECT count(*) FROM bare_xray_traffic_daily WHERE email LIKE '%u999840001%'") == 0
             )

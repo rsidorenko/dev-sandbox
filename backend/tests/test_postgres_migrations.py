@@ -133,6 +133,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "086_trial_first_traffic.sql",
         "087_checkout_recovery_context.sql",
         "088_two_sided_referral.sql",
+        "089_experiment_assignments.sql",
     ]
 
 
@@ -609,6 +610,20 @@ def test_two_sided_referral_migration_preserves_legacy_and_is_additive() -> None
     assert "alter column reward_policy set default 'balanced_v1'" in lowered
     assert "create table if not exists referral_invitee_bonus_awards" in lowered
     assert "unique (referred_user_id)" in lowered
+
+    for forbidden in ("drop table", "drop column", "truncate", " delete from "):
+        assert forbidden not in lowered
+
+
+def test_experiment_assignments_migration_is_additive_and_idempotent() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "089_experiment_assignments.sql").read_text(
+        encoding="utf-8"
+    )
+    lowered = _squash_ws(migration).lower()
+
+    assert "create table if not exists experiment_assignments" in lowered
+    assert "primary key (internal_user_id, experiment_key)" in lowered
+    assert "create index if not exists idx_experiment_assignments_key_time" in lowered
 
     for forbidden in ("drop table", "drop column", "truncate", " delete from "):
         assert forbidden not in lowered

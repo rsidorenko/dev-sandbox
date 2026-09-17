@@ -18,6 +18,9 @@ import { reachGoal } from "@/shared/lib/analytics";
 import { PROMO_ERROR_MESSAGES, promoApi } from "@/features/promocode/api";
 import { usePromocode } from "@/features/promocode/usePromocode";
 import { Alert } from "@/shared/ui/Alert";
+import { experimentApi, type ExperimentVariant } from "@/entities/experiment/api";
+
+const CHECKOUT_EXPERIMENT = "checkout_reassurance_v1";
 
 export default function PaymentPage() {
   return (
@@ -53,6 +56,7 @@ function PaymentForm() {
     searchParams.get("method") === "crypto" ? "crypto" : "card",
   );
   const [showPaymentOptions, setShowPaymentOptions] = useState(() => paymentMethod === "crypto");
+  const [checkoutVariant, setCheckoutVariant] = useState<ExperimentVariant>("control");
   const [errorMsg, setErrorMsg] = useState("");
   const [paymentResult, setPaymentResult] = useState<{
     status: string;
@@ -98,6 +102,19 @@ function PaymentForm() {
   useEffect(() => {
     if (appliedPromo) setShowPromo(true);
   }, [appliedPromo]);
+
+  useEffect(() => {
+    if (!authenticated || !planId || !getTariffInfo(planId)) return;
+    let cancelled = false;
+    experimentApi.resolve(CHECKOUT_EXPERIMENT, planId).then((result) => {
+      if (!cancelled && result.ok && result.data.experiment.variant === "reassurance") {
+        setCheckoutVariant("reassurance");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated, planId]);
 
   // Держим preview скидки актуальным для текущего тарифа И количества устройств:
   // срабатывает при входе с уже закреплённым промокодом и при изменении слайдера.
@@ -523,6 +540,12 @@ function PaymentForm() {
                 ? `Оплатить криптовалютой ${displayTotal.toLocaleString("ru-RU")} ₽`
                 : `Перейти к оплате ${displayTotal.toLocaleString("ru-RU")} ₽`}
           </button>
+
+          {checkoutVariant === "reassurance" && (
+            <p className="mt-2 text-center text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              🔒 Безопасная оплата · доступ активируется автоматически
+            </p>
+          )}
 
           <p className="mt-4 text-center text-xs text-gray-400">
             Нажимая кнопку, вы соглашаетесь с{" "}

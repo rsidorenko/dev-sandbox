@@ -60,6 +60,8 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             "OR internal_fact_ref LIKE 'grant:test-stats-%' "
             "OR internal_fact_ref LIKE 'manual:test-stats-%'"
         )
+        await conn.execute("DELETE FROM experiment_assignments WHERE internal_user_id LIKE 'test-stats-u-%'")
+        await conn.execute("DELETE FROM funnel_interactions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM user_identities WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM bare_xray_traffic_daily WHERE server_id = 99001")
@@ -80,7 +82,7 @@ def _insert_ledger(
         "(internal_fact_ref, billing_provider_key, external_event_id, event_type, "
         " event_effective_at, event_received_at, internal_user_id, amount_minor_units, "
         " currency_code, status, ingestion_correlation_id) "
-        "VALUES ($1,$7,$2,'payment',$3,$3,$4,$5,'RUB',$6,'cid-test-stats')"
+        "VALUES ($1,$7,$2,'subscription_activated',$3,$3,$4,$5,'RUB',$6,'cid-test-stats')"
     )
     return sql, (fact_ref, external_id, when, user_id, kopecks, status, provider_key)
 
@@ -145,6 +147,20 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
             # Accepted-факт 1000.00 RUB — реальный платёж (провайдер yookassa).
             sql, args = _insert_ledger(conn, f"{_FACT_REF}-acc", "ext-acc-1", recent, u_recent, 100000, "accepted")
             await conn.execute(sql, *args)
+            assigned_at = recent - timedelta(minutes=10)
+            await conn.execute(
+                "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant, assigned_at) "
+                "VALUES ($1, 'checkout_reassurance_v1', 'reassurance', $2)",
+                u_recent,
+                assigned_at,
+            )
+            await conn.execute(
+                "INSERT INTO funnel_interactions "
+                "(internal_user_id, event_name, surface, platform, dedup_key, occurred_at, plan_id) "
+                "VALUES ($1, 'payment_created', 'web', '', 'test-stats-payment-created', $2, '1m')",
+                u_recent,
+                recent - timedelta(minutes=1),
+            )
             # Ignored-факт 9999.99 — НЕ должен войти в выручку (статус).
             sql, args = _insert_ledger(conn, f"{_FACT_REF}-ign", "ext-ign-1", recent, u_recent, 999999, "ignored")
             await conn.execute(sql, *args)
@@ -191,7 +207,6 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert body["period"]["key"] == "7d"
         assert body["period"]["bucket"] == "day"
         # выручка = только реальный accepted 1000.00: ignored отсечён статусом,
-        # оба гранта (grant:… под yookassa и manual_grant) — исключены как внутренние.
         assert body["kpi"]["revenue_rubles"] == 1000.0
         assert body["kpi"]["payments_count"] == 1
         assert body["kpi"]["paying_users"] == 1
@@ -204,6 +219,19 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert all(p["plan_id"] != "3m" for p in body["by_plan"])
         # recent стартанул триал и имеет accepted-факт → конверсия 1.0
         assert body["kpi"]["trial_to_paid_rate"] == 1.0
+        assert body["product_funnel"]["registered_users"] >= 1
+        assert body["product_funnel"]["payment_created_users"] >= 1
+        assert body["product_funnel"]["payment_succeeded_users"] >= 1
+        experiment = next(
+            item
+            for item in body["experiments"]
+            if item["experiment_key"] == "checkout_reassurance_v1" and item["variant"] == "reassurance"
+        )
+        assert experiment["exposures"] == 1
+        assert experiment["payment_created_users"] == 1
+        assert experiment["paid_users"] == 1
+        assert experiment["paid_rate"] == 1.0
+        assert experiment["revenue_rubles"] == 1000.0
         # временные ряды сформированы
         assert len(body["series"]["revenue"]) >= 1
         assert len(body["series"]["new_users"]) >= 1
