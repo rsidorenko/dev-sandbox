@@ -212,10 +212,9 @@ def text_keys_deleted() -> tuple[str, dict[str, Any]]:
 def text_referral_offer_trial() -> tuple[str, dict[str, Any]]:
     """Реферальный оффер после первого реального трафика в триале (once-ever)."""
     text = (
-        "🎁 <b>Хотите пользоваться Bravada бесплатно?</b>\n\n"
-        "Пригласите друга: когда он оформит подписку от 1 месяца, "
-        "вам добавятся <b>30 дней VPN</b>.\n\n"
-        "1 друг = <b>+30 дней</b>."
+        "🎁 <b>Подарите другу 3 дня VPN</b>\n\n"
+        "Когда он впервые оплатит подписку от 1 месяца, ему добавятся <b>+3 дня</b>, "
+        "а вы будете получать до <b>20% кешбэка</b> с его оплат."
     )
     keyboard = _inline_kb([[{"text": "🎁 Получить свою ссылку", "callback_data": CB_REFERRAL}]])
     return text, keyboard
@@ -224,10 +223,9 @@ def text_referral_offer_trial() -> tuple[str, dict[str, Any]]:
 def text_referral_offer_paid() -> tuple[str, dict[str, Any]]:
     """Реферальный оффер после первой оплаты для тех, кто не видел trial-оффер."""
     text = (
-        "🎁 <b>Подписку можно продлевать бесплатно</b>\n\n"
-        "Пригласите друга: когда он оформит подписку от 1 месяца, "
-        "вам добавятся <b>30 дней VPN</b>.\n\n"
-        "1 друг = <b>+30 дней</b>."
+        "🎁 <b>Поделитесь Bravada с другом</b>\n\n"
+        "Друг получит <b>+3 дня</b> к первой подписке от месяца, "
+        "а вы — до <b>20% кешбэка</b> с его оплат."
     )
     keyboard = _inline_kb([[{"text": "🎁 Получить свою ссылку", "callback_data": CB_REFERRAL}]])
     return text, keyboard

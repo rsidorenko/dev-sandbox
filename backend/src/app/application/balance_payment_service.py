@@ -31,7 +31,11 @@ from app.application.plan_pricing import get_plan_pricing, resolve_effective_cha
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, extra_device_cost
 from app.domain.plans import calculate_total_price_kopecks
 from app.domain.pricing import WINNER_PROMO
-from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
+from app.domain.referral import (
+    build_commissions_for_payment,
+    resolve_direct_and_indirect_referrers,
+    resolve_reward_policy,
+)
 from app.domain.subscription_timing import compute_renewal_active_until
 from app.persistence.postgres_referral import (
     PostgresReferralBalanceRepository,
@@ -43,7 +47,11 @@ from app.persistence.referral_contracts import ReferralTransactionRecord
 from app.runtime.fulfillment_processor import (
     CreditedCommission,
     FulfillmentActivationTelegramNotifier,
+    _notify_invitee_of_bonus_best_effort,
+    _notify_referrer_of_bonus_best_effort,
     _notify_referrers_of_commission_best_effort,
+    award_referral_bonus_month_best_effort,
+    award_referral_invitee_bonus_best_effort,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -298,6 +306,32 @@ async def _pay_plan_pg(
             await _notify_referrers_of_commission_best_effort(
                 pool=pool, notifier=notifier, credited=list(credited), correlation_id=correlation_id
             )
+
+    legacy_bonus = await award_referral_bonus_month_best_effort(
+        pool=pool,
+        vless_provider=vless_provider,
+        payer_internal_user_id=internal_user_id,
+        plan_id=plan_id,
+        correlation_id=correlation_id,
+    )
+    invitee_bonus = await award_referral_invitee_bonus_best_effort(
+        pool=pool,
+        vless_provider=vless_provider,
+        payer_internal_user_id=internal_user_id,
+        plan_id=plan_id,
+        correlation_id=correlation_id,
+    )
+    if notifier is not None:
+        if legacy_bonus is not None:
+            await _notify_referrer_of_bonus_best_effort(
+                notifier=notifier, bonus=legacy_bonus, correlation_id=correlation_id
+            )
+        if invitee_bonus is not None:
+            await _notify_invitee_of_bonus_best_effort(
+                notifier=notifier, bonus=invitee_bonus, correlation_id=correlation_id
+            )
+    if invitee_bonus is not None:
+        active_until = invitee_bonus.new_active_until
 
     return BalancePaymentResult(
         BalancePaymentStatus.COMPLETED,
@@ -885,12 +919,14 @@ async def _credit_commissions_best_effort(
             if not referrers:
                 return ()
             direct, indirect = resolve_direct_and_indirect_referrers(referrers)
+            reward_policy = resolve_reward_policy(referrers)
             commissions = build_commissions_for_payment(
                 payer_user_id=payer_internal_user_id,
                 direct_referrer_user_id=direct,
                 indirect_referrer_user_id=indirect,
                 plan_id=plan_id,
                 payment_amount_kopecks=payment_amount_kopecks,
+                reward_policy=reward_policy,
             )
             now = datetime.now(UTC)
             for comm in commissions:
@@ -949,12 +985,14 @@ async def _credit_commissions_inmemory(
     if not referrers:
         return ()
     direct, indirect = resolve_direct_and_indirect_referrers(referrers)
+    reward_policy = resolve_reward_policy(referrers)
     commissions = build_commissions_for_payment(
         payer_user_id=payer_internal_user_id,
         direct_referrer_user_id=direct,
         indirect_referrer_user_id=indirect,
         plan_id=plan_id,
         payment_amount_kopecks=payment_amount_kopecks,
+        reward_policy=reward_policy,
     )
     now = datetime.now(UTC)
     for comm in commissions:

@@ -16,11 +16,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.application import subscription_grant as grant_mod
 from app.persistence import postgres_referral as pgref
 from app.persistence.billing_subscription_apply_contracts import BillingSubscriptionApplyOutcome
 from app.persistence.referral_contracts import ReferralBalanceRecord
 from app.runtime import fulfillment_processor as fp_mod
-from app.runtime.fulfillment_processor import FulfillmentInput, process_fulfillment
+from app.runtime.fulfillment_processor import (
+    FulfillmentInput,
+    award_referral_bonus_month_best_effort,
+    award_referral_invitee_bonus_best_effort,
+    process_fulfillment,
+)
 from app.shared.types import OperationOutcomeCategory
 
 
@@ -144,6 +150,59 @@ def test_telegram_user_id_from_internal_parses_sign() -> None:
     assert telegram_user_id_from_internal("garbage") is None
     assert telegram_user_id_from_internal("u") is None
     assert telegram_user_id_from_internal("") is None
+
+
+@pytest.mark.asyncio
+async def test_balanced_policy_awards_three_days_to_invitee_once() -> None:
+    new_until = datetime(2026, 8, 1, tzinfo=UTC)
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(
+            pgref.PostgresReferralRelationshipRepository,
+            "find_referrers",
+            AsyncMock(return_value=[SimpleNamespace(level=1, referrer_user_id="u999", reward_policy="balanced_v1")]),
+        )
+        award = AsyncMock(return_value=True)
+        m.setattr(pgref.PostgresReferralInviteeBonusAwardRepository, "award_if_absent", award)
+        grant = AsyncMock(return_value=SimpleNamespace(new_active_until=new_until))
+        m.setattr(grant_mod, "grant_subscription_days", grant)
+
+        result = await award_referral_invitee_bonus_best_effort(
+            pool=_FakePool(),
+            vless_provider=None,
+            payer_internal_user_id="u12345",
+            plan_id="1m",
+            correlation_id="cid",
+        )
+
+    assert result is not None
+    assert result.days_awarded == 3
+    assert result.referred_internal_user_id == "u12345"
+    assert result.new_active_until == new_until
+    assert grant.await_args.kwargs["internal_user_id"] == "u12345"
+    assert grant.await_args.kwargs["actor"] == "referral_invitee_bonus"
+    assert award.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_balanced_policy_does_not_award_legacy_free_month() -> None:
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(
+            pgref.PostgresReferralRelationshipRepository,
+            "find_referrers",
+            AsyncMock(return_value=[SimpleNamespace(level=1, referrer_user_id="u999", reward_policy="balanced_v1")]),
+        )
+        legacy_award = AsyncMock(return_value=True)
+        m.setattr(pgref.PostgresReferralBonusAwardRepository, "award_if_absent", legacy_award)
+        result = await award_referral_bonus_month_best_effort(
+            pool=_FakePool(),
+            vless_provider=None,
+            payer_internal_user_id="u12345",
+            plan_id="1m",
+            correlation_id="cid",
+        )
+
+    assert result is None
+    legacy_award.assert_not_awaited()
 
 
 # ── process_fulfillment referral-notification behaviour ─────────────────────────

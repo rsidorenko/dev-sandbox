@@ -25,6 +25,7 @@ from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
     ReferralBonusAwardRecord,
     ReferralCodeRecord,
+    ReferralInviteeBonusAwardRecord,
     ReferralRelationshipRecord,
     ReferralTransactionRecord,
 )
@@ -240,6 +241,7 @@ class InMemoryReferralRelationshipRepository:
         referrer_user_id: str,
         level: int,
         referrer_of_referrer_user_id: str | None,
+        reward_policy: str = "balanced_v1",
     ) -> ReferralRelationshipRecord:
         record = ReferralRelationshipRecord(
             relationship_id=str(uuid.uuid4()),
@@ -248,6 +250,7 @@ class InMemoryReferralRelationshipRepository:
             level=level,
             referrer_of_referrer_user_id=referrer_of_referrer_user_id,
             created_at=datetime.now(UTC),
+            reward_policy=reward_policy,
         )
         async with self._lock:
             self._records.append(record)
@@ -356,6 +359,19 @@ class InMemoryReferralBonusAwardRepository:
     async def sum_awarded_days(self, referrer_user_id: str) -> int:
         async with self._lock:
             return sum(a.days_awarded for a in self._awards if a.referrer_user_id == referrer_user_id)
+
+
+class InMemoryReferralInviteeBonusAwardRepository:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._awards: list[ReferralInviteeBonusAwardRecord] = []
+
+    async def award_if_absent(self, record: ReferralInviteeBonusAwardRecord) -> bool:
+        async with self._lock:
+            if any(a.referred_user_id == record.referred_user_id for a in self._awards):
+                return False
+            self._awards.append(record)
+            return True
 
 
 _PROMO_UPDATABLE: set[str] = {

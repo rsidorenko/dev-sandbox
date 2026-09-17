@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.plans import PlanId
+from app.domain.plans import PlanId, get_plan
+
+LEGACY_STACK_POLICY = "legacy_stack"
+BALANCED_V1_POLICY = "balanced_v1"
 
 # Level 1 (direct referral) commission rates by plan
 _LEVEL1_RATES: dict[str, float] = {
@@ -28,13 +31,29 @@ _LEVEL2_RATES: dict[str, float] = {
     PlanId.ONE_YEAR: 0.02,
 }
 
+_BALANCED_LEVEL1_RATES: dict[str, float] = {
+    PlanId.ONE_DAY: 0.10,
+    PlanId.SEVEN_DAYS: 0.12,
+    PlanId.TWO_WEEKS: 0.15,
+    PlanId.ONE_MONTH: 0.20,
+    PlanId.THREE_MONTHS: 0.18,
+    PlanId.SIX_MONTHS: 0.16,
+    PlanId.ONE_YEAR: 0.15,
+}
 
-# --- "Free month per friend" bonus (coexists with cashback) ------------------
-# When an invited user makes their FIRST payment of a qualifying plan (>= 1 month),
-# the direct (L1) referrer is granted REFERRAL_BONUS_DAYS of subscription. This is a
-# separate reward from the percent cashback above — both apply. Bonus days are granted
-# via grant_subscription_days() and tracked in referral_bonus_awards (idempotent once
-# per (referrer, payer)). See docs/superpowers/specs/2026-08-08-referral-free-month-design.md.
+_BALANCED_LEVEL2_RATES: dict[str, float] = {
+    PlanId.ONE_DAY: 0.01,
+    PlanId.SEVEN_DAYS: 0.01,
+    PlanId.TWO_WEEKS: 0.01,
+    PlanId.ONE_MONTH: 0.02,
+    PlanId.THREE_MONTHS: 0.02,
+    PlanId.SIX_MONTHS: 0.015,
+    PlanId.ONE_YEAR: 0.01,
+}
+
+
+# Legacy-бонус сохраняется только для связей, созданных до balanced_v1: после первой
+# квалифицирующей оплаты прямой реферер получает 30 дней поверх прежнего кешбэка.
 REFERRAL_BONUS_DAYS: int = 30
 REFERRAL_BONUS_LEVEL: int = 1
 REFERRAL_BONUS_QUALIFYING_PLANS: frozenset[str] = frozenset(
@@ -46,9 +65,12 @@ REFERRAL_BONUS_QUALIFYING_PLANS: frozenset[str] = frozenset(
     }
 )
 
+REFERRAL_INVITEE_BONUS_DAYS: int = 3
+BALANCED_MAX_REWARD_RATE: float = 0.32
+
 
 def is_qualifying_plan_for_bonus(plan_id: str) -> bool:
-    """A plan that, on the friend's first payment, grants the referrer a free month."""
+    """Тариф от месяца, на первой оплате которого срабатывает policy-specific бонус."""
     return plan_id in REFERRAL_BONUS_QUALIFYING_PLANS
 
 
@@ -61,12 +83,14 @@ class ReferralCommission:
     payer_user_id: str
 
 
-def level1_commission_rate(plan_id: str) -> float:
-    return _LEVEL1_RATES.get(plan_id, 0.0)
+def level1_commission_rate(plan_id: str, reward_policy: str = LEGACY_STACK_POLICY) -> float:
+    rates = _BALANCED_LEVEL1_RATES if reward_policy == BALANCED_V1_POLICY else _LEVEL1_RATES
+    return rates.get(plan_id, 0.0)
 
 
-def level2_commission_rate(plan_id: str) -> float:
-    return _LEVEL2_RATES.get(plan_id, 0.0)
+def level2_commission_rate(plan_id: str, reward_policy: str = LEGACY_STACK_POLICY) -> float:
+    rates = _BALANCED_LEVEL2_RATES if reward_policy == BALANCED_V1_POLICY else _LEVEL2_RATES
+    return rates.get(plan_id, 0.0)
 
 
 def calculate_commission_kopecks(
@@ -83,10 +107,11 @@ def build_commissions_for_payment(
     indirect_referrer_user_id: str | None,
     plan_id: str,
     payment_amount_kopecks: int,
+    reward_policy: str = LEGACY_STACK_POLICY,
 ) -> tuple[ReferralCommission, ...]:
     results: list[ReferralCommission] = []
     if direct_referrer_user_id is not None:
-        rate = level1_commission_rate(plan_id)
+        rate = level1_commission_rate(plan_id, reward_policy)
         amount = calculate_commission_kopecks(payment_amount_kopecks, rate)
         if amount > 0:
             results.append(
@@ -99,7 +124,7 @@ def build_commissions_for_payment(
                 )
             )
     if indirect_referrer_user_id is not None:
-        rate = level2_commission_rate(plan_id)
+        rate = level2_commission_rate(plan_id, reward_policy)
         amount = calculate_commission_kopecks(payment_amount_kopecks, rate)
         if amount > 0:
             results.append(
@@ -130,3 +155,36 @@ def resolve_direct_and_indirect_referrers(
         if r.level == 2:
             indirect_referrer = r.referrer_user_id
     return direct_referrer, indirect_referrer
+
+
+def resolve_reward_policy(relationships: tuple) -> str:
+    """Политика прямой связи управляет всей цепочкой. Старые/fake записи — legacy."""
+    for relationship in relationships:
+        if relationship.level == 1:
+            return getattr(relationship, "reward_policy", LEGACY_STACK_POLICY)
+    return LEGACY_STACK_POLICY
+
+
+@dataclass(frozen=True, slots=True)
+class ReferralEconomics:
+    plan_id: str
+    cash_reward_rate: float
+    invitee_bonus_rate: float
+    total_reward_rate: float
+
+
+def balanced_referral_economics(plan_id: str) -> ReferralEconomics:
+    """Верхняя номинальная доля наград от выручки без учёта фактической себестоимости трафика."""
+    plan = get_plan(plan_id)
+    invitee_rate = 0.0
+    if plan is not None and is_qualifying_plan_for_bonus(plan_id):
+        invitee_rate = REFERRAL_INVITEE_BONUS_DAYS / plan.duration_days
+    cash_rate = level1_commission_rate(plan_id, BALANCED_V1_POLICY) + level2_commission_rate(
+        plan_id, BALANCED_V1_POLICY
+    )
+    return ReferralEconomics(
+        plan_id=plan_id,
+        cash_reward_rate=cash_rate,
+        invitee_bonus_rate=invitee_rate,
+        total_reward_rate=cash_rate + invitee_rate,
+    )

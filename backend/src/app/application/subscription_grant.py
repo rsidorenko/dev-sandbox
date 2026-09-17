@@ -2,7 +2,8 @@
 
 Shared by:
   * operator add-days (``web_api/admin_users.py``) — ``actor`` = admin identity;
-  * referral 'free month per friend' bonus (``runtime/fulfillment_processor.py``) — ``actor = "referral_bonus"``.
+  * referral bonuses (``runtime/fulfillment_processor.py``) — legacy referrer month or
+    balanced invitee days.
 
 The grant extends ``subscription_snapshots.active_until_utc`` (or creates a ``custom:{days}``
 subscription from scratch), re-activates the snapshot, re-provisions VLESS keys across servers,
@@ -63,7 +64,7 @@ async def grant_subscription_days(
     ``active_until = now + days`` — analogous to the /start trial but a paid-length grant.
 
     Idempotent at the snapshot level (UPSERT). Once-only semantics are the caller's responsibility:
-    operator action (admin) or ``referral_bonus_awards`` UNIQUE(referrer, payer) (bonus).
+    operator action (admin) or the relevant referral award ledger (bonus).
     """
     correlation_id = correlation_id or f"grant-{uuid.uuid4().hex[:12]}"
 

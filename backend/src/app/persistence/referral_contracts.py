@@ -22,6 +22,7 @@ class ReferralRelationshipRecord:
     level: int
     referrer_of_referrer_user_id: str | None
     created_at: datetime
+    reward_policy: str = "legacy_stack"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,7 @@ class ReferralRelationshipRepository(Protocol):
         referrer_user_id: str,
         level: int,
         referrer_of_referrer_user_id: str | None,
+        reward_policy: str = "balanced_v1",
     ) -> ReferralRelationshipRecord: ...
     async def find_referrers(self, user_id: str) -> tuple[ReferralRelationshipRecord, ...]: ...
     async def count_direct_referrals(self, user_id: str) -> int: ...
@@ -99,4 +101,21 @@ class ReferralBonusAwardRepository(Protocol):
 
     async def sum_awarded_days(self, referrer_user_id: str) -> int:
         """Total bonus DAYS awarded to the referrer (sum of days_awarded)."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ReferralInviteeBonusAwardRecord:
+    award_id: str
+    referred_user_id: str
+    referrer_user_id: str
+    days_awarded: int
+    related_plan_id: str
+    correlation_id: str | None
+    created_at: datetime
+
+
+class ReferralInviteeBonusAwardRepository(Protocol):
+    async def award_if_absent(self, record: ReferralInviteeBonusAwardRecord) -> bool:
+        """True только для первого бонуса конкретному приглашённому пользователю."""
         ...

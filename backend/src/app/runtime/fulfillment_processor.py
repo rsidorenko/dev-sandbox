@@ -243,7 +243,11 @@ async def _process_referral_commissions_best_effort(
     AND returned — a replayed payment yields no credits and an empty list (→ no notification).
     Any error is swallowed (best-effort) and an empty list returned so fulfillment never breaks."""
     try:
-        from app.domain.referral import build_commissions_for_payment, resolve_direct_and_indirect_referrers
+        from app.domain.referral import (
+            build_commissions_for_payment,
+            resolve_direct_and_indirect_referrers,
+            resolve_reward_policy,
+        )
         from app.persistence.postgres_referral import (
             PostgresReferralBalanceRepository,
             PostgresReferralRelationshipRepository,
@@ -256,6 +260,7 @@ async def _process_referral_commissions_best_effort(
             return []
 
         direct_referrer, indirect_referrer = resolve_direct_and_indirect_referrers(referrers)
+        reward_policy = resolve_reward_policy(referrers)
 
         plan_id = _plan_id_from_period_days(period_days)
         commissions = build_commissions_for_payment(
@@ -264,6 +269,7 @@ async def _process_referral_commissions_best_effort(
             indirect_referrer_user_id=indirect_referrer,
             plan_id=plan_id,
             payment_amount_kopecks=payment_amount_kopecks,
+            reward_policy=reward_policy,
         )
 
         if not commissions:
@@ -373,13 +379,21 @@ async def _notify_referrers_of_commission_best_effort(
 
 @dataclass(frozen=True, slots=True)
 class BonusAward:
-    """A 'free month per friend' bonus actually granted: the direct (L1) referrer earned
-    +REFERRAL_BONUS_DAYS because this payer made a first qualifying (>= 1 month) payment.
-    Distinct from cashback — both rewards apply on the same payment."""
+    """Legacy-награда: прямой реферер получил +30 дней по ранее обещанным условиям."""
 
     referrer_internal_user_id: str
     payer_internal_user_id: str
     days_awarded: int
+
+
+@dataclass(frozen=True, slots=True)
+class InviteeBonusAward:
+    """Одноразовые дни, выданные самому приглашённому по balanced_v1."""
+
+    referred_internal_user_id: str
+    referrer_internal_user_id: str
+    days_awarded: int
+    new_active_until: datetime
 
 
 async def award_referral_bonus_month_best_effort(
@@ -403,10 +417,12 @@ async def award_referral_bonus_month_best_effort(
 
         from app.application.subscription_grant import grant_subscription_days
         from app.domain.referral import (
+            LEGACY_STACK_POLICY,
             REFERRAL_BONUS_DAYS,
             REFERRAL_BONUS_LEVEL,
             is_qualifying_plan_for_bonus,
             resolve_direct_and_indirect_referrers,
+            resolve_reward_policy,
         )
         from app.persistence.postgres_referral import (
             PostgresReferralBonusAwardRepository,
@@ -417,9 +433,10 @@ async def award_referral_bonus_month_best_effort(
         if not is_qualifying_plan_for_bonus(plan_id):
             return None
 
-        direct_referrer, _indirect = resolve_direct_and_indirect_referrers(
-            await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id),
-        )
+        relationships = await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id)
+        if resolve_reward_policy(relationships) != LEGACY_STACK_POLICY:
+            return None
+        direct_referrer, _indirect = resolve_direct_and_indirect_referrers(relationships)
         if direct_referrer is None or direct_referrer == payer_internal_user_id:
             return None
 
@@ -462,6 +479,76 @@ async def award_referral_bonus_month_best_effort(
         return None
 
 
+async def award_referral_invitee_bonus_best_effort(
+    *,
+    pool: asyncpg.Pool,
+    vless_provider: Any | None,
+    payer_internal_user_id: str,
+    plan_id: str,
+    correlation_id: str,
+) -> InviteeBonusAward | None:
+    """Выдать приглашённому +3 дня после первой квалифицирующей оплаты balanced_v1."""
+    try:
+        from app.application.subscription_grant import grant_subscription_days
+        from app.domain.referral import (
+            BALANCED_V1_POLICY,
+            REFERRAL_INVITEE_BONUS_DAYS,
+            is_qualifying_plan_for_bonus,
+            resolve_direct_and_indirect_referrers,
+            resolve_reward_policy,
+        )
+        from app.persistence.postgres_referral import (
+            PostgresReferralInviteeBonusAwardRepository,
+            PostgresReferralRelationshipRepository,
+        )
+        from app.persistence.referral_contracts import ReferralInviteeBonusAwardRecord
+
+        if not is_qualifying_plan_for_bonus(plan_id):
+            return None
+        relationships = await PostgresReferralRelationshipRepository(pool).find_referrers(payer_internal_user_id)
+        if resolve_reward_policy(relationships) != BALANCED_V1_POLICY:
+            return None
+        direct_referrer, _indirect = resolve_direct_and_indirect_referrers(relationships)
+        if direct_referrer is None or direct_referrer == payer_internal_user_id:
+            return None
+
+        inserted = await PostgresReferralInviteeBonusAwardRepository(pool).award_if_absent(
+            ReferralInviteeBonusAwardRecord(
+                award_id=f"invitee-bonus-{uuid.uuid4()}",
+                referred_user_id=payer_internal_user_id,
+                referrer_user_id=direct_referrer,
+                days_awarded=REFERRAL_INVITEE_BONUS_DAYS,
+                related_plan_id=plan_id,
+                correlation_id=correlation_id,
+                created_at=datetime.now(UTC),
+            )
+        )
+        if not inserted:
+            return None
+
+        grant = await grant_subscription_days(
+            pool=pool,
+            vless_provider=vless_provider,
+            internal_user_id=payer_internal_user_id,
+            days=REFERRAL_INVITEE_BONUS_DAYS,
+            actor="referral_invitee_bonus",
+            correlation_id=correlation_id,
+        )
+        return InviteeBonusAward(
+            referred_internal_user_id=payer_internal_user_id,
+            referrer_internal_user_id=direct_referrer,
+            days_awarded=REFERRAL_INVITEE_BONUS_DAYS,
+            new_active_until=grant.new_active_until,
+        )
+    except Exception:
+        _LOGGER.exception(
+            "referral invitee bonus award failed (best-effort); payer=%s cid=%s",
+            payer_internal_user_id[:8],
+            correlation_id,
+        )
+        return None
+
+
 async def _notify_referrer_of_bonus_best_effort(
     *,
     notifier: FulfillmentActivationTelegramNotifier,
@@ -489,6 +576,36 @@ async def _notify_referrer_of_bonus_best_effort(
         _LOGGER.debug(
             "referrer bonus notice failed (best-effort); referrer=%s cid=%s",
             bonus.referrer_internal_user_id,
+            correlation_id,
+            exc_info=True,
+        )
+
+
+async def _notify_invitee_of_bonus_best_effort(
+    *,
+    notifier: FulfillmentActivationTelegramNotifier,
+    bonus: InviteeBonusAward,
+    correlation_id: str,
+) -> None:
+    """Сообщить приглашённому о дополнительных днях; web-only пользователь пропускается."""
+    try:
+        tg_id = telegram_user_id_from_internal(bonus.referred_internal_user_id)
+        if tg_id is None or tg_id <= 0:
+            return
+        await notifier.send_subscription_activated_notice(
+            telegram_user_id=tg_id,
+            text=(
+                "🎁 Бонус за приглашение\n\n"
+                f"К вашей первой подписке добавлено +{bonus.days_awarded} дня. "
+                "Бонус активирован автоматически, потому что вы пришли по ссылке друга."
+            ),
+            reply_markup=None,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        _LOGGER.debug(
+            "invitee bonus notice failed (best-effort); payer=%s cid=%s",
+            bonus.referred_internal_user_id,
             correlation_id,
             exc_info=True,
         )
@@ -633,8 +750,8 @@ async def process_fulfillment(
                     credited=credited,
                     correlation_id=correlation_id,
                 )
-            # 'Free month per friend': +30 days to the direct referrer on the friend's first
-            # qualifying (>= 1 month) payment. Coexists with the cashback above. Idempotent.
+            # Legacy сохраняет +30 дней рефереру; balanced_v1 выдаёт +3 дня плательщику.
+            # Обе функции сами проверяют policy и идемпотентный ledger.
             bonus = await award_referral_bonus_month_best_effort(
                 pool=pool,
                 vless_provider=vless_provider,
@@ -646,6 +763,19 @@ async def process_fulfillment(
                 await _notify_referrer_of_bonus_best_effort(
                     notifier=notify_activation,
                     bonus=bonus,
+                    correlation_id=correlation_id,
+                )
+            invitee_bonus = await award_referral_invitee_bonus_best_effort(
+                pool=pool,
+                vless_provider=vless_provider,
+                payer_internal_user_id=inp.internal_user_id,
+                plan_id=_plan_id_from_period_days(inp.period_days),
+                correlation_id=correlation_id,
+            )
+            if invitee_bonus is not None and notify_activation is not None:
+                await _notify_invitee_of_bonus_best_effort(
+                    notifier=notify_activation,
+                    bonus=invitee_bonus,
                     correlation_id=correlation_id,
                 )
         if should_ensure_vless:

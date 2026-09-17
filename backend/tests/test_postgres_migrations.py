@@ -132,6 +132,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "085_notification_log_delivery_status.sql",
         "086_trial_first_traffic.sql",
         "087_checkout_recovery_context.sql",
+        "088_two_sided_referral.sql",
     ]
 
 
@@ -592,6 +593,22 @@ def test_checkout_recovery_context_migration_contract_safe_additive() -> None:
     assert "device_count between 5 and 20" in lowered
     assert "payment_method in ('card', 'crypto')" in lowered
     assert "create index if not exists idx_funnel_checkout_recovery_latest" in lowered
+
+    for forbidden in ("drop table", "drop column", "truncate", " delete from "):
+        assert forbidden not in lowered
+
+
+def test_two_sided_referral_migration_preserves_legacy_and_is_additive() -> None:
+    migration = (Path(__file__).resolve().parents[1] / "migrations" / "088_two_sided_referral.sql").read_text(
+        encoding="utf-8"
+    )
+    lowered = _squash_ws(migration).lower()
+
+    assert "add column if not exists reward_policy text" in lowered
+    assert "set reward_policy = 'legacy_stack'" in lowered
+    assert "alter column reward_policy set default 'balanced_v1'" in lowered
+    assert "create table if not exists referral_invitee_bonus_awards" in lowered
+    assert "unique (referred_user_id)" in lowered
 
     for forbidden in ("drop table", "drop column", "truncate", " delete from "):
         assert forbidden not in lowered

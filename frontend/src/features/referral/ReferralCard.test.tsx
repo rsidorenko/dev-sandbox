@@ -25,11 +25,18 @@ function statsPayload(overrides: Partial<ReferralStatsResponse["referral"]> = {}
       web_link: "https://bravada-connect.ru/?ref=TESTREF1",
       telegram_link: "https://t.me/bravadavpn_bot?start=ref_TESTREF1",
       balance_rubles: 125.0,
+      program: {
+        invitee_bonus_days: 3,
+        qualifying_plan_min: "1m",
+        max_level1_percent: 20,
+        max_level2_percent: 2,
+      },
       stats: {
         level1: { invited: 2, paid: 1 },
         level2: { invited: 1, paid: 0 },
         total_earned_rubles: 137.15,
         bonus_days_awarded: 30,
+        invitee_bonus_days_received: 3,
       },
       // recent_transactions is still returned by the stats endpoint, but the card renders
       // the extended history from getTransactions() instead. Kept type-correct here.
@@ -112,6 +119,7 @@ describe("ReferralCard", () => {
           level2: { invited: 0, paid: 0 },
           total_earned_rubles: 0,
           bonus_days_awarded: 0,
+          invitee_bonus_days_received: 0,
         },
       }),
     });

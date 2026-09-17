@@ -32,11 +32,18 @@ export interface ReferralStats {
   web_link: string;
   telegram_link?: string;
   balance_rubles: number;
+  program: {
+    invitee_bonus_days: number;
+    qualifying_plan_min: string;
+    max_level1_percent: number;
+    max_level2_percent: number;
+  };
   stats: {
     level1: ReferralLevelStats;
     level2: ReferralLevelStats;
     total_earned_rubles: number;
     bonus_days_awarded: number;
+    invitee_bonus_days_received: number;
   };
   recent_transactions: ReferralTransaction[];
 }

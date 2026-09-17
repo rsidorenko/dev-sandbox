@@ -1,29 +1,43 @@
 """Tests for domain.referral: commission rates and calculations."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import pytest
 
 from app.application.referral_handler import apply_referral_on_registration, get_referral_info
 from app.domain.referral import (
+    BALANCED_MAX_REWARD_RATE,
+    BALANCED_V1_POLICY,
+    LEGACY_STACK_POLICY,
     REFERRAL_BONUS_DAYS,
     REFERRAL_BONUS_LEVEL,
     REFERRAL_BONUS_QUALIFYING_PLANS,
+    REFERRAL_INVITEE_BONUS_DAYS,
     ReferralCommission,
+    balanced_referral_economics,
     build_commissions_for_payment,
     calculate_commission_kopecks,
     is_qualifying_plan_for_bonus,
     level1_commission_rate,
     level2_commission_rate,
     resolve_direct_and_indirect_referrers,
+    resolve_reward_policy,
     rubles_from_kopecks,
 )
 from app.persistence.in_memory import (
     InMemoryReferralBalanceRepository,
     InMemoryReferralBonusAwardRepository,
     InMemoryReferralCodeRepository,
+    InMemoryReferralInviteeBonusAwardRepository,
     InMemoryReferralRelationshipRepository,
     InMemoryReferralTransactionRepository,
 )
-from app.persistence.referral_contracts import ReferralBonusAwardRecord, ReferralTransactionRecord
+from app.persistence.referral_contracts import (
+    ReferralBonusAwardRecord,
+    ReferralInviteeBonusAwardRecord,
+    ReferralTransactionRecord,
+)
 from app.shared.test_helpers import run_async as _run
 
 
@@ -38,6 +52,20 @@ def test_level2_rates():
     assert level2_commission_rate("1m") == 0.05
     assert level2_commission_rate("3m") == 0.03
     assert level2_commission_rate("6m") == 0.02
+
+
+def test_balanced_rates_are_lower_and_capped() -> None:
+    assert level1_commission_rate("1m", BALANCED_V1_POLICY) == 0.20
+    assert level2_commission_rate("1m", BALANCED_V1_POLICY) == 0.02
+    assert level1_commission_rate("365d", BALANCED_V1_POLICY) == 0.15
+    assert level2_commission_rate("365d", BALANCED_V1_POLICY) == 0.01
+
+
+def test_balanced_economics_never_exceeds_cap() -> None:
+    qualifying = ("1m", "3m", "6m", "365d")
+    economics = [balanced_referral_economics(plan_id) for plan_id in qualifying]
+    assert max(item.total_reward_rate for item in economics) <= BALANCED_MAX_REWARD_RATE
+    assert balanced_referral_economics("1m").total_reward_rate == pytest.approx(0.32)
 
 
 def test_unknown_plan_rate():
@@ -134,6 +162,13 @@ def test_resolve_referrers_both_levels():
     assert indirect == "b"
 
 
+def test_reward_policy_comes_from_direct_relationship() -> None:
+    legacy = ReferralCommission("a", 100, 1, "1m", "b")
+    assert resolve_reward_policy((legacy,)) == LEGACY_STACK_POLICY
+    balanced = SimpleNamespace(level=1, reward_policy=BALANCED_V1_POLICY)
+    assert resolve_reward_policy((balanced,)) == BALANCED_V1_POLICY
+
+
 def test_calculate_commission_zero_rate():
     assert calculate_commission_kopecks(30000, 0.0) == 0
 
@@ -163,6 +198,7 @@ def test_apply_referral_creates_l1_relationship() -> None:
         assert len(rels) == 1
         assert rels[0].level == 1
         assert rels[0].referrer_user_id == "user_referrer"
+        assert rels[0].reward_policy == BALANCED_V1_POLICY
 
     _run(main())
 
@@ -199,6 +235,8 @@ def test_apply_referral_creates_l2_when_referrer_has_own_referrer() -> None:
         l2 = next(r for r in rels if r.level == 2)
         assert l1.referrer_user_id == "user_referrer"
         assert l2.referrer_user_id == "user_grand"
+        assert l1.reward_policy == BALANCED_V1_POLICY
+        assert l2.reward_policy == BALANCED_V1_POLICY
 
     _run(main())
 
@@ -404,6 +442,7 @@ def test_bonus_constants() -> None:
     assert REFERRAL_BONUS_DAYS == 30
     assert REFERRAL_BONUS_LEVEL == 1
     assert REFERRAL_BONUS_QUALIFYING_PLANS == frozenset({"1m", "3m", "6m", "365d"})
+    assert REFERRAL_INVITEE_BONUS_DAYS == 3
 
 
 def test_is_qualifying_plan_for_bonus() -> None:
@@ -454,5 +493,23 @@ def test_bonus_sum_awarded_days() -> None:
         assert await repo.sum_awarded_days("ref") == 60
         # Isolated per referrer.
         assert await repo.sum_awarded_days("other") == 0
+
+    _run(main())
+
+
+def test_invitee_bonus_award_is_once_per_referred_user() -> None:
+    async def main() -> None:
+        repo = InMemoryReferralInviteeBonusAwardRepository()
+        record = ReferralInviteeBonusAwardRecord(
+            award_id="invitee-1",
+            referred_user_id="friend",
+            referrer_user_id="referrer",
+            days_awarded=REFERRAL_INVITEE_BONUS_DAYS,
+            related_plan_id="1m",
+            correlation_id="cid",
+            created_at=datetime.now(UTC),
+        )
+        assert await repo.award_if_absent(record) is True
+        assert await repo.award_if_absent(record) is False
 
     _run(main())

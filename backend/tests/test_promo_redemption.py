@@ -32,7 +32,7 @@ from app.domain.promo import (
     PromoDiscountKind,
     apply_promo_discount,
 )
-from app.domain.referral import build_commissions_for_payment
+from app.domain.referral import BALANCED_V1_POLICY, build_commissions_for_payment
 from app.issuance.vless_provider import StubVlessProvider
 from app.runtime.payment_webhook_helpers import (
     expected_subscription_kopecks as _expected_subscription_kopecks,
@@ -358,6 +358,7 @@ def test_balance_subscription_discount_and_commission_parity():
         indirect_referrer_user_id=None,
         plan_id="1m",
         payment_amount_kopecks=125_00,
+        reward_policy=BALANCED_V1_POLICY,
     )
     full_comm = build_commissions_for_payment(
         payer_user_id=uid,
@@ -365,6 +366,7 @@ def test_balance_subscription_discount_and_commission_parity():
         indirect_referrer_user_id=None,
         plan_id="1m",
         payment_amount_kopecks=249_00,
+        reward_policy=BALANCED_V1_POLICY,
     )
     ref_bal = _run(c.referral_balance_repo.get_balance(referrer))
     assert ref_bal is not None

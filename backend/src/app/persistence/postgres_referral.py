@@ -12,6 +12,7 @@ from app.persistence.referral_contracts import (
     ReferralBalanceRecord,
     ReferralBonusAwardRecord,
     ReferralCodeRecord,
+    ReferralInviteeBonusAwardRecord,
     ReferralRelationshipRecord,
     ReferralTransactionRecord,
 )
@@ -102,19 +103,22 @@ class PostgresReferralRelationshipRepository:
         referrer_user_id: str,
         level: int,
         referrer_of_referrer_user_id: str | None,
+        reward_policy: str = "balanced_v1",
     ) -> ReferralRelationshipRecord:
         rid = str(uuid.uuid4())
         now = datetime.now(UTC)
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO referral_relationships (relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
+                "INSERT INTO referral_relationships (relationship_id, referred_user_id, referrer_user_id, level, "
+                "referrer_of_referrer_user_id, created_at, reward_policy) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 rid,
                 referred_user_id,
                 referrer_user_id,
                 level,
                 referrer_of_referrer_user_id,
                 now,
+                reward_policy,
             )
         return ReferralRelationshipRecord(
             relationship_id=rid,
@@ -123,6 +127,7 @@ class PostgresReferralRelationshipRepository:
             level=level,
             referrer_of_referrer_user_id=referrer_of_referrer_user_id,
             created_at=now,
+            reward_policy=reward_policy,
         )
 
     async def find_referrers(self, user_id: str) -> tuple[ReferralRelationshipRecord, ...]:
@@ -158,7 +163,8 @@ class PostgresReferralRelationshipRepository:
         user_id: str,
     ) -> tuple[ReferralRelationshipRecord, ...]:
         rows = await conn.fetch(
-            "SELECT relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, created_at "
+            "SELECT relationship_id, referred_user_id, referrer_user_id, level, referrer_of_referrer_user_id, "
+            "created_at, reward_policy "
             "FROM referral_relationships WHERE referred_user_id = $1",
             user_id,
         )
@@ -170,6 +176,7 @@ class PostgresReferralRelationshipRepository:
                 level=r["level"],
                 referrer_of_referrer_user_id=r["referrer_of_referrer_user_id"],
                 created_at=r["created_at"],
+                reward_policy=r["reward_policy"],
             )
             for r in rows
         )
@@ -387,3 +394,26 @@ class PostgresReferralBonusAwardRepository:
                 )
                 or 0
             )
+
+
+class PostgresReferralInviteeBonusAwardRepository:
+    """Одноразовые +3 дня приглашённому по политике balanced_v1."""
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def award_if_absent(self, record: ReferralInviteeBonusAwardRecord) -> bool:
+        result = await self._pool.execute(
+            "INSERT INTO referral_invitee_bonus_awards "
+            "(award_id, referred_user_id, referrer_user_id, days_awarded, related_plan_id, correlation_id, created_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "ON CONFLICT (referred_user_id) DO NOTHING",
+            record.award_id,
+            record.referred_user_id,
+            record.referrer_user_id,
+            record.days_awarded,
+            record.related_plan_id,
+            record.correlation_id,
+            record.created_at,
+        )
+        return "INSERT 0 1" in result

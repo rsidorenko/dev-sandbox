@@ -15,7 +15,7 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.domain.referral import rubles_from_kopecks
+from app.domain.referral import REFERRAL_INVITEE_BONUS_DAYS, rubles_from_kopecks
 from app.persistence.postgres_referral import (
     PostgresReferralBonusAwardRepository,
     PostgresReferralCodeRepository,
@@ -217,8 +217,16 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
         l1_invited, l1_paid = await _level_stats(pool, internal_user_id, 1)
         l2_invited, l2_paid = await _level_stats(pool, internal_user_id, 2)
 
-        # 'Free month per friend' bonus days earned (separate from cashback kopecks above).
+        # Исторические дни по legacy и дни, полученные самим пользователем по balanced_v1.
         bonus_days_awarded = await PostgresReferralBonusAwardRepository(pool).sum_awarded_days(internal_user_id)
+        invitee_bonus_days_received = int(
+            await pool.fetchval(
+                "SELECT COALESCE(SUM(days_awarded), 0)::int "
+                "FROM referral_invitee_bonus_awards WHERE referred_user_id = $1",
+                internal_user_id,
+            )
+            or 0
+        )
 
         total_earned_kopecks = (
             await pool.fetchval(
@@ -253,11 +261,18 @@ async def handle_get_referral_stats(request: Request) -> JSONResponse:
                     "code": referral_code,
                     **links,
                     "balance_rubles": round(rubles_from_kopecks(balance_kopecks), 2),
+                    "program": {
+                        "invitee_bonus_days": REFERRAL_INVITEE_BONUS_DAYS,
+                        "qualifying_plan_min": "1m",
+                        "max_level1_percent": 20,
+                        "max_level2_percent": 2,
+                    },
                     "stats": {
                         "level1": {"invited": l1_invited, "paid": l1_paid},
                         "level2": {"invited": l2_invited, "paid": l2_paid},
                         "total_earned_rubles": round(rubles_from_kopecks(total_earned_kopecks), 2),
                         "bonus_days_awarded": bonus_days_awarded,
+                        "invitee_bonus_days_received": invitee_bonus_days_received,
                     },
                     "recent_transactions": recent,
                 },

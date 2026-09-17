@@ -26,19 +26,20 @@ def _referral_info() -> ReferralInfo:
     )
 
 
-def test_referral_screen_keeps_free_month_offer_and_hides_rates() -> None:
+def test_referral_screen_shows_two_sided_offer_and_balanced_rates() -> None:
     text = text_referral_program(_referral_info())
 
-    assert "Приведи друга — получи месяц бесплатно" in text
-    assert "30 дней" in text
+    assert "Бонус получают оба" in text
+    assert "+3 дня" in text
     assert "Ваш доход от рефералки" in text
     assert "Доступно на балансе: <b>42.50 ₽</b>" in text
     assert "Всего заработано: <b>100.00 ₽</b>" in text
-    assert "Зарабатывайте до 35% с каждой оплаты друга" in text
+    assert "до 20%" in text
+    assert "до 2%" in text
     assert "вывести на криптокошелёк" in text
     assert "💡 До <b>35%</b> с оплат приглашённых друзей и до <b>5%</b> с их приглашений." not in text
     assert "Приглашено друзей: <b>3</b>" in text
-    assert "Подарено дней: <b>30</b>" in text
+    assert "Ранее начислено по прежним условиям: <b>30 дней</b>" in text
     assert "1 день —" not in text
     assert "Со 2-го уровня" not in text
     assert "https://" not in text
