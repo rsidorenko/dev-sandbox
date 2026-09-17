@@ -251,7 +251,7 @@ frontend:lint:
     key: npm-frontend-v2
     paths: [frontend/.npm]
   script:
-    - cd frontend && npm ci && npm run lint
+    - cd frontend && npm ci && npm audit --omit=dev --audit-level=high && npm run lint
 
 frontend:typecheck:
   stage: lint

@@ -1,0 +1,4 @@
+Contact: mailto:bravadavpn_sup@mail.ru
+Preferred-Languages: ru, en
+Canonical: https://bravada-connect.ru/.well-known/security.txt
+Expires: 2027-09-17T00:00:00Z
