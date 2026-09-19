@@ -201,6 +201,36 @@ export interface AdminProductFunnel {
   payment_succeeded_users: number;
 }
 
+export interface AdminFunnelDiagnosticsRetention {
+  eligible_users: number;
+  retained_users: number;
+  rate: number | null;
+}
+
+export interface AdminFunnelDiagnosticsRoute {
+  started_users: number;
+  meaningful_traffic_users: number;
+  meaningful_traffic_rate: number | null;
+}
+
+export interface AdminFunnelDiagnosticsV2 {
+  meaningful_traffic_threshold_bytes: number;
+  trials: number;
+  first_traffic_users: number;
+  meaningful_traffic_users: number;
+  trial_to_meaningful_traffic_rate: number | null;
+  retention: {
+    d1: AdminFunnelDiagnosticsRetention;
+    d2: AdminFunnelDiagnosticsRetention;
+    d3: AdminFunnelDiagnosticsRetention;
+  };
+  routes: {
+    direct: AdminFunnelDiagnosticsRoute;
+    guided: AdminFunnelDiagnosticsRoute;
+    guided_after_direct_users: number;
+  };
+}
+
 export interface AdminExperimentResult {
   experiment_key: string;
   variant: string;
@@ -219,6 +249,7 @@ export interface AdminTelegramAdsCampaign {
   setup_started_users: number;
   platform_selected_users: number;
   first_vpn_traffic_users: number;
+  meaningful_vpn_traffic_users: number;
   connection_confirmed_users: number;
   connection_problem_users: number;
   checkout_opened_users: number;
@@ -255,6 +286,7 @@ export interface AdminTelegramAdsFunnel {
   setup_started_users: number;
   platform_selected_users: number;
   first_vpn_traffic_users: number;
+  meaningful_vpn_traffic_users: number;
   connection_confirmed_users: number;
   connection_problem_users: number;
   checkout_opened_users: number;
@@ -307,6 +339,7 @@ export interface AdminStatsResponse {
     truncated: boolean;
   };
   product_funnel?: AdminProductFunnel;
+  funnel_diagnostics_v2?: AdminFunnelDiagnosticsV2;
   experiments?: AdminExperimentResult[];
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;

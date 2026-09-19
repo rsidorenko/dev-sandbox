@@ -18,7 +18,7 @@ import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.web_api.admin_stats import _compute_window
+from app.web_api.admin_stats import _completed_through_date, _compute_window, _funnel_diagnostics_v2
 from app.web_api.app import build_web_api_app
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -112,7 +112,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         await conn.execute("DELETE FROM telegram_ads_attributions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM user_identities WHERE internal_user_id LIKE 'test-stats-u-%'")
-        await conn.execute("DELETE FROM bare_xray_traffic_daily WHERE server_id = 99001")
+        await conn.execute("DELETE FROM bare_xray_traffic_daily WHERE server_id BETWEEN 99001 AND 99099")
 
 
 def _insert_ledger(
@@ -314,6 +314,7 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert body["product_funnel"]["registered_users"] >= 1
         assert body["product_funnel"]["payment_created_users"] >= 1
         assert body["product_funnel"]["payment_succeeded_users"] >= 1
+        assert body["funnel_diagnostics_v2"]["meaningful_traffic_threshold_bytes"] == 1_048_576
         experiment = next(
             item
             for item in body["experiments"]
@@ -398,6 +399,120 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
             assert response.status_code == 400, response.text
             assert response.json()["error"] == "invalid_date_range"
         await client.aclose()
+    finally:
+        await _cleanup(pool)
+        await pool.close()
+
+
+async def test_funnel_diagnostics_meaningful_retention_and_routes(pg_url):
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=4)
+    try:
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await _cleanup(pool)
+
+        now = datetime(2026, 9, 19, 12, tzinfo=UTC)
+        cases = {
+            "direct": datetime(2026, 9, 14, 12, tzinfo=UTC),
+            "guided": datetime(2026, 9, 15, 12, tzinfo=UTC),
+            "noise": datetime(2026, 9, 15, 14, tzinfo=UTC),
+            "recent": datetime(2026, 9, 19, 10, tzinfo=UTC),
+        }
+        diag_ids = {name: f"{_U_PREFIX}{name[:2]}-diag" for name in cases}
+        async with pool.acquire() as conn:
+            for index, (name, started_at) in enumerate(cases.items(), start=20):
+                internal_user_id = diag_ids[name]
+                await conn.execute(
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) VALUES ($1,$2,$3)",
+                    _TG_BASE + index,
+                    internal_user_id,
+                    started_at,
+                )
+                await conn.execute(
+                    "INSERT INTO subscription_snapshots "
+                    "(internal_user_id,state_label,trial_started_at,trial_expires_at,active_until_utc) "
+                    "VALUES ($1,'active',$2,$2::timestamptz + interval '3 days',"
+                    "$2::timestamptz + interval '3 days')",
+                    internal_user_id,
+                    started_at,
+                )
+                await conn.execute(
+                    "INSERT INTO funnel_interactions "
+                    "(internal_user_id,event_name,surface,platform,dedup_key,occurred_at,connection_route) "
+                    "VALUES ($1,'platform_selected','telegram','ios',$2,$3,'direct')",
+                    internal_user_id,
+                    f"diag-{name}-direct",
+                    started_at + timedelta(minutes=10),
+                )
+
+            guided_user = diag_ids["guided"]
+            await conn.execute(
+                "INSERT INTO funnel_interactions "
+                "(internal_user_id,event_name,surface,platform,dedup_key,occurred_at,connection_route) "
+                "VALUES ($1,'platform_selected','telegram','ios','diag-guided-guided',$2,'guided')",
+                guided_user,
+                cases["guided"] + timedelta(minutes=20),
+            )
+
+            traffic_rows = [
+                ("direct", 0, 2 * 1024 * 1024),
+                ("direct", 1, 2 * 1024 * 1024),
+                ("direct", 2, 512 * 1024),
+                ("direct", 3, 2 * 1024 * 1024),
+                ("guided", 0, 2 * 1024 * 1024),
+                ("guided", 2, 2 * 1024 * 1024),
+                ("noise", 0, 100),
+                ("recent", 0, 2 * 1024 * 1024),
+            ]
+            for server_offset, (name, day_offset, bytes_total) in enumerate(traffic_rows):
+                internal_user_id = diag_ids[name]
+                trial_date = cases[name].astimezone(ZoneInfo("Europe/Moscow")).date()
+                await conn.execute(
+                    "INSERT INTO bare_xray_traffic_daily "
+                    "(stat_date,server_id,email,uplink_bytes,downlink_bytes) VALUES ($1,$2,$3,$4,0)",
+                    trial_date + timedelta(days=day_offset),
+                    99001 + server_offset,
+                    f"user-{internal_user_id[:16]}",
+                    bytes_total,
+                )
+
+        window = _compute_window(
+            "custom",
+            "Europe/Moscow",
+            date_from_raw="2026-09-12",
+            date_to_raw="2026-09-19",
+            now=now,
+        )
+        result = await _funnel_diagnostics_v2(
+            pool,
+            window,
+            _completed_through_date(window, "Europe/Moscow"),
+        )
+        assert result == {
+            "meaningful_traffic_threshold_bytes": 1_048_576,
+            "trials": 4,
+            "first_traffic_users": 4,
+            "meaningful_traffic_users": 3,
+            "trial_to_meaningful_traffic_rate": 0.75,
+            "retention": {
+                "d1": {"eligible_users": 3, "retained_users": 1, "rate": 0.3333},
+                "d2": {"eligible_users": 3, "retained_users": 1, "rate": 0.3333},
+                "d3": {"eligible_users": 3, "retained_users": 1, "rate": 0.3333},
+            },
+            "routes": {
+                "direct": {
+                    "started_users": 4,
+                    "meaningful_traffic_users": 2,
+                    "meaningful_traffic_rate": 0.5,
+                },
+                "guided": {
+                    "started_users": 1,
+                    "meaningful_traffic_users": 1,
+                    "meaningful_traffic_rate": 1.0,
+                },
+                "guided_after_direct_users": 1,
+            },
+        }
     finally:
         await _cleanup(pool)
         await pool.close()

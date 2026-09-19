@@ -15,7 +15,12 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from app.application.bootstrap import Slice1Composition
-from app.application.funnel_events import callback_interaction, checkout_context_from_callback, record_interaction
+from app.application.funnel_events import (
+    callback_interaction,
+    checkout_context_from_callback,
+    connection_route_from_callback,
+    record_interaction,
+)
 from app.application.plan_pricing import get_plan_pricing
 from app.application.purchase_handler import (
     PurchaseSummary,
@@ -2624,6 +2629,7 @@ async def _render_storefront_response(
             surface="telegram",
             dedup_key=f"{callback_id}:setup",
             telegram_user_id=uid,
+            connection_route="direct",
         )
     if interaction is not None and isinstance(callback_id, str):
         checkout_context = checkout_context_from_callback(code)
@@ -2636,6 +2642,7 @@ async def _render_storefront_response(
             telegram_user_id=uid,
             plan_id=checkout_context[0] if checkout_context is not None else None,
             device_count=checkout_context[1] if checkout_context is not None else None,
+            connection_route=connection_route_from_callback(code),
         )
 
     text: str = text_error_generic()

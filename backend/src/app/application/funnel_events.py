@@ -20,6 +20,7 @@ _EVENTS = frozenset(
     }
 )
 _PLATFORMS = frozenset({"", "ios", "android", "mac", "win", "tv"})
+_CONNECTION_ROUTES = frozenset({"", "direct", "guided"})
 
 
 def funnel_events_enabled() -> bool:
@@ -38,6 +39,7 @@ async def record_interaction(
     plan_id: str | None = None,
     device_count: int | None = None,
     payment_method: str | None = None,
+    connection_route: str = "",
 ) -> bool:
     """Сбой/отсутствие таблицы не меняет исход бизнес-операции; отмена задачи сохраняется."""
     if pool is None or not funnel_events_enabled():
@@ -46,6 +48,7 @@ async def record_interaction(
         event_name not in _EVENTS
         or surface not in ("telegram", "web")
         or platform not in _PLATFORMS
+        or connection_route not in _CONNECTION_ROUTES
         or not 1 <= len(dedup_key) <= 200
         or (plan_id is not None and get_plan(plan_id) is None)
         or (device_count is not None and not 5 <= device_count <= 20)
@@ -57,8 +60,8 @@ async def record_interaction(
             await pool.execute(
                 "INSERT INTO funnel_interactions "
                 "(internal_user_id, event_name, surface, platform, dedup_key, "
-                "plan_id, device_count, payment_method) "
-                "SELECT internal_user_id, $1, $2, $3, $4, $7, $8, $9 FROM user_identities "
+                "plan_id, device_count, payment_method, connection_route) "
+                "SELECT internal_user_id, $1, $2, $3, $4, $7, $8, $9, $10 FROM user_identities "
                 "WHERE internal_user_id = $5 OR ($5::text IS NULL AND telegram_user_id = $6) "
                 "ON CONFLICT (surface, event_name, dedup_key) DO NOTHING",
                 event_name,
@@ -70,6 +73,7 @@ async def record_interaction(
                 plan_id,
                 device_count,
                 payment_method,
+                connection_route,
             )
         return True
     except Exception:
@@ -98,6 +102,17 @@ def callback_interaction(code: str) -> tuple[str, str] | None:
     if code.startswith("confirm_pay:"):
         return "checkout_opened", ""
     return None
+
+
+def connection_route_from_callback(code: str) -> str:
+    """Возвращает аналитический маршрут, не вмешиваясь в callback routing."""
+    if code in ("connect_fast_ios", "connect_fast_android", "connect_fast_mac", "connect_fast_win"):
+        return "direct"
+    if code.startswith("connect_fast_problem:"):
+        return "direct"
+    if code in ("connect_ios", "connect_android", "connect_mac", "connect_win", "connect_tv"):
+        return "guided"
+    return ""
 
 
 def checkout_context_from_callback(code: str) -> tuple[str, int] | None:

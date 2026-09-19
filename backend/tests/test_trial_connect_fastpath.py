@@ -386,5 +386,8 @@ def test_direct_trial_fastpath_records_setup_and_platform(monkeypatch: pytest.Mo
         )
 
     _run(main())
-    events = [(call.kwargs["event_name"], call.kwargs["platform"]) for call in record.await_args_list]
-    assert events == [("setup_started", ""), ("platform_selected", "ios")]
+    events = [
+        (call.kwargs["event_name"], call.kwargs["platform"], call.kwargs["connection_route"])
+        for call in record.await_args_list
+    ]
+    assert events == [("setup_started", "", "direct"), ("platform_selected", "ios", "direct")]

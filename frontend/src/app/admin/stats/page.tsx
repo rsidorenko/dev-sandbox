@@ -83,6 +83,10 @@ function formatStepRate(current: number, previous: number): string {
   return `${(current / previous * 100).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%`;
 }
 
+function formatRate(rate: number | null): string {
+  return rate == null ? "—" : `${(rate * 100).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%`;
+}
+
 function formatPlatforms(platforms: AdminTelegramAdsPlatformUsers): string {
   const labels: [keyof AdminTelegramAdsPlatformUsers, string][] = [
     ["ios", "iOS"],
@@ -249,6 +253,7 @@ export default function AdminStatsPage() {
   const economics = data?.telegram_ads?.economics;
   const telegramFunnel = data?.telegram_ads?.funnel;
   const productFunnel = data?.product_funnel;
+  const diagnostics = data?.funnel_diagnostics_v2;
   const experiments = data?.experiments ?? [];
   const productFunnelSteps = productFunnel ? [
     { label: "Регистрация", value: productFunnel.registered_users },
@@ -264,6 +269,7 @@ export default function AdminStatsPage() {
     { label: "Триалы", value: telegramFunnel.trials_started },
     { label: "Открыли подключение", value: telegramFunnel.setup_started_users },
     { label: "Первый VPN-трафик", value: telegramFunnel.first_vpn_traffic_users },
+    { label: "Значимый трафик", value: telegramFunnel.meaningful_vpn_traffic_users },
     { label: "Подтвердили работу", value: telegramFunnel.connection_confirmed_users },
     { label: "Checkout", value: telegramFunnel.checkout_opened_users },
     { label: "Счёт создан", value: telegramFunnel.payment_created_users },
@@ -514,6 +520,67 @@ export default function AdminStatsPage() {
                 </p>
               </div>
             )}
+            {diagnostics && (
+              <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
+                <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Качество активации</h3>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    meaningful traffic ≥ {(diagnostics.meaningful_traffic_threshold_bytes / 1048576).toLocaleString("ru-RU")} МиБ
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  <KpiCard
+                    label="Первый трафик"
+                    value={diagnostics.first_traffic_users.toLocaleString("ru-RU")}
+                    sub={`${formatStepRate(diagnostics.first_traffic_users, diagnostics.trials)} от триалов`}
+                  />
+                  <KpiCard
+                    label="Значимый трафик"
+                    value={diagnostics.meaningful_traffic_users.toLocaleString("ru-RU")}
+                    sub={`${formatRate(diagnostics.trial_to_meaningful_traffic_rate)} от триалов`}
+                  />
+                  {(["d1", "d2", "d3"] as const).map((day) => {
+                    const point = diagnostics.retention[day];
+                    return (
+                      <KpiCard
+                        key={day}
+                        label={day.toUpperCase()}
+                        value={formatRate(point.rate)}
+                        sub={`${point.retained_users} из ${point.eligible_users} зрелых`}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 dark:border-zinc-700">
+                  <table className="w-full min-w-[620px] text-left text-xs">
+                    <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
+                      <tr>
+                        {[
+                          "Маршрут", "Открыли", "Дошли до значимого трафика", "Конверсия",
+                        ].map((label) => <th key={label} className="px-4 py-3 font-medium">{label}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
+                      {(["direct", "guided"] as const).map((route) => {
+                        const point = diagnostics.routes[route];
+                        return (
+                          <tr key={route} className="text-gray-700 dark:text-gray-300">
+                            <td className="px-4 py-3 font-mono font-medium">{route}</td>
+                            <td className={`px-4 py-3 ${adminNum}`}>{point.started_users}</td>
+                            <td className={`px-4 py-3 ${adminNum}`}>{point.meaningful_traffic_users}</td>
+                            <td className={`px-4 py-3 ${adminNum}`}>{formatRate(point.meaningful_traffic_rate)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+                  Из direct в guided перешли {diagnostics.routes.guided_after_direct_users} польз. Маршруты могут пересекаться;
+                  D1–D3 учитывают только полностью завершённые дни и не считают технический трафик меньше порога.
+                </p>
+              </div>
+            )}
             <div className="px-5 py-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эксперименты</h3>
               <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -625,7 +692,7 @@ export default function AdminStatsPage() {
                     уникальные пользователи · конверсия относительно предыдущего шага
                   </span>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
                   {funnelSteps.map((step, index) => (
                     <div key={step.label} className="relative rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
                       <div className="text-xs text-gray-500 dark:text-gray-400">{step.label}</div>
@@ -673,12 +740,12 @@ export default function AdminStatsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[2300px] w-full text-left text-xs">
+                <table className="min-w-[2400px] w-full text-left text-xs">
                   <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
                     <tr>
                       {[
                         "Кампания", "Расход", "Пользователи", "Цена польз.", "Триалы", "Цена триала",
-                        "Открыли подключение", "Выбрали платформу", "Платформы", "Первый VPN-трафик",
+                        "Открыли подключение", "Выбрали платформу", "Платформы", "Первый VPN-трафик", "Значимый трафик",
                         "Подтвердили работу", "Сообщили о проблеме", "Checkout", "Счета", "Клиенты", "CAC",
                         "Выручка", "ROAS", "Зрелая 1-я оплата", "2-я оплата", "Триал → оплата",
                       ].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}
@@ -707,6 +774,7 @@ export default function AdminStatsPage() {
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.platform_selected_users}</td>
                           <td className="whitespace-nowrap px-4 py-3">{formatPlatforms(campaign.platform_users)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.first_vpn_traffic_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.meaningful_vpn_traffic_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_confirmed_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_problem_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.checkout_opened_users}</td>

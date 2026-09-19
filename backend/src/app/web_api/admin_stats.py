@@ -35,6 +35,7 @@ _DEFAULT_PERIOD = "7d"
 _DEFAULT_TZ = "Europe/Moscow"
 _CUSTOM_PERIOD = "custom"
 _MAX_CUSTOM_DAYS = 366
+_MEANINGFUL_TRAFFIC_BYTES = 1_048_576
 
 # Белый список IANA-зон: не пускаем произвольный текст в SQL (AT TIME ZONE $tz).
 _ALLOWED_TZ = frozenset(
@@ -255,6 +256,87 @@ SELECT
 FROM period_events
 """
 
+_FUNNEL_DIAGNOSTICS_V2 = """
+WITH trials AS (
+    SELECT s.internal_user_id, s.trial_started_at,
+           (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
+    FROM subscription_snapshots s
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE s.trial_started_at IS NOT NULL
+      AND s.trial_started_at >= $1 AND s.trial_started_at < $2
+), daily AS (
+    SELECT tr.internal_user_id, t.stat_date,
+           t.stat_date - tr.trial_date AS day_offset,
+           sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
+    FROM trials tr
+    JOIN bare_xray_traffic_daily t
+      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16))
+    WHERE t.stat_date >= greatest($3::date, tr.trial_date)
+      AND t.stat_date <= $4::date
+    GROUP BY tr.internal_user_id, t.stat_date, tr.trial_date
+), running_traffic AS (
+    SELECT d.*,
+           sum(d.bytes) OVER (
+               PARTITION BY d.internal_user_id ORDER BY d.stat_date
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+           )::bigint AS running_bytes
+    FROM daily d
+), traffic AS (
+    SELECT r.internal_user_id,
+           COALESCE(sum(r.bytes), 0)::bigint AS total_bytes,
+           min(r.stat_date) FILTER (WHERE r.bytes > 0) AS first_traffic_date,
+           min(r.stat_date) FILTER (WHERE r.running_bytes >= $6) AS first_meaningful_date,
+           bool_or(r.day_offset = 1 AND r.bytes >= $6) AS retained_d1,
+           bool_or(r.day_offset = 2 AND r.bytes >= $6) AS retained_d2,
+           bool_or(r.day_offset = 3 AND r.bytes >= $6) AS retained_d3
+    FROM running_traffic r
+    GROUP BY r.internal_user_id
+), routes AS (
+    SELECT tr.internal_user_id,
+           min(f.occurred_at) FILTER (WHERE f.connection_route = 'direct') AS direct_at,
+           min(f.occurred_at) FILTER (WHERE f.connection_route = 'guided') AS guided_at
+    FROM trials tr
+    LEFT JOIN funnel_interactions f
+      ON f.internal_user_id = tr.internal_user_id
+     AND f.connection_route <> ''
+     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at < $2
+    GROUP BY tr.internal_user_id
+), cohort AS (
+    SELECT tr.*, tf.total_bytes, tf.first_traffic_date, tf.first_meaningful_date,
+           COALESCE(tf.retained_d1, false) AS retained_d1,
+           COALESCE(tf.retained_d2, false) AS retained_d2,
+           COALESCE(tf.retained_d3, false) AS retained_d3,
+           ro.direct_at, ro.guided_at
+    FROM trials tr
+    LEFT JOIN traffic tf USING (internal_user_id)
+    LEFT JOIN routes ro USING (internal_user_id)
+)
+SELECT count(*)::int AS trials,
+       count(*) FILTER (WHERE first_traffic_date IS NOT NULL)::int AS first_traffic_users,
+       count(*) FILTER (WHERE first_meaningful_date IS NOT NULL)::int AS meaningful_traffic_users,
+       count(*) FILTER (WHERE trial_date + 1 <= $5::date)::int AS d1_eligible_users,
+       count(*) FILTER (WHERE trial_date + 1 <= $5::date AND retained_d1)::int AS d1_retained_users,
+       count(*) FILTER (WHERE trial_date + 2 <= $5::date)::int AS d2_eligible_users,
+       count(*) FILTER (WHERE trial_date + 2 <= $5::date AND retained_d2)::int AS d2_retained_users,
+       count(*) FILTER (WHERE trial_date + 3 <= $5::date)::int AS d3_eligible_users,
+       count(*) FILTER (WHERE trial_date + 3 <= $5::date AND retained_d3)::int AS d3_retained_users,
+       count(*) FILTER (WHERE direct_at IS NOT NULL)::int AS direct_started_users,
+       count(*) FILTER (WHERE guided_at IS NOT NULL)::int AS guided_started_users,
+       count(*) FILTER (WHERE direct_at IS NOT NULL AND guided_at > direct_at)::int AS guided_after_direct_users,
+       count(*) FILTER (
+           WHERE first_meaningful_date IS NOT NULL AND direct_at IS NOT NULL
+             AND (direct_at AT TIME ZONE 'Europe/Moscow')::date <= first_meaningful_date
+             AND (guided_at IS NULL OR (guided_at AT TIME ZONE 'Europe/Moscow')::date > first_meaningful_date)
+       )::int AS direct_meaningful_users,
+       count(*) FILTER (
+           WHERE first_meaningful_date IS NOT NULL AND guided_at IS NOT NULL
+             AND (guided_at AT TIME ZONE 'Europe/Moscow')::date <= first_meaningful_date
+       )::int AS guided_meaningful_users
+FROM cohort
+"""
+
 _EXPERIMENT_RESULTS = """
 WITH assignments AS (
     SELECT a.internal_user_id, a.experiment_key, a.variant, a.assigned_at
@@ -411,6 +493,14 @@ WITH attributed AS (
                      AND t.stat_date >= (c.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                      AND t.stat_date >= $3 AND t.stat_date <= $4
                      AND t.uplink_bytes + t.downlink_bytes > 0) AS first_vpn_traffic,
+           COALESCE((SELECT sum(t.uplink_bytes + t.downlink_bytes)
+                     FROM bare_xray_traffic_daily t
+                     WHERE c.trial_started_at IS NOT NULL
+                       AND t.email IN ('user-' || left(c.internal_user_id, 16),
+                                       'x-user-' || left(c.internal_user_id, 16))
+                       AND t.stat_date >= (c.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
+                       AND t.stat_date >= $3 AND t.stat_date <= $4), 0) >= $5
+               AS meaningful_vpn_traffic,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
                    AND e.platform = 'ios' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_ios,
@@ -443,6 +533,7 @@ SELECT k.campaign_key,
        count(c.internal_user_id) FILTER (WHERE c.setup_started) AS setup_started_users,
        count(c.internal_user_id) FILTER (WHERE c.platform_selected) AS platform_selected_users,
        count(c.internal_user_id) FILTER (WHERE c.first_vpn_traffic) AS first_vpn_traffic_users,
+       count(c.internal_user_id) FILTER (WHERE c.meaningful_vpn_traffic) AS meaningful_vpn_traffic_users,
        count(c.internal_user_id) FILTER (WHERE c.connection_confirmed) AS connection_confirmed_users,
        count(c.internal_user_id) FILTER (WHERE c.connection_problem) AS connection_problem_users,
        count(c.internal_user_id) FILTER (WHERE c.checkout_opened) AS checkout_opened_users,
@@ -474,6 +565,7 @@ SELECT campaign_stats.*,
        sum(setup_started_users) OVER ()::bigint AS total_setup_started_users,
        sum(platform_selected_users) OVER ()::bigint AS total_platform_selected_users,
        sum(first_vpn_traffic_users) OVER ()::bigint AS total_first_vpn_traffic_users,
+       sum(meaningful_vpn_traffic_users) OVER ()::bigint AS total_meaningful_vpn_traffic_users,
        sum(connection_confirmed_users) OVER ()::bigint AS total_connection_confirmed_users,
        sum(connection_problem_users) OVER ()::bigint AS total_connection_problem_users,
        sum(checkout_opened_users) OVER ()::bigint AS total_checkout_opened_users,
@@ -527,7 +619,14 @@ async def _telegram_ads_campaigns(
     from_date: date,
     to_date: date,
 ) -> dict:
-    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, to_ts, from_date, to_date)
+    rows = await pool.fetch(
+        _TELEGRAM_ADS_CAMPAIGNS,
+        from_ts,
+        to_ts,
+        from_date,
+        to_date,
+        _MEANINGFUL_TRAFFIC_BYTES,
+    )
     result = []
     for row in rows:
         attributed = int(row["attributed_users"])
@@ -545,6 +644,7 @@ async def _telegram_ads_campaigns(
                 "setup_started_users": int(row["setup_started_users"]),
                 "platform_selected_users": int(row["platform_selected_users"]),
                 "first_vpn_traffic_users": int(row["first_vpn_traffic_users"]),
+                "meaningful_vpn_traffic_users": int(row["meaningful_vpn_traffic_users"]),
                 "connection_confirmed_users": int(row["connection_confirmed_users"]),
                 "connection_problem_users": int(row["connection_problem_users"]),
                 "checkout_opened_users": int(row["checkout_opened_users"]),
@@ -606,6 +706,7 @@ def _telegram_ads_funnel(totals: Mapping[str, object] | None) -> dict:
         "setup_started_users": value("setup_started_users"),
         "platform_selected_users": value("platform_selected_users"),
         "first_vpn_traffic_users": value("first_vpn_traffic_users"),
+        "meaningful_vpn_traffic_users": value("meaningful_vpn_traffic_users"),
         "connection_confirmed_users": value("connection_confirmed_users"),
         "connection_problem_users": value("connection_problem_users"),
         "checkout_opened_users": value("checkout_opened_users"),
@@ -715,6 +816,74 @@ async def _product_funnel(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime
     return {key: int(row[key] or 0) for key in row.keys()}
 
 
+def _completed_through_date(window: _StatsWindow, tz: str) -> date:
+    """Последний полностью завершённый локальный день для retention-знаменателя."""
+    end_local_date = window.to_ts.astimezone(ZoneInfo(tz)).date()
+    if end_local_date > window.to_date:
+        return window.to_date
+    return window.to_date - timedelta(days=1)
+
+
+async def _funnel_diagnostics_v2(
+    pool: asyncpg.Pool,
+    window: _StatsWindow,
+    completed_through: date,
+) -> dict:
+    row = await pool.fetchrow(
+        _FUNNEL_DIAGNOSTICS_V2,
+        window.from_ts,
+        window.to_ts,
+        window.from_date,
+        window.to_date,
+        completed_through,
+        _MEANINGFUL_TRAFFIC_BYTES,
+    )
+
+    def count(name: str) -> int:
+        return int(row[name] or 0)
+
+    def rate(numerator: int, denominator: int) -> float | None:
+        return round(numerator / denominator, 4) if denominator else None
+
+    trials = count("trials")
+    meaningful = count("meaningful_traffic_users")
+    retention = {}
+    for day in (1, 2, 3):
+        eligible = count(f"d{day}_eligible_users")
+        retained = count(f"d{day}_retained_users")
+        retention[f"d{day}"] = {
+            "eligible_users": eligible,
+            "retained_users": retained,
+            "rate": rate(retained, eligible),
+        }
+
+    direct_started = count("direct_started_users")
+    guided_started = count("guided_started_users")
+    direct_meaningful = count("direct_meaningful_users")
+    guided_meaningful = count("guided_meaningful_users")
+    return {
+        "meaningful_traffic_threshold_bytes": _MEANINGFUL_TRAFFIC_BYTES,
+        "trials": trials,
+        "first_traffic_users": count("first_traffic_users"),
+        "meaningful_traffic_users": meaningful,
+        "trial_to_meaningful_traffic_rate": rate(meaningful, trials),
+        "retention": retention,
+        "routes": {
+            "direct": {
+                "started_users": direct_started,
+                "meaningful_traffic_users": direct_meaningful,
+                "meaningful_traffic_rate": rate(direct_meaningful, direct_started),
+            },
+            "guided": {
+                "started_users": guided_started,
+                "meaningful_traffic_users": guided_meaningful,
+                "meaningful_traffic_rate": rate(guided_meaningful, guided_started),
+            },
+            "guided_after_direct_users": count("guided_after_direct_users"),
+        },
+    }
+
+
 async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> list[dict]:
     rows = await pool.fetch(_EXPERIMENT_RESULTS, from_ts, to_ts)
     results: list[dict] = []
@@ -780,6 +949,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         telegram_ads_report,
         telegram_ads_campaigns_total,
         product_funnel,
+        funnel_diagnostics_v2,
         experiments,
     ) = await asyncio.gather(
         _revenue_series(pool, window.trunc, tz, window.from_ts, window.to_ts),
@@ -804,6 +974,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             window.to_date,
         ),
         _product_funnel(pool, window.from_ts, window.to_ts),
+        _funnel_diagnostics_v2(pool, window, _completed_through_date(window, tz)),
         _experiment_results(pool, window.from_ts, window.to_ts),
     )
 
@@ -839,6 +1010,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "by_plan": active_by_plan,
             "funnel": funnel,
             "product_funnel": product_funnel,
+            "funnel_diagnostics_v2": funnel_diagnostics_v2,
             "experiments": experiments,
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],

@@ -279,7 +279,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
 
     from_ts = now - timedelta(days=30)
     report = await _telegram_ads_campaigns(pool, from_ts, now, from_ts.date(), now.date())
-    rows = report["campaigns"]
+    rows = [row for row in report["campaigns"] if row["campaign_key"].startswith("test_tgads_")]
     rows.sort(key=lambda row: row["campaign_key"])
     assert rows == [
         {
@@ -289,6 +289,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "setup_started_users": 2,
             "platform_selected_users": 2,
             "first_vpn_traffic_users": 2,
+            "meaningful_vpn_traffic_users": 0,
             "connection_confirmed_users": 1,
             "connection_problem_users": 1,
             "checkout_opened_users": 1,
@@ -315,6 +316,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "setup_started_users": 0,
             "platform_selected_users": 0,
             "first_vpn_traffic_users": 0,
+            "meaningful_vpn_traffic_users": 0,
             "connection_confirmed_users": 0,
             "connection_problem_users": 0,
             "checkout_opened_users": 0,
@@ -341,6 +343,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "setup_started_users": 0,
             "platform_selected_users": 0,
             "first_vpn_traffic_users": 0,
+            "meaningful_vpn_traffic_users": 0,
             "connection_confirmed_users": 0,
             "connection_problem_users": 0,
             "checkout_opened_users": 0,
@@ -378,6 +381,7 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
         "setup_started_users": 2,
         "platform_selected_users": 2,
         "first_vpn_traffic_users": 2,
+        "meaningful_vpn_traffic_users": 0,
         "connection_confirmed_users": 1,
         "connection_problem_users": 1,
         "checkout_opened_users": 1,

@@ -110,6 +110,7 @@ def test_telegram_ads_funnel_preserves_all_zero_metrics():
         "setup_started_users": 0,
         "platform_selected_users": 0,
         "first_vpn_traffic_users": 0,
+        "meaningful_vpn_traffic_users": 0,
         "connection_confirmed_users": 0,
         "connection_problem_users": 0,
         "checkout_opened_users": 0,

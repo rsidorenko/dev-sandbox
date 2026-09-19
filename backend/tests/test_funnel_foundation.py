@@ -9,7 +9,12 @@ import asyncpg
 import httpx
 import pytest
 
-from app.application.funnel_events import callback_interaction, checkout_context_from_callback, record_interaction
+from app.application.funnel_events import (
+    callback_interaction,
+    checkout_context_from_callback,
+    connection_route_from_callback,
+    record_interaction,
+)
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.web_api.admin_stats import _mature_funnel
 from app.web_api.app import build_web_api_app
@@ -33,6 +38,7 @@ async def test_disabled_and_invalid_events_do_not_access_pool(monkeypatch):
     assert not await record_interaction(pool, **{**args, "plan_id": "unknown"})
     assert not await record_interaction(pool, **{**args, "device_count": 100})
     assert not await record_interaction(pool, **{**args, "payment_method": "secret"})
+    assert not await record_interaction(pool, **{**args, "connection_route": "secret"})
     pool.execute.assert_not_called()
 
 
@@ -74,6 +80,21 @@ def test_fastpath_problem_callback_rejects_unknown_platform():
     assert callback_interaction("connect_fast_problem:unknown") is None
 
 
+@pytest.mark.parametrize("platform", ["ios", "android", "mac", "win"])
+def test_fastpath_callbacks_use_direct_route(platform):
+    assert connection_route_from_callback(f"connect_fast_{platform}") == "direct"
+    assert connection_route_from_callback(f"connect_fast_problem:{platform}") == "direct"
+
+
+@pytest.mark.parametrize("platform", ["ios", "android", "mac", "win", "tv"])
+def test_step_by_step_callbacks_use_guided_route(platform):
+    assert connection_route_from_callback(f"connect_{platform}") == "guided"
+
+
+def test_unrelated_callback_has_no_connection_route():
+    assert connection_route_from_callback("main_menu") == ""
+
+
 def test_checkout_context_parser_supports_fixed_and_custom_plans():
     assert checkout_context_from_callback("confirm_pay:3m:5") == ("3m", 5)
     assert checkout_context_from_callback("confirm_pay:custom:45:12") == ("custom:45", 12)
@@ -95,11 +116,12 @@ async def test_valid_checkout_context_is_bound_as_separate_sql_fields(monkeypatc
         plan_id="3m",
         device_count=8,
         payment_method="card",
+        connection_route="direct",
     )
 
     sql, *args = pool.execute.await_args.args
     assert "plan_id, device_count, payment_method" in sql
-    assert args[-3:] == ["3m", 8, "card"]
+    assert args[-4:] == ["3m", 8, "card", "direct"]
 
 
 @pytest.fixture
