@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { QualitySection } from "./QualitySection";
 import type {
   AdminDataHealth,
+  AdminNotificationHoldout,
   AdminTrialCohort,
   AdminVpnQuality,
 } from "@/entities/admin/types";
@@ -64,6 +65,14 @@ const VPN_QUALITY: AdminVpnQuality = {
   web_problem_reasons: [{ code: "connect_failed", users: 2 }],
 };
 
+
+const HOLDOUT: AdminNotificationHoldout = {
+  trial_expiring_24h: {
+    delivered: { users: 40, paid_users: 6, paid_rate: 0.15 },
+    holdout: { users: 5, paid_users: 0, paid_rate: 0.0 },
+  },
+};
+
 describe("QualitySection", () => {
   it("renders data health: sources, missing spend warning, nakrut marker, anomalies", () => {
     render(<QualitySection dataHealth={DATA_HEALTH} trialCohorts={[]} vpnQuality={undefined} />);
@@ -105,6 +114,16 @@ describe("QualitySection", () => {
       />,
     );
     expect(screen.getByText("Проверок /check за период не было")).toBeInTheDocument();
+  });
+
+  it("renders notification holdout comparison table", () => {
+    render(
+      <QualitySection dataHealth={undefined} trialCohorts={[]} vpnQuality={undefined} notificationHoldout={HOLDOUT} />,
+    );
+    expect(screen.getByText("Эффект уведомлений (holdout)")).toBeInTheDocument();
+    expect(screen.getByText("trial_expiring_24h")).toBeInTheDocument();
+    expect(screen.getByText("6 (15%)")).toBeInTheDocument();
+    expect(screen.getByText("+15 п.п.")).toBeInTheDocument();
   });
 
   it("renders section shell when no optional data provided", () => {

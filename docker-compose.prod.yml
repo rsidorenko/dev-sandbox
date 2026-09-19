@@ -76,6 +76,11 @@ services:
       # A/B длительности триала (trial_duration_v1): control — 3 дня, 7d — 7 дней.
       # Цены и тарифы не меняются. Откат — 0 в .env.
       EXPERIMENT_TRIAL_DURATION_ENABLE: ${EXPERIMENT_TRIAL_DURATION_ENABLE:-1}
+      # Holdout nudge-уведомлений: ~10% подходящих не получают уведомление
+      # (запись 'holdout' в notification_log) — измерение реального эффекта.
+      # Откат — 0 в .env.
+      NOTIFICATION_HOLDOUT_ENABLE: ${NOTIFICATION_HOLDOUT_ENABLE:-1}
+      NOTIFICATION_HOLDOUT_PERCENT: ${NOTIFICATION_HOLDOUT_PERCENT:-10}
       # Гейт подписки на @bravada_vpn перед выдачей пробного периода.
       # Важно: backend получает только явно перечисленные переменные, поэтому
       # без этих строк фича оставалась выключенной даже при настройке .env.

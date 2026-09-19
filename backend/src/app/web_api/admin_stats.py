@@ -694,6 +694,35 @@ GROUP BY t.reason_code
 ORDER BY users DESC, t.reason_code
 """
 
+# Эффект nudge-уведомлений: delivered vs holdout (контрольная группа без отправки),
+# оплата в течение 7 дней после даты уведомления.
+_NOTIFICATION_HOLDOUT_STATS = """
+WITH notes AS (
+    SELECT n.internal_user_id, n.notification_type, n.delivery_status, n.sent_date
+    FROM notification_log n
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE n.delivery_status IN ('delivered', 'holdout')
+      AND n.sent_at >= $1 AND n.sent_at < $2
+)
+SELECT n.notification_type,
+       n.delivery_status,
+       count(DISTINCT n.internal_user_id)::int AS users,
+       count(DISTINCT b.internal_user_id)::int AS paid_users
+FROM notes n
+LEFT JOIN billing_events_ledger b
+  ON b.internal_user_id = n.internal_user_id
+ AND b.status = 'accepted'
+ AND b.event_type = 'subscription_activated'
+ AND b.billing_provider_key IN ('yookassa', 'yookassa_v1', 'cryptobot', 'cryptobot_v1')
+ AND b.internal_fact_ref NOT LIKE 'grant:%'
+ AND b.amount_minor_units > 0
+ AND b.currency_code = 'RUB'
+ AND b.event_effective_at >= n.sent_date
+ AND b.event_effective_at < n.sent_date + 8
+GROUP BY n.notification_type, n.delivery_status
+ORDER BY n.notification_type, n.delivery_status
+"""
+
 _TELEGRAM_ADS_CAMPAIGNS_LIMIT = 200
 _TELEGRAM_ADS_CAMPAIGNS = """
 WITH attributed AS (
@@ -1386,6 +1415,29 @@ async def _vpn_quality(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -
     }
 
 
+async def _notification_holdout_stats(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict:
+    rows = await pool.fetch(_NOTIFICATION_HOLDOUT_STATS, from_ts, to_ts)
+    result: dict[str, dict] = {}
+    for row in rows:
+        notification_type = str(row["notification_type"])
+        status = str(row["delivery_status"])
+        users = int(row["users"] or 0)
+        paid = int(row["paid_users"] or 0)
+        bucket = result.setdefault(
+            notification_type,
+            {
+                "delivered": {"users": 0, "paid_users": 0, "paid_rate": None},
+                "holdout": {"users": 0, "paid_users": 0, "paid_rate": None},
+            },
+        )
+        bucket[status] = {
+            "users": users,
+            "paid_users": paid,
+            "paid_rate": round(paid / users, 4) if users else None,
+        }
+    return result
+
+
 @_with_admin_auth
 async def handle_admin_stats(request: Request) -> JSONResponse:
     """GET /api/v1/admin/stats?period=7d&tz=Europe/Moscow — агрегированный дашборд статистики."""
@@ -1435,6 +1487,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         data_health,
         trial_cohorts,
         vpn_quality,
+        notification_holdout,
     ) = await asyncio.gather(
         _revenue_series(pool, window.trunc, tz, window.from_ts, window.to_ts),
         _revenue_kpi(pool, window.from_ts, window.to_ts),
@@ -1464,6 +1517,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _data_health(pool, window.from_ts, window.to_ts, window.from_date, window.to_date),
         _trial_cohorts(pool, window, _completed_through_date(window, tz)),
         _vpn_quality(pool, window.from_ts, window.to_ts),
+        _notification_holdout_stats(pool, window.from_ts, window.to_ts),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -1504,6 +1558,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "data_health": data_health,
             "trial_cohorts": trial_cohorts,
             "vpn_quality": vpn_quality,
+            "notification_holdout": notification_holdout,
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],
                 "economics": telegram_ads_report["economics"],

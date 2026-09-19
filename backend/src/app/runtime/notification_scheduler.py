@@ -355,6 +355,31 @@ class NotificationScheduler:
         telegram_user_id = row["telegram_user_id"]
         has_email = bool(row["has_email"])
 
+        # Holdout контрольной группы: не отправляем, но занимает слот дедупа
+        # наблюдаемой записью 'holdout'. Сбой вставки — обычная отправка (fail-open).
+        from app.application.notification_holdout import is_notification_holdout
+
+        if is_notification_holdout(internal_user_id, notification_type):
+            try:
+                await self._pool.execute(
+                    """INSERT INTO notification_log (internal_user_id, notification_type, delivery_status)
+                       VALUES ($1, $2, 'holdout') ON CONFLICT DO NOTHING""",
+                    internal_user_id,
+                    notification_type,
+                )
+                _LOGGER.info(
+                    "notification_holdout user=%s type=%s",
+                    internal_user_id,
+                    notification_type,
+                )
+                return False
+            except Exception:
+                _LOGGER.warning(
+                    "notification_holdout_write_failed user=%s type=%s",
+                    internal_user_id,
+                    notification_type,
+                )
+
         # Дедуп общий на оба канала
         existing = await self._pool.fetchval(
             """SELECT 1 FROM notification_log

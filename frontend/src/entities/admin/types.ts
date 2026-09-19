@@ -339,6 +339,18 @@ export interface AdminVpnQuality {
   web_problem_reasons: AdminTrialFeedbackItem[];
 }
 
+export interface AdminNotificationHoldoutBucket {
+  users: number;
+  paid_users: number;
+  paid_rate: number | null;
+}
+
+/** Тип → { delivered, holdout }: эффект уведомления против контрольной группы. */
+export type AdminNotificationHoldout = Record<
+  string,
+  { delivered: AdminNotificationHoldoutBucket; holdout: AdminNotificationHoldoutBucket }
+>;
+
 export interface AdminTelegramAdsCampaign {
   campaign_key: string;
   attributed_users: number;
@@ -442,6 +454,7 @@ export interface AdminStatsResponse {
   data_health?: AdminDataHealth;
   trial_cohorts?: AdminTrialCohort[];
   vpn_quality?: AdminVpnQuality;
+  notification_holdout?: AdminNotificationHoldout;
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;
   series: {

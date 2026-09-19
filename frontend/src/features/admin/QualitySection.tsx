@@ -8,6 +8,7 @@
 
 import type {
   AdminDataHealth,
+  AdminNotificationHoldout,
   AdminTrialCohort,
   AdminVpnQuality,
 } from "@/entities/admin/types";
@@ -37,10 +38,12 @@ export function QualitySection({
   dataHealth,
   trialCohorts,
   vpnQuality,
+  notificationHoldout,
 }: {
   dataHealth?: AdminDataHealth;
   trialCohorts: AdminTrialCohort[];
   vpnQuality?: AdminVpnQuality;
+  notificationHoldout?: AdminNotificationHoldout;
 }) {
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
@@ -229,6 +232,57 @@ export function QualitySection({
                   .join(", ")}`}
             </p>
           )}
+        </div>
+      )}
+
+      {notificationHoldout && Object.keys(notificationHoldout).length > 0 && (
+        <div className="border-t border-gray-200 p-5 dark:border-zinc-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эффект уведомлений (holdout)</h3>
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            Контрольная группа не получает nudge-уведомление · конверсия = оплата в течение 7 дней после даты
+            уведомления · не судите по маленьким выборкам
+          </p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="text-gray-500 dark:text-gray-400">
+                <tr>
+                  {["Уведомление", "Доставлено", "Оплатили", "Holdout", "Оплатили", "Разница"].map((label) => (
+                    <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
+                {Object.entries(notificationHoldout).map(([type, buckets]) => {
+                  const delivered = buckets.delivered;
+                  const holdout = buckets.holdout;
+                  const lift =
+                    delivered.paid_rate != null && holdout.paid_rate != null
+                      ? Math.round((delivered.paid_rate - holdout.paid_rate) * 1000) / 10
+                      : null;
+                  return (
+                    <tr key={type} className="text-gray-700 dark:text-gray-300">
+                      <td className="whitespace-nowrap px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">
+                        {type}
+                      </td>
+                      <td className={`px-3 py-2 ${adminNum}`}>{delivered.users}</td>
+                      <td className={`px-3 py-2 ${adminNum}`}>
+                        {delivered.paid_users}
+                        {delivered.paid_rate != null && ` (${Math.round(delivered.paid_rate * 1000) / 10}%)`}
+                      </td>
+                      <td className={`px-3 py-2 ${adminNum}`}>{holdout.users}</td>
+                      <td className={`px-3 py-2 ${adminNum}`}>
+                        {holdout.paid_users}
+                        {holdout.paid_rate != null && ` (${Math.round(holdout.paid_rate * 1000) / 10}%)`}
+                      </td>
+                      <td className={`px-3 py-2 ${adminNum}`}>{lift == null ? "—" : `${lift > 0 ? "+" : ""}${lift} п.п.`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </section>

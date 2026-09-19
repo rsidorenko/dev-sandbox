@@ -690,6 +690,7 @@ export default function AdminStatsPage() {
             dataHealth={dataHealth}
             trialCohorts={trialCohorts}
             vpnQuality={vpnQuality}
+            notificationHoldout={data?.notification_holdout}
           />
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
