@@ -18,7 +18,12 @@ import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.web_api.admin_stats import _completed_through_date, _compute_window, _funnel_diagnostics_v2
+from app.web_api.admin_stats import (
+    _completed_through_date,
+    _compute_window,
+    _funnel_diagnostics_v2,
+    _trial_feedback_stats,
+)
 from app.web_api.app import build_web_api_app
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +113,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             "OR internal_fact_ref LIKE 'manual:test-stats-%'"
         )
         await conn.execute("DELETE FROM experiment_assignments WHERE internal_user_id LIKE 'test-stats-u-%'")
+        await conn.execute("DELETE FROM trial_feedback WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM funnel_interactions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM telegram_ads_attributions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
@@ -512,6 +518,72 @@ async def test_funnel_diagnostics_meaningful_retention_and_routes(pg_url):
                 },
                 "guided_after_direct_users": 1,
             },
+        }
+    finally:
+        await _cleanup(pool)
+        await pool.close()
+
+
+async def test_trial_feedback_stats_excludes_internal_and_nakrut_users(pg_url):
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=4)
+    try:
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        await _cleanup(pool)
+        now = datetime.now(UTC)
+        users = [
+            (f"{_U_PREFIX}feedback-1", _TG_BASE + 41, False),
+            (f"{_U_PREFIX}feedback-2", _TG_BASE + 42, False),
+            (f"{_U_PREFIX}feedback-internal", _TG_BASE + 43, True),
+            (f"{_U_PREFIX}feedback-nakrut", _TG_BASE + 44, False),
+        ]
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                "INSERT INTO user_identities "
+                "(internal_user_id,telegram_user_id,is_internal,created_at) VALUES ($1,$2,$3,$4)",
+                [(uid, telegram_id, internal, now - timedelta(days=1)) for uid, telegram_id, internal in users],
+            )
+            await conn.execute(
+                "INSERT INTO telegram_ads_attributions "
+                "(internal_user_id,campaign_key,telegram_update_id,attributed_at) VALUES ($1,'nakrut',944,$2)",
+                users[3][0],
+                now - timedelta(days=1),
+            )
+            feedback_rows = [
+                (users[0][0], "connection_problem", "connect_failed", "ios", "direct"),
+                (users[1][0], "connection_problem", "too_hard", "android", "guided"),
+                (users[0][0], "trial_nonpayment", "too_expensive", "", ""),
+                (users[2][0], "trial_nonpayment", "other", "", ""),
+                (users[3][0], "trial_nonpayment", "no_need", "", ""),
+            ]
+            await conn.executemany(
+                "INSERT INTO trial_feedback "
+                "(internal_user_id,feedback_type,reason_code,platform,connection_route,updated_at) "
+                "VALUES ($1,$2,$3,$4,$5,$6)",
+                [(*row, now - timedelta(hours=1)) for row in feedback_rows],
+            )
+
+        result = await _trial_feedback_stats(pool, now - timedelta(days=7), now)
+        assert result["connection_problem"] == {
+            "respondents": 2,
+            "reasons": [
+                {"code": "connect_failed", "users": 1},
+                {"code": "too_hard", "users": 1},
+            ],
+            "platforms": [
+                {"code": "android", "users": 1},
+                {"code": "ios", "users": 1},
+            ],
+            "routes": [
+                {"code": "direct", "users": 1},
+                {"code": "guided", "users": 1},
+            ],
+        }
+        assert result["trial_nonpayment"] == {
+            "respondents": 1,
+            "reasons": [{"code": "too_expensive", "users": 1}],
+            "platforms": [],
+            "routes": [],
         }
     finally:
         await _cleanup(pool)

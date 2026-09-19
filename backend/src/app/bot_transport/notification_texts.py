@@ -18,6 +18,7 @@ from app.bot_transport.storefront_ui import (
     CB_HELP,
     CB_REFERRAL,
     CB_TRIAL,
+    CB_TRIAL_FEEDBACK_NONPAY,
     _inline_kb,
 )
 from app.domain.plans import get_plan, plan_display_name
@@ -173,6 +174,7 @@ def text_trial_expired_followup() -> tuple[str, dict[str, Any]]:
     keyboard = _inline_kb(
         [
             [{"text": "⚡ Возобновить VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
+            [{"text": "💬 Почему не подошло?", "callback_data": CB_TRIAL_FEEDBACK_NONPAY}],
             [{"text": "❓ Нужна помощь", "callback_data": CB_HELP}],
         ]
     )

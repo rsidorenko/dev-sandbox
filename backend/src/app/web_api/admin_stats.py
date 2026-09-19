@@ -337,6 +337,31 @@ SELECT count(*)::int AS trials,
 FROM cohort
 """
 
+_TRIAL_FEEDBACK_STATS = """
+WITH base AS (
+    SELECT f.internal_user_id, f.feedback_type, f.reason_code, f.platform, f.connection_route
+    FROM trial_feedback f
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE f.updated_at >= $1 AND f.updated_at < $2
+), breakdown AS (
+    SELECT feedback_type, 'total'::text AS dimension, ''::text AS value,
+           count(DISTINCT internal_user_id)::int AS users
+    FROM base GROUP BY feedback_type
+    UNION ALL
+    SELECT feedback_type, 'reason', reason_code, count(DISTINCT internal_user_id)::int
+    FROM base GROUP BY feedback_type, reason_code
+    UNION ALL
+    SELECT feedback_type, 'platform', platform, count(DISTINCT internal_user_id)::int
+    FROM base WHERE platform <> '' GROUP BY feedback_type, platform
+    UNION ALL
+    SELECT feedback_type, 'route', connection_route, count(DISTINCT internal_user_id)::int
+    FROM base WHERE connection_route <> '' GROUP BY feedback_type, connection_route
+)
+SELECT feedback_type, dimension, value, users
+FROM breakdown
+ORDER BY feedback_type, dimension, users DESC, value
+"""
+
 _EXPERIMENT_RESULTS = """
 WITH assignments AS (
     SELECT a.internal_user_id, a.experiment_key, a.variant, a.assigned_at
@@ -884,6 +909,32 @@ async def _funnel_diagnostics_v2(
     }
 
 
+async def _trial_feedback_stats(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict:
+    rows = await pool.fetch(_TRIAL_FEEDBACK_STATS, from_ts, to_ts)
+
+    def empty_bucket() -> dict:
+        return {"respondents": 0, "reasons": [], "platforms": [], "routes": []}
+
+    result = {
+        "connection_problem": empty_bucket(),
+        "trial_nonpayment": empty_bucket(),
+    }
+    dimension_keys = {"reason": "reasons", "platform": "platforms", "route": "routes"}
+    for row in rows:
+        feedback_type = str(row["feedback_type"])
+        if feedback_type not in result:
+            continue
+        dimension = str(row["dimension"])
+        users = int(row["users"] or 0)
+        if dimension == "total":
+            result[feedback_type]["respondents"] = users
+            continue
+        target = dimension_keys.get(dimension)
+        if target is not None:
+            result[feedback_type][target].append({"code": str(row["value"]), "users": users})
+    return result
+
+
 async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> list[dict]:
     rows = await pool.fetch(_EXPERIMENT_RESULTS, from_ts, to_ts)
     results: list[dict] = []
@@ -950,6 +1001,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         telegram_ads_campaigns_total,
         product_funnel,
         funnel_diagnostics_v2,
+        trial_feedback,
         experiments,
     ) = await asyncio.gather(
         _revenue_series(pool, window.trunc, tz, window.from_ts, window.to_ts),
@@ -975,6 +1027,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         ),
         _product_funnel(pool, window.from_ts, window.to_ts),
         _funnel_diagnostics_v2(pool, window, _completed_through_date(window, tz)),
+        _trial_feedback_stats(pool, window.from_ts, window.to_ts),
         _experiment_results(pool, window.from_ts, window.to_ts),
     )
 
@@ -1011,6 +1064,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "funnel": funnel,
             "product_funnel": product_funnel,
             "funnel_diagnostics_v2": funnel_diagnostics_v2,
+            "trial_feedback": trial_feedback,
             "experiments": experiments,
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],

@@ -26,6 +26,7 @@ from app.application.purchase_handler import (
     PurchaseSummary,
     plan_options_from_plans,
 )
+from app.application.trial_feedback import record_trial_feedback
 from app.bot_transport.message_catalog import RenderedMessagePackage, render_telegram_outbound_plan
 from app.bot_transport.outbound import (
     build_subscription_active_recovery_confirmation_plan,
@@ -97,6 +98,7 @@ from app.bot_transport.storefront_ui import (
     CB_SERVER,
     CB_SETTINGS,
     CB_TRIAL,
+    CB_TRIAL_FEEDBACK_NONPAY,
     CB_TV_DID_WORK,
     CB_TV_NO,
     CB_TV_RETRY,
@@ -147,6 +149,7 @@ from app.bot_transport.storefront_ui import (
     connect_fast_problem_platform,
     connect_fastpath_keyboard,
     connect_fastpath_problem_keyboard,
+    connection_feedback_keyboard,
     custom_days_prompt_keyboard,
     device_select_keyboard,
     ios_app_chooser_keyboard,
@@ -213,6 +216,7 @@ from app.bot_transport.storefront_ui import (
     my_keys_menu_keyboard,
     my_subscription_keyboard,
     no_subscription_keyboard,
+    parse_trial_feedback_answer,
     promo_badge_label,
     promo_menu_badge,
     promo_offer_preview,
@@ -240,6 +244,7 @@ from app.bot_transport.storefront_ui import (
     text_connect_device,
     text_connect_fastpath,
     text_connect_fastpath_problem,
+    text_connection_feedback_prompt,
     text_custom_days_invalid,
     text_custom_days_prompt,
     text_device_select,
@@ -277,10 +282,14 @@ from app.bot_transport.storefront_ui import (
     text_subscription_active,
     text_subscription_expired,
     text_trial_connect_fastpath,
+    text_trial_feedback_thanks,
+    text_trial_nonpayment_feedback_prompt,
     text_trial_subscribe_required,
     text_trial_subscribe_still_missing,
     text_welcome,
     trial_connect_fastpath_keyboard,
+    trial_feedback_thanks_keyboard,
+    trial_nonpayment_feedback_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -411,6 +420,28 @@ def _problem_kb_for(code: str) -> dict[str, Any]:
     if code in (CB_ANDROID_NO, CB_ANDROID_RETRY):
         return android_problem_keyboard()
     return ios_problem_keyboard()
+
+
+_GUIDED_PROBLEM_CALLBACKS = {
+    "ios": CB_IOS_NO,
+    "android": CB_ANDROID_NO,
+    "mac": CB_MAC_NO,
+    "win": CB_WIN_NO,
+    "tv": CB_TV_NO,
+}
+
+
+def _guided_problem_platform(code: str) -> str | None:
+    return next((platform for platform, callback in _GUIDED_PROBLEM_CALLBACKS.items() if code == callback), None)
+
+
+def _connection_problem_recovery(platform: str, connection_route: str) -> tuple[str, dict[str, Any]]:
+    if connection_route == "direct":
+        return text_connect_fastpath_problem(platform), connect_fastpath_problem_keyboard(platform)
+    callback = _GUIDED_PROBLEM_CALLBACKS.get(platform)
+    if callback is None:
+        return text_error_generic(), back_only_keyboard(CB_CONNECT_DEVICE)
+    return ios_problem_text(), _problem_kb_for(callback)
 
 
 def _step_1_for_retry(code: str) -> tuple[str, dict[str, Any] | None]:
@@ -971,6 +1002,7 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_HELP,
         CB_ROUTER,
         CB_TRIAL,
+        CB_TRIAL_FEEDBACK_NONPAY,
         CB_CHECK_SUB,
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
@@ -1014,6 +1046,8 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
     if is_callback and code in _CALLBACK_ONLY_STOREFRONT:
         return True
     if is_callback and connect_fast_problem_platform(code) is not None:
+        return True
+    if is_callback and parse_trial_feedback_answer(code) is not None:
         return True
     return bool(
         is_callback
@@ -2738,8 +2772,37 @@ async def _render_storefront_response(
         if platform is None:
             text, keyboard = text_error_generic(), back_only_keyboard(CB_CONNECT_DEVICE)
         else:
-            text = text_connect_fastpath_problem(platform)
-            keyboard = connect_fastpath_problem_keyboard(platform)
+            text = text_connection_feedback_prompt()
+            keyboard = connection_feedback_keyboard(platform, "direct")
+
+    elif code == CB_TRIAL_FEEDBACK_NONPAY:
+        text = text_trial_nonpayment_feedback_prompt()
+        keyboard = trial_nonpayment_feedback_keyboard()
+
+    elif (feedback := parse_trial_feedback_answer(code)) is not None:
+        feedback_type, reason_code, platform, connection_route = feedback
+        if feedback_type == "connection_problem":
+            if reason_code != "skip":
+                await record_trial_feedback(
+                    _get_pool_from_composition(composition),
+                    feedback_type=feedback_type,
+                    reason_code=reason_code,
+                    telegram_user_id=uid,
+                    platform=platform,
+                    connection_route=connection_route,
+                )
+            text, keyboard = _connection_problem_recovery(platform, connection_route)
+            if reason_code != "skip":
+                text = "🙏 Спасибо, ответ записан.\n\n" + text
+        else:
+            await record_trial_feedback(
+                _get_pool_from_composition(composition),
+                feedback_type=feedback_type,
+                reason_code=reason_code,
+                telegram_user_id=uid,
+            )
+            text = text_trial_feedback_thanks()
+            keyboard = trial_feedback_thanks_keyboard()
 
     elif code == CB_CONNECT_WIN:
         text = win_step_1_text()
@@ -2790,8 +2853,12 @@ async def _render_storefront_response(
         keyboard = await _main_menu_keyboard(composition, uid)
 
     elif code in (CB_IOS_NO, CB_MAC_NO, CB_TV_NO, CB_WIN_NO, CB_ANDROID_NO):
-        text = ios_problem_text()
-        keyboard = _problem_kb_for(code)
+        platform = _guided_problem_platform(code)
+        if platform is None:
+            text, keyboard = text_error_generic(), back_only_keyboard(CB_CONNECT_DEVICE)
+        else:
+            text = text_connection_feedback_prompt()
+            keyboard = connection_feedback_keyboard(platform, "guided")
 
     elif code in (CB_IOS_RETRY, CB_MAC_RETRY, CB_TV_RETRY, CB_WIN_RETRY, CB_ANDROID_RETRY):
         text, keyboard = _step_1_for_retry(code)

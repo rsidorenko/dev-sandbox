@@ -87,6 +87,26 @@ function formatRate(rate: number | null): string {
   return rate == null ? "—" : `${(rate * 100).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%`;
 }
 
+const feedbackLabels: Record<string, string> = {
+  install_failed: "Не установилось приложение",
+  import_failed: "Не добавилась подписка",
+  connect_failed: "VPN не подключается",
+  traffic_failed: "Нет интернета после подключения",
+  too_hard: "Слишком сложно",
+  other: "Другая причина",
+  too_expensive: "Дорого",
+  did_not_work: "VPN не заработал",
+  no_need: "Пока не нужен",
+  payment_issue: "Не получилось оплатить",
+  direct: "Быстрый путь",
+  guided: "Пошаговый путь",
+  ios: "iOS",
+  android: "Android",
+  mac: "macOS",
+  win: "Windows",
+  tv: "TV",
+};
+
 function formatPlatforms(platforms: AdminTelegramAdsPlatformUsers): string {
   const labels: [keyof AdminTelegramAdsPlatformUsers, string][] = [
     ["ios", "iOS"],
@@ -254,6 +274,7 @@ export default function AdminStatsPage() {
   const telegramFunnel = data?.telegram_ads?.funnel;
   const productFunnel = data?.product_funnel;
   const diagnostics = data?.funnel_diagnostics_v2;
+  const trialFeedback = data?.trial_feedback;
   const experiments = data?.experiments ?? [];
   const productFunnelSteps = productFunnel ? [
     { label: "Регистрация", value: productFunnel.registered_users },
@@ -579,6 +600,46 @@ export default function AdminStatsPage() {
                   Из direct в guided перешли {diagnostics.routes.guided_after_direct_users} польз. Маршруты могут пересекаться;
                   D1–D3 учитывают только полностью завершённые дни и не считают технический трафик меньше порога.
                 </p>
+              </div>
+            )}
+            {trialFeedback && (
+              <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Почему отваливаются пользователи</h3>
+                <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  Закрытые ответы из Telegram · повторный ответ пользователя заменяет предыдущий
+                </p>
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  {([
+                    ["Проблема подключения", trialFeedback.connection_problem],
+                    ["Не оплатили после триала", trialFeedback.trial_nonpayment],
+                  ] as const).map(([title, bucket]) => (
+                    <div key={title} className="overflow-hidden rounded-xl border border-gray-200 dark:border-zinc-700">
+                      <div className="flex items-center justify-between bg-gray-50 px-4 py-3 dark:bg-zinc-900/50">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
+                        <span className={`text-xs text-gray-500 ${adminNum}`}>{bucket.respondents} ответов</span>
+                      </div>
+                      {bucket.reasons.length ? (
+                        <div className="divide-y divide-gray-100 dark:divide-zinc-700">
+                          {bucket.reasons.map((item) => (
+                            <div key={item.code} className="flex items-center justify-between px-4 py-2.5 text-xs">
+                              <span className="text-gray-600 dark:text-gray-400">{feedbackLabels[item.code] ?? item.code}</span>
+                              <span className={`text-gray-900 dark:text-gray-100 ${adminNum}`}>{item.users}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-4 py-5 text-xs text-gray-400">Пока нет ответов за период</div>
+                      )}
+                      {(bucket.routes.length > 0 || bucket.platforms.length > 0) && (
+                        <div className="border-t border-gray-100 px-4 py-3 text-xs text-gray-400 dark:border-zinc-700">
+                          {[...bucket.routes, ...bucket.platforms]
+                            .map((item) => `${feedbackLabels[item.code] ?? item.code}: ${item.users}`)
+                            .join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div className="px-5 py-4">

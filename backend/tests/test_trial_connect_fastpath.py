@@ -34,6 +34,7 @@ from app.bot_transport.storefront_ui import (
     CB_MAC_YES,
     CB_MAIN_MENU,
     CB_TRIAL,
+    CB_TRIAL_FEEDBACK_ANSWER,
     CB_WIN_RETRY,
     CB_WIN_STEP,
     CB_WIN_YES,
@@ -224,13 +225,19 @@ def test_fastpath_problem_retries_same_platform_and_app(
             composition,
             correlation_id=new_correlation_id(),
         )
-        problem_buttons = _buttons(problem.reply_markup)
+        assert "Что именно не получилось" in problem.message_text
+        recovery = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_TRIAL_FEEDBACK_ANSWER}p:d:{platform}:skip", update_id=5),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        problem_buttons = _buttons(recovery.reply_markup)
         problem_callbacks = {button.get("callback_data") for button in problem_buttons}
         assert {fast_callback, alternative_callback, CB_CONNECT_DEVICE} <= problem_callbacks
         assert any(button.get("text") == "🔄 Повторить подключение" for button in problem_buttons)
 
         repeated = await handle_slice1_telegram_update_to_rendered_message(
-            _callback_update(fast_callback, update_id=5),
+            _callback_update(fast_callback, update_id=6),
             composition,
             correlation_id=new_correlation_id(),
         )
@@ -239,6 +246,43 @@ def test_fastpath_problem_retries_same_platform_and_app(
         assert _SUBSCRIPTION_URL in repeated.message_text
 
     _run(main())
+
+
+def test_fastpath_problem_reason_is_recorded_and_recovery_remains_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.bot_transport.runtime_facade.record_trial_feedback", record)
+
+    async def main() -> None:
+        composition = build_slice1_composition(vless_provider=_FastpathProvider())
+        await handle_slice1_telegram_update_to_rendered_message(
+            _start_update(), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(CB_TRIAL, update_id=2), composition, correlation_id=new_correlation_id()
+        )
+        await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_CONNECT_FAST_PROBLEM}ios", update_id=3),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        recovery = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_TRIAL_FEEDBACK_ANSWER}p:d:ios:connect_failed", update_id=4),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        assert "ответ записан" in recovery.message_text
+        assert any(button.get("text") == "🔄 Повторить подключение" for button in _buttons(recovery.reply_markup))
+
+    _run(main())
+    assert record.await_args.kwargs == {
+        "feedback_type": "connection_problem",
+        "reason_code": "connect_failed",
+        "telegram_user_id": 42,
+        "platform": "ios",
+        "connection_route": "direct",
+    }
 
 
 @pytest.mark.parametrize(
@@ -277,10 +321,16 @@ def test_fastpath_problem_can_open_app_chooser(
         problem = await handle_slice1_telegram_update_to_rendered_message(
             _callback_update(problem_callback, update_id=3), composition, correlation_id=new_correlation_id()
         )
-        assert any(button.get("text") == "🔁 Выбрать другое приложение" for button in _buttons(problem.reply_markup))
+        assert "Что именно не получилось" in problem.message_text
+        recovery = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_TRIAL_FEEDBACK_ANSWER}p:d:{problem_callback.rsplit(':', 1)[1]}:skip", update_id=4),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        assert any(button.get("text") == "🔁 Выбрать другое приложение" for button in _buttons(recovery.reply_markup))
 
         chooser = await handle_slice1_telegram_update_to_rendered_message(
-            _callback_update(alternative_callback, update_id=4), composition, correlation_id=new_correlation_id()
+            _callback_update(alternative_callback, update_id=5), composition, correlation_id=new_correlation_id()
         )
         assert expected_callbacks <= {button.get("callback_data") for button in _buttons(chooser.reply_markup)}
 
@@ -301,10 +351,16 @@ def test_windows_fastpath_problem_keeps_karing_details() -> None:
             composition,
             correlation_id=new_correlation_id(),
         )
-        assert any(button.get("text") == "🧭 Пошаговая инструкция Karing" for button in _buttons(problem.reply_markup))
+        assert "Что именно не получилось" in problem.message_text
+        recovery = await handle_slice1_telegram_update_to_rendered_message(
+            _callback_update(f"{CB_TRIAL_FEEDBACK_ANSWER}p:d:win:skip", update_id=4),
+            composition,
+            correlation_id=new_correlation_id(),
+        )
+        assert any(button.get("text") == "🧭 Пошаговая инструкция Karing" for button in _buttons(recovery.reply_markup))
 
         details = await handle_slice1_telegram_update_to_rendered_message(
-            _callback_update(CB_CONNECT_WIN, update_id=4), composition, correlation_id=new_correlation_id()
+            _callback_update(CB_CONNECT_WIN, update_id=5), composition, correlation_id=new_correlation_id()
         )
         assert "Karing" in details.message_text
         assert f"{CB_WIN_STEP}2" in {button.get("callback_data") for button in _buttons(details.reply_markup)}

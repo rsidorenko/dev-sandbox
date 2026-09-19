@@ -25,6 +25,7 @@ from app.bot_transport.storefront_ui import (
     CB_CONNECT_FAST_MAC,
     CB_CONNECT_FAST_WIN,
     CB_TRIAL,
+    CB_TRIAL_FEEDBACK_NONPAY,
 )
 from app.runtime.notification_scheduler import NotificationScheduler
 
@@ -151,6 +152,7 @@ def test_trial_messages_keep_prices_dynamic_and_lead_to_existing_catalog() -> No
 
     assert "подключать всё заново не придётся" in messages[2][0]
     assert "Подключение сохранено" in messages[3][0]
+    assert messages[3][1]["inline_keyboard"][1][0]["callback_data"] == CB_TRIAL_FEEDBACK_NONPAY
 
 
 def test_early_conversion_messages_use_existing_routes() -> None:

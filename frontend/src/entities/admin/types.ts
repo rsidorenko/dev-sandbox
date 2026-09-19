@@ -231,6 +231,23 @@ export interface AdminFunnelDiagnosticsV2 {
   };
 }
 
+export interface AdminTrialFeedbackItem {
+  code: string;
+  users: number;
+}
+
+export interface AdminTrialFeedbackBucket {
+  respondents: number;
+  reasons: AdminTrialFeedbackItem[];
+  platforms: AdminTrialFeedbackItem[];
+  routes: AdminTrialFeedbackItem[];
+}
+
+export interface AdminTrialFeedback {
+  connection_problem: AdminTrialFeedbackBucket;
+  trial_nonpayment: AdminTrialFeedbackBucket;
+}
+
 export interface AdminExperimentResult {
   experiment_key: string;
   variant: string;
@@ -340,6 +357,7 @@ export interface AdminStatsResponse {
   };
   product_funnel?: AdminProductFunnel;
   funnel_diagnostics_v2?: AdminFunnelDiagnosticsV2;
+  trial_feedback?: AdminTrialFeedback;
   experiments?: AdminExperimentResult[];
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;

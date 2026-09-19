@@ -15,6 +15,7 @@ from urllib.parse import quote, urlencode
 
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
+from app.application.trial_feedback import CONNECTION_PROBLEM_REASONS, TRIAL_NONPAYMENT_REASONS
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
 from app.domain.pricing import (
@@ -66,6 +67,8 @@ CB_CONNECT_FAST_ANDROID = "connect_fast_android"
 CB_CONNECT_FAST_IOS = "connect_fast_ios"
 CB_CONNECT_FAST_MAC = "connect_fast_mac"
 CB_CONNECT_FAST_PROBLEM = "connect_fast_problem:"
+CB_TRIAL_FEEDBACK_NONPAY = "trial_feedback_nonpay"
+CB_TRIAL_FEEDBACK_ANSWER = "trial_fb:"
 CB_CONNECT_NEXT = "connect_next"
 CB_CONNECT_DONE = "connect_done"
 CB_TRIAL = "start_trial"
@@ -1999,6 +2002,101 @@ def connect_fastpath_problem_keyboard(platform: str) -> dict[str, Any]:
         ]
     )
     return _inline_kb(rows)
+
+
+_CONNECTION_FEEDBACK_LABELS = (
+    ("install_failed", "📲 Не установилось приложение"),
+    ("import_failed", "🔗 Не добавилась подписка"),
+    ("connect_failed", "🔌 VPN не подключается"),
+    ("traffic_failed", "🌐 Подключилось, но интернет не работает"),
+    ("too_hard", "🧩 Слишком сложно"),
+    ("other", "💬 Другая причина"),
+)
+_NONPAYMENT_FEEDBACK_LABELS = (
+    ("too_expensive", "💰 Дорого"),
+    ("did_not_work", "🔌 VPN не заработал"),
+    ("too_hard", "🧩 Сложно настроить"),
+    ("no_need", "🤷 Пока не нужен"),
+    ("payment_issue", "💳 Не получилось оплатить"),
+    ("other", "💬 Другая причина"),
+)
+
+
+def text_connection_feedback_prompt() -> str:
+    return "😕 <b>Что именно не получилось?</b>\n\nОдин ответ поможет нам исправить подключение. Его можно пропустить."
+
+
+def connection_feedback_keyboard(platform: str, connection_route: str) -> dict[str, Any]:
+    if platform not in _FAST_CALLBACK_BY_PLATFORM and platform != "tv":
+        return back_only_keyboard(CB_CONNECT_DEVICE)
+    route_token = {"direct": "d", "guided": "g"}.get(connection_route)
+    if route_token is None:
+        return back_only_keyboard(CB_CONNECT_DEVICE)
+    rows = [
+        [
+            {
+                "text": label,
+                "callback_data": f"{CB_TRIAL_FEEDBACK_ANSWER}p:{route_token}:{platform}:{reason}",
+            }
+        ]
+        for reason, label in _CONNECTION_FEEDBACK_LABELS
+    ]
+    rows.append(
+        [
+            {
+                "text": "Пропустить и решить проблему",
+                "callback_data": f"{CB_TRIAL_FEEDBACK_ANSWER}p:{route_token}:{platform}:skip",
+            }
+        ]
+    )
+    rows.append([{"text": "💬 Сразу в поддержку", "url": _SUPPORT_URL}])
+    return _inline_kb(rows)
+
+
+def text_trial_nonpayment_feedback_prompt() -> str:
+    return "👋 <b>Что остановило от подписки?</b>\n\nВыберите одну причину — ответ займёт пару секунд."
+
+
+def trial_nonpayment_feedback_keyboard() -> dict[str, Any]:
+    rows = [
+        [{"text": label, "callback_data": f"{CB_TRIAL_FEEDBACK_ANSWER}n:{reason}"}]
+        for reason, label in _NONPAYMENT_FEEDBACK_LABELS
+    ]
+    rows.append([{"text": "Пропустить", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
+
+
+def parse_trial_feedback_answer(callback_data: str) -> tuple[str, str, str, str] | None:
+    """Возвращает type, reason, platform, route только для закрытого callback enum."""
+    if not callback_data.startswith(CB_TRIAL_FEEDBACK_ANSWER):
+        return None
+    parts = callback_data[len(CB_TRIAL_FEEDBACK_ANSWER) :].split(":")
+    if len(parts) == 4 and parts[0] == "p":
+        route = {"d": "direct", "g": "guided"}.get(parts[1])
+        platform, reason = parts[2], parts[3]
+        if (
+            route is not None
+            and platform in {*_FAST_CALLBACK_BY_PLATFORM, "tv"}
+            and (reason in CONNECTION_PROBLEM_REASONS or reason == "skip")
+        ):
+            return "connection_problem", reason, platform, route
+    if len(parts) == 2 and parts[0] == "n" and parts[1] in TRIAL_NONPAYMENT_REASONS:
+        return "trial_nonpayment", parts[1], "", ""
+    return None
+
+
+def text_trial_feedback_thanks() -> str:
+    return "🙏 <b>Спасибо за ответ</b>\n\nМы учтём его при улучшении Bravada. Настройки сохранятся, если захотите вернуться."
+
+
+def trial_feedback_thanks_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "⚡ Вернуть VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
+            [{"text": "❓ Нужна помощь", "callback_data": CB_HELP}],
+            [{"text": "↩️ В главное меню", "callback_data": CB_MAIN_MENU}],
+        ]
+    )
 
 
 def text_connect_fastpath(platform: str, subscription_url: str) -> str:
