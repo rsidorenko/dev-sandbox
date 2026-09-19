@@ -26,8 +26,22 @@ def test_experimental_features_are_opt_in_in_production_compose() -> None:
 
     for variable in (
         "CONNECTION_CHECK_ENABLE",
+        "EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE",
         "EXPERIMENT_CHANNEL_GATE_ENABLE",
         "EXPERIMENT_TRIAL_DURATION_ENABLE",
         "NOTIFICATION_HOLDOUT_ENABLE",
     ):
         assert f"{variable}: ${{{variable}:-0}}" in compose
+
+
+def test_production_env_example_documents_experiment_kill_switches() -> None:
+    env_example_path = Path(__file__).resolve().parents[2] / ".env.example"
+    env_example = env_example_path.read_text(encoding="utf-8")
+
+    for variable in (
+        "EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE=0",
+        "EXPERIMENT_CHANNEL_GATE_ENABLE=0",
+        "EXPERIMENT_TRIAL_DURATION_ENABLE=0",
+        "NOTIFICATION_HOLDOUT_ENABLE=0",
+    ):
+        assert variable in env_example

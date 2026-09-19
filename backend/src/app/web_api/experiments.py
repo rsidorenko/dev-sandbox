@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.application.funnel_events import record_interaction
-from app.domain.experiments import assign_experiment_variant, get_experiment
+from app.domain.experiments import (
+    CHECKOUT_REASSURANCE_EXPERIMENT,
+    assign_experiment_variant,
+    get_experiment,
+)
 from app.domain.plans import get_plan
-from app.web_api.helpers import safe_json_error
+from app.web_api.helpers import safe_json_error, truthy
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def checkout_reassurance_enabled() -> bool:
+    """Checkout-эксперимент всегда opt-in; выключение прекращает новые экспозиции."""
+    return truthy(os.environ.get("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE"))
 
 
 async def handle_resolve_experiment(request: Request) -> JSONResponse:
@@ -32,6 +42,12 @@ async def handle_resolve_experiment(request: Request) -> JSONResponse:
     experiment_key = payload.get("experiment_key")
     if not isinstance(experiment_key, str) or get_experiment(experiment_key) is None:
         return safe_json_error(400, "unknown_experiment")
+    # Этот web endpoint предназначен только для checkout. Trial-эксперименты
+    # назначаются в момент реальной активации и имеют собственные kill-switch.
+    if experiment_key != CHECKOUT_REASSURANCE_EXPERIMENT:
+        return safe_json_error(400, "unsupported_experiment")
+    if not checkout_reassurance_enabled():
+        return safe_json_error(409, "experiment_disabled")
 
     plan_id = payload.get("plan_id")
     if plan_id is not None and (not isinstance(plan_id, str) or get_plan(plan_id) is None):

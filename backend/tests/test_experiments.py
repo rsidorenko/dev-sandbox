@@ -11,7 +11,7 @@ from app.domain.experiments import (
     get_experiment,
 )
 from app.web_api.admin_stats import _experiment_results, _product_funnel
-from app.web_api.experiments import handle_resolve_experiment
+from app.web_api.experiments import checkout_reassurance_enabled, handle_resolve_experiment
 
 
 def test_assignment_is_stable_and_uses_both_variants() -> None:
@@ -69,7 +69,8 @@ class _Request:
 
 
 @pytest.mark.asyncio
-async def test_resolve_endpoint_preserves_first_assignment() -> None:
+async def test_resolve_endpoint_preserves_first_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE", "1")
     pool = _AssignmentPool()
     request = _Request(pool, {"experiment_key": CHECKOUT_REASSURANCE_EXPERIMENT})
     first = await handle_resolve_experiment(request)  # type: ignore[arg-type]
@@ -77,6 +78,35 @@ async def test_resolve_endpoint_preserves_first_assignment() -> None:
     assert first.status_code == 200
     assert first.body == second.body
     assert pool.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_endpoint_does_not_assign_disabled_experiment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE", raising=False)
+    pool = _AssignmentPool()
+    response = await handle_resolve_experiment(  # type: ignore[arg-type]
+        _Request(pool, {"experiment_key": CHECKOUT_REASSURANCE_EXPERIMENT})
+    )
+    assert response.status_code == 409
+    assert b'"error":"experiment_disabled"' in response.body
+    assert pool.calls == 0
+
+
+def test_checkout_reassurance_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE", raising=False)
+    assert checkout_reassurance_enabled() is False
+    monkeypatch.setenv("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE", "true")
+    assert checkout_reassurance_enabled() is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_endpoint_rejects_trial_experiment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE", "1")
+    response = await handle_resolve_experiment(  # type: ignore[arg-type]
+        _Request(_AssignmentPool(), {"experiment_key": "trial_channel_gate_v1"})
+    )
+    assert response.status_code == 400
+    assert b'"error":"unsupported_experiment"' in response.body
 
 
 @pytest.mark.asyncio

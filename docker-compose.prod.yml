@@ -69,6 +69,9 @@ services:
       # наш VPN», замер задержки/скорости) и запись результатов в connection_checks.
       # Откат без деплоя — 0 в .env.
       CONNECTION_CHECK_ENABLE: ${CONNECTION_CHECK_ENABLE:-0}
+      # A/B подсказки доверия на checkout (checkout_reassurance_v1). Opt-in:
+      # при выключении новые назначения не создаются, UI остаётся control.
+      EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE: ${EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE:-0}
       # A/B гейта подписки на канал (trial_channel_gate_v1): control — жёсткий гейт,
       # soft — триал без барьера + предложение подписки после активации. Действует
       # только при включённом TRIAL_CHANNEL_SUBSCRIBE_ENABLE. Откат — 0 в .env.
