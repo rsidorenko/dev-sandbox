@@ -328,10 +328,12 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
             if item["experiment_key"] == "checkout_reassurance_v1" and item["variant"] == "reassurance"
         )
         assert experiment["exposures"] == 1
-        assert experiment["payment_created_users"] == 1
-        assert experiment["paid_users"] == 1
-        assert experiment["paid_rate"] == 1.0
-        assert experiment["revenue_rubles"] == 1000.0
+        assert experiment["mature_exposures"] == 0
+        assert experiment["pending_exposures"] == 1
+        assert experiment["payment_created_users"] == 0
+        assert experiment["paid_users"] == 0
+        assert experiment["paid_rate"] is None
+        assert experiment["revenue_rubles"] == 0.0
         # временные ряды сформированы
         assert len(body["series"]["revenue"]) >= 1
         assert len(body["series"]["new_users"]) >= 1
@@ -509,15 +511,16 @@ async def test_funnel_diagnostics_meaningful_retention_and_routes(pg_url):
             "routes": {
                 "direct": {
                     "started_users": 4,
-                    "meaningful_traffic_users": 2,
-                    "meaningful_traffic_rate": 0.5,
+                    "meaningful_traffic_users": 0,
+                    "meaningful_traffic_rate": 0.0,
                 },
                 "guided": {
                     "started_users": 1,
-                    "meaningful_traffic_users": 1,
-                    "meaningful_traffic_rate": 1.0,
+                    "meaningful_traffic_users": 0,
+                    "meaningful_traffic_rate": 0.0,
                 },
                 "guided_after_direct_users": 1,
+                "same_day_ambiguous_users": 3,
             },
         }
     finally:
@@ -707,6 +710,17 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
                 recent.astimezone(ZoneInfo("Europe/Moscow")).date(),
                 f"user-{u1[:16]}",
             )
+            # Трафик u2 за пределами date_to не должен менять исторические
+            # когорты и data-health текущего отчёта.
+            await conn.execute(
+                "INSERT INTO bare_xray_traffic_daily "
+                "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
+                "VALUES ($1, 99003, $2, 2097152, 0) "
+                "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
+                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
+                recent.astimezone(ZoneInfo("Europe/Moscow")).date() + timedelta(days=1),
+                f"user-{u2[:16]}",
+            )
 
         # Старая когорта: триал 15 дней назад + оплата — зрелая и конвертированная
         # (проверяется на периоде 30d ниже).
@@ -731,6 +745,21 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
                 conn, "test-stats-fact-q-old", "ext-q-old-1", old_trial + timedelta(days=1), u4, 24900, "accepted"
             )
             await conn.execute(sql, *args)
+            await conn.execute(
+                "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant, assigned_at) "
+                "VALUES ($1, 'trial_channel_gate_v1', 'hard', $2)",
+                u4,
+                old_trial,
+            )
+            await conn.execute(
+                "INSERT INTO bare_xray_traffic_daily "
+                "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
+                "VALUES ($1, 99004, $2, 2097152, 0) "
+                "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
+                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
+                old_trial.astimezone(ZoneInfo("Europe/Moscow")).date(),
+                f"user-{u4[:16]}",
+            )
 
         client, h = await _login_client(pool)
         r = await client.get("/api/v1/admin/stats?period=7d", headers=h)
@@ -753,30 +782,46 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
         anomalies = body["data_health"]["chain_anomalies"]
         assert anomalies["trials"] >= 2
         assert anomalies["trials_without_setup"] >= 1
+        assert anomalies["meaningful_without_route"] == 1
 
         # Когорты: сумма trials сходится с v2 на том же окне.
         cohorts = body["trial_cohorts"]
         assert sum(c["trials"] for c in cohorts) == body["funnel_diagnostics_v2"]["trials"]
         this_week = max(cohorts, key=lambda c: c["cohort_week"])
         assert this_week["trials"] >= 2
+        assert this_week["meaningful_users"] == 1
         assert this_week["mature_users"] == 0  # свежая когорта ещё не созрела
 
         # На 30d появляется зрелая когорта u4 с оплатой в окне 10 дней.
         r30 = await client.get("/api/v1/admin/stats?period=30d", headers=h)
         assert r30.status_code == 200, r30.text
-        cohorts30 = r30.json()["trial_cohorts"]
+        body30 = r30.json()
+        cohorts30 = body30["trial_cohorts"]
         old_cohort = next(c for c in cohorts30 if c["mature_users"] >= 1)
         assert old_cohort["paid_users"] >= 1
+        mature_experiment = next(
+            item
+            for item in body30["experiments"]
+            if item["experiment_key"] == "trial_channel_gate_v1" and item["variant"] == "hard"
+        )
+        assert mature_experiment["exposures"] == 1
+        assert mature_experiment["mature_exposures"] == 1
+        assert mature_experiment["pending_exposures"] == 0
+        assert mature_experiment["meaningful_traffic_users"] == 1
+        assert mature_experiment["paid_users"] == 1
+        assert mature_experiment["paid_rate"] == 1.0
 
-        # Эксперименты: meaningful-трафик по варианту (u1: soft, 1 ГиБ ≥ 1 МиБ).
+        # Свежая экспозиция видна, но не попадает в outcomes до полного окна 10 дней.
         gate_experiment = next(
             item
             for item in body["experiments"]
             if item["experiment_key"] == "trial_channel_gate_v1" and item["variant"] == "soft"
         )
         assert gate_experiment["exposures"] == 1
-        assert gate_experiment["meaningful_traffic_users"] == 1
-        assert gate_experiment["meaningful_traffic_rate"] == 1.0
+        assert gate_experiment["mature_exposures"] == 0
+        assert gate_experiment["pending_exposures"] == 1
+        assert gate_experiment["meaningful_traffic_users"] == 0
+        assert gate_experiment["meaningful_traffic_rate"] is None
 
         # Качество VPN: overall и по-серверно; веб-вердикты и причина.
         quality = body["vpn_quality"]

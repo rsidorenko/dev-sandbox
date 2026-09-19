@@ -327,13 +327,22 @@ SELECT count(*)::int AS trials,
        count(*) FILTER (WHERE direct_at IS NOT NULL AND guided_at > direct_at)::int AS guided_after_direct_users,
        count(*) FILTER (
            WHERE first_meaningful_date IS NOT NULL AND direct_at IS NOT NULL
-             AND (direct_at AT TIME ZONE 'Europe/Moscow')::date <= first_meaningful_date
+             AND (direct_at AT TIME ZONE 'Europe/Moscow')::date < first_meaningful_date
              AND (guided_at IS NULL OR (guided_at AT TIME ZONE 'Europe/Moscow')::date > first_meaningful_date)
+             AND (guided_at IS NULL OR (guided_at AT TIME ZONE 'Europe/Moscow')::date <> first_meaningful_date)
        )::int AS direct_meaningful_users,
        count(*) FILTER (
            WHERE first_meaningful_date IS NOT NULL AND guided_at IS NOT NULL
-             AND (guided_at AT TIME ZONE 'Europe/Moscow')::date <= first_meaningful_date
-       )::int AS guided_meaningful_users
+             AND (guided_at AT TIME ZONE 'Europe/Moscow')::date < first_meaningful_date
+             AND (direct_at IS NULL OR (direct_at AT TIME ZONE 'Europe/Moscow')::date <> first_meaningful_date)
+       )::int AS guided_meaningful_users,
+       count(*) FILTER (
+           WHERE first_meaningful_date IS NOT NULL
+             AND (
+                 (direct_at AT TIME ZONE 'Europe/Moscow')::date = first_meaningful_date
+                 OR (guided_at AT TIME ZONE 'Europe/Moscow')::date = first_meaningful_date
+             )
+       )::int AS same_day_ambiguous_users
 FROM cohort
 """
 
@@ -368,18 +377,22 @@ WITH assignments AS (
     FROM experiment_assignments a
     JOIN analytics_eligible_user_ids e USING (internal_user_id)
     WHERE a.assigned_at >= $1 AND a.assigned_at < $2
+), mature_assignments AS (
+    SELECT *
+    FROM assignments
+    WHERE assigned_at + interval '10 days' <= $2
 ), payment_created AS (
     SELECT DISTINCT a.internal_user_id, a.experiment_key
-    FROM assignments a
+    FROM mature_assignments a
     JOIN funnel_interactions f
       ON f.internal_user_id = a.internal_user_id
      AND f.event_name = 'payment_created'
      AND f.occurred_at >= a.assigned_at
-     AND f.occurred_at < $2
+     AND f.occurred_at < a.assigned_at + interval '10 days'
 ), paid AS (
     SELECT a.internal_user_id, a.experiment_key,
            COALESCE(sum(b.amount_minor_units), 0)::bigint AS revenue_kopecks
-    FROM assignments a
+    FROM mature_assignments a
     JOIN billing_events_ledger b
       ON b.internal_user_id = a.internal_user_id
      AND b.status = 'accepted'
@@ -389,24 +402,26 @@ WITH assignments AS (
      AND b.amount_minor_units > 0
      AND b.currency_code = 'RUB'
      AND b.event_effective_at >= a.assigned_at
-     AND b.event_effective_at < $2
+     AND b.event_effective_at < a.assigned_at + interval '10 days'
     GROUP BY a.internal_user_id, a.experiment_key
 ), meaningful AS (
     -- Накопленный bare_xray-трафик с даты назначения ≥ порога: «дошёл до
     -- осмысленного использования VPN» (эквивалент running-sum ≥ порога из v2).
     SELECT DISTINCT a.internal_user_id, a.experiment_key
-    FROM assignments a
+    FROM mature_assignments a
     JOIN LATERAL (
         SELECT sum(t.uplink_bytes + t.downlink_bytes) AS total_bytes
         FROM bare_xray_traffic_daily t
         WHERE t.email IN ('user-' || left(a.internal_user_id, 16),
                           'x-user-' || left(a.internal_user_id, 16))
           AND t.stat_date >= (a.assigned_at AT TIME ZONE 'Europe/Moscow')::date
-          AND t.stat_date <= $3::date
-    ) traffic ON traffic.total_bytes >= $4
+          AND t.stat_date < ((a.assigned_at + interval '10 days') AT TIME ZONE 'Europe/Moscow')::date
+    ) traffic ON traffic.total_bytes >= $3
 )
 SELECT a.experiment_key, a.variant,
        count(*)::int AS exposures,
+       count(*) FILTER (WHERE a.assigned_at + interval '10 days' <= $2)::int AS mature_exposures,
+       count(*) FILTER (WHERE a.assigned_at + interval '10 days' > $2)::int AS pending_exposures,
        count(pc.internal_user_id)::int AS payment_created_users,
        count(p.internal_user_id)::int AS paid_users,
        count(m.internal_user_id)::int AS meaningful_traffic_users,
@@ -514,6 +529,7 @@ WITH trials AS (
       ON t.email IN ('user-' || left(tr.internal_user_id, 16),
                      'x-user-' || left(tr.internal_user_id, 16))
     WHERE t.stat_date >= tr.trial_date
+      AND t.stat_date <= $4::date
     GROUP BY tr.internal_user_id, t.stat_date
 ), running_traffic AS (
     SELECT d.*,
@@ -578,6 +594,7 @@ WITH trials AS (
       ON t.email IN ('user-' || left(tr.internal_user_id, 16),
                      'x-user-' || left(tr.internal_user_id, 16))
     WHERE t.stat_date >= tr.trial_date
+      AND t.stat_date <= $5::date
     GROUP BY tr.internal_user_id, t.stat_date, tr.trial_date
 ), running_traffic AS (
     SELECT d.*,
@@ -1200,6 +1217,7 @@ async def _funnel_diagnostics_v2(
                 "meaningful_traffic_rate": rate(guided_meaningful, guided_started),
             },
             "guided_after_direct_users": count("guided_after_direct_users"),
+            "same_day_ambiguous_users": count("same_day_ambiguous_users"),
         },
     }
 
@@ -1234,18 +1252,18 @@ async def _experiment_results(
     pool: asyncpg.Pool,
     from_ts: datetime,
     to_ts: datetime,
-    to_date: date,
 ) -> list[dict]:
     rows = await pool.fetch(
         _EXPERIMENT_RESULTS,
         from_ts,
         to_ts,
-        to_date,
         _MEANINGFUL_TRAFFIC_BYTES,
     )
     results: list[dict] = []
     for row in rows:
         exposures = int(row["exposures"] or 0)
+        mature_exposures = int(row["mature_exposures"] or 0)
+        pending_exposures = int(row["pending_exposures"] or 0)
         created = int(row["payment_created_users"] or 0)
         paid = int(row["paid_users"] or 0)
         meaningful = int(row["meaningful_traffic_users"] or 0)
@@ -1254,13 +1272,15 @@ async def _experiment_results(
                 "experiment_key": row["experiment_key"],
                 "variant": row["variant"],
                 "exposures": exposures,
+                "mature_exposures": mature_exposures,
+                "pending_exposures": pending_exposures,
                 "payment_created_users": created,
                 "paid_users": paid,
                 "meaningful_traffic_users": meaningful,
                 "revenue_rubles": round(int(row["revenue_kopecks"] or 0) / 100, 2),
-                "checkout_rate": round(created / exposures, 4) if exposures else None,
-                "paid_rate": round(paid / exposures, 4) if exposures else None,
-                "meaningful_traffic_rate": round(meaningful / exposures, 4) if exposures else None,
+                "checkout_rate": round(created / mature_exposures, 4) if mature_exposures else None,
+                "paid_rate": round(paid / mature_exposures, 4) if mature_exposures else None,
+                "meaningful_traffic_rate": (round(meaningful / mature_exposures, 4) if mature_exposures else None),
             }
         )
     return results
@@ -1279,7 +1299,13 @@ async def _data_health(
         pool.fetch(_DATA_HEALTH_SOURCES),
         pool.fetch(_DATA_HEALTH_ATTRIBUTION_SOURCES, from_ts, to_ts),
         pool.fetch(_DATA_HEALTH_CAMPAIGNS_MISSING_SPEND, from_ts, to_ts, from_date, to_date),
-        pool.fetchrow(_DATA_HEALTH_CHAIN_ANOMALIES, from_ts, to_ts, _MEANINGFUL_TRAFFIC_BYTES),
+        pool.fetchrow(
+            _DATA_HEALTH_CHAIN_ANOMALIES,
+            from_ts,
+            to_ts,
+            _MEANINGFUL_TRAFFIC_BYTES,
+            to_date,
+        ),
     )
     sources = [
         {
@@ -1329,6 +1355,7 @@ async def _trial_cohorts(
         window.to_ts,
         _MEANINGFUL_TRAFFIC_BYTES,
         completed_through,
+        window.to_date,
     )
     cohorts: list[dict] = []
     for row in rows:
@@ -1513,7 +1540,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _product_funnel(pool, window.from_ts, window.to_ts),
         _funnel_diagnostics_v2(pool, window, _completed_through_date(window, tz)),
         _trial_feedback_stats(pool, window.from_ts, window.to_ts),
-        _experiment_results(pool, window.from_ts, window.to_ts, window.to_date),
+        _experiment_results(pool, window.from_ts, window.to_ts),
         _data_health(pool, window.from_ts, window.to_ts, window.from_date, window.to_date),
         _trial_cohorts(pool, window, _completed_through_date(window, tz)),
         _vpn_quality(pool, window.from_ts, window.to_ts),

@@ -106,6 +106,8 @@ class _StatsPool:
                 "experiment_key": CHECKOUT_REASSURANCE_EXPERIMENT,
                 "variant": "reassurance",
                 "exposures": 10,
+                "mature_exposures": 5,
+                "pending_exposures": 5,
                 "payment_created_users": 4,
                 "paid_users": 2,
                 "meaningful_traffic_users": 5,
@@ -121,18 +123,20 @@ async def test_stats_helpers_return_rates_and_revenue() -> None:
     funnel = await _product_funnel(pool, now, now)  # type: ignore[arg-type]
     assert funnel["registered_users"] == 10
     assert funnel["payment_succeeded_users"] == 2
-    experiments = await _experiment_results(pool, now, now, now.date())  # type: ignore[arg-type]
+    experiments = await _experiment_results(pool, now, now)  # type: ignore[arg-type]
     assert experiments == [
         {
             "experiment_key": CHECKOUT_REASSURANCE_EXPERIMENT,
             "variant": "reassurance",
             "exposures": 10,
+            "mature_exposures": 5,
+            "pending_exposures": 5,
             "payment_created_users": 4,
             "paid_users": 2,
             "meaningful_traffic_users": 5,
             "revenue_rubles": 498.0,
-            "checkout_rate": 0.4,
-            "paid_rate": 0.2,
-            "meaningful_traffic_rate": 0.5,
+            "checkout_rate": 0.8,
+            "paid_rate": 0.4,
+            "meaningful_traffic_rate": 1.0,
         }
     ]

@@ -602,7 +602,8 @@ export default function AdminStatsPage() {
                 </div>
                 <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">
                   Из direct в guided перешли {diagnostics.routes.guided_after_direct_users} польз. Маршруты могут пересекаться;
-                  D1–D3 учитывают только полностью завершённые дни и не считают технический трафик меньше порога.
+                  порядок маршрута и трафика не определён для {diagnostics.routes.same_day_ambiguous_users} польз., у которых они
+                  пришлись на один день. D1–D3 учитывают только полностью завершённые дни и не считают технический трафик меньше порога.
                 </p>
               </div>
             )}
@@ -649,7 +650,7 @@ export default function AdminStatsPage() {
             <div className="px-5 py-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эксперименты</h3>
               <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                Оплата и выручка учитываются только после первой экспозиции варианта. Не выбирайте победителя на малой выборке.
+                Конверсии, оплата и выручка считаются по зрелым экспозициям за одинаковые первые 10 суток. Не выбирайте победителя на малой выборке.
               </p>
             </div>
             {experiments.length === 0 ? (
@@ -658,10 +659,10 @@ export default function AdminStatsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto border-t border-gray-200 dark:border-zinc-700">
-                <table className="w-full min-w-[900px] text-left text-xs">
+                <table className="w-full min-w-[1100px] text-left text-xs">
                   <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
                     <tr>
-                      {["Эксперимент", "Вариант", "Экспозиции", "Значимый трафик", "Счёт создан", "CR в счёт", "Оплатили", "CR в оплату", "Выручка"].map((label) => (
+                      {["Эксперимент", "Вариант", "Экспозиции", "Зрелые", "Ожидают", "Значимый трафик", "Счёт создан", "CR в счёт", "Оплатили", "CR в оплату", "Выручка"].map((label) => (
                         <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>
                       ))}
                     </tr>
@@ -672,6 +673,8 @@ export default function AdminStatsPage() {
                         <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">{experiment.experiment_key}</td>
                         <td className="px-4 py-3 font-mono">{experiment.variant}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.exposures}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.mature_exposures}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.pending_exposures}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.meaningful_traffic_users}{experiment.meaningful_traffic_rate == null ? "" : ` (${Math.round(experiment.meaningful_traffic_rate * 1000) / 10}%)`}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.payment_created_users}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.checkout_rate == null ? "—" : `${Math.round(experiment.checkout_rate * 1000) / 10}%`}</td>

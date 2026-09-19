@@ -228,6 +228,7 @@ export interface AdminFunnelDiagnosticsV2 {
     direct: AdminFunnelDiagnosticsRoute;
     guided: AdminFunnelDiagnosticsRoute;
     guided_after_direct_users: number;
+    same_day_ambiguous_users: number;
   };
 }
 
@@ -252,6 +253,8 @@ export interface AdminExperimentResult {
   experiment_key: string;
   variant: string;
   exposures: number;
+  mature_exposures: number;
+  pending_exposures: number;
   payment_created_users: number;
   paid_users: number;
   meaningful_traffic_users: number;
