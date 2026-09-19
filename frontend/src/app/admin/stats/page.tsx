@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { adminApi } from "@/features/admin/api";
+import { QualitySection } from "@/features/admin/QualitySection";
 import { adminBtnPrimary, adminBtnSecondary, adminNum } from "@/features/admin/ui";
 import type {
   AdminStatsPeriod,
@@ -276,6 +277,9 @@ export default function AdminStatsPage() {
   const diagnostics = data?.funnel_diagnostics_v2;
   const trialFeedback = data?.trial_feedback;
   const experiments = data?.experiments ?? [];
+  const dataHealth = data?.data_health;
+  const trialCohorts = data?.trial_cohorts ?? [];
+  const vpnQuality = data?.vpn_quality;
   const productFunnelSteps = productFunnel ? [
     { label: "Регистрация", value: productFunnel.registered_users },
     { label: "Триал", value: productFunnel.trial_started_users },
@@ -681,7 +685,13 @@ export default function AdminStatsPage() {
             )}
           </section>
 
-          <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <QualitySection
+            dataHealth={dataHealth}
+            trialCohorts={trialCohorts}
+            vpnQuality={vpnQuality}
+          />
+
+<section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Экономика Telegram Ads</h2>
               <span className="text-xs text-gray-400 dark:text-gray-500">

@@ -428,6 +428,256 @@ SELECT count(*) AS trials,
 FROM cohort
 """
 
+# ─── Data health: когда что начало собираться и где дыры в данных ─────────────
+
+_DATA_HEALTH_SOURCES = """
+SELECT 'funnel_events' AS source, event_name AS detail,
+       count(*)::bigint AS rows, min(occurred_at) AS first_occurred_at
+FROM funnel_events GROUP BY event_name
+UNION ALL
+SELECT 'funnel_interactions', event_name || ' / ' || surface,
+       count(*)::bigint, min(occurred_at)
+FROM funnel_interactions GROUP BY event_name, surface
+UNION ALL
+SELECT 'trial_feedback', feedback_type, count(*)::bigint, min(created_at)
+FROM trial_feedback GROUP BY feedback_type
+UNION ALL
+SELECT 'connection_checks', 'check', count(*)::bigint, min(created_at)
+FROM connection_checks
+UNION ALL
+SELECT 'telegram_ads_attributions', 'attribution', count(*)::bigint, min(attributed_at)
+FROM telegram_ads_attributions
+ORDER BY source, detail
+"""
+
+_DATA_HEALTH_ATTRIBUTION_SOURCES = """
+SELECT a.campaign_key,
+       count(DISTINCT a.internal_user_id)::int AS attributed_users,
+       (a.campaign_key = 'nakrut') AS excluded_from_analytics
+FROM telegram_ads_attributions a
+WHERE a.attributed_at >= $1 AND a.attributed_at < $2
+GROUP BY a.campaign_key
+ORDER BY attributed_users DESC, a.campaign_key
+LIMIT 20
+"""
+
+_DATA_HEALTH_CAMPAIGNS_MISSING_SPEND = """
+WITH attr AS (
+    SELECT a.campaign_key, count(DISTINCT a.internal_user_id)::int AS attributed_users
+    FROM telegram_ads_attributions a
+    WHERE a.campaign_key <> 'nakrut'
+      AND a.attributed_at >= $1 AND a.attributed_at < $2
+    GROUP BY a.campaign_key
+)
+SELECT a.campaign_key, a.attributed_users
+FROM attr a
+WHERE NOT EXISTS (
+    SELECT 1 FROM telegram_ads_spend_daily s
+    WHERE s.campaign_key = a.campaign_key
+      AND s.spend_date >= $3 AND s.spend_date <= $4
+)
+ORDER BY a.attributed_users DESC, a.campaign_key
+LIMIT 20
+"""
+
+# Несогласованные цепочки на когорте триалов периода (eligible): meaningful-трафик
+# без маршрута, первый трафик раньше любого события подключения, «тихие» триалы.
+_DATA_HEALTH_CHAIN_ANOMALIES = """
+WITH trials AS (
+    SELECT s.internal_user_id, s.trial_started_at,
+           (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
+    FROM subscription_snapshots s
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE s.trial_started_at IS NOT NULL
+      AND s.trial_started_at >= $1 AND s.trial_started_at < $2
+), daily AS (
+    SELECT tr.internal_user_id, t.stat_date,
+           sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
+    FROM trials tr
+    JOIN bare_xray_traffic_daily t
+      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16))
+    WHERE t.stat_date >= tr.trial_date
+    GROUP BY tr.internal_user_id, t.stat_date
+), running_traffic AS (
+    SELECT d.*,
+           sum(d.bytes) OVER (
+               PARTITION BY d.internal_user_id ORDER BY d.stat_date
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+           )::bigint AS running_bytes
+    FROM daily d
+), traffic AS (
+    SELECT r.internal_user_id,
+           min(r.stat_date) FILTER (WHERE r.bytes > 0) AS first_traffic_date,
+           min(r.stat_date) FILTER (WHERE r.running_bytes >= $3) AS first_meaningful_date
+    FROM running_traffic r
+    GROUP BY r.internal_user_id
+), interactions AS (
+    SELECT tr.internal_user_id,
+           min(f.occurred_at) FILTER (WHERE f.event_name IN ('setup_started', 'platform_selected'))
+               AS setup_at,
+           bool_or(f.connection_route <> '') AS has_route
+    FROM trials tr
+    LEFT JOIN funnel_interactions f
+      ON f.internal_user_id = tr.internal_user_id
+     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at < $2
+    GROUP BY tr.internal_user_id
+), cohort AS (
+    SELECT tr.internal_user_id, tr.trial_date,
+           tf.first_traffic_date, tf.first_meaningful_date,
+           i.setup_at, i.has_route
+    FROM trials tr
+    LEFT JOIN traffic tf USING (internal_user_id)
+    LEFT JOIN interactions i USING (internal_user_id)
+)
+SELECT count(*)::int AS trials,
+       count(*) FILTER (WHERE first_meaningful_date IS NOT NULL AND NOT COALESCE(has_route, false))::int
+           AS meaningful_without_route,
+       count(*) FILTER (
+           WHERE first_traffic_date IS NOT NULL AND setup_at IS NOT NULL
+             AND first_traffic_date < (setup_at AT TIME ZONE 'Europe/Moscow')::date
+       )::int AS traffic_before_setup,
+       count(*) FILTER (WHERE setup_at IS NULL)::int AS trials_without_setup
+FROM cohort
+"""
+
+# ─── Недельные когорты триалов: meaningful → D1/D2/D3 → checkout → оплата ≤10д ──
+
+_TRIAL_COHORTS = """
+WITH trials AS (
+    SELECT s.internal_user_id, s.trial_started_at,
+           date_trunc('week', s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS cohort_week,
+           (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
+    FROM subscription_snapshots s
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE s.trial_started_at IS NOT NULL
+      AND s.trial_started_at >= $1 AND s.trial_started_at < $2
+), daily AS (
+    SELECT tr.internal_user_id, t.stat_date,
+           t.stat_date - tr.trial_date AS day_offset,
+           sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
+    FROM trials tr
+    JOIN bare_xray_traffic_daily t
+      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16))
+    WHERE t.stat_date >= tr.trial_date
+    GROUP BY tr.internal_user_id, t.stat_date, tr.trial_date
+), running_traffic AS (
+    SELECT d.*,
+           sum(d.bytes) OVER (
+               PARTITION BY d.internal_user_id ORDER BY d.stat_date
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+           )::bigint AS running_bytes
+    FROM daily d
+), traffic AS (
+    SELECT r.internal_user_id,
+           min(r.stat_date) FILTER (WHERE r.running_bytes >= $3) AS first_meaningful_date,
+           bool_or(r.day_offset = 1 AND r.bytes >= $3) AS retained_d1,
+           bool_or(r.day_offset = 2 AND r.bytes >= $3) AS retained_d2,
+           bool_or(r.day_offset = 3 AND r.bytes >= $3) AS retained_d3
+    FROM running_traffic r
+    GROUP BY r.internal_user_id
+), checkout AS (
+    SELECT tr.internal_user_id, min(f.occurred_at) AS checkout_at
+    FROM trials tr
+    JOIN funnel_interactions f
+      ON f.internal_user_id = tr.internal_user_id
+     AND f.event_name = 'checkout_opened'
+     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at < $2
+    GROUP BY tr.internal_user_id
+), paid AS (
+    SELECT tr.internal_user_id, min(e.occurred_at) AS paid_at
+    FROM trials tr
+    JOIN funnel_events e
+      ON e.internal_user_id = tr.internal_user_id
+     AND e.event_name = 'payment_succeeded'
+     AND e.occurred_at >= tr.trial_started_at
+     AND e.occurred_at < tr.trial_started_at + interval '10 days'
+    GROUP BY tr.internal_user_id
+), cohort AS (
+    SELECT tr.cohort_week, tr.trial_date,
+           tf.first_meaningful_date,
+           COALESCE(tf.retained_d1, false) AS retained_d1,
+           COALESCE(tf.retained_d2, false) AS retained_d2,
+           COALESCE(tf.retained_d3, false) AS retained_d3,
+           (c.checkout_at IS NOT NULL) AS opened_checkout,
+           (p.paid_at IS NOT NULL) AS paid
+    FROM trials tr
+    LEFT JOIN traffic tf USING (internal_user_id)
+    LEFT JOIN checkout c USING (internal_user_id)
+    LEFT JOIN paid p USING (internal_user_id)
+)
+SELECT cohort_week::date AS cohort_week,
+       count(*)::int AS trials,
+       count(*) FILTER (WHERE first_meaningful_date IS NOT NULL)::int AS meaningful_users,
+       count(*) FILTER (WHERE trial_date + 1 <= $4::date)::int AS d1_eligible_users,
+       count(*) FILTER (WHERE trial_date + 1 <= $4::date AND retained_d1)::int AS d1_retained_users,
+       count(*) FILTER (WHERE trial_date + 2 <= $4::date)::int AS d2_eligible_users,
+       count(*) FILTER (WHERE trial_date + 2 <= $4::date AND retained_d2)::int AS d2_retained_users,
+       count(*) FILTER (WHERE trial_date + 3 <= $4::date)::int AS d3_eligible_users,
+       count(*) FILTER (WHERE trial_date + 3 <= $4::date AND retained_d3)::int AS d3_retained_users,
+       count(*) FILTER (WHERE opened_checkout)::int AS checkout_users,
+       count(*) FILTER (WHERE trial_date + 10 <= $4::date)::int AS mature_users,
+       count(*) FILTER (WHERE trial_date + 10 <= $4::date AND paid)::int AS paid_users
+FROM cohort
+GROUP BY cohort_week
+ORDER BY cohort_week
+"""
+
+# ─── Качество VPN по connection_checks ────────────────────────────────────────
+
+_VPN_QUALITY_SERVERS = """
+SELECT c.detected_server_label AS server_label,
+       count(*)::int AS checks,
+       count(DISTINCT c.internal_user_id)::int AS users,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.latency_ms)::int AS latency_p50_ms,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY c.latency_ms)::int AS latency_p95_ms,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.throughput_kbps)::int AS throughput_p50_kbps
+FROM connection_checks c
+JOIN analytics_eligible_user_ids e USING (internal_user_id)
+WHERE c.connected AND c.created_at >= $1 AND c.created_at < $2
+  AND c.detected_server_label <> ''
+GROUP BY c.detected_server_label
+ORDER BY checks DESC, c.detected_server_label
+"""
+
+_VPN_QUALITY_OVERALL = """
+SELECT count(*)::int AS checks,
+       count(*) FILTER (WHERE connected)::int AS connected_checks,
+       count(DISTINCT internal_user_id) FILTER (WHERE connected)::int AS connected_users,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE connected)::int
+           AS latency_p50_ms,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE connected)::int
+           AS latency_p95_ms
+FROM connection_checks c
+JOIN analytics_eligible_user_ids e USING (internal_user_id)
+WHERE c.created_at >= $1 AND c.created_at < $2
+"""
+
+_VPN_QUALITY_WEB_VERDICTS = """
+SELECT f.event_name,
+       count(DISTINCT f.internal_user_id)::int AS users
+FROM funnel_interactions f
+JOIN analytics_eligible_user_ids e USING (internal_user_id)
+WHERE f.surface = 'web'
+  AND f.event_name IN ('connection_confirmed', 'connection_problem')
+  AND f.occurred_at >= $1 AND f.occurred_at < $2
+GROUP BY f.event_name
+"""
+
+_VPN_QUALITY_WEB_REASONS = """
+SELECT t.reason_code, count(DISTINCT t.internal_user_id)::int AS users
+FROM trial_feedback t
+JOIN analytics_eligible_user_ids e USING (internal_user_id)
+WHERE t.feedback_type = 'connection_problem'
+  AND t.connection_route = ''
+  AND t.updated_at >= $1 AND t.updated_at < $2
+GROUP BY t.reason_code
+ORDER BY users DESC, t.reason_code
+"""
+
 _TELEGRAM_ADS_CAMPAIGNS_LIMIT = 200
 _TELEGRAM_ADS_CAMPAIGNS = """
 WITH attributed AS (
@@ -957,6 +1207,155 @@ async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: date
     return results
 
 
+async def _data_health(
+    pool: asyncpg.Pool,
+    from_ts: datetime,
+    to_ts: datetime,
+    from_date: date,
+    to_date: date,
+) -> dict:
+    """Контекст достоверности остальных блоков: даты старта сбора, аномальные
+    источники, кампании без расходов, несогласованные цепочки."""
+    sources_rows, attribution_rows, missing_spend_rows, anomaly_row = await asyncio.gather(
+        pool.fetch(_DATA_HEALTH_SOURCES),
+        pool.fetch(_DATA_HEALTH_ATTRIBUTION_SOURCES, from_ts, to_ts),
+        pool.fetch(_DATA_HEALTH_CAMPAIGNS_MISSING_SPEND, from_ts, to_ts, from_date, to_date),
+        pool.fetchrow(_DATA_HEALTH_CHAIN_ANOMALIES, from_ts, to_ts, _MEANINGFUL_TRAFFIC_BYTES),
+    )
+    sources = [
+        {
+            "source": str(row["source"]),
+            "detail": str(row["detail"]),
+            "rows": int(row["rows"] or 0),
+            "first_occurred_at": _iso(row["first_occurred_at"]),
+        }
+        for row in sources_rows
+    ]
+    attribution_sources = [
+        {
+            "campaign_key": str(row["campaign_key"]),
+            "attributed_users": int(row["attributed_users"] or 0),
+            "excluded_from_analytics": bool(row["excluded_from_analytics"]),
+        }
+        for row in attribution_rows
+    ]
+    campaigns_missing_spend = [
+        {
+            "campaign_key": str(row["campaign_key"]),
+            "attributed_users": int(row["attributed_users"] or 0),
+        }
+        for row in missing_spend_rows
+    ]
+    return {
+        "sources": sources,
+        "attribution_sources": attribution_sources,
+        "campaigns_missing_spend": campaigns_missing_spend,
+        "chain_anomalies": {
+            "trials": int(anomaly_row["trials"] or 0),
+            "meaningful_without_route": int(anomaly_row["meaningful_without_route"] or 0),
+            "traffic_before_setup": int(anomaly_row["traffic_before_setup"] or 0),
+            "trials_without_setup": int(anomaly_row["trials_without_setup"] or 0),
+        },
+    }
+
+
+async def _trial_cohorts(
+    pool: asyncpg.Pool,
+    window: _StatsWindow,
+    completed_through: date,
+) -> list[dict]:
+    rows = await pool.fetch(
+        _TRIAL_COHORTS,
+        window.from_ts,
+        window.to_ts,
+        _MEANINGFUL_TRAFFIC_BYTES,
+        completed_through,
+    )
+    cohorts: list[dict] = []
+    for row in rows:
+        trials = int(row["trials"] or 0)
+        meaningful = int(row["meaningful_users"] or 0)
+        d1_eligible = int(row["d1_eligible_users"] or 0)
+        d2_eligible = int(row["d2_eligible_users"] or 0)
+        d3_eligible = int(row["d3_eligible_users"] or 0)
+        mature = int(row["mature_users"] or 0)
+        cohorts.append(
+            {
+                "cohort_week": row["cohort_week"].isoformat(),
+                "trials": trials,
+                "meaningful_users": meaningful,
+                "meaningful_rate": round(meaningful / trials, 4) if trials else None,
+                "d1": {
+                    "eligible_users": d1_eligible,
+                    "retained_users": int(row["d1_retained_users"] or 0),
+                    "rate": (round(int(row["d1_retained_users"] or 0) / d1_eligible, 4) if d1_eligible else None),
+                },
+                "d2": {
+                    "eligible_users": d2_eligible,
+                    "retained_users": int(row["d2_retained_users"] or 0),
+                    "rate": (round(int(row["d2_retained_users"] or 0) / d2_eligible, 4) if d2_eligible else None),
+                },
+                "d3": {
+                    "eligible_users": d3_eligible,
+                    "retained_users": int(row["d3_retained_users"] or 0),
+                    "rate": (round(int(row["d3_retained_users"] or 0) / d3_eligible, 4) if d3_eligible else None),
+                },
+                "checkout_users": int(row["checkout_users"] or 0),
+                "mature_users": mature,
+                "paid_users": int(row["paid_users"] or 0),
+                "paid_rate": (round(int(row["paid_users"] or 0) / mature, 4) if mature else None),
+            }
+        )
+    return cohorts
+
+
+async def _vpn_quality(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict:
+    server_rows, overall_row, verdict_rows, reason_rows = await asyncio.gather(
+        pool.fetch(_VPN_QUALITY_SERVERS, from_ts, to_ts),
+        pool.fetchrow(_VPN_QUALITY_OVERALL, from_ts, to_ts),
+        pool.fetch(_VPN_QUALITY_WEB_VERDICTS, from_ts, to_ts),
+        pool.fetch(_VPN_QUALITY_WEB_REASONS, from_ts, to_ts),
+    )
+    servers = [
+        {
+            "server_label": str(row["server_label"]),
+            "checks": int(row["checks"] or 0),
+            "users": int(row["users"] or 0),
+            "latency_p50_ms": int(row["latency_p50_ms"]) if row["latency_p50_ms"] is not None else None,
+            "latency_p95_ms": int(row["latency_p95_ms"]) if row["latency_p95_ms"] is not None else None,
+            "throughput_p50_kbps": (
+                int(row["throughput_p50_kbps"]) if row["throughput_p50_kbps"] is not None else None
+            ),
+        }
+        for row in server_rows
+    ]
+    checks = int(overall_row["checks"] or 0)
+    connected = int(overall_row["connected_checks"] or 0)
+    verdicts = {str(row["event_name"]): int(row["users"] or 0) for row in verdict_rows}
+    return {
+        "servers": servers,
+        "overall": {
+            "checks": checks,
+            "connected_checks": connected,
+            "connected_rate": round(connected / checks, 4) if checks else None,
+            "connected_users": int(overall_row["connected_users"] or 0),
+            "latency_p50_ms": (
+                int(overall_row["latency_p50_ms"]) if overall_row["latency_p50_ms"] is not None else None
+            ),
+            "latency_p95_ms": (
+                int(overall_row["latency_p95_ms"]) if overall_row["latency_p95_ms"] is not None else None
+            ),
+        },
+        "web_verdicts": {
+            "confirmed_users": verdicts.get("connection_confirmed", 0),
+            "problem_users": verdicts.get("connection_problem", 0),
+        },
+        "web_problem_reasons": [
+            {"code": str(row["reason_code"]), "users": int(row["users"] or 0)} for row in reason_rows
+        ],
+    }
+
+
 @_with_admin_auth
 async def handle_admin_stats(request: Request) -> JSONResponse:
     """GET /api/v1/admin/stats?period=7d&tz=Europe/Moscow — агрегированный дашборд статистики."""
@@ -1003,6 +1402,9 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         funnel_diagnostics_v2,
         trial_feedback,
         experiments,
+        data_health,
+        trial_cohorts,
+        vpn_quality,
     ) = await asyncio.gather(
         _revenue_series(pool, window.trunc, tz, window.from_ts, window.to_ts),
         _revenue_kpi(pool, window.from_ts, window.to_ts),
@@ -1029,6 +1431,9 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _funnel_diagnostics_v2(pool, window, _completed_through_date(window, tz)),
         _trial_feedback_stats(pool, window.from_ts, window.to_ts),
         _experiment_results(pool, window.from_ts, window.to_ts),
+        _data_health(pool, window.from_ts, window.to_ts, window.from_date, window.to_date),
+        _trial_cohorts(pool, window, _completed_through_date(window, tz)),
+        _vpn_quality(pool, window.from_ts, window.to_ts),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -1066,6 +1471,9 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "funnel_diagnostics_v2": funnel_diagnostics_v2,
             "trial_feedback": trial_feedback,
             "experiments": experiments,
+            "data_health": data_health,
+            "trial_cohorts": trial_cohorts,
+            "vpn_quality": vpn_quality,
             "telegram_ads": {
                 "campaigns": telegram_ads_report["campaigns"],
                 "economics": telegram_ads_report["economics"],

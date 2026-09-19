@@ -259,6 +259,84 @@ export interface AdminExperimentResult {
   paid_rate: number | null;
 }
 
+// --- Качество данных / когорты / качество VPN (admin-quality-dashboard) ------
+
+export interface AdminDataHealthSource {
+  source: string;
+  detail: string;
+  rows: number;
+  first_occurred_at: string | null;
+}
+
+export interface AdminAttributionSource {
+  campaign_key: string;
+  attributed_users: number;
+  excluded_from_analytics: boolean;
+}
+
+export interface AdminCampaignMissingSpend {
+  campaign_key: string;
+  attributed_users: number;
+}
+
+export interface AdminDataHealth {
+  sources: AdminDataHealthSource[];
+  attribution_sources: AdminAttributionSource[];
+  campaigns_missing_spend: AdminCampaignMissingSpend[];
+  chain_anomalies: {
+    trials: number;
+    meaningful_without_route: number;
+    traffic_before_setup: number;
+    trials_without_setup: number;
+  };
+}
+
+export interface AdminTrialCohortRetention {
+  eligible_users: number;
+  retained_users: number;
+  rate: number | null;
+}
+
+export interface AdminTrialCohort {
+  cohort_week: string;
+  trials: number;
+  meaningful_users: number;
+  meaningful_rate: number | null;
+  d1: AdminTrialCohortRetention;
+  d2: AdminTrialCohortRetention;
+  d3: AdminTrialCohortRetention;
+  checkout_users: number;
+  mature_users: number;
+  paid_users: number;
+  paid_rate: number | null;
+}
+
+export interface AdminVpnQualityServer {
+  server_label: string;
+  checks: number;
+  users: number;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  throughput_p50_kbps: number | null;
+}
+
+export interface AdminVpnQuality {
+  servers: AdminVpnQualityServer[];
+  overall: {
+    checks: number;
+    connected_checks: number;
+    connected_rate: number | null;
+    connected_users: number;
+    latency_p50_ms: number | null;
+    latency_p95_ms: number | null;
+  };
+  web_verdicts: {
+    confirmed_users: number;
+    problem_users: number;
+  };
+  web_problem_reasons: AdminTrialFeedbackItem[];
+}
+
 export interface AdminTelegramAdsCampaign {
   campaign_key: string;
   attributed_users: number;
@@ -359,6 +437,9 @@ export interface AdminStatsResponse {
   funnel_diagnostics_v2?: AdminFunnelDiagnosticsV2;
   trial_feedback?: AdminTrialFeedback;
   experiments?: AdminExperimentResult[];
+  data_health?: AdminDataHealth;
+  trial_cohorts?: AdminTrialCohort[];
+  vpn_quality?: AdminVpnQuality;
   period: AdminStatsPeriodMeta;
   kpi: AdminStatsKpi;
   series: {

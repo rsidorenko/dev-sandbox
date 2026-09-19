@@ -118,6 +118,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         await conn.execute("DELETE FROM telegram_ads_attributions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM user_identities WHERE internal_user_id LIKE 'test-stats-u-%'")
+        await conn.execute("DELETE FROM connection_checks WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM bare_xray_traffic_daily WHERE server_id BETWEEN 99001 AND 99099")
 
 
@@ -585,6 +586,184 @@ async def test_trial_feedback_stats_excludes_internal_and_nakrut_users(pg_url):
             "platforms": [],
             "routes": [],
         }
+    finally:
+        await _cleanup(pool)
+        await pool.close()
+
+
+async def test_admin_stats_quality_blocks(pg_url, admin_env):
+    """data_health / trial_cohorts / vpn_quality: контракты на синтетике."""
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+    now = datetime.now(UTC)
+    recent = now - timedelta(hours=2)
+    u1 = "test-stats-u-q1"
+    u2 = "test-stats-u-q2"
+    u3 = "test-stats-u-q3-nakrut"
+    u4 = "test-stats-u-q4-old"
+    try:
+        await _cleanup(pool)
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
+        async with pool.acquire() as conn:
+            for offset, uid in ((1, u1), (2, u2), (3, u3)):
+                await conn.execute(
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
+                    "VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+                    _TG_BASE + 500 + offset,
+                    uid,
+                    recent,
+                )
+            # Оба eligible-пользователя стартуют триал в окне 7d.
+            for uid in (u1, u2):
+                await conn.execute(
+                    "INSERT INTO subscription_snapshots "
+                    "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
+                    "VALUES ($1,'active','1m',$2,$3) ON CONFLICT DO NOTHING",
+                    uid,
+                    now + timedelta(days=30),
+                    recent,
+                )
+            # nakrut-пользователь — виден в attribution_sources, исключён из когорт.
+            await conn.execute(
+                "INSERT INTO subscription_snapshots "
+                "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
+                "VALUES ($1,'active','1m',$2,$3) ON CONFLICT DO NOTHING",
+                u3,
+                now + timedelta(days=30),
+                recent,
+            )
+            await conn.execute(
+                "INSERT INTO telegram_ads_attributions "
+                "(internal_user_id, campaign_key, telegram_update_id, attributed_at) VALUES ($1,'nakrut',$2,$3)",
+                u3,
+                _TG_BASE + 503,
+                recent,
+            )
+            # Кампания с атрибуцией, но без расходов → campaigns_missing_spend.
+            await conn.execute(
+                "INSERT INTO telegram_ads_attributions "
+                "(internal_user_id, campaign_key, telegram_update_id, attributed_at) "
+                "VALUES ($1,'test-q-nospend',$2,$3)",
+                u2,
+                _TG_BASE + 502,
+                recent,
+            )
+            # Оплата u1 в окне 10 дней от триала → paid в когорте.
+            sql, args = _insert_ledger(conn, "test-stats-fact-q-pay", "ext-q-pay-1", recent, u1, 24900, "accepted")
+            await conn.execute(sql, *args)
+            # Кнопки страницы /check: подтверждение (u1) и проблема (u2), surface=web.
+            await conn.execute(
+                "INSERT INTO funnel_interactions "
+                "(internal_user_id, event_name, surface, platform, dedup_key, occurred_at) "
+                "VALUES ($1, 'connection_confirmed', 'web', 'android', 'test-stats-q-ok-1', $2)",
+                u1,
+                recent,
+            )
+            await conn.execute(
+                "INSERT INTO funnel_interactions "
+                "(internal_user_id, event_name, surface, platform, dedup_key, occurred_at) "
+                "VALUES ($1, 'connection_problem', 'web', '', 'test-stats-q-problem-2', $2)",
+                u2,
+                recent,
+            )
+            # Web-причина проблемы с пустым маршрутом (после миграции 094).
+            await conn.execute(
+                "INSERT INTO trial_feedback (internal_user_id, feedback_type, reason_code, platform, connection_route) "
+                "VALUES ($1, 'connection_problem', 'connect_failed', '', '')",
+                u2,
+            )
+            # Проверки подключения: три connected на «Test NL» (latency 100/200/300 → p50=200,
+            # p95=290; throughput 10000/20000/30000 → p50=20000) и одна не подключённая.
+            for latency, throughput in ((100, 10000), (200, 20000), (300, 30000)):
+                await conn.execute(
+                    "INSERT INTO connection_checks "
+                    "(internal_user_id, connected, detected_server_label, latency_ms, throughput_kbps, platform, created_at) "
+                    "VALUES ($1, TRUE, 'Test NL', $2, $3, 'android', $4)",
+                    u1,
+                    latency,
+                    throughput,
+                    recent,
+                )
+            await conn.execute(
+                "INSERT INTO connection_checks "
+                "(internal_user_id, connected, detected_server_label, latency_ms, throughput_kbps, platform, created_at) "
+                "VALUES ($1, FALSE, '', 500, NULL, 'android', $2)",
+                u2,
+                recent,
+            )
+
+        # Старая когорта: триал 15 дней назад + оплата — зрелая и конвертированная
+        # (проверяется на периоде 30d ниже).
+        old_trial = now - timedelta(days=15)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
+                "VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+                _TG_BASE + 504,
+                u4,
+                old_trial,
+            )
+            await conn.execute(
+                "INSERT INTO subscription_snapshots "
+                "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
+                "VALUES ($1,'active','1m',$2,$3) ON CONFLICT DO NOTHING",
+                u4,
+                now + timedelta(days=30),
+                old_trial,
+            )
+            sql, args = _insert_ledger(
+                conn, "test-stats-fact-q-old", "ext-q-old-1", old_trial + timedelta(days=1), u4, 24900, "accepted"
+            )
+            await conn.execute(sql, *args)
+
+        client, h = await _login_client(pool)
+        r = await client.get("/api/v1/admin/stats?period=7d", headers=h)
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        # data_health: источники с датой первого события; nakrut-аномалия; кампания без расходов;
+        # «тихие» триалы (u2 без единого взаимодействия по подключению).
+        sources = {(s["source"], s["detail"]) for s in body["data_health"]["sources"]}
+        assert ("connection_checks", "check") in sources
+        assert ("funnel_events", "trial_started") in sources
+        assert any(
+            s["campaign_key"] == "nakrut" and s["excluded_from_analytics"] and s["attributed_users"] >= 1
+            for s in body["data_health"]["attribution_sources"]
+        )
+        assert any(
+            c["campaign_key"] == "test-q-nospend" and c["attributed_users"] == 1
+            for c in body["data_health"]["campaigns_missing_spend"]
+        )
+        anomalies = body["data_health"]["chain_anomalies"]
+        assert anomalies["trials"] >= 2
+        assert anomalies["trials_without_setup"] >= 1
+
+        # Когорты: сумма trials сходится с v2 на том же окне.
+        cohorts = body["trial_cohorts"]
+        assert sum(c["trials"] for c in cohorts) == body["funnel_diagnostics_v2"]["trials"]
+        this_week = max(cohorts, key=lambda c: c["cohort_week"])
+        assert this_week["trials"] >= 2
+        assert this_week["mature_users"] == 0  # свежая когорта ещё не созрела
+
+        # На 30d появляется зрелая когорта u4 с оплатой в окне 10 дней.
+        r30 = await client.get("/api/v1/admin/stats?period=30d", headers=h)
+        assert r30.status_code == 200, r30.text
+        cohorts30 = r30.json()["trial_cohorts"]
+        old_cohort = next(c for c in cohorts30 if c["mature_users"] >= 1)
+        assert old_cohort["paid_users"] >= 1
+
+        # Качество VPN: overall и по-серверно; веб-вердикты и причина.
+        quality = body["vpn_quality"]
+        assert quality["overall"]["checks"] == 4
+        assert quality["overall"]["connected_checks"] == 3
+        assert quality["overall"]["connected_rate"] == 0.75
+        assert quality["overall"]["latency_p50_ms"] == 200
+        server = next(s for s in quality["servers"] if s["server_label"] == "Test NL")
+        assert server["checks"] == 3
+        assert server["latency_p50_ms"] == 200
+        assert server["latency_p95_ms"] == 290
+        assert server["throughput_p50_kbps"] == 20000
+        assert quality["web_verdicts"] == {"confirmed_users": 1, "problem_users": 1}
+        assert quality["web_problem_reasons"] == [{"code": "connect_failed", "users": 1}]
     finally:
         await _cleanup(pool)
         await pool.close()
