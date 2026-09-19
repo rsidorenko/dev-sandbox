@@ -158,4 +158,36 @@ async def test_postgres_recorder_updates_one_current_answer(pg_url: str) -> None
         assert [dict(row) for row in rows] == [{"reason_code": "traffic_failed", "connection_route": "guided"}]
     finally:
         await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", internal_user_id)
+
+
+async def test_postgres_accepts_web_route_empty_connection_problem(pg_url: str) -> None:
+    """Web-страница /check шлёт connection_problem с route='' (и platform='' при
+    неопознанном UA) — констрейнт 094 обязан такие принимать, иначе причины
+    молча теряются (recorder fail-open)."""
+    pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
+    internal_user_id = "test-trial-feedback-web"
+    try:
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS)
+        await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS)
+        await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", internal_user_id)
+        await pool.execute(
+            "INSERT INTO user_identities (internal_user_id,telegram_user_id) VALUES ($1,$2)",
+            internal_user_id,
+            9_988_776_654,
+        )
+        assert await record_trial_feedback(
+            pool,
+            feedback_type="connection_problem",
+            reason_code="connect_failed",
+            internal_user_id=internal_user_id,
+            platform="",
+            connection_route="",
+        )
+        row = await pool.fetchrow(
+            "SELECT reason_code FROM trial_feedback WHERE internal_user_id=$1 AND feedback_type='connection_problem'",
+            internal_user_id,
+        )
+        assert row is not None and row["reason_code"] == "connect_failed"
+    finally:
+        await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", internal_user_id)
         await pool.close()

@@ -12,7 +12,7 @@ CONNECTION_PROBLEM_REASONS = frozenset(
     {"install_failed", "import_failed", "connect_failed", "traffic_failed", "too_hard", "other"}
 )
 TRIAL_NONPAYMENT_REASONS = frozenset({"too_expensive", "did_not_work", "too_hard", "no_need", "payment_issue", "other"})
-_PLATFORMS = frozenset({"ios", "android", "mac", "win", "tv"})
+_PLATFORMS = frozenset({"", "ios", "android", "mac", "win", "tv"})  # '' — web-страница /check при неопознанном UA
 _ROUTES = frozenset({"direct", "guided", ""})  # '' — web-страница /check не знает bot-маршрут
 
 
