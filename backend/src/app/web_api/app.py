@@ -53,6 +53,7 @@ from app.web_api.connection_check import (
     handle_check_ping,
     handle_check_result,
     handle_check_speed,
+    handle_check_speed_legacy,
     handle_check_status,
 )
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
@@ -264,10 +265,11 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),
         # Public subscription endpoint (no auth)
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
-        # Connection Check (bearer-токен как /sub; literal ping/speed — ДО {token})
+        # Connection Check (bearer-токен как /sub; ping не отдаёт объёмных данных).
         Route("/api/v1/check/ping", handle_check_ping, methods=["GET"]),
-        Route("/api/v1/check/speed", handle_check_speed, methods=["GET"]),
+        Route("/api/v1/check/speed", handle_check_speed_legacy, methods=["GET"]),
         Route("/api/v1/check/{token}", handle_check_status, methods=["GET"]),
+        Route("/api/v1/check/{token}/speed", handle_check_speed, methods=["GET"]),
         Route("/api/v1/check/{token}/result", handle_check_result, methods=["POST"]),
         Route("/api/v1/check/{token}/feedback", handle_check_feedback, methods=["POST"]),
         # YooKassa webhook (no auth — signature verified internally)

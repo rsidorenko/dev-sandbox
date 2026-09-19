@@ -662,18 +662,21 @@ ORDER BY cohort_week
 # ─── Качество VPN по connection_checks ────────────────────────────────────────
 
 _VPN_QUALITY_SERVERS = """
-SELECT c.detected_server_label AS server_label,
+SELECT COALESCE(NULLIF(btrim(c.detected_server_label), ''), 'Не определён') AS server_label,
        count(*)::int AS checks,
+       count(*) FILTER (WHERE c.connected)::int AS connected_checks,
        count(DISTINCT c.internal_user_id)::int AS users,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.latency_ms)::int AS latency_p50_ms,
-       percentile_cont(0.95) WITHIN GROUP (ORDER BY c.latency_ms)::int AS latency_p95_ms,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.throughput_kbps)::int AS throughput_p50_kbps
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.latency_ms) FILTER (WHERE c.connected)::int
+           AS latency_p50_ms,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY c.latency_ms) FILTER (WHERE c.connected)::int
+           AS latency_p95_ms,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY c.throughput_kbps) FILTER (WHERE c.connected)::int
+           AS throughput_p50_kbps
 FROM connection_checks c
 JOIN analytics_eligible_user_ids e USING (internal_user_id)
-WHERE c.connected AND c.created_at >= $1 AND c.created_at < $2
-  AND c.detected_server_label <> ''
-GROUP BY c.detected_server_label
-ORDER BY checks DESC, c.detected_server_label
+WHERE c.created_at >= $1 AND c.created_at < $2
+GROUP BY 1
+ORDER BY checks DESC, server_label
 """
 
 _VPN_QUALITY_OVERALL = """
@@ -1406,6 +1409,10 @@ async def _vpn_quality(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -
         {
             "server_label": str(row["server_label"]),
             "checks": int(row["checks"] or 0),
+            "connected_checks": int(row["connected_checks"] or 0),
+            "connected_rate": (
+                round(int(row["connected_checks"] or 0) / int(row["checks"]), 4) if int(row["checks"] or 0) else None
+            ),
             "users": int(row["users"] or 0),
             "latency_p50_ms": int(row["latency_p50_ms"]) if row["latency_p50_ms"] is not None else None,
             "latency_p95_ms": int(row["latency_p95_ms"]) if row["latency_p95_ms"] is not None else None,

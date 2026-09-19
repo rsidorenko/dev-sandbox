@@ -63,10 +63,10 @@ export const checkApi = {
   },
 
   /** Загрузка N байт: возвращает скорость в кбит/с (null при ошибке). */
-  speed: async (bytes = 262144): Promise<number | null> => {
+  speed: async (token: string, bytes = 262144): Promise<number | null> => {
     try {
       const started = performance.now();
-      const res = await fetch(`${API_BASE}/api/v1/check/speed?bytes=${bytes}`, {
+      const res = await fetch(`${API_BASE}/api/v1/check/${encodeURIComponent(token)}/speed?bytes=${bytes}`, {
         cache: "no-store",
       });
       const body = await res.arrayBuffer();

@@ -8,7 +8,7 @@ funnel-события. IP-адреса не хранятся и не логир�
 from __future__ import annotations
 
 import logging
-import os
+import secrets
 import time
 from datetime import UTC, datetime
 
@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 _SPEED_MIN_BYTES = 65536
 _SPEED_MAX_BYTES = 1048576
 _SPEED_DEFAULT_BYTES = 262144
+_SPEED_PAYLOAD = secrets.token_bytes(_SPEED_MAX_BYTES)
 
 # In-memory rate limit по IP (как у /sub): bucket → окно запросов.
 _RATE_BUCKETS: dict[str, tuple[int, int]] = {
@@ -88,10 +89,12 @@ def _detect(request: Request, servers_by_label: dict) -> tuple[bool | None, str,
     if not servers_by_label:
         return None, "", ""
     matched = match_server_for_ip(client_ip, servers_by_label)
-    if matched is None:
-        return False, "", ""
-    info = servers_by_label.get(matched, {})
-    return True, matched, str(info.get("country_code", ""))
+    if matched is not None:
+        info = servers_by_label.get(matched, {})
+        return True, matched, str(info.get("country_code", ""))
+    if any(not info.get("ips") for info in servers_by_label.values()):
+        return None, "", ""
+    return False, "", ""
 
 
 async def handle_check_status(request: Request) -> JSONResponse:
@@ -141,17 +144,29 @@ async def handle_check_speed(request: Request) -> Response:
     client_ip = real_client_ip(request)
     if not _check_rate_limit("speed", client_ip):
         return Response("rate limited", status_code=429)
+    token = request.path_params["token"]
+    pool = request.app.state.pool
+    row = await _load_token_row(pool, token)
+    if row is None:
+        return Response("not found", status_code=404)
+    if not _entitlement_active(row, now=datetime.now(UTC)):
+        return Response("subscription expired", status_code=403)
     try:
         requested = int(request.query_params.get("bytes", ""))
     except ValueError:
         requested = _SPEED_DEFAULT_BYTES
     size = max(_SPEED_MIN_BYTES, min(_SPEED_MAX_BYTES, requested))
-    payload = os.urandom(size)
+    payload = _SPEED_PAYLOAD[:size]
     return Response(
         payload,
         media_type="application/octet-stream",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
+
+
+async def handle_check_speed_legacy(_request: Request) -> Response:
+    """Старый tokenless URL больше не раздаёт payload."""
+    return Response("not found", status_code=404)
 
 
 def _validated_platform(payload: dict) -> str:
@@ -192,16 +207,18 @@ async def handle_check_result(request: Request) -> JSONResponse:
     # self-report не доверяем (подделывается).
     servers_by_label = await resolve_active_server_ips(pool)
     connected, server_label, _ = _detect(request, servers_by_label)
+    if connected is None:
+        return JSONResponse({"ok": True, "stored": False, "connected": None})
     stored = await record_connection_check(
         pool,
         row["internal_user_id"],
-        connected=connected is True,
+        connected=connected,
         server_label=server_label,
         latency_ms=_metric_int(payload, "latency_ms"),
         throughput_kbps=_metric_int(payload, "throughput_kbps"),
         platform=_validated_platform(payload),
     )
-    return JSONResponse({"ok": True, "stored": stored})
+    return JSONResponse({"ok": True, "stored": stored, "connected": connected})
 
 
 async def handle_check_feedback(request: Request) -> JSONResponse:

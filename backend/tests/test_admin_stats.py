@@ -718,7 +718,7 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
                 "VALUES ($1, 99003, $2, 2097152, 0) "
                 "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
                 "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
-                recent.astimezone(ZoneInfo("Europe/Moscow")).date() + timedelta(days=1),
+                now.astimezone(ZoneInfo("Europe/Moscow")).date() + timedelta(days=1),
                 f"user-{u2[:16]}",
             )
 
@@ -831,9 +831,16 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
         assert quality["overall"]["latency_p50_ms"] == 200
         server = next(s for s in quality["servers"] if s["server_label"] == "Test NL")
         assert server["checks"] == 3
+        assert server["connected_checks"] == 3
+        assert server["connected_rate"] == 1.0
         assert server["latency_p50_ms"] == 200
         assert server["latency_p95_ms"] == 290
         assert server["throughput_p50_kbps"] == 20000
+        unknown = next(s for s in quality["servers"] if s["server_label"] == "Не определён")
+        assert unknown["checks"] == 1
+        assert unknown["connected_checks"] == 0
+        assert unknown["connected_rate"] == 0.0
+        assert sum(s["checks"] for s in quality["servers"]) == quality["overall"]["checks"]
         assert quality["web_verdicts"] == {"confirmed_users": 1, "problem_users": 1}
         assert quality["web_problem_reasons"] == [{"code": "connect_failed", "users": 1}]
     finally:

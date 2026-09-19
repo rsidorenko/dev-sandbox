@@ -85,14 +85,15 @@ describe("checkApi.speed", () => {
     });
     const payload = new Uint8Array(262144);
     fetchMock.mockResolvedValueOnce(new Response(payload.buffer, { status: 200 }));
-    const kbps = await checkApi.speed(262144);
+    const kbps = await checkApi.speed("tok123", 262144);
     expect(kbps).toBe(Math.round((262144 * 8) / 1 / 1000)); // 2097 кбит/с
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/check/tok123/speed?bytes=262144");
     vi.stubGlobal("performance", { now: () => 0 });
   });
 
   it("returns null on HTTP error", async () => {
     fetchMock.mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
-    expect(await checkApi.speed()).toBeNull();
+    expect(await checkApi.speed("tok123")).toBeNull();
   });
 });
 

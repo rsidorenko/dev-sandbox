@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from app.application import connection_check as cc_app
 from app.application.connection_check import (
     connection_check_enabled,
     match_server_for_ip,
@@ -104,6 +105,38 @@ def test_match_server_for_ip_matches_and_misses() -> None:
 def test_detect_returns_unknown_without_servers() -> None:
     connected, label, country = cc_web._detect(_Request("203.0.113.7"), {})
     assert (connected, label, country) == (None, "", "")
+
+
+def test_detect_returns_unknown_when_server_map_is_incomplete() -> None:
+    servers = {
+        "NL-1": {"ips": frozenset({"203.0.113.7"}), "country_code": "NL"},
+        "Relay": {"ips": frozenset(), "country_code": "DE"},
+    }
+    assert cc_web._detect(_Request("203.0.113.7"), servers) == (True, "NL-1", "NL")
+    assert cc_web._detect(_Request("198.51.100.9"), servers) == (None, "", "")
+
+
+def test_resolve_active_server_ips_keeps_unconfigured_rows(monkeypatch) -> None:
+    pool = AsyncMock()
+    pool.fetch.return_value = [
+        {"label": "NL-1", "connection_check_host": "nl.example", "country_code": "NL"},
+        {"label": "Relay", "connection_check_host": "", "country_code": "DE"},
+    ]
+
+    async def _resolve(host: str) -> frozenset[str]:
+        assert host == "nl.example"
+        return frozenset({"203.0.113.7"})
+
+    monkeypatch.setattr(cc_app, "_resolve_host_ips", _resolve)
+    result = asyncio.run(cc_app.resolve_active_server_ips(pool))
+    assert result["NL-1"] == {
+        "ips": frozenset({"203.0.113.7"}),
+        "country_code": "NL",
+        "configured": True,
+    }
+    assert result["Relay"] == {"ips": frozenset(), "country_code": "DE", "configured": False}
+    assert "connection_check_host" in pool.fetch.await_args.args[0]
+    assert "server_host" not in pool.fetch.await_args.args[0]
 
 
 # ─── Запись результата ────────────────────────────────────────────────
@@ -238,26 +271,40 @@ async def test_status_disabled_flag_returns_enabled_false(monkeypatch, mock_serv
 
 async def test_ping_and_speed_serve_bytes_with_no_store() -> None:
     pool = AsyncMock()
+    pool.fetchrow.return_value = _entitled_row()
     async with _client(pool) as client:
         ping = await client.get("/api/v1/check/ping")
         assert ping.status_code == 200
         assert ping.headers["cache-control"] == "no-store, max-age=0"
         assert len(ping.content) >= 1
 
-        speed = await client.get("/api/v1/check/speed", params={"bytes": 999_999_999})
+        speed = await client.get("/api/v1/check/abcdef1234567890/speed", params={"bytes": 999_999_999})
         assert speed.status_code == 200
         assert len(speed.content) == 1048576  # кламп до максимума
         assert speed.headers["content-type"].startswith("application/octet-stream")
 
-        tiny = await client.get("/api/v1/check/speed", params={"bytes": 1})
+        tiny = await client.get("/api/v1/check/abcdef1234567890/speed", params={"bytes": 1})
         assert len(tiny.content) == 65536  # кламп до минимума
+        assert tiny.content == cc_web._SPEED_PAYLOAD[:65536]
+        assert (await client.get("/api/v1/check/speed")).status_code == 404
 
 
 async def test_speed_disabled_returns_404(monkeypatch) -> None:
     monkeypatch.setenv("CONNECTION_CHECK_ENABLE", "0")
     async with _client(AsyncMock()) as client:
-        assert (await client.get("/api/v1/check/speed")).status_code == 404
+        assert (await client.get("/api/v1/check/abcdef1234567890/speed")).status_code == 404
         assert (await client.get("/api/v1/check/ping")).status_code == 404
+
+
+async def test_speed_requires_known_active_subscription() -> None:
+    pool = AsyncMock()
+    pool.fetchrow.return_value = None
+    async with _client(pool) as client:
+        assert (await client.get("/api/v1/check/unknowntoken00/speed")).status_code == 404
+        expired = _entitled_row()
+        expired["trial_expires_at"] = None
+        pool.fetchrow.return_value = expired
+        assert (await client.get("/api/v1/check/abcdef1234567890/speed")).status_code == 403
 
 
 async def test_result_stores_server_side_verdict_with_clamped_metrics(mock_servers) -> None:
@@ -273,6 +320,23 @@ async def test_result_stores_server_side_verdict_with_clamped_metrics(mock_serve
     assert sql.startswith("INSERT INTO connection_checks")
     # connected определяет сервер (True через DE-2), а не клиентский self-report
     assert args == ["user-1", True, "DE-2", 120, 4500, "android"]
+
+
+async def test_result_does_not_store_unknown_detection(monkeypatch) -> None:
+    pool = AsyncMock()
+    pool.fetchrow.return_value = _entitled_row()
+
+    async def _incomplete_servers(_pool):
+        return {"Relay": {"ips": frozenset(), "country_code": "DE", "configured": False}}
+
+    monkeypatch.setattr(cc_web, "resolve_active_server_ips", _incomplete_servers)
+    async with _client(pool, **{"x-real-ip": "198.51.100.9"}) as client:
+        response = await client.post(
+            "/api/v1/check/abcdef1234567890/result",
+            json={"latency_ms": 120, "throughput_kbps": 4500, "platform": "android"},
+        )
+    assert response.json() == {"ok": True, "stored": False, "connected": None}
+    assert not any("INSERT INTO connection_checks" in call.args[0] for call in pool.execute.await_args_list)
 
 
 async def test_result_rejects_bad_payload(mock_servers) -> None:

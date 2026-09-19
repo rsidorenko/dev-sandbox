@@ -76,28 +76,44 @@ def _blocking_getaddrinfo(host: str) -> set[str]:
 
 
 async def resolve_active_server_ips(pool: Any) -> dict[str, dict[str, Any]]:
-    """Активные vpn_servers: label → {"ips": frozenset, "country_code": str}
-    (все client_surface: матчимся по всему парку — пользователь мог выйти через
-    любой сервер, не только выданный его клиенту)."""
+    """Активные vpn_servers: label → check-host, IP и страна.
+
+    В результат намеренно входят и ненастроенные/неразрешённые строки с пустым
+    ``ips``: вызывающий код отличает неполную карту от уверенного несовпадения.
+    ``server_host`` здесь не используется — у relay/CDN он может быть ingress.
+    """
     if pool is None:
         return {}
     try:
-        rows = await pool.fetch("SELECT label, server_host, country_code FROM vpn_servers WHERE is_active = TRUE")
+        rows = await pool.fetch(
+            "SELECT label, connection_check_host, country_code FROM vpn_servers WHERE is_active = TRUE"
+        )
     except Exception:
         _LOGGER.warning("connection_check.servers_read_failed")
         return {}
     entries = [
-        ((row["label"] or "").strip(), (row["server_host"] or "").strip(), (row["country_code"] or ""))
+        (
+            (row["label"] or "").strip(),
+            (row["connection_check_host"] or "").strip(),
+            (row["country_code"] or ""),
+        )
         for row in rows
-        if (row["label"] or "").strip() and (row["server_host"] or "").strip()
+        if (row["label"] or "").strip()
     ]
     if not entries:
         return {}
-    # Резолвим параллельно: worst-case таймаута не должен складываться по серверам.
-    resolved_list = await asyncio.gather(*(_resolve_host_ips(host) for _, host, _ in entries))
+    # Резолвим уникальные настроенные host параллельно: worst-case таймаута не
+    # должен складываться по серверам. Пустые host остаются явной uncertainty.
+    hosts = list(dict.fromkeys(host for _, host, _ in entries if host))
+    resolved_list = await asyncio.gather(*(_resolve_host_ips(host) for host in hosts))
+    resolved_by_host = dict(zip(hosts, resolved_list, strict=True))
     return {
-        label: {"ips": ips, "country_code": country}
-        for (label, _, country), ips in zip(entries, resolved_list, strict=True)
+        label: {
+            "ips": resolved_by_host.get(host, frozenset()),
+            "country_code": country,
+            "configured": bool(host),
+        }
+        for label, host, country in entries
     }
 
 

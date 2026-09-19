@@ -319,6 +319,8 @@ export interface AdminTrialCohort {
 export interface AdminVpnQualityServer {
   server_label: string;
   checks: number;
+  connected_checks: number;
+  connected_rate: number | null;
   users: number;
   latency_p50_ms: number | null;
   latency_p95_ms: number | null;

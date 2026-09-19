@@ -47,6 +47,8 @@ const VPN_QUALITY: AdminVpnQuality = {
     {
       server_label: "🇳🇱 Нидерланды",
       checks: 8,
+      connected_checks: 7,
+      connected_rate: 0.875,
       users: 6,
       latency_p50_ms: 120,
       latency_p95_ms: 290,
@@ -100,6 +102,7 @@ describe("QualitySection", () => {
     expect(screen.getByText("Качество VPN")).toBeInTheDocument();
     expect(screen.getByText(/Проверок: 10 · подключено 80%/)).toBeInTheDocument();
     expect(screen.getByText("🇳🇱 Нидерланды")).toBeInTheDocument();
+    expect(screen.getByText("7 (87.5%)")).toBeInTheDocument();
     expect(screen.getByText("45 Мбит/с")).toBeInTheDocument();
     expect(screen.getByText(/«всё работает» — 4/)).toBeInTheDocument();
     expect(screen.getByText(/VPN не подключается: 2/)).toBeInTheDocument();

@@ -189,10 +189,10 @@ export function QualitySection({
           </p>
           {vpnQuality.servers.length > 0 && (
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
+              <table className="w-full min-w-[800px] text-left text-xs">
                 <thead className="text-gray-500 dark:text-gray-400">
                   <tr>
-                    {["Сервер", "Проверки", "Пользователи", "Задержка p50", "Задержка p95", "Скорость p50"].map(
+                    {["Сервер", "Проверки", "Подключено", "Пользователи", "Задержка p50", "Задержка p95", "Скорость p50"].map(
                       (label) => (
                         <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
                           {label}
@@ -208,6 +208,10 @@ export function QualitySection({
                         {server.server_label}
                       </td>
                       <td className={`px-3 py-2 ${adminNum}`}>{server.checks}</td>
+                      <td className={`px-3 py-2 ${adminNum}`}>
+                        {server.connected_checks}
+                        {formatRate(server.connected_rate)}
+                      </td>
                       <td className={`px-3 py-2 ${adminNum}`}>{server.users}</td>
                       <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p50_ms ?? "—"}</td>
                       <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p95_ms ?? "—"}</td>

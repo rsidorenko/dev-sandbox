@@ -90,7 +90,7 @@ export function ConnectionCheckCard({ token }: { token: string }) {
       if (currentRun !== runId.current) return;
     }
     const median = medianLatency(samples);
-    const speed = await checkApi.speed(SPEED_TEST_BYTES);
+    const speed = await checkApi.speed(token, SPEED_TEST_BYTES);
     if (currentRun !== runId.current) return;
     setLatency(median);
     setThroughput(speed);
