@@ -137,6 +137,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "090_analytics_eligible_users.sql",
         "091_funnel_diagnostics_v2.sql",
         "092_trial_feedback.sql",
+        "093_connection_checks.sql",
     ]
 
 

@@ -65,6 +65,10 @@ services:
       # Кастомные эмодзи (tg-emoji) в текстах/кнопках. Требование Bot API 9.4:
       # у владельца бота должен быть Telegram Premium. Откат без деплоя — 0 в .env.
       TELEGRAM_CUSTOM_EMOJI_ENABLE: ${TELEGRAM_CUSTOM_EMOJI_ENABLE:-1}
+      # Страница проверки подключения /check/<token> (IP-детект «трафик идёт через
+      # наш VPN», замер задержки/скорости) и запись результатов в connection_checks.
+      # Откат без деплоя — 0 в .env.
+      CONNECTION_CHECK_ENABLE: ${CONNECTION_CHECK_ENABLE:-1}
       # Гейт подписки на @bravada_vpn перед выдачей пробного периода.
       # Важно: backend получает только явно перечисленные переменные, поэтому
       # без этих строк фича оставалась выключенной даже при настройке .env.

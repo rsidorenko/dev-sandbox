@@ -48,6 +48,13 @@ from app.web_api.admin_users import (
     handle_admin_set_internal,
 )
 from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
+from app.web_api.connection_check import (
+    handle_check_feedback,
+    handle_check_ping,
+    handle_check_result,
+    handle_check_speed,
+    handle_check_status,
+)
 from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.experiments import handle_resolve_experiment
 from app.web_api.middleware import require_auth, require_csrf
@@ -257,6 +264,12 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),
         # Public subscription endpoint (no auth)
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
+        # Connection Check (bearer-токен как /sub; literal ping/speed — ДО {token})
+        Route("/api/v1/check/ping", handle_check_ping, methods=["GET"]),
+        Route("/api/v1/check/speed", handle_check_speed, methods=["GET"]),
+        Route("/api/v1/check/{token}", handle_check_status, methods=["GET"]),
+        Route("/api/v1/check/{token}/result", handle_check_result, methods=["POST"]),
+        Route("/api/v1/check/{token}/feedback", handle_check_feedback, methods=["POST"]),
         # YooKassa webhook (no auth — signature verified internally)
         Route("/api/v1/payment/yookassa/webhook", _yookassa_webhook_handler, methods=["POST"]),
         # CryptoBot webhook (no routing auth — HMAC signature verified internally)

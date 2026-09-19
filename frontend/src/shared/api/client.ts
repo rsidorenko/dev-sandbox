@@ -1,6 +1,6 @@
 /** Shared API client — httponly cookie auth, JSON transport, CSRF protection. */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export type ApiResult<T> =
   | { ok: true; data: T }

@@ -13,6 +13,7 @@ from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from app.application.connection_check import connection_check_enabled
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
 from app.application.trial_feedback import CONNECTION_PROBLEM_REASONS, TRIAL_NONPAYMENT_REASONS
@@ -2123,6 +2124,22 @@ def text_connect_fastpath(platform: str, subscription_url: str) -> str:
     )
 
 
+def connection_check_url(subscription_url: str) -> str | None:
+    """URL страницы проверки подключения: /sub/<token> → /check/<token>.
+
+    Возвращает None для посторонних форматов — кнопка просто не добавляется.
+    """
+    marker = "/sub/"
+    at = subscription_url.rfind(marker)
+    if at == -1:
+        return None
+    base = subscription_url[:at]
+    token = subscription_url[at + len(marker) :]
+    if not base.startswith(("https://", "http://")) or not 8 <= len(token) <= 128 or "/" in token:
+        return None
+    return f"{base}/check/{token}"
+
+
 def connect_fastpath_keyboard(platform: str, subscription_url: str) -> dict[str, Any]:
     download = _FAST_APP_DOWNLOAD.get(platform)
     details_callback = _FAST_DETAILS_CALLBACK.get(platform, CB_CONNECT_DEVICE)
@@ -2136,6 +2153,11 @@ def connect_fastpath_keyboard(platform: str, subscription_url: str) -> dict[str,
         rows.append([{"text": "🔑 Импортировать в Karing", "url": f"{subscription_url}{separator}open=karing"}])
     if 1 <= len(subscription_url) <= 256:
         rows.append([{"text": "📋 Скопировать ссылку", "copy_text": {"text": subscription_url}}])
+    # Автоматическая проверка подключения (web): кнопка только при включённом флаге
+    # и валидном URL — ручные кнопки ниже остаются без изменений.
+    check_url = connection_check_url(subscription_url) if connection_check_enabled() else None
+    if check_url is not None:
+        rows.append([{"text": "🧪 Проверить подключение", "url": check_url}])
     rows.extend(
         [
             [

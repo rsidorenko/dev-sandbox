@@ -13,7 +13,7 @@ CONNECTION_PROBLEM_REASONS = frozenset(
 )
 TRIAL_NONPAYMENT_REASONS = frozenset({"too_expensive", "did_not_work", "too_hard", "no_need", "payment_issue", "other"})
 _PLATFORMS = frozenset({"ios", "android", "mac", "win", "tv"})
-_ROUTES = frozenset({"direct", "guided"})
+_ROUTES = frozenset({"direct", "guided", ""})  # '' — web-страница /check не знает bot-маршрут
 
 
 def _valid_context(*, feedback_type: str, reason_code: str, platform: str, connection_route: str) -> bool:
