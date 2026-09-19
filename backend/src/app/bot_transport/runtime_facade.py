@@ -1286,9 +1286,13 @@ async def _handle_trial_activation(
             )
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    # Set trial period
+    # Set trial period: длительность — вариант A/B trial_duration_v1 (3 или 7 дней;
+    # сбой резолва — fail-open в 3). Текст успеха показывает фактические дни.
+    from app.application.trial_duration_experiment import resolve_trial_duration_days
+
     now = datetime.now(UTC)
-    expires = trial_expires_at(now)
+    trial_days = await resolve_trial_duration_days(pool, id_rec.internal_user_id)
+    expires = trial_expires_at(now, days=trial_days)
 
     await composition.snapshots.upsert_state(
         SubscriptionSnapshot(
@@ -1306,7 +1310,7 @@ async def _handle_trial_activation(
     # инструкции не удаляются и используются как fallback из fast path.
     # soft-варианту эксперимента гейта — необязательное предложение подписки.
     return (
-        text_trial_connect_fastpath(),
+        text_trial_connect_fastpath(days=trial_days),
         trial_connect_fastpath_keyboard(channel_suggest=gate_variant == SOFT_VARIANT),
     )
 

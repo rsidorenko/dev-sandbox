@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 TRIAL_DURATION_DAYS = 3
 
 
-def trial_expires_at(started_at: datetime) -> datetime:
-    return started_at + timedelta(days=TRIAL_DURATION_DAYS)
+def trial_expires_at(started_at: datetime, days: int = TRIAL_DURATION_DAYS) -> datetime:
+    """Окончание триала; days переопределяется экспериментом trial_duration_v1."""
+    return started_at + timedelta(days=days)
 
 
 def is_trial_active(

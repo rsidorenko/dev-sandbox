@@ -428,11 +428,14 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
             )
             return _safe_json_error(503, "vless_unavailable")
 
-        # Set trial period
+        # Set trial period: длительность — вариант A/B trial_duration_v1
+        # (сбой резолва — fail-open в 3 дня).
+        from app.application.trial_duration_experiment import resolve_trial_duration_days
         from app.domain.trial import trial_expires_at
 
         now = datetime.now(UTC)
-        expires = trial_expires_at(now)
+        trial_days = await resolve_trial_duration_days(pool, internal_user_id)
+        expires = trial_expires_at(now, days=trial_days)
 
         await pool.execute(
             """INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, trial_started_at, trial_expires_at)

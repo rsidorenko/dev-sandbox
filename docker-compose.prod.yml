@@ -73,6 +73,9 @@ services:
       # soft — триал без барьера + предложение подписки после активации. Действует
       # только при включённом TRIAL_CHANNEL_SUBSCRIBE_ENABLE. Откат — 0 в .env.
       EXPERIMENT_CHANNEL_GATE_ENABLE: ${EXPERIMENT_CHANNEL_GATE_ENABLE:-1}
+      # A/B длительности триала (trial_duration_v1): control — 3 дня, 7d — 7 дней.
+      # Цены и тарифы не меняются. Откат — 0 в .env.
+      EXPERIMENT_TRIAL_DURATION_ENABLE: ${EXPERIMENT_TRIAL_DURATION_ENABLE:-1}
       # Гейт подписки на @bravada_vpn перед выдачей пробного периода.
       # Важно: backend получает только явно перечисленные переменные, поэтому
       # без этих строк фича оставалась выключенной даже при настройке .env.

@@ -14,6 +14,7 @@ class ExperimentDefinition:
 
 CHECKOUT_REASSURANCE_EXPERIMENT = "checkout_reassurance_v1"
 TRIAL_CHANNEL_GATE_EXPERIMENT = "trial_channel_gate_v1"
+TRIAL_DURATION_EXPERIMENT = "trial_duration_v1"
 
 _EXPERIMENTS: dict[str, ExperimentDefinition] = {
     CHECKOUT_REASSURANCE_EXPERIMENT: ExperimentDefinition(
@@ -25,6 +26,11 @@ _EXPERIMENTS: dict[str, ExperimentDefinition] = {
     TRIAL_CHANNEL_GATE_EXPERIMENT: ExperimentDefinition(
         key=TRIAL_CHANNEL_GATE_EXPERIMENT,
         variants=("control", "soft"),
+    ),
+    # control — триал 3 дня (текущее поведение); 7d — 7 дней. Цены не меняются.
+    TRIAL_DURATION_EXPERIMENT: ExperimentDefinition(
+        key=TRIAL_DURATION_EXPERIMENT,
+        variants=("control", "7d"),
     ),
 }
 

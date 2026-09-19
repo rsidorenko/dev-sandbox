@@ -29,12 +29,23 @@ export default function TrialPage() {
   // переключит loading/authenticated — именно это раньше вызывало бесконечный
   // лоадер (refresh → loading флапал → отдельный эффект сбрасывал статус).
   const resolved = useRef(false);
+  const [trialDays, setTrialDays] = useState(siteConfig.trialDays);
 
   const runActivation = useCallback(async () => {
     setStatus("activating");
     reachGoal("trial_click");
     const res = await trialApi.activate();
     if (res.ok) {
+      // Фактическая длительность триала (эксперимент trial_duration_v1: 3 или 7
+      // дней) — считаем из ответа, а не из статичного siteConfig.trialDays.
+      const trial = res.data.trial;
+      const spanDays = Math.max(
+        1,
+        Math.round(
+          (new Date(trial.expires_at).getTime() - new Date(trial.started_at).getTime()) / 86_400_000,
+        ),
+      );
+      setTrialDays(spanDays);
       setStatus("success");
       reachGoal("trial_activated");
       void refresh(); // обновить профиль, чтобы ЛК показал активный триал
@@ -105,8 +116,8 @@ export default function TrialPage() {
                 Готово! Ключи для триала созданы
               </h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Полные {siteConfig.trialDays} дня начнутся после первого подключения. Подключите VPN в
-                течение {siteConfig.trialDays} дней — ключи и ссылка уже доступны в личном кабинете.
+                Полные {trialDays} дня начнутся после первого подключения. Подключите VPN в
+                течение {trialDays} дней — ключи и ссылка уже доступны в личном кабинете.
               </p>
               <div className="mt-6 flex flex-col gap-2">
                 <Link

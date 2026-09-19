@@ -2607,13 +2607,27 @@ def trial_activated_keyboard() -> dict[str, Any]:
     )
 
 
-def text_trial_connect_fastpath() -> str:
+def text_trial_connect_fastpath(*, days: int = 3) -> str:
+    """Текст успеха активации триала; days — фактическая длительность
+    (эксперимент trial_duration_v1)."""
+    label = _ru_days_plural(days)
     return (
         "✅ <b>Пробный период активирован!</b>\n\n"
-        "Ключи уже готовы. Полные 3 дня начнутся после первого подключения.\n"
-        "Подключите VPN в течение 3 дней, чтобы запустить отсчёт.\n"
+        f"Ключи уже готовы. Полные {label} начнутся после первого подключения.\n"
+        f"Подключите VPN в течение {label}, чтобы запустить отсчёт.\n"
         "Выберите устройство — основная настройка займёт около минуты."
     )
+
+
+def _ru_days_plural(count: int) -> str:
+    """«N день/дня/дней» — 1 день, 2 дня, 5 дней, 11 дней, 21 день…"""
+    if count % 10 == 1 and count % 100 != 11:
+        form = "день"
+    elif 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        form = "дня"
+    else:
+        form = "дней"
+    return f"{count} {form}"
 
 
 def trial_connect_fastpath_keyboard(*, channel_suggest: bool = False) -> dict[str, Any]:

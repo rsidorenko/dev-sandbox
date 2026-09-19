@@ -89,8 +89,18 @@ class PostgresTrafficStatsRepository:
                         UPDATE subscription_snapshots s
                         SET trial_first_traffic_at = NOW(),
                             trial_started_at = NOW(),
-                            trial_expires_at = NOW() + make_interval(days => $2),
-                            active_until_utc = NOW() + make_interval(days => $2),
+                            trial_expires_at = NOW() + make_interval(days => COALESCE((
+                                SELECT CASE WHEN ea.variant = '7d' THEN 7 ELSE $2 END
+                                FROM experiment_assignments ea
+                                WHERE ea.internal_user_id = s.internal_user_id
+                                  AND ea.experiment_key = 'trial_duration_v1'
+                            ), $2)),
+                            active_until_utc = NOW() + make_interval(days => COALESCE((
+                                SELECT CASE WHEN ea.variant = '7d' THEN 7 ELSE $2 END
+                                FROM experiment_assignments ea
+                                WHERE ea.internal_user_id = s.internal_user_id
+                                  AND ea.experiment_key = 'trial_duration_v1'
+                            ), $2)),
                             updated_at = NOW()
                         WHERE s.state_label = 'active'
                           AND s.plan_id IS NULL
