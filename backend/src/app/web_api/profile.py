@@ -370,11 +370,19 @@ async def handle_activate_trial(request: Request) -> JSONResponse:
         if telegram_user_id is None:
             return _safe_json_error(403, "no_telegram_identity")
 
-        subscription_error = await require_channel_subscription(request, int(telegram_user_id))
-        if subscription_error is not None:
-            return subscription_error
-
         pool: asyncpg.Pool = request.app.state.pool
+
+        # A/B гейта подписки (trial_channel_gate_v1): soft-вариант получает триал
+        # без проверки канала. Эксперимент касается только триала — гейты промокодов
+        # и бонусов остаются жёсткими. Сбой резолва — fail-open в control.
+        from app.application.trial_gate_experiment import SOFT_VARIANT, resolve_trial_gate_variant
+
+        gate_variant = await resolve_trial_gate_variant(pool, auth_result.get("internal_user_id"))
+        if gate_variant != SOFT_VARIANT:
+            subscription_error = await require_channel_subscription(request, int(telegram_user_id))
+            if subscription_error is not None:
+                return subscription_error
+
         identity = await pool.fetchrow(
             "SELECT internal_user_id, trial_used FROM user_identities WHERE telegram_user_id = $1",
             telegram_user_id,

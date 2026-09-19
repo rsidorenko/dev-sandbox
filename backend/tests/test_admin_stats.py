@@ -690,6 +690,23 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
                 u2,
                 recent,
             )
+            # Эксперимент гейта: u1 назначен в soft и набрал ≥1 МиБ трафика —
+            # meaningful-колонка агрегата экспериментов.
+            await conn.execute(
+                "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant, assigned_at) "
+                "VALUES ($1, 'trial_channel_gate_v1', 'soft', $2)",
+                u1,
+                recent,
+            )
+            await conn.execute(
+                "INSERT INTO bare_xray_traffic_daily "
+                "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
+                "VALUES ($1, 99002, $2, 536870912, 536870912) "
+                "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
+                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
+                recent.astimezone(ZoneInfo("Europe/Moscow")).date(),
+                f"user-{u1[:16]}",
+            )
 
         # Старая когорта: триал 15 дней назад + оплата — зрелая и конвертированная
         # (проверяется на периоде 30d ниже).
@@ -750,6 +767,16 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
         cohorts30 = r30.json()["trial_cohorts"]
         old_cohort = next(c for c in cohorts30 if c["mature_users"] >= 1)
         assert old_cohort["paid_users"] >= 1
+
+        # Эксперименты: meaningful-трафик по варианту (u1: soft, 1 ГиБ ≥ 1 МиБ).
+        gate_experiment = next(
+            item
+            for item in body["experiments"]
+            if item["experiment_key"] == "trial_channel_gate_v1" and item["variant"] == "soft"
+        )
+        assert gate_experiment["exposures"] == 1
+        assert gate_experiment["meaningful_traffic_users"] == 1
+        assert gate_experiment["meaningful_traffic_rate"] == 1.0
 
         # Качество VPN: overall и по-серверно; веб-вердикты и причина.
         quality = body["vpn_quality"]

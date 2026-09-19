@@ -13,12 +13,19 @@ class ExperimentDefinition:
 
 
 CHECKOUT_REASSURANCE_EXPERIMENT = "checkout_reassurance_v1"
+TRIAL_CHANNEL_GATE_EXPERIMENT = "trial_channel_gate_v1"
 
 _EXPERIMENTS: dict[str, ExperimentDefinition] = {
     CHECKOUT_REASSURANCE_EXPERIMENT: ExperimentDefinition(
         key=CHECKOUT_REASSURANCE_EXPERIMENT,
         variants=("control", "reassurance"),
-    )
+    ),
+    # control — жёсткий гейт подписки на канал до триала (текущее поведение);
+    # soft — триал сразу, предложение подписки после активации (не блокирует).
+    TRIAL_CHANNEL_GATE_EXPERIMENT: ExperimentDefinition(
+        key=TRIAL_CHANNEL_GATE_EXPERIMENT,
+        variants=("control", "soft"),
+    ),
 }
 
 

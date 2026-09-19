@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode
 from app.application.connection_check import connection_check_enabled
 from app.application.purchase_handler import PurchasePlanOption, PurchaseSummary
 from app.application.referral_handler import ReferralBalanceInfo, ReferralInfo
+from app.application.trial_channel_gate import channel_username_from_env
 from app.application.trial_feedback import CONNECTION_PROBLEM_REASONS, TRIAL_NONPAYMENT_REASONS
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, EXTRA_DEVICE_PRICE_RUBLES, MAX_DEVICE_COUNT
 from app.domain.plans import CUSTOM_DAY_PRICE_RUBLES, plan_display_name
@@ -2615,8 +2616,15 @@ def text_trial_connect_fastpath() -> str:
     )
 
 
-def trial_connect_fastpath_keyboard() -> dict[str, Any]:
-    return _inline_kb([*_connect_device_rows(), [{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}]])
+def trial_connect_fastpath_keyboard(*, channel_suggest: bool = False) -> dict[str, Any]:
+    """Клавиатура после активации триала; при channel_suggest (soft-вариант A/B
+    гейта) добавляем необязательное предложение подписки на канал."""
+    rows = [*_connect_device_rows()]
+    if channel_suggest:
+        channel_username = channel_username_from_env()
+        rows.append([{"text": "📣 Подписаться на канал", "url": f"https://t.me/{channel_username}"}])
+    rows.append([{"text": "🏠 Главное меню", "callback_data": CB_MAIN_MENU}])
+    return _inline_kb(rows)
 
 
 # ─── Custom days flow ──────────────────────────────────────────────

@@ -1225,18 +1225,26 @@ async def _handle_trial_activation(
     if id_rec is None:
         return text_error_generic(), back_only_keyboard(CB_MAIN_MENU)
 
-    # Проверяем до атомарного claim: отказ или сбой Telegram API не должны сжечь триал.
-    subscription_gate = await _channel_subscription_gate_response(
-        composition,
-        uid,
-        retry_callback_data=CB_CHECK_SUB,
-        is_trial=True,
-        retry=subscription_retry,
-    )
-    if subscription_gate is not None:
-        return subscription_gate
-
     pool = _get_pool_from_composition(composition)
+
+    # A/B гейта подписки: soft-вариант пропускает проверку канала (триал без
+    # барьера, предложение подписки — потом, на экране успеха). control — как было.
+    # Экспозиция фиксируется до claim, сбой резолва — fail-open в control.
+    from app.application.trial_gate_experiment import SOFT_VARIANT, resolve_trial_gate_variant
+
+    gate_variant = await resolve_trial_gate_variant(pool, id_rec.internal_user_id)
+
+    # Проверяем до атомарного claim: отказ или сбой Telegram API не должны сжечь триал.
+    if gate_variant != SOFT_VARIANT:
+        subscription_gate = await _channel_subscription_gate_response(
+            composition,
+            uid,
+            retry_callback_data=CB_CHECK_SUB,
+            is_trial=True,
+            retry=subscription_retry,
+        )
+        if subscription_gate is not None:
+            return subscription_gate
 
     # Atomic claim: mark trial_used = TRUE only if it was FALSE.
     # If someone else already claimed it, rows_affected == 0 → reject.
@@ -1296,7 +1304,11 @@ async def _handle_trial_activation(
     # список ключей не показываем: он может превысить лимит Telegram в 4096 знаков.
     # Главное меню остаётся доступно отдельной кнопкой, а старые подробные
     # инструкции не удаляются и используются как fallback из fast path.
-    return text_trial_connect_fastpath(), trial_connect_fastpath_keyboard()
+    # soft-варианту эксперимента гейта — необязательное предложение подписки.
+    return (
+        text_trial_connect_fastpath(),
+        trial_connect_fastpath_keyboard(channel_suggest=gate_variant == SOFT_VARIANT),
+    )
 
 
 def _broadcast_bonus_unavailable_text() -> str:

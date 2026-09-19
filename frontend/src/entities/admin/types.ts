@@ -254,9 +254,11 @@ export interface AdminExperimentResult {
   exposures: number;
   payment_created_users: number;
   paid_users: number;
+  meaningful_traffic_users: number;
   revenue_rubles: number;
   checkout_rate: number | null;
   paid_rate: number | null;
+  meaningful_traffic_rate: number | null;
 }
 
 // --- Качество данных / когорты / качество VPN (admin-quality-dashboard) ------

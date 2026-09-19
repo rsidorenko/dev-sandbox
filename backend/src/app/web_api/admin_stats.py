@@ -391,17 +391,33 @@ WITH assignments AS (
      AND b.event_effective_at >= a.assigned_at
      AND b.event_effective_at < $2
     GROUP BY a.internal_user_id, a.experiment_key
+), meaningful AS (
+    -- Накопленный bare_xray-трафик с даты назначения ≥ порога: «дошёл до
+    -- осмысленного использования VPN» (эквивалент running-sum ≥ порога из v2).
+    SELECT DISTINCT a.internal_user_id, a.experiment_key
+    FROM assignments a
+    JOIN LATERAL (
+        SELECT sum(t.uplink_bytes + t.downlink_bytes) AS total_bytes
+        FROM bare_xray_traffic_daily t
+        WHERE t.email IN ('user-' || left(a.internal_user_id, 16),
+                          'x-user-' || left(a.internal_user_id, 16))
+          AND t.stat_date >= (a.assigned_at AT TIME ZONE 'Europe/Moscow')::date
+          AND t.stat_date <= $3::date
+    ) traffic ON traffic.total_bytes >= $4
 )
 SELECT a.experiment_key, a.variant,
        count(*)::int AS exposures,
        count(pc.internal_user_id)::int AS payment_created_users,
        count(p.internal_user_id)::int AS paid_users,
+       count(m.internal_user_id)::int AS meaningful_traffic_users,
        COALESCE(sum(p.revenue_kopecks), 0)::bigint AS revenue_kopecks
 FROM assignments a
 LEFT JOIN payment_created pc
   ON pc.internal_user_id = a.internal_user_id AND pc.experiment_key = a.experiment_key
 LEFT JOIN paid p
   ON p.internal_user_id = a.internal_user_id AND p.experiment_key = a.experiment_key
+LEFT JOIN meaningful m
+  ON m.internal_user_id = a.internal_user_id AND m.experiment_key = a.experiment_key
 GROUP BY a.experiment_key, a.variant
 ORDER BY a.experiment_key, a.variant
 """
@@ -1185,13 +1201,25 @@ async def _trial_feedback_stats(pool: asyncpg.Pool, from_ts: datetime, to_ts: da
     return result
 
 
-async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> list[dict]:
-    rows = await pool.fetch(_EXPERIMENT_RESULTS, from_ts, to_ts)
+async def _experiment_results(
+    pool: asyncpg.Pool,
+    from_ts: datetime,
+    to_ts: datetime,
+    to_date: date,
+) -> list[dict]:
+    rows = await pool.fetch(
+        _EXPERIMENT_RESULTS,
+        from_ts,
+        to_ts,
+        to_date,
+        _MEANINGFUL_TRAFFIC_BYTES,
+    )
     results: list[dict] = []
     for row in rows:
         exposures = int(row["exposures"] or 0)
         created = int(row["payment_created_users"] or 0)
         paid = int(row["paid_users"] or 0)
+        meaningful = int(row["meaningful_traffic_users"] or 0)
         results.append(
             {
                 "experiment_key": row["experiment_key"],
@@ -1199,9 +1227,11 @@ async def _experiment_results(pool: asyncpg.Pool, from_ts: datetime, to_ts: date
                 "exposures": exposures,
                 "payment_created_users": created,
                 "paid_users": paid,
+                "meaningful_traffic_users": meaningful,
                 "revenue_rubles": round(int(row["revenue_kopecks"] or 0) / 100, 2),
                 "checkout_rate": round(created / exposures, 4) if exposures else None,
                 "paid_rate": round(paid / exposures, 4) if exposures else None,
+                "meaningful_traffic_rate": round(meaningful / exposures, 4) if exposures else None,
             }
         )
     return results
@@ -1430,7 +1460,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         _product_funnel(pool, window.from_ts, window.to_ts),
         _funnel_diagnostics_v2(pool, window, _completed_through_date(window, tz)),
         _trial_feedback_stats(pool, window.from_ts, window.to_ts),
-        _experiment_results(pool, window.from_ts, window.to_ts),
+        _experiment_results(pool, window.from_ts, window.to_ts, window.to_date),
         _data_health(pool, window.from_ts, window.to_ts, window.from_date, window.to_date),
         _trial_cohorts(pool, window, _completed_through_date(window, tz)),
         _vpn_quality(pool, window.from_ts, window.to_ts),

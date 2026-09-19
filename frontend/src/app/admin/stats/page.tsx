@@ -661,7 +661,7 @@ export default function AdminStatsPage() {
                 <table className="w-full min-w-[900px] text-left text-xs">
                   <thead className="bg-gray-50 text-gray-500 dark:bg-zinc-900/50 dark:text-gray-400">
                     <tr>
-                      {["Эксперимент", "Вариант", "Экспозиции", "Счёт создан", "CR в счёт", "Оплатили", "CR в оплату", "Выручка"].map((label) => (
+                      {["Эксперимент", "Вариант", "Экспозиции", "Значимый трафик", "Счёт создан", "CR в счёт", "Оплатили", "CR в оплату", "Выручка"].map((label) => (
                         <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>
                       ))}
                     </tr>
@@ -672,6 +672,7 @@ export default function AdminStatsPage() {
                         <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">{experiment.experiment_key}</td>
                         <td className="px-4 py-3 font-mono">{experiment.variant}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.exposures}</td>
+                        <td className={`px-4 py-3 ${adminNum}`}>{experiment.meaningful_traffic_users}{experiment.meaningful_traffic_rate == null ? "" : ` (${Math.round(experiment.meaningful_traffic_rate * 1000) / 10}%)`}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.payment_created_users}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.checkout_rate == null ? "—" : `${Math.round(experiment.checkout_rate * 1000) / 10}%`}</td>
                         <td className={`px-4 py-3 ${adminNum}`}>{experiment.paid_users}</td>
@@ -685,13 +686,13 @@ export default function AdminStatsPage() {
             )}
           </section>
 
-                    <QualitySection
+          <QualitySection
             dataHealth={dataHealth}
             trialCohorts={trialCohorts}
             vpnQuality={vpnQuality}
           />
 
-<section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+          <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-1 border-b border-gray-200 px-5 py-4 dark:border-zinc-700 sm:flex-row sm:items-baseline sm:justify-between">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Экономика Telegram Ads</h2>
               <span className="text-xs text-gray-400 dark:text-gray-500">
