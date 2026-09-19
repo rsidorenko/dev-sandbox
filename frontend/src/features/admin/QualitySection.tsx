@@ -250,7 +250,7 @@ export function QualitySection({
             <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>
-                  {["Уведомление", "Доставлено", "Оплатили", "Holdout", "Оплатили", "Разница"].map((label) => (
+                  {["Уведомление", "Доставлено", "Оплатили после доставки", "Holdout", "Оплатили в holdout", "Разница"].map((label) => (
                     <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
                       {label}
                     </th>

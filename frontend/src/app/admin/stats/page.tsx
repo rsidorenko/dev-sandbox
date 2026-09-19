@@ -106,6 +106,8 @@ const feedbackLabels: Record<string, string> = {
   mac: "macOS",
   win: "Windows",
   tv: "TV",
+  telegram: "Telegram",
+  web: "Страница /check",
 };
 
 function formatPlatforms(platforms: AdminTelegramAdsPlatformUsers): string {
@@ -611,7 +613,7 @@ export default function AdminStatsPage() {
               <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Почему отваливаются пользователи</h3>
                 <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                  Закрытые ответы из Telegram · повторный ответ пользователя заменяет предыдущий
+                  Закрытые ответы из Telegram и /check · повторный ответ заменяет предыдущий только в том же источнике
                 </p>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   {([
@@ -635,9 +637,9 @@ export default function AdminStatsPage() {
                       ) : (
                         <div className="px-4 py-5 text-xs text-gray-400">Пока нет ответов за период</div>
                       )}
-                      {(bucket.routes.length > 0 || bucket.platforms.length > 0) && (
+                      {(bucket.routes.length > 0 || bucket.platforms.length > 0 || bucket.surfaces.length > 0) && (
                         <div className="border-t border-gray-100 px-4 py-3 text-xs text-gray-400 dark:border-zinc-700">
-                          {[...bucket.routes, ...bucket.platforms]
+                          {[...bucket.surfaces, ...bucket.routes, ...bucket.platforms]
                             .map((item) => `${feedbackLabels[item.code] ?? item.code}: ${item.users}`)
                             .join(" · ")}
                         </div>

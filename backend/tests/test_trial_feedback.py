@@ -12,7 +12,7 @@ import pytest
 
 from app.application.trial_feedback import record_trial_feedback
 from app.bot_transport.storefront_ui import (
-    CB_MAIN_MENU,
+    CB_BUY_VPN,
     CB_TRIAL_FEEDBACK_ANSWER,
     connection_feedback_keyboard,
     parse_trial_feedback_answer,
@@ -62,7 +62,7 @@ def test_connection_feedback_callback_is_closed_and_under_telegram_limit(route_t
 
 def test_nonpayment_feedback_callback_and_skip_are_safe() -> None:
     callbacks = _callbacks(trial_nonpayment_feedback_keyboard())
-    assert CB_MAIN_MENU in callbacks
+    assert CB_BUY_VPN in callbacks
     assert parse_trial_feedback_answer(f"{CB_TRIAL_FEEDBACK_ANSWER}n:too_expensive") == (
         "trial_nonpayment",
         "too_expensive",
@@ -109,8 +109,8 @@ def test_recorder_uses_idempotent_upsert_and_fails_open() -> None:
         )
     )
     sql, *args = pool.execute.await_args.args
-    assert "ON CONFLICT (internal_user_id, feedback_type, platform) DO UPDATE" in sql
-    assert args == ["connection_problem", "connect_failed", "ios", "guided", None, 42]
+    assert "ON CONFLICT (internal_user_id, feedback_type, platform, surface) DO UPDATE" in sql
+    assert args == ["connection_problem", "connect_failed", "ios", "guided", "telegram", None, 42]
 
     pool.execute.side_effect = RuntimeError("database unavailable")
     assert not _run(
@@ -151,11 +151,24 @@ async def test_postgres_recorder_updates_one_current_answer(pg_url: str) -> None
             platform="ios",
             connection_route="guided",
         )
+        assert await record_trial_feedback(
+            pool,
+            feedback_type="connection_problem",
+            reason_code="import_failed",
+            internal_user_id=internal_user_id,
+            platform="ios",
+            connection_route="",
+            surface="web",
+        )
         rows = await pool.fetch(
-            "SELECT reason_code,connection_route FROM trial_feedback WHERE internal_user_id=$1",
+            "SELECT reason_code,connection_route,surface FROM trial_feedback "
+            "WHERE internal_user_id=$1 ORDER BY surface",
             internal_user_id,
         )
-        assert [dict(row) for row in rows] == [{"reason_code": "traffic_failed", "connection_route": "guided"}]
+        assert [dict(row) for row in rows] == [
+            {"reason_code": "traffic_failed", "connection_route": "guided", "surface": "telegram"},
+            {"reason_code": "import_failed", "connection_route": "", "surface": "web"},
+        ]
     finally:
         await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", internal_user_id)
 
@@ -182,12 +195,14 @@ async def test_postgres_accepts_web_route_empty_connection_problem(pg_url: str) 
             internal_user_id=internal_user_id,
             platform="",
             connection_route="",
+            surface="web",
         )
         row = await pool.fetchrow(
-            "SELECT reason_code FROM trial_feedback WHERE internal_user_id=$1 AND feedback_type='connection_problem'",
+            "SELECT reason_code,surface FROM trial_feedback "
+            "WHERE internal_user_id=$1 AND feedback_type='connection_problem'",
             internal_user_id,
         )
-        assert row is not None and row["reason_code"] == "connect_failed"
+        assert row is not None and row["reason_code"] == "connect_failed" and row["surface"] == "web"
     finally:
         await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", internal_user_id)
         await pool.close()

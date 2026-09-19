@@ -582,12 +582,14 @@ async def test_trial_feedback_stats_excludes_internal_and_nakrut_users(pg_url):
                 {"code": "direct", "users": 1},
                 {"code": "guided", "users": 1},
             ],
+            "surfaces": [{"code": "telegram", "users": 2}],
         }
         assert result["trial_nonpayment"] == {
             "respondents": 1,
             "reasons": [{"code": "too_expensive", "users": 1}],
             "platforms": [],
             "routes": [],
+            "surfaces": [{"code": "telegram", "users": 1}],
         }
     finally:
         await _cleanup(pool)
@@ -670,8 +672,9 @@ async def test_admin_stats_quality_blocks(pg_url, admin_env):
             )
             # Web-причина проблемы с пустым маршрутом (после миграции 094).
             await conn.execute(
-                "INSERT INTO trial_feedback (internal_user_id, feedback_type, reason_code, platform, connection_route) "
-                "VALUES ($1, 'connection_problem', 'connect_failed', '', '')",
+                "INSERT INTO trial_feedback "
+                "(internal_user_id, feedback_type, reason_code, platform, connection_route, surface) "
+                "VALUES ($1, 'connection_problem', 'connect_failed', '', '', 'web')",
                 u2,
             )
             # Проверки подключения: три connected на «Test NL» (latency 100/200/300 → p50=200,

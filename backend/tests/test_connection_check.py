@@ -382,6 +382,7 @@ async def test_feedback_problem_records_reason(mock_servers) -> None:
     assert len(feedback_calls) == 1
     sql, *args = feedback_calls[0].args
     assert args[0] == "connection_problem" and args[1] == "connect_failed" and args[3] == ""
+    assert args[4] == "web"
 
 
 async def test_feedback_rejects_invalid_verdict_and_reason(mock_servers) -> None:

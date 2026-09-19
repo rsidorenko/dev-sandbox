@@ -56,6 +56,7 @@ export function ConnectionCheckCard({ token }: { token: string }) {
   const [latency, setLatency] = useState<number | null>(null);
   const [throughput, setThroughput] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(false);
   const runId = useRef(0);
 
   const runCheck = useCallback(async () => {
@@ -64,6 +65,7 @@ export function ConnectionCheckCard({ token }: { token: string }) {
     setLatency(null);
     setThroughput(null);
     setStatus(null);
+    setFeedbackError(false);
 
     const statusRes = await checkApi.status(token);
     if (currentRun !== runId.current) return;
@@ -112,12 +114,17 @@ export function ConnectionCheckCard({ token }: { token: string }) {
   const sendFeedback = useCallback(
     async (verdict: "ok" | "problem", reasonCode?: string) => {
       setSending(true);
-      await checkApi.feedback(token, {
+      setFeedbackError(false);
+      const result = await checkApi.feedback(token, {
         verdict,
         reason_code: reasonCode,
         platform: detectPlatformFromUA(navigator.userAgent),
       });
       setSending(false);
+      if (!result.ok) {
+        setFeedbackError(true);
+        return;
+      }
       setPhase(verdict === "ok" ? "thanks-ok" : "thanks-problem");
     },
     [token],
@@ -244,6 +251,11 @@ export function ConnectionCheckCard({ token }: { token: string }) {
                 </button>
               ))}
             </div>
+          )}
+          {feedbackError && (
+            <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+              Не удалось отправить ответ. Проверьте интернет и попробуйте ещё раз.
+            </p>
           )}
         </>
       )}

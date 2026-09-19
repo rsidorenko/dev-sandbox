@@ -242,6 +242,7 @@ export interface AdminTrialFeedbackBucket {
   reasons: AdminTrialFeedbackItem[];
   platforms: AdminTrialFeedbackItem[];
   routes: AdminTrialFeedbackItem[];
+  surfaces: AdminTrialFeedbackItem[];
 }
 
 export interface AdminTrialFeedback {

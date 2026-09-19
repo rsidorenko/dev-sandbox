@@ -273,5 +273,6 @@ async def handle_check_feedback(request: Request) -> JSONResponse:
             internal_user_id=internal_user_id,
             platform=platform,
             connection_route="",
+            surface="web",
         )
     return JSONResponse({"ok": True, "feedback_stored": feedback_stored})

@@ -141,6 +141,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "094_trial_feedback_web_route.sql",
         "095_notification_holdout_status.sql",
         "096_vpn_servers_connection_check_host.sql",
+        "097_trial_feedback_surface.sql",
     ]
 
 

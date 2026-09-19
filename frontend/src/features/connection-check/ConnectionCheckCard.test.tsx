@@ -116,6 +116,19 @@ describe("ConnectionCheckCard", () => {
     expect(await screen.findByText("Спасибо!")).toBeInTheDocument();
   });
 
+  it("does not show thanks when feedback API fails", async () => {
+    mockHappyPath();
+    checkApi.feedback.mockResolvedValueOnce({ ok: false, error: "network_error" });
+    render(<ConnectionCheckCard token="tok123" />);
+    await screen.findByText("VPN подключён");
+
+    await userEvent.click(screen.getByText("✅ Всё работает"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось отправить ответ");
+    expect(screen.queryByText("Спасибо!")).not.toBeInTheDocument();
+    expect(screen.getByText("✅ Всё работает")).toBeInTheDocument();
+  });
+
   it("renders invalid-link state on 404", async () => {
     checkApi.status.mockResolvedValue({ ok: false, error: "not_found" });
     render(<ConnectionCheckCard token="bad" />);

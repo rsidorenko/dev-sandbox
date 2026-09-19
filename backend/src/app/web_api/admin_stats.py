@@ -348,7 +348,7 @@ FROM cohort
 
 _TRIAL_FEEDBACK_STATS = """
 WITH base AS (
-    SELECT f.internal_user_id, f.feedback_type, f.reason_code, f.platform, f.connection_route
+    SELECT f.internal_user_id, f.feedback_type, f.reason_code, f.platform, f.connection_route, f.surface
     FROM trial_feedback f
     JOIN analytics_eligible_user_ids e USING (internal_user_id)
     WHERE f.updated_at >= $1 AND f.updated_at < $2
@@ -365,6 +365,9 @@ WITH base AS (
     UNION ALL
     SELECT feedback_type, 'route', connection_route, count(DISTINCT internal_user_id)::int
     FROM base WHERE connection_route <> '' GROUP BY feedback_type, connection_route
+    UNION ALL
+    SELECT feedback_type, 'surface', surface, count(DISTINCT internal_user_id)::int
+    FROM base GROUP BY feedback_type, surface
 )
 SELECT feedback_type, dimension, value, users
 FROM breakdown
@@ -1229,13 +1232,13 @@ async def _trial_feedback_stats(pool: asyncpg.Pool, from_ts: datetime, to_ts: da
     rows = await pool.fetch(_TRIAL_FEEDBACK_STATS, from_ts, to_ts)
 
     def empty_bucket() -> dict:
-        return {"respondents": 0, "reasons": [], "platforms": [], "routes": []}
+        return {"respondents": 0, "reasons": [], "platforms": [], "routes": [], "surfaces": []}
 
     result = {
         "connection_problem": empty_bucket(),
         "trial_nonpayment": empty_bucket(),
     }
-    dimension_keys = {"reason": "reasons", "platform": "platforms", "route": "routes"}
+    dimension_keys = {"reason": "reasons", "platform": "platforms", "route": "routes", "surface": "surfaces"}
     for row in rows:
         feedback_type = str(row["feedback_type"])
         if feedback_type not in result:

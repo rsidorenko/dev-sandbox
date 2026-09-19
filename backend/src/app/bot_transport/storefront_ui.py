@@ -2064,7 +2064,7 @@ def trial_nonpayment_feedback_keyboard() -> dict[str, Any]:
         [{"text": label, "callback_data": f"{CB_TRIAL_FEEDBACK_ANSWER}n:{reason}"}]
         for reason, label in _NONPAYMENT_FEEDBACK_LABELS
     ]
-    rows.append([{"text": "Пропустить", "callback_data": CB_MAIN_MENU}])
+    rows.append([{"text": "Пропустить и вернуться к тарифам", "callback_data": CB_BUY_VPN}])
     return _inline_kb(rows)
 
 
