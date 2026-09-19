@@ -18,3 +18,16 @@ def test_production_env_example_documents_trial_channel_gate_settings() -> None:
 
     assert "TRIAL_CHANNEL_SUBSCRIBE_ENABLE=" in env_example
     assert "TRIAL_CHANNEL_USERNAME=bravada_vpn" in env_example
+
+
+def test_experimental_features_are_opt_in_in_production_compose() -> None:
+    compose_path = Path(__file__).resolve().parents[2] / "docker-compose.prod.yml"
+    compose = compose_path.read_text(encoding="utf-8")
+
+    for variable in (
+        "CONNECTION_CHECK_ENABLE",
+        "EXPERIMENT_CHANNEL_GATE_ENABLE",
+        "EXPERIMENT_TRIAL_DURATION_ENABLE",
+        "NOTIFICATION_HOLDOUT_ENABLE",
+    ):
+        assert f"{variable}: ${{{variable}:-0}}" in compose

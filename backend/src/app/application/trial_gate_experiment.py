@@ -39,14 +39,24 @@ async def resolve_trial_gate_variant(pool: Any, internal_user_id: str | None) ->
     except ValueError:
         return CONTROL_VARIANT
     try:
-        await pool.execute(
-            "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant) "
-            "VALUES ($1, $2, $3) ON CONFLICT (internal_user_id, experiment_key) DO NOTHING",
+        persisted_variant = await pool.fetchval(
+            """WITH inserted AS (
+                   INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (internal_user_id, experiment_key) DO NOTHING
+                   RETURNING variant
+               )
+               SELECT variant FROM inserted
+               UNION ALL
+               SELECT variant FROM experiment_assignments
+               WHERE internal_user_id = $1 AND experiment_key = $2
+               LIMIT 1""",
             internal_user_id,
             TRIAL_CHANNEL_GATE_EXPERIMENT,
             variant,
         )
     except Exception:
-        # Назначение — аналитика; сбой записи не должен менять пользовательский flow.
+        # Эксперимент не должен ослаблять гейт без наблюдаемого назначения.
         _LOGGER.warning("trial_gate_experiment.assignment_write_failed")
-    return variant
+        return CONTROL_VARIANT
+    return persisted_variant if persisted_variant in (CONTROL_VARIANT, SOFT_VARIANT) else CONTROL_VARIANT

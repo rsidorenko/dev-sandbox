@@ -20,6 +20,15 @@ type Status =
 const TG_FALLBACK = `https://t.me/${siteConfig.botUsername}?start=trial`;
 const CHANNEL_URL = "https://t.me/bravada_vpn";
 
+function pluralizeDays(days: number): string {
+  const mod100 = days % 100;
+  const mod10 = days % 10;
+  if (mod100 >= 11 && mod100 <= 14) return "дней";
+  if (mod10 === 1) return "день";
+  if (mod10 >= 2 && mod10 <= 4) return "дня";
+  return "дней";
+}
+
 export default function TrialPage() {
   const { loading, authenticated, profile, refresh } = useAuth();
   const router = useRouter();
@@ -116,8 +125,8 @@ export default function TrialPage() {
                 Готово! Ключи для триала созданы
               </h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Полные {trialDays} дня начнутся после первого подключения. Подключите VPN в
-                течение {trialDays} дней — ключи и ссылка уже доступны в личном кабинете.
+                Полные {trialDays} {pluralizeDays(trialDays)} начнутся после первого подключения. Подключите VPN в
+                течение {trialDays} {pluralizeDays(trialDays)} — ключи и ссылка уже доступны в личном кабинете.
               </p>
               <div className="mt-6 flex flex-col gap-2">
                 <Link

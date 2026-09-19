@@ -67,26 +67,34 @@ def test_resolver_fail_open_when_disabled_or_no_pool(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_TRIAL_DURATION_ENABLE", "1")
     assert asyncio.run(resolve_trial_duration_days(None, "user-1")) == 3
     assert asyncio.run(resolve_trial_duration_days(pool, None)) == 3
-    pool.execute.assert_not_called()
+    pool.fetchval.assert_not_called()
 
 
 def test_resolver_returns_registry_days_and_persists(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_TRIAL_DURATION_ENABLE", "1")
     pool = AsyncMock()
-    days = asyncio.run(resolve_trial_duration_days(pool, "user-1"))
     variant = assign_experiment_variant(internal_user_id="user-1", experiment_key=TRIAL_DURATION_EXPERIMENT)
+    pool.fetchval.return_value = variant
+    days = asyncio.run(resolve_trial_duration_days(pool, "user-1"))
     assert days == TRIAL_DURATION_VARIANTS_DAYS[variant]
     assert days in (3, 7)
-    sql, *args = pool.execute.await_args.args
+    sql, *args = pool.fetchval.await_args.args
     assert "INSERT INTO experiment_assignments" in sql
     assert args == ["user-1", TRIAL_DURATION_EXPERIMENT, variant]
 
 
-def test_resolver_db_write_failure_still_returns_days(monkeypatch) -> None:
+def test_resolver_db_write_failure_returns_control_days(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_TRIAL_DURATION_ENABLE", "1")
     pool = AsyncMock()
-    pool.execute.side_effect = RuntimeError("database unavailable")
-    assert asyncio.run(resolve_trial_duration_days(pool, "user-1")) in (3, 7)
+    pool.fetchval.side_effect = RuntimeError("database unavailable")
+    assert asyncio.run(resolve_trial_duration_days(pool, "user-1")) == 3
+
+
+def test_resolver_uses_persisted_variant_days(monkeypatch) -> None:
+    monkeypatch.setenv("EXPERIMENT_TRIAL_DURATION_ENABLE", "1")
+    pool = AsyncMock()
+    pool.fetchval.return_value = "7d"
+    assert asyncio.run(resolve_trial_duration_days(pool, "user-1")) == 7
 
 
 def test_variant_days_mapping_is_closed() -> None:

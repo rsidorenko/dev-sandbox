@@ -159,7 +159,7 @@ def text_trial_expiring_6h(
 def text_trial_expired() -> tuple[str, dict[str, Any]]:
     text = (
         "🔒 <b>Bravada VPN приостановлен</b>\n\n"
-        "Бесплатные 3 дня закончились, но приложение и настройки сохранены. "
+        "Пробный период закончился, но приложение и настройки сохранены. "
         "После оплаты доступ вернётся автоматически — подключать всё заново не придётся."
     )
     keyboard = _inline_kb([[{"text": "⚡ Вернуть VPN", "callback_data": CB_BUY_VPN, "style": "success"}]])

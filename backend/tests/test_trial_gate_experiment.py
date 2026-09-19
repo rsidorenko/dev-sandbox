@@ -46,15 +46,17 @@ def test_resolver_returns_control_when_disabled_or_no_pool(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_CHANNEL_GATE_ENABLE", "1")
     assert asyncio.run(resolve_trial_gate_variant(None, "user-1")) == CONTROL_VARIANT
     assert asyncio.run(resolve_trial_gate_variant(pool, None)) == CONTROL_VARIANT
-    pool.execute.assert_not_called()
+    pool.fetchval.assert_not_called()
 
 
 def test_resolver_assigns_and_persisted_idempotently(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_CHANNEL_GATE_ENABLE", "1")
     pool = AsyncMock()
+    expected = assign_experiment_variant(internal_user_id="user-1", experiment_key=TRIAL_CHANNEL_GATE_EXPERIMENT)
+    pool.fetchval.return_value = expected
     variant = asyncio.run(resolve_trial_gate_variant(pool, "user-1"))
     assert variant in (CONTROL_VARIANT, SOFT_VARIANT)
-    sql, *args = pool.execute.await_args.args
+    sql, *args = pool.fetchval.await_args.args
     assert "INSERT INTO experiment_assignments" in sql
     assert "ON CONFLICT (internal_user_id, experiment_key) DO NOTHING" in sql
     assert args == ["user-1", TRIAL_CHANNEL_GATE_EXPERIMENT, variant]
@@ -65,9 +67,16 @@ def test_resolver_assigns_and_persisted_idempotently(monkeypatch) -> None:
 def test_resolver_fails_open_on_db_error(monkeypatch) -> None:
     monkeypatch.setenv("EXPERIMENT_CHANNEL_GATE_ENABLE", "1")
     pool = AsyncMock()
-    pool.execute.side_effect = RuntimeError("database unavailable")
+    pool.fetchval.side_effect = RuntimeError("database unavailable")
     variant = asyncio.run(resolve_trial_gate_variant(pool, "user-1"))
-    assert variant in (CONTROL_VARIANT, SOFT_VARIANT)  # назначение живёт, запись — нет
+    assert variant == CONTROL_VARIANT
+
+
+def test_resolver_returns_already_persisted_variant(monkeypatch) -> None:
+    monkeypatch.setenv("EXPERIMENT_CHANNEL_GATE_ENABLE", "1")
+    pool = AsyncMock()
+    pool.fetchval.return_value = SOFT_VARIANT
+    assert asyncio.run(resolve_trial_gate_variant(pool, "user-1")) == SOFT_VARIANT
 
 
 def test_trial_fastpath_keyboard_channel_suggest(monkeypatch) -> None:

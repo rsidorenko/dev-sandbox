@@ -47,14 +47,25 @@ async def resolve_trial_duration_days(pool: Any, internal_user_id: str | None) -
     except ValueError:
         return TRIAL_DURATION_DAYS
     try:
-        await pool.execute(
-            "INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant) "
-            "VALUES ($1, $2, $3) ON CONFLICT (internal_user_id, experiment_key) DO NOTHING",
+        persisted_variant = await pool.fetchval(
+            """WITH inserted AS (
+                   INSERT INTO experiment_assignments (internal_user_id, experiment_key, variant)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (internal_user_id, experiment_key) DO NOTHING
+                   RETURNING variant
+               )
+               SELECT variant FROM inserted
+               UNION ALL
+               SELECT variant FROM experiment_assignments
+               WHERE internal_user_id = $1 AND experiment_key = $2
+               LIMIT 1""",
             internal_user_id,
             TRIAL_DURATION_EXPERIMENT,
             variant,
         )
     except Exception:
-        # Назначение — аналитика; сбой записи не должен менять пользовательский flow.
+        # Без сохранённого назначения нельзя безопасно выдать альтернативный срок:
+        # scheduler первого трафика читает тот же persisted variant.
         _LOGGER.warning("trial_duration_experiment.assignment_write_failed")
-    return trial_days_for_variant(variant)
+        return TRIAL_DURATION_DAYS
+    return trial_days_for_variant(str(persisted_variant))
