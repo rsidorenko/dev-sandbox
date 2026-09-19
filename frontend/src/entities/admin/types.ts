@@ -346,7 +346,10 @@ export interface AdminVpnQuality {
 }
 
 export interface AdminNotificationHoldoutBucket {
+  /** Зрелые наблюдения с полным 7-дневным окном; знаменатель paid_rate. */
   users: number;
+  total_users: number;
+  pending_users: number;
   paid_users: number;
   paid_rate: number | null;
 }

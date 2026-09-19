@@ -718,19 +718,29 @@ ORDER BY users DESC, t.reason_code
 """
 
 # Эффект nudge-уведомлений: delivered vs holdout (контрольная группа без отправки),
-# оплата в течение 7 дней после даты уведомления.
+# оплата в точные 7 суток после sent_at; CR только по полностью зрелым окнам.
 _NOTIFICATION_HOLDOUT_STATS = """
 WITH notes AS (
-    SELECT n.internal_user_id, n.notification_type, n.delivery_status, n.sent_date
+    SELECT DISTINCT ON (n.internal_user_id, n.notification_type, n.delivery_status)
+           n.internal_user_id, n.notification_type, n.delivery_status, n.sent_at
     FROM notification_log n
     JOIN analytics_eligible_user_ids e USING (internal_user_id)
     WHERE n.delivery_status IN ('delivered', 'holdout')
       AND n.sent_at >= $1 AND n.sent_at < $2
+    ORDER BY n.internal_user_id, n.notification_type, n.delivery_status, n.sent_at
 )
 SELECT n.notification_type,
        n.delivery_status,
-       count(DISTINCT n.internal_user_id)::int AS users,
-       count(DISTINCT b.internal_user_id)::int AS paid_users
+       count(DISTINCT n.internal_user_id)::int AS total_users,
+       count(DISTINCT n.internal_user_id) FILTER (
+           WHERE n.sent_at + interval '7 days' <= $2
+       )::int AS users,
+       count(DISTINCT n.internal_user_id) FILTER (
+           WHERE n.sent_at + interval '7 days' > $2
+       )::int AS pending_users,
+       count(DISTINCT b.internal_user_id) FILTER (
+           WHERE n.sent_at + interval '7 days' <= $2
+       )::int AS paid_users
 FROM notes n
 LEFT JOIN billing_events_ledger b
   ON b.internal_user_id = n.internal_user_id
@@ -740,8 +750,8 @@ LEFT JOIN billing_events_ledger b
  AND b.internal_fact_ref NOT LIKE 'grant:%'
  AND b.amount_minor_units > 0
  AND b.currency_code = 'RUB'
- AND b.event_effective_at >= n.sent_date
- AND b.event_effective_at < n.sent_date + 8
+ AND b.event_effective_at >= n.sent_at
+ AND b.event_effective_at < n.sent_at + interval '7 days'
 GROUP BY n.notification_type, n.delivery_status
 ORDER BY n.notification_type, n.delivery_status
 """
@@ -1459,16 +1469,32 @@ async def _notification_holdout_stats(pool: asyncpg.Pool, from_ts: datetime, to_
         notification_type = str(row["notification_type"])
         status = str(row["delivery_status"])
         users = int(row["users"] or 0)
+        total_users = int(row["total_users"] or 0)
+        pending_users = int(row["pending_users"] or 0)
         paid = int(row["paid_users"] or 0)
         bucket = result.setdefault(
             notification_type,
             {
-                "delivered": {"users": 0, "paid_users": 0, "paid_rate": None},
-                "holdout": {"users": 0, "paid_users": 0, "paid_rate": None},
+                "delivered": {
+                    "users": 0,
+                    "total_users": 0,
+                    "pending_users": 0,
+                    "paid_users": 0,
+                    "paid_rate": None,
+                },
+                "holdout": {
+                    "users": 0,
+                    "total_users": 0,
+                    "pending_users": 0,
+                    "paid_users": 0,
+                    "paid_rate": None,
+                },
             },
         )
         bucket[status] = {
             "users": users,
+            "total_users": total_users,
+            "pending_users": pending_users,
             "paid_users": paid,
             "paid_rate": round(paid / users, 4) if users else None,
         }

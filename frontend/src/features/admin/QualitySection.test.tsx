@@ -70,8 +70,8 @@ const VPN_QUALITY: AdminVpnQuality = {
 
 const HOLDOUT: AdminNotificationHoldout = {
   trial_expiring_24h: {
-    delivered: { users: 40, paid_users: 6, paid_rate: 0.15 },
-    holdout: { users: 5, paid_users: 0, paid_rate: 0.0 },
+    delivered: { users: 40, total_users: 45, pending_users: 5, paid_users: 6, paid_rate: 0.15 },
+    holdout: { users: 5, total_users: 6, pending_users: 1, paid_users: 0, paid_rate: 0.0 },
   },
 };
 
@@ -125,6 +125,8 @@ describe("QualitySection", () => {
     );
     expect(screen.getByText("Эффект уведомлений (holdout)")).toBeInTheDocument();
     expect(screen.getByText("trial_expiring_24h")).toBeInTheDocument();
+    expect(screen.getByText("40/45 (5 ожидают)")).toBeInTheDocument();
+    expect(screen.getByText("5/6 (1 ожидают)")).toBeInTheDocument();
     expect(screen.getByText("6 (15%)")).toBeInTheDocument();
     expect(screen.getByText("+15 п.п.")).toBeInTheDocument();
   });

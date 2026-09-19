@@ -243,14 +243,14 @@ export function QualitySection({
         <div className="border-t border-gray-200 p-5 dark:border-zinc-700">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эффект уведомлений (holdout)</h3>
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-            Контрольная группа не получает nudge-уведомление · конверсия = оплата в течение 7 дней после даты
-            уведомления · не судите по маленьким выборкам
+            Контрольная группа не получает nudge-уведомление · конверсия = оплата в точные 7 суток после
+            отправки · CR считается только по зрелым наблюдениям
           </p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>
-                  {["Уведомление", "Доставлено", "Оплатили после доставки", "Holdout", "Оплатили в holdout", "Разница"].map((label) => (
+                  {["Уведомление", "Доставлено: зрелые/всего", "Оплатили после доставки", "Holdout: зрелые/всего", "Оплатили в holdout", "Разница"].map((label) => (
                     <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
                       {label}
                     </th>
@@ -270,12 +270,18 @@ export function QualitySection({
                       <td className="whitespace-nowrap px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">
                         {type}
                       </td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{delivered.users}</td>
+                      <td className={`px-3 py-2 ${adminNum}`}>
+                        {delivered.users}/{delivered.total_users}
+                        {delivered.pending_users > 0 && ` (${delivered.pending_users} ожидают)`}
+                      </td>
                       <td className={`px-3 py-2 ${adminNum}`}>
                         {delivered.paid_users}
                         {delivered.paid_rate != null && ` (${Math.round(delivered.paid_rate * 1000) / 10}%)`}
                       </td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{holdout.users}</td>
+                      <td className={`px-3 py-2 ${adminNum}`}>
+                        {holdout.users}/{holdout.total_users}
+                        {holdout.pending_users > 0 && ` (${holdout.pending_users} ожидают)`}
+                      </td>
                       <td className={`px-3 py-2 ${adminNum}`}>
                         {holdout.paid_users}
                         {holdout.paid_rate != null && ` (${Math.round(holdout.paid_rate * 1000) / 10}%)`}

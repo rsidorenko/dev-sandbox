@@ -115,15 +115,19 @@ def test_scheduler_holdout_writes_status_and_skips_send(monkeypatch) -> None:
 
 
 async def test_postgres_holdout_stats_and_status_constraint(pg_url: str) -> None:
-    """Миграция допускает 'holdout'; агрегат считает delivered vs holdout с оплатой ≤7д."""
+    """CR использует только зрелые окна и не считает оплату до sent_at."""
     import asyncpg
 
     pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
     u_sent = "test-holdout-sent"
     u_held = "test-holdout-held"
+    u_pending = "test-holdout-pending"
+    now = datetime.now(UTC)
+    mature_at = now - timedelta(days=8)
+    pending_at = now - timedelta(days=1)
     try:
         await apply_postgres_migrations(pool, migrations_directory=Path(__file__).resolve().parents[1] / "migrations")
-        for uid in (u_sent, u_held):
+        for uid in (u_sent, u_held, u_pending):
             await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", uid)
             await pool.execute(
                 "INSERT INTO user_identities (internal_user_id, telegram_user_id) "
@@ -131,38 +135,67 @@ async def test_postgres_holdout_stats_and_status_constraint(pg_url: str) -> None
                 uid,
             )
         await pool.execute(
-            "INSERT INTO notification_log (internal_user_id, notification_type, delivery_status) "
-            "VALUES ($1, 'trial_expiring_24h', 'delivered')",
+            "INSERT INTO notification_log "
+            "(internal_user_id, notification_type, delivery_status, sent_at, sent_date) "
+            "VALUES ($1, 'trial_expiring_24h', 'delivered', $2, $3)",
             u_sent,
+            mature_at,
+            mature_at.date(),
         )
         await pool.execute(
-            "INSERT INTO notification_log (internal_user_id, notification_type, delivery_status) "
-            "VALUES ($1, 'trial_expiring_24h', 'holdout')",
+            "INSERT INTO notification_log "
+            "(internal_user_id, notification_type, delivery_status, sent_at, sent_date) "
+            "VALUES ($1, 'trial_expiring_24h', 'holdout', $2, $3)",
             u_held,
+            mature_at,
+            mature_at.date(),
         )
-        # Оплата у получившего уведомление — внутри 7-дневного окна.
         await pool.execute(
+            "INSERT INTO notification_log "
+            "(internal_user_id, notification_type, delivery_status, sent_at, sent_date) "
+            "VALUES ($1, 'trial_expiring_24h', 'delivered', $2, $3)",
+            u_pending,
+            pending_at,
+            pending_at.date(),
+        )
+        # Только первая оплата входит в CR: у holdout она произошла до exposure,
+        # у pending — после exposure, но полное 7-дневное окно ещё не завершено.
+        await pool.executemany(
             "INSERT INTO billing_events_ledger "
             "(internal_fact_ref, billing_provider_key, external_event_id, event_type, "
             " event_effective_at, event_received_at, internal_user_id, amount_minor_units, "
             " currency_code, status, ingestion_correlation_id) "
-            "VALUES ('test-holdout-pay-1', 'yookassa', 'ext-h-1', 'subscription_activated', "
-            "NOW(), NOW(), $1, 24900, 'RUB', 'accepted', 'cid-h')",
-            u_sent,
+            "VALUES ($1, 'yookassa', $2, 'subscription_activated', "
+            "$3, $3, $4, 24900, 'RUB', 'accepted', 'cid-h')",
+            [
+                ("test-holdout-pay-1", "ext-h-1", mature_at + timedelta(days=1), u_sent),
+                ("test-holdout-pay-pre", "ext-h-pre", mature_at - timedelta(days=1), u_held),
+                ("test-holdout-pay-pending", "ext-h-pending", pending_at + timedelta(hours=1), u_pending),
+            ],
         )
 
-        stats = await _notification_holdout_stats(pool, datetime.now(UTC) - timedelta(days=7), datetime.now(UTC))
+        stats = await _notification_holdout_stats(pool, now - timedelta(days=30), now)
         trial_expiring = stats["trial_expiring_24h"]
         assert trial_expiring["delivered"]["users"] == 1
+        assert trial_expiring["delivered"]["total_users"] == 2
+        assert trial_expiring["delivered"]["pending_users"] == 1
         assert trial_expiring["delivered"]["paid_users"] == 1
         assert trial_expiring["delivered"]["paid_rate"] == 1.0
         assert trial_expiring["holdout"]["users"] == 1
+        assert trial_expiring["holdout"]["total_users"] == 1
+        assert trial_expiring["holdout"]["pending_users"] == 0
         assert trial_expiring["holdout"]["paid_users"] == 0
         assert trial_expiring["holdout"]["paid_rate"] == 0.0
     finally:
         await pool.execute("DELETE FROM billing_events_ledger WHERE internal_fact_ref LIKE 'test-holdout-pay%'")
-        await pool.execute("DELETE FROM notification_log WHERE internal_user_id = ANY($1)", [u_sent, u_held])
-        await pool.execute("DELETE FROM user_identities WHERE internal_user_id = ANY($1)", [u_sent, u_held])
+        await pool.execute(
+            "DELETE FROM notification_log WHERE internal_user_id = ANY($1)",
+            [u_sent, u_held, u_pending],
+        )
+        await pool.execute(
+            "DELETE FROM user_identities WHERE internal_user_id = ANY($1)",
+            [u_sent, u_held, u_pending],
+        )
         await pool.close()
 
 
