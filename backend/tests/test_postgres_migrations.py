@@ -134,6 +134,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "087_checkout_recovery_context.sql",
         "088_two_sided_referral.sql",
         "089_experiment_assignments.sql",
+        "090_analytics_eligible_users.sql",
     ]
 
 

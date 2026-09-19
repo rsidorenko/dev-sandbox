@@ -105,8 +105,16 @@ export const adminApi = {
       body: JSON.stringify(payload),
     });
   },
-  stats(period: AdminStatsPeriod, tz = "Europe/Moscow") {
+  stats(
+    period: AdminStatsPeriod,
+    tz = "Europe/Moscow",
+    customRange?: { dateFrom: string; dateTo: string },
+  ) {
     const q = new URLSearchParams({ period, tz });
+    if (period === "custom" && customRange) {
+      q.set("date_from", customRange.dateFrom);
+      q.set("date_to", customRange.dateTo);
+    }
     return adminFetch<AdminStatsResponse>(`/api/v1/admin/stats?${q.toString()}`);
   },
   setTelegramAdsSpend(payload: { campaign_key: string; spend_date: string; amount_rubles: string }) {

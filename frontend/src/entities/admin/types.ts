@@ -127,14 +127,18 @@ export interface AdminGlobalDiscountPayload {
 
 // /api/v1/admin/stats — агрегированный дашборд статистики за период.
 
-export type AdminStatsPeriod = "1d" | "7d" | "30d" | "90d" | "all";
+export type AdminStatsPeriod = "1d" | "7d" | "30d" | "90d" | "all" | "custom";
 
 export interface AdminStatsPeriodMeta {
   key: AdminStatsPeriod;
   /** ISO (UTC) — старт окна. */
   from: string;
-  /** ISO (UTC) — now на момент запроса. */
+  /** ISO (UTC) — исключающая верхняя граница окна. */
   to: string;
+  /** Включительная начальная дата в выбранной timezone. */
+  date_from: string;
+  /** Включительная конечная дата в выбранной timezone. */
+  date_to: string;
   /** Бакет группировки рядов: hour | day | month. */
   bucket: "hour" | "day" | "month";
 }

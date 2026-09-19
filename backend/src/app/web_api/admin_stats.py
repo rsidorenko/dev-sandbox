@@ -18,7 +18,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -32,6 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_PERIOD = "7d"
 _DEFAULT_TZ = "Europe/Moscow"
+_CUSTOM_PERIOD = "custom"
+_MAX_CUSTOM_DAYS = 366
 
 # Белый список IANA-зон: не пускаем произвольный текст в SQL (AT TIME ZONE $tz).
 _ALLOWED_TZ = frozenset(
@@ -62,57 +65,123 @@ _PERIODS: dict[str, tuple[int | None, str]] = {
 _ALL_FROM = datetime(2025, 1, 1, tzinfo=UTC)
 
 
-def _compute_window(period_key: str, tz_name: str) -> tuple[datetime, str]:
-    """Возвращает (from_ts UTC, бакет) для периода: старт окна в локальной зоне, переведённый в UTC."""
+@dataclass(frozen=True, slots=True)
+class _StatsWindow:
+    period_key: str
+    from_ts: datetime
+    to_ts: datetime
+    from_date: date
+    to_date: date
+    trunc: str
+
+
+def _compute_window(
+    period_key: str,
+    tz_name: str,
+    *,
+    date_from_raw: str | None = None,
+    date_to_raw: str | None = None,
+    now: datetime | None = None,
+) -> _StatsWindow:
+    """Строит полуоткрытое UTC-окно из preset или включительных локальных дат."""
+    zone = ZoneInfo(tz_name)
+    now_utc = now or datetime.now(UTC)
+    now_local = now_utc.astimezone(zone)
+
+    if period_key == _CUSTOM_PERIOD:
+        if not date_from_raw or not date_to_raw:
+            raise ValueError("date_from and date_to are required for custom period")
+        try:
+            from_date = date.fromisoformat(date_from_raw)
+            to_date = date.fromisoformat(date_to_raw)
+        except ValueError as exc:
+            raise ValueError("date_from and date_to must use YYYY-MM-DD") from exc
+        if from_date > to_date:
+            raise ValueError("date_from must not be later than date_to")
+        if to_date > now_local.date():
+            raise ValueError("date_to must not be in the future")
+        span_days = (to_date - from_date).days + 1
+        if span_days > _MAX_CUSTOM_DAYS:
+            raise ValueError(f"custom period must not exceed {_MAX_CUSTOM_DAYS} days")
+
+        from_local = datetime.combine(from_date, time.min, tzinfo=zone)
+        to_local_exclusive = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=zone)
+        to_ts = min(to_local_exclusive.astimezone(UTC), now_utc)
+        if span_days == 1:
+            trunc = "hour"
+        elif span_days <= 90:
+            trunc = "day"
+        else:
+            trunc = "month"
+        return _StatsWindow(
+            period_key=period_key,
+            from_ts=from_local.astimezone(UTC),
+            to_ts=to_ts,
+            from_date=from_date,
+            to_date=to_date,
+            trunc=trunc,
+        )
+
     days, trunc = _PERIODS[period_key]
     if days is None:
-        return _ALL_FROM, trunc
-    zone = ZoneInfo(tz_name)
-    now_local = datetime.now(UTC).astimezone(zone)
+        from_ts = _ALL_FROM
+    else:
+        start_today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        from_local = start_today if days == 1 else start_today - timedelta(days=days - 1)
+        from_ts = from_local.astimezone(UTC)
+
     start_today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    from_local = start_today if days == 1 else start_today - timedelta(days=days - 1)
-    return from_local.astimezone(UTC), trunc
+    return _StatsWindow(
+        period_key=period_key,
+        from_ts=from_ts,
+        to_ts=now_utc,
+        from_date=from_ts.astimezone(zone).date(),
+        to_date=start_today.date(),
+        trunc=trunc,
+    )
 
 
 # Полные SQL как неявная конкатенация литералов (без '+'/интерполяции) — bandit S608 не срабатывает;
-# значения подставляются по имени в fetch. $1=trunc, $2=tz, $3=from_ts (там, где нужно).
+# значения подставляются по имени в fetch. Окна времени полуоткрытые: [from, to).
 
 _REVENUE_SERIES = (
-    "SELECT date_trunc($1, event_effective_at AT TIME ZONE $2) AS bucket, "
-    "COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, COUNT(*) AS n "
-    "FROM billing_events_ledger "
-    "WHERE status = 'accepted' AND event_effective_at >= $3 "
-    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = billing_events_ledger.internal_user_id AND i.is_internal) "
-    "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant' "
+    "SELECT date_trunc($1, b.event_effective_at AT TIME ZONE $2) AS bucket, "
+    "COALESCE(SUM(b.amount_minor_units), 0)::bigint AS kopecks, COUNT(*) AS n "
+    "FROM billing_events_ledger b JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE b.status = 'accepted' AND b.event_effective_at >= $3 AND b.event_effective_at < $4 "
+    "AND b.internal_fact_ref NOT LIKE 'grant:%' AND b.billing_provider_key <> 'manual_grant' "
     "GROUP BY bucket ORDER BY bucket"
 )
 
 _REVENUE_KPI = (
     "SELECT COALESCE(SUM(amount_minor_units), 0)::bigint AS kopecks, "
-    "COUNT(*) AS payments, COUNT(DISTINCT internal_user_id) AS paying_users "
-    "FROM billing_events_ledger WHERE status = 'accepted' AND event_effective_at >= $1 "
-    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = billing_events_ledger.internal_user_id AND i.is_internal) "
-    "AND internal_fact_ref NOT LIKE 'grant:%' AND billing_provider_key <> 'manual_grant'"
+    "COUNT(*) AS payments, COUNT(DISTINCT b.internal_user_id) AS paying_users "
+    "FROM billing_events_ledger b JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE b.status = 'accepted' AND b.event_effective_at >= $1 AND b.event_effective_at < $2 "
+    "AND b.internal_fact_ref NOT LIKE 'grant:%' AND b.billing_provider_key <> 'manual_grant'"
 )
 
 _NEW_USERS_SERIES = (
-    "SELECT date_trunc($1, created_at AT TIME ZONE $2) AS bucket, COUNT(*) AS n "
-    "FROM user_identities WHERE created_at >= $3 AND NOT is_internal GROUP BY bucket ORDER BY bucket"
+    "SELECT date_trunc($1, i.created_at AT TIME ZONE $2) AS bucket, COUNT(*) AS n "
+    "FROM user_identities i JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE i.created_at >= $3 AND i.created_at < $4 GROUP BY bucket ORDER BY bucket"
 )
 
-_NEW_USERS_KPI = "SELECT COUNT(*) FROM user_identities WHERE created_at >= $1 AND NOT is_internal"
+_NEW_USERS_KPI = (
+    "SELECT COUNT(*) FROM user_identities i JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE i.created_at >= $1 AND i.created_at < $2"
+)
 
 _TRIALS_SERIES = (
     "SELECT date_trunc($1, trial_started_at AT TIME ZONE $2) AS bucket, COUNT(*) AS n "
-    "FROM subscription_snapshots "
-    "WHERE trial_started_at IS NOT NULL AND trial_started_at >= $3 "
-    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal) "
+    "FROM subscription_snapshots s JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE s.trial_started_at IS NOT NULL AND s.trial_started_at >= $3 AND s.trial_started_at < $4 "
     "GROUP BY bucket ORDER BY bucket"
 )
 
 _TRIALS_KPI = (
-    "SELECT COUNT(*) FROM subscription_snapshots WHERE trial_started_at IS NOT NULL AND trial_started_at >= $1"
-    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal)"
+    "SELECT COUNT(*) FROM subscription_snapshots s JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE s.trial_started_at IS NOT NULL AND s.trial_started_at >= $1 AND s.trial_started_at < $2"
 )
 
 # Конверсия триал→платный за период: доля юзеров с триалом в окне, у которых есть ≥1 accepted-факт.
@@ -124,47 +193,55 @@ _TRIAL_PAID = (
     "AND b.internal_fact_ref NOT LIKE 'grant:%' AND b.billing_provider_key <> 'manual_grant'"
     ")) AS converted "
     "FROM subscription_snapshots t "
-    "WHERE t.trial_started_at IS NOT NULL AND t.trial_started_at >= $1"
-    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = t.internal_user_id AND i.is_internal)"
+    "JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE t.trial_started_at IS NOT NULL AND t.trial_started_at >= $1 AND t.trial_started_at < $2"
 )
 
 _ACTIVE_BY_PLAN = (
     "SELECT plan_id, COUNT(*) AS n FROM subscription_snapshots "
+    "JOIN analytics_eligible_user_ids e USING (internal_user_id) "
     "WHERE state_label = 'active' AND active_until_utc > now() AND plan_id IS NOT NULL "
-    "AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal) "
     "GROUP BY plan_id ORDER BY n DESC"
 )
 
 # bare_xray-трафик (сбор с 2026-09-07): stat_date — DATE в MSK, поэтому группировка
 # всегда по дню, без TZ-конверсий (в отличие от временных рядов выше). ГБ = up+down.
 _TRAFFIC_SERIES = (
-    "SELECT stat_date AS bucket, "
-    "ROUND(SUM(uplink_bytes + downlink_bytes) / 1073741824.0, 2) AS gb, "
-    "COUNT(DISTINCT email) AS users "
-    "FROM bare_xray_traffic_daily WHERE stat_date >= $1::date "
+    "WITH eligible_emails AS ("
+    "SELECT 'user-' || left(internal_user_id, 16) AS email FROM analytics_eligible_user_ids "
+    "UNION SELECT 'x-user-' || left(internal_user_id, 16) FROM analytics_eligible_user_ids) "
+    "SELECT t.stat_date AS bucket, "
+    "ROUND(SUM(t.uplink_bytes + t.downlink_bytes) / 1073741824.0, 2) AS gb, "
+    "COUNT(DISTINCT t.email) AS users "
+    "FROM bare_xray_traffic_daily t JOIN eligible_emails e ON e.email = t.email "
+    "WHERE t.stat_date >= $1::date AND t.stat_date <= $2::date "
     "GROUP BY stat_date ORDER BY stat_date"
 )
 
 _TRAFFIC_BY_SERVER = (
+    "WITH eligible_emails AS ("
+    "SELECT 'user-' || left(internal_user_id, 16) AS email FROM analytics_eligible_user_ids "
+    "UNION SELECT 'x-user-' || left(internal_user_id, 16) FROM analytics_eligible_user_ids) "
     "SELECT COALESCE(v.label, 'server ' || t.server_id::text) AS label, "
     "ROUND(SUM(t.uplink_bytes + t.downlink_bytes) / 1073741824.0, 2) AS gb, "
     "COUNT(DISTINCT t.email) AS users "
-    "FROM bare_xray_traffic_daily t LEFT JOIN vpn_servers v ON v.id = t.server_id "
-    "WHERE t.stat_date >= $1::date "
+    "FROM bare_xray_traffic_daily t JOIN eligible_emails e ON e.email = t.email "
+    "LEFT JOIN vpn_servers v ON v.id = t.server_id "
+    "WHERE t.stat_date >= $1::date AND t.stat_date <= $2::date "
     "GROUP BY t.server_id, label ORDER BY gb DESC"
 )
 
 _ACTIVE_TOTAL = (
-    "SELECT COUNT(*) FROM subscription_snapshots WHERE state_label = 'active' AND active_until_utc > now()"
-    " AND NOT EXISTS (SELECT 1 FROM user_identities i WHERE i.internal_user_id = subscription_snapshots.internal_user_id AND i.is_internal)"
+    "SELECT COUNT(*) FROM subscription_snapshots s JOIN analytics_eligible_user_ids e USING (internal_user_id) "
+    "WHERE s.state_label = 'active' AND s.active_until_utc > now()"
 )
 
 _PRODUCT_FUNNEL = """
 WITH period_events AS (
     SELECT f.internal_user_id, f.event_name
     FROM funnel_events f
-    JOIN user_identities i USING (internal_user_id)
-    WHERE NOT i.is_internal AND f.occurred_at >= $1 AND f.occurred_at <= $2
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE f.occurred_at >= $1 AND f.occurred_at < $2
 )
 SELECT
     count(DISTINCT internal_user_id) FILTER (WHERE event_name = 'registered') AS registered_users,
@@ -182,8 +259,8 @@ _EXPERIMENT_RESULTS = """
 WITH assignments AS (
     SELECT a.internal_user_id, a.experiment_key, a.variant, a.assigned_at
     FROM experiment_assignments a
-    JOIN user_identities i USING (internal_user_id)
-    WHERE NOT i.is_internal AND a.assigned_at >= $1 AND a.assigned_at <= $2
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE a.assigned_at >= $1 AND a.assigned_at < $2
 ), payment_created AS (
     SELECT DISTINCT a.internal_user_id, a.experiment_key
     FROM assignments a
@@ -191,7 +268,7 @@ WITH assignments AS (
       ON f.internal_user_id = a.internal_user_id
      AND f.event_name = 'payment_created'
      AND f.occurred_at >= a.assigned_at
-     AND f.occurred_at <= $2
+     AND f.occurred_at < $2
 ), paid AS (
     SELECT a.internal_user_id, a.experiment_key,
            COALESCE(sum(b.amount_minor_units), 0)::bigint AS revenue_kopecks
@@ -205,7 +282,7 @@ WITH assignments AS (
      AND b.amount_minor_units > 0
      AND b.currency_code = 'RUB'
      AND b.event_effective_at >= a.assigned_at
-     AND b.event_effective_at <= $2
+     AND b.event_effective_at < $2
     GROUP BY a.internal_user_id, a.experiment_key
 )
 SELECT a.experiment_key, a.variant,
@@ -227,12 +304,13 @@ WITH trials AS (
     SELECT t.internal_user_id, t.trial_started_at,
            t.trial_started_at + interval '10 days' AS deadline
     FROM subscription_snapshots t
-    JOIN user_identities i USING (internal_user_id)
-    WHERE NOT i.is_internal AND t.trial_started_at >= $1 AND t.trial_started_at <= $2
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE t.trial_started_at >= $1 AND t.trial_started_at < $2
 ), cohort AS (
     SELECT t.*, (SELECT min(e.occurred_at) FROM funnel_events e
                  WHERE e.internal_user_id = t.internal_user_id
-                   AND e.event_name = 'payment_succeeded') AS first_paid_at
+                   AND e.event_name = 'payment_succeeded'
+                   AND e.occurred_at < $2) AS first_paid_at
     FROM trials t
 )
 SELECT count(*) AS trials,
@@ -248,8 +326,8 @@ _TELEGRAM_ADS_CAMPAIGNS = """
 WITH attributed AS (
     SELECT a.campaign_key, a.internal_user_id, a.attributed_at
     FROM telegram_ads_attributions a
-    JOIN user_identities i USING (internal_user_id)
-    WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE a.campaign_key <> 'nakrut' AND a.attributed_at >= $1 AND a.attributed_at < $2
 ), external_payments AS (
     SELECT b.internal_user_id, b.event_effective_at AS occurred_at,
            b.internal_fact_ref AS event_key, b.amount_minor_units::bigint AS amount_kopecks
@@ -259,7 +337,7 @@ WITH attributed AS (
       AND b.billing_provider_key IN ('yookassa', 'yookassa_v1', 'cryptobot', 'cryptobot_v1')
       AND b.internal_fact_ref NOT LIKE 'grant:%'
       AND b.amount_minor_units > 0 AND b.currency_code = 'RUB'
-      AND b.event_effective_at <= $2
+      AND b.event_effective_at < $2
 ), payment_ranked AS (
     SELECT p.*,
            row_number() OVER (
@@ -274,7 +352,8 @@ WITH attributed AS (
     GROUP BY internal_user_id
 ), base AS (
     SELECT a.campaign_key, a.internal_user_id, a.attributed_at,
-           CASE WHEN s.trial_started_at >= a.attributed_at THEN s.trial_started_at END AS trial_started_at,
+           CASE WHEN s.trial_started_at >= a.attributed_at AND s.trial_started_at < $2
+                THEN s.trial_started_at END AS trial_started_at,
            p.first_paid_at, p.second_paid_at
     FROM attributed a
     LEFT JOIN subscription_snapshots s USING (internal_user_id)
@@ -299,32 +378,32 @@ WITH attributed AS (
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'setup_started'
-                     AND e.occurred_at >= c.trial_started_at) AS setup_started,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS setup_started,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'platform_selected'
-                     AND e.occurred_at >= c.trial_started_at) AS platform_selected,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_selected,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'connection_confirmed'
-                     AND e.occurred_at >= c.trial_started_at) AS connection_confirmed,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS connection_confirmed,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'connection_problem'
-                     AND e.occurred_at >= c.trial_started_at) AS connection_problem,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS connection_problem,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'checkout_opened'
-                     AND e.occurred_at >= c.trial_started_at) AS checkout_opened,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS checkout_opened,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'payment_created'
-                     AND e.occurred_at >= c.trial_started_at) AS payment_created,
+                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS payment_created,
            EXISTS (SELECT 1 FROM bare_xray_traffic_daily t
                    WHERE c.trial_started_at IS NOT NULL
                      AND t.email IN ('user-' || left(c.internal_user_id, 16),
@@ -334,24 +413,24 @@ WITH attributed AS (
                      AND t.uplink_bytes + t.downlink_bytes > 0) AS first_vpn_traffic,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'ios' AND e.occurred_at >= c.trial_started_at) AS platform_ios,
+                   AND e.platform = 'ios' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_ios,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'android' AND e.occurred_at >= c.trial_started_at) AS platform_android,
+                   AND e.platform = 'android' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_android,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'mac' AND e.occurred_at >= c.trial_started_at) AS platform_mac,
+                   AND e.platform = 'mac' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_mac,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'win' AND e.occurred_at >= c.trial_started_at) AS platform_win,
+                   AND e.platform = 'win' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_win,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'tv' AND e.occurred_at >= c.trial_started_at) AS platform_tv
+                   AND e.platform = 'tv' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_tv
     FROM cohort_with_revenue c
 ), spend AS (
     SELECT campaign_key, sum(amount_kopecks)::bigint AS spend_kopecks
     FROM telegram_ads_spend_daily
-    WHERE spend_date >= $3 AND spend_date <= $4
+    WHERE campaign_key <> 'nakrut' AND spend_date >= $3 AND spend_date <= $4
     GROUP BY campaign_key
 ), campaign_keys AS (
     SELECT campaign_key FROM attributed
@@ -417,18 +496,18 @@ LIMIT 200
 _TELEGRAM_ADS_CAMPAIGNS_TOTAL = """
 WITH campaign_keys AS (
     SELECT a.campaign_key FROM telegram_ads_attributions a
-    JOIN user_identities i USING (internal_user_id)
-    WHERE NOT i.is_internal AND a.attributed_at >= $1 AND a.attributed_at <= $2
+    JOIN analytics_eligible_user_ids e USING (internal_user_id)
+    WHERE a.campaign_key <> 'nakrut' AND a.attributed_at >= $1 AND a.attributed_at < $2
     UNION
     SELECT campaign_key FROM telegram_ads_spend_daily
-    WHERE spend_date >= $3 AND spend_date <= $4
+    WHERE campaign_key <> 'nakrut' AND spend_date >= $3 AND spend_date <= $4
 )
 SELECT count(*) FROM campaign_keys
 """
 
 
-async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -> dict:
-    row = await pool.fetchrow(_MATURE_FUNNEL, from_ts, now)
+async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict:
+    row = await pool.fetchrow(_MATURE_FUNNEL, from_ts, to_ts)
     mature = int(row["mature_trials"])
     converted = int(row["converted_trials"])
     return {
@@ -444,11 +523,11 @@ async def _mature_funnel(pool: asyncpg.Pool, from_ts: datetime, now: datetime) -
 async def _telegram_ads_campaigns(
     pool: asyncpg.Pool,
     from_ts: datetime,
-    now: datetime,
+    to_ts: datetime,
     from_date: date,
     to_date: date,
 ) -> dict:
-    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, now, from_date, to_date)
+    rows = await pool.fetch(_TELEGRAM_ADS_CAMPAIGNS, from_ts, to_ts, from_date, to_date)
     result = []
     for row in rows:
         attributed = int(row["attributed_users"])
@@ -569,15 +648,21 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-async def _revenue_series(pool: asyncpg.Pool, trunc: str, tz: str, from_ts: datetime) -> list[dict]:
-    rows = await pool.fetch(_REVENUE_SERIES, trunc, tz, from_ts)
+async def _revenue_series(
+    pool: asyncpg.Pool,
+    trunc: str,
+    tz: str,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> list[dict]:
+    rows = await pool.fetch(_REVENUE_SERIES, trunc, tz, from_ts, to_ts)
     return [
         {"bucket": _iso(r["bucket"]), "rubles": round(int(r["kopecks"]) / 100, 2), "count": int(r["n"])} for r in rows
     ]
 
 
-async def _revenue_kpi(pool: asyncpg.Pool, from_ts: datetime) -> dict:
-    row = await pool.fetchrow(_REVENUE_KPI, from_ts)
+async def _revenue_kpi(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> dict:
+    row = await pool.fetchrow(_REVENUE_KPI, from_ts, to_ts)
     return {
         "revenue_rubles": round(int(row["kopecks"]) / 100, 2),
         "payments_count": int(row["payments"]),
@@ -585,8 +670,15 @@ async def _revenue_kpi(pool: asyncpg.Pool, from_ts: datetime) -> dict:
     }
 
 
-async def _count_series(pool: asyncpg.Pool, sql: str, trunc: str, tz: str, from_ts: datetime) -> list[dict]:
-    rows = await pool.fetch(sql, trunc, tz, from_ts)
+async def _count_series(
+    pool: asyncpg.Pool,
+    sql: str,
+    trunc: str,
+    tz: str,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> list[dict]:
+    rows = await pool.fetch(sql, trunc, tz, from_ts, to_ts)
     return [{"bucket": _iso(r["bucket"]), "count": int(r["n"])} for r in rows]
 
 
@@ -595,8 +687,8 @@ async def _scalar(pool: asyncpg.Pool, sql: str, *args) -> int:
     return int(await pool.fetchval(sql, *args) or 0)
 
 
-async def _trial_paid_rate(pool: asyncpg.Pool, from_ts: datetime) -> float | None:
-    row = await pool.fetchrow(_TRIAL_PAID, from_ts)
+async def _trial_paid_rate(pool: asyncpg.Pool, from_ts: datetime, to_ts: datetime) -> float | None:
+    row = await pool.fetchrow(_TRIAL_PAID, from_ts, to_ts)
     trials = int(row["trials"] or 0)
     if trials == 0:
         return None
@@ -608,13 +700,13 @@ async def _active_by_plan(pool: asyncpg.Pool) -> list[dict]:
     return [{"plan_id": r["plan_id"], "count": int(r["n"])} for r in rows]
 
 
-async def _traffic_series(pool: asyncpg.Pool, from_date: date) -> list[dict]:
-    rows = await pool.fetch(_TRAFFIC_SERIES, from_date)
+async def _traffic_series(pool: asyncpg.Pool, from_date: date, to_date: date) -> list[dict]:
+    rows = await pool.fetch(_TRAFFIC_SERIES, from_date, to_date)
     return [{"bucket": r["bucket"].isoformat(), "gb": float(r["gb"]), "users": int(r["users"])} for r in rows]
 
 
-async def _traffic_by_server(pool: asyncpg.Pool, from_date: date) -> list[dict]:
-    rows = await pool.fetch(_TRAFFIC_BY_SERVER, from_date)
+async def _traffic_by_server(pool: asyncpg.Pool, from_date: date, to_date: date) -> list[dict]:
+    rows = await pool.fetch(_TRAFFIC_BY_SERVER, from_date, to_date)
     return [{"label": r["label"], "gb": float(r["gb"]), "users": int(r["users"])} for r in rows]
 
 
@@ -651,18 +743,25 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
     pool: asyncpg.Pool = request.app.state.pool
 
     period = (request.query_params.get("period") or _DEFAULT_PERIOD).strip()
-    if period not in _PERIODS:
-        return safe_json_error(400, "invalid_period", f"period must be one of {sorted(_PERIODS)}")
+    allowed_periods = {*_PERIODS, _CUSTOM_PERIOD}
+    if period not in allowed_periods:
+        return safe_json_error(400, "invalid_period", f"period must be one of {sorted(allowed_periods)}")
 
     tz = (request.query_params.get("tz") or _DEFAULT_TZ).strip()
     if tz not in _ALLOWED_TZ:
         return safe_json_error(400, "invalid_tz", "Unsupported timezone")
 
-    from_ts, trunc = _compute_window(period, tz)
     now = datetime.now(UTC)
-    # stat_date — DATE в MSK: нижняя граница окна в той же зоне, чтобы 1d/7d совпали с рядом.
-    from_date = from_ts.astimezone(ZoneInfo(tz)).date()
-    to_date = now.astimezone(ZoneInfo(tz)).date()
+    try:
+        window = _compute_window(
+            period,
+            tz,
+            date_from_raw=request.query_params.get("date_from"),
+            date_to_raw=request.query_params.get("date_to"),
+            now=now,
+        )
+    except ValueError as exc:
+        return safe_json_error(400, "invalid_date_range", str(exc))
 
     # Все агрегаты — независимы, гоняем параллельно (каждый берёт своё соединение из pool).
     (
@@ -683,22 +782,29 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         product_funnel,
         experiments,
     ) = await asyncio.gather(
-        _revenue_series(pool, trunc, tz, from_ts),
-        _revenue_kpi(pool, from_ts),
-        _count_series(pool, _NEW_USERS_SERIES, trunc, tz, from_ts),
-        _scalar(pool, _NEW_USERS_KPI, from_ts),
-        _count_series(pool, _TRIALS_SERIES, trunc, tz, from_ts),
-        _scalar(pool, _TRIALS_KPI, from_ts),
-        _trial_paid_rate(pool, from_ts),
+        _revenue_series(pool, window.trunc, tz, window.from_ts, window.to_ts),
+        _revenue_kpi(pool, window.from_ts, window.to_ts),
+        _count_series(pool, _NEW_USERS_SERIES, window.trunc, tz, window.from_ts, window.to_ts),
+        _scalar(pool, _NEW_USERS_KPI, window.from_ts, window.to_ts),
+        _count_series(pool, _TRIALS_SERIES, window.trunc, tz, window.from_ts, window.to_ts),
+        _scalar(pool, _TRIALS_KPI, window.from_ts, window.to_ts),
+        _trial_paid_rate(pool, window.from_ts, window.to_ts),
         _active_by_plan(pool),
         _scalar(pool, _ACTIVE_TOTAL),  # запрос без параметров — текущий живой gauge
-        _traffic_series(pool, from_date),
-        _traffic_by_server(pool, from_date),
-        _mature_funnel(pool, from_ts, now),
-        _telegram_ads_campaigns(pool, from_ts, now, from_date, to_date),
-        _scalar(pool, _TELEGRAM_ADS_CAMPAIGNS_TOTAL, from_ts, now, from_date, to_date),
-        _product_funnel(pool, from_ts, now),
-        _experiment_results(pool, from_ts, now),
+        _traffic_series(pool, window.from_date, window.to_date),
+        _traffic_by_server(pool, window.from_date, window.to_date),
+        _mature_funnel(pool, window.from_ts, window.to_ts),
+        _telegram_ads_campaigns(pool, window.from_ts, window.to_ts, window.from_date, window.to_date),
+        _scalar(
+            pool,
+            _TELEGRAM_ADS_CAMPAIGNS_TOTAL,
+            window.from_ts,
+            window.to_ts,
+            window.from_date,
+            window.to_date,
+        ),
+        _product_funnel(pool, window.from_ts, window.to_ts),
+        _experiment_results(pool, window.from_ts, window.to_ts),
     )
 
     traffic_total_gb = round(sum(p["gb"] for p in traffic_series), 2)
@@ -708,10 +814,12 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
         {
             "ok": True,
             "period": {
-                "key": period,
-                "from": _iso(from_ts),
-                "to": _iso(now),
-                "bucket": trunc,
+                "key": window.period_key,
+                "from": _iso(window.from_ts),
+                "to": _iso(window.to_ts),
+                "date_from": window.from_date.isoformat(),
+                "date_to": window.to_date.isoformat(),
+                "bucket": window.trunc,
             },
             "kpi": {
                 **revenue_kpi,

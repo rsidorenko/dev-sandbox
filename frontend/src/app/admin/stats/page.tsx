@@ -27,7 +27,7 @@ import { Alert } from "@/shared/ui/Alert";
 // Один акцентный цвет на весь дашборд (одноразмерные графики — категориальная палитра не нужна).
 const ACCENT = "#2563eb";
 
-const PERIODS: { key: AdminStatsPeriod; label: string }[] = [
+const PERIODS: { key: Exclude<AdminStatsPeriod, "custom">; label: string }[] = [
   { key: "1d", label: "1 день" },
   { key: "7d", label: "7 дней" },
   { key: "30d", label: "30 дней" },
@@ -108,6 +108,19 @@ function todayInMoscow(): string {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
+function shiftCalendarDate(value: string, days: number): string {
+  const dateValue = new Date(`${value}T12:00:00Z`);
+  dateValue.setUTCDate(dateValue.getUTCDate() + days);
+  return dateValue.toISOString().slice(0, 10);
+}
+
+function formatCalendarDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const dateValue = new Date(year, month - 1, day);
+  if (Number.isNaN(dateValue.getTime())) return value;
+  return dateValue.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
+}
+
 function formatGb(n: number): string {
   return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ГБ`;
 }
@@ -144,6 +157,11 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 
 export default function AdminStatsPage() {
   const [period, setPeriod] = useState<AdminStatsPeriod>("7d");
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customFrom, setCustomFrom] = useState(() => shiftCalendarDate(todayInMoscow(), -6));
+  const [customTo, setCustomTo] = useState(todayInMoscow);
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ dateFrom: string; dateTo: string } | null>(null);
+  const [rangeError, setRangeError] = useState("");
   const [data, setData] = useState<AdminStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -154,10 +172,13 @@ export default function AdminStatsPage() {
   const [spendMessage, setSpendMessage] = useState("");
   const [spendError, setSpendError] = useState("");
 
-  const load = useCallback(async (p: AdminStatsPeriod) => {
+  const load = useCallback(async (
+    p: AdminStatsPeriod,
+    customRange?: { dateFrom: string; dateTo: string },
+  ) => {
     setLoading(true);
     setError("");
-    const r = await adminApi.stats(p);
+    const r = await adminApi.stats(p, "Europe/Moscow", customRange);
     if (r.ok) {
       setData(r.data);
     } else if (r.error === "unauthorized") {
@@ -170,8 +191,39 @@ export default function AdminStatsPage() {
   }, []);
 
   useEffect(() => {
-    void load(period);
-  }, [period, load]);
+    if (period !== "custom" || appliedCustomRange) {
+      void load(period, appliedCustomRange ?? undefined);
+    }
+  }, [period, appliedCustomRange, load]);
+
+  const selectPreset = (nextPeriod: Exclude<AdminStatsPeriod, "custom">) => {
+    setCustomOpen(false);
+    setRangeError("");
+    setPeriod(nextPeriod);
+  };
+
+  const applyCustomRange = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const today = todayInMoscow();
+    const spanDays = Math.floor(
+      (Date.parse(`${customTo}T00:00:00Z`) - Date.parse(`${customFrom}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+    if (!customFrom || !customTo || customFrom > customTo) {
+      setRangeError("Дата начала должна быть не позже даты окончания.");
+      return;
+    }
+    if (customTo > today) {
+      setRangeError("Конечная дата не может быть в будущем.");
+      return;
+    }
+    if (spanDays > 366) {
+      setRangeError("Максимальный период — 366 дней.");
+      return;
+    }
+    setRangeError("");
+    setAppliedCustomRange({ dateFrom: customFrom, dateTo: customTo });
+    setPeriod("custom");
+  };
 
   const dark = useIsDark();
   const theme = useMemo(
@@ -232,7 +284,7 @@ export default function AdminStatsPage() {
       setSpendCampaign(result.data.spend.campaign_key);
       setSpendAmount("");
       setSpendMessage(result.data.spend.changed ? "Расход сохранён." : "Расход уже был таким — изменений нет.");
-      await load(period);
+      await load(period, appliedCustomRange ?? undefined);
     } else if (result.error === "unauthorized") {
       window.location.href = `/admin/login?next=${encodeURIComponent("/admin/stats")}`;
       return;
@@ -251,25 +303,69 @@ export default function AdminStatsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Статистика</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {data ? `Период: ${formatBucketFull(data.period.from, "day")} — сегодня` : "Загрузка…"}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {PERIODS.map((p) => (
+      <div className="mb-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Статистика</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {data
+                ? `Период: ${formatCalendarDate(data.period.date_from)} — ${formatCalendarDate(data.period.date_to)}`
+                : "Загрузка…"}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => selectPreset(p.key)}
+                className={period === p.key && !customOpen ? adminBtnPrimary : adminBtnSecondary}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
-              key={p.key}
               type="button"
-              onClick={() => setPeriod(p.key)}
-              className={period === p.key ? adminBtnPrimary : adminBtnSecondary}
+              onClick={() => setCustomOpen((open) => !open)}
+              className={period === "custom" || customOpen ? adminBtnPrimary : adminBtnSecondary}
             >
-              {p.label}
+              Свой период
             </button>
-          ))}
+          </div>
         </div>
+        {customOpen && (
+          <form
+            onSubmit={applyCustomRange}
+            className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800"
+          >
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+              С
+              <input
+                type="date"
+                required
+                max={todayInMoscow()}
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.target.value)}
+                className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+              По
+              <input
+                type="date"
+                required
+                max={todayInMoscow()}
+                value={customTo}
+                onChange={(event) => setCustomTo(event.target.value)}
+                className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-gray-100"
+              />
+            </label>
+            <button type="submit" className={adminBtnPrimary}>
+              Применить
+            </button>
+            {rangeError && <p className="w-full text-xs text-red-600 dark:text-red-400">{rangeError}</p>}
+          </form>
+        )}
       </div>
 
       {error && <Alert className="mb-4">{error}</Alert>}
@@ -737,8 +833,8 @@ export default function AdminStatsPage() {
           </div>
 
           <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
-            Выручка — принятые платёжные факты в ledger. Помеченные внутренние аккаунты и
-            операторские гранты исключены. Конверсия — первая внешняя оплата подписки в RUB
+            Выручка — принятые платёжные факты в ledger. Помеченные внутренние аккаунты,
+            кампания nakrut и операторские гранты исключены. Конверсия — первая внешняя оплата подписки в RUB
             за 10 дней от старта триала; незрелые триалы не входят в знаменатель. Историческая выручка до
             внедрения сумм в ledger может быть дополнительно занижена (дыра не перезалита). Трафик —
             bare_xray (сбор с 07.09.2026): up+down по всем покрытым серверам, день = MSK.

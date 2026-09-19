@@ -11,12 +11,14 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import asyncpg
 import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
+from app.web_api.admin_stats import _compute_window
 from app.web_api.app import build_web_api_app
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +54,51 @@ _U_PREFIX = "test-stats-u-"
 _TG_BASE = 9_900_001_100  # вне реального диапазона telegram user id
 
 
+def test_custom_window_uses_inclusive_local_dates_and_caps_today_at_now() -> None:
+    now = datetime(2026, 9, 19, 12, 30, tzinfo=UTC)
+    historical = _compute_window(
+        "custom",
+        "Europe/Moscow",
+        date_from_raw="2026-09-01",
+        date_to_raw="2026-09-03",
+        now=now,
+    )
+    assert historical.from_ts == datetime(2026, 8, 31, 21, tzinfo=UTC)
+    assert historical.to_ts == datetime(2026, 9, 3, 21, tzinfo=UTC)
+    assert historical.trunc == "day"
+
+    today = _compute_window(
+        "custom",
+        "Europe/Moscow",
+        date_from_raw="2026-09-19",
+        date_to_raw="2026-09-19",
+        now=now,
+    )
+    assert today.to_ts == now
+    assert today.trunc == "hour"
+
+
+@pytest.mark.parametrize(
+    ("date_from", "date_to"),
+    [
+        (None, None),
+        ("2026-09-03", "2026-09-01"),
+        ("2026-09-01", "2026-09-20"),
+        ("2025-09-18", "2026-09-19"),
+        ("01.09.2026", "2026-09-19"),
+    ],
+)
+def test_custom_window_rejects_invalid_ranges(date_from: str | None, date_to: str | None) -> None:
+    with pytest.raises(ValueError):
+        _compute_window(
+            "custom",
+            "Europe/Moscow",
+            date_from_raw=date_from,
+            date_to_raw=date_to,
+            now=datetime(2026, 9, 19, 12, 30, tzinfo=UTC),
+        )
+
+
 async def _cleanup(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         await conn.execute(
@@ -62,6 +109,7 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         )
         await conn.execute("DELETE FROM experiment_assignments WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM funnel_interactions WHERE internal_user_id LIKE 'test-stats-u-%'")
+        await conn.execute("DELETE FROM telegram_ads_attributions WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM subscription_snapshots WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM user_identities WHERE internal_user_id LIKE 'test-stats-u-%'")
         await conn.execute("DELETE FROM bare_xray_traffic_daily WHERE server_id = 99001")
@@ -110,7 +158,7 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         recent = now - timedelta(hours=3)  # в окне 1d/7d/30d/90d
         old = now - timedelta(days=200)  # вне 7d/30d/90d, внутри 'all'
 
-        u_recent, u_old = f"{_U_PREFIX}recent", f"{_U_PREFIX}old"
+        u_recent, u_old, u_nakrut = f"{_U_PREFIX}recent", f"{_U_PREFIX}old", f"{_U_PREFIX}nakrut"
         async with pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
@@ -125,6 +173,20 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
                 _TG_BASE + 2,
                 u_old,
                 old,
+            )
+            await conn.execute(
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id, created_at) "
+                "VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+                _TG_BASE + 3,
+                u_nakrut,
+                recent,
+            )
+            await conn.execute(
+                "INSERT INTO telegram_ads_attributions "
+                "(internal_user_id, campaign_key, telegram_update_id, attributed_at) VALUES ($1,'nakrut',$2,$3)",
+                u_nakrut,
+                _TG_BASE + 3,
+                recent,
             )
             # recent: активный 1m, триал недавно; old: state active, но active_until в прошлом (не «активный»).
             await conn.execute(
@@ -143,9 +205,27 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
                 now - timedelta(days=1),
                 old,
             )
+            await conn.execute(
+                "INSERT INTO subscription_snapshots "
+                "(internal_user_id, state_label, plan_id, active_until_utc, trial_started_at) "
+                "VALUES ($1,'active','1m',$2,$3) ON CONFLICT DO NOTHING",
+                u_nakrut,
+                now + timedelta(days=30),
+                recent,
+            )
 
             # Accepted-факт 1000.00 RUB — реальный платёж (провайдер yookassa).
             sql, args = _insert_ledger(conn, f"{_FACT_REF}-acc", "ext-acc-1", recent, u_recent, 100000, "accepted")
+            await conn.execute(sql, *args)
+            sql, args = _insert_ledger(
+                conn,
+                f"{_FACT_REF}-nakrut",
+                "ext-nakrut-1",
+                recent,
+                u_nakrut,
+                900000,
+                "accepted",
+            )
             await conn.execute(sql, *args)
             assigned_at = recent - timedelta(minutes=10)
             await conn.execute(
@@ -186,9 +266,20 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
             await conn.execute(
                 "INSERT INTO bare_xray_traffic_daily "
                 "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
-                "VALUES (CURRENT_DATE, 99001, 'user-traffictest', 1073741824, 1073741824) "
+                "VALUES ($1, 99001, $2, 1073741824, 1073741824) "
                 "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
-                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes"
+                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
+                recent.astimezone(ZoneInfo("Europe/Moscow")).date(),
+                f"user-{u_recent[:16]}",
+            )
+            await conn.execute(
+                "INSERT INTO bare_xray_traffic_daily "
+                "(stat_date, server_id, email, uplink_bytes, downlink_bytes) "
+                "VALUES ($1, 99001, $2, 10737418240, 10737418240) "
+                "ON CONFLICT (stat_date, server_id, email) DO UPDATE SET "
+                "uplink_bytes = EXCLUDED.uplink_bytes, downlink_bytes = EXCLUDED.downlink_bytes",
+                recent.astimezone(ZoneInfo("Europe/Moscow")).date(),
+                f"user-{u_nakrut[:16]}",
             )
 
         client, h = await _login_client(pool)
@@ -206,6 +297,7 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert body["ok"] is True
         assert body["period"]["key"] == "7d"
         assert body["period"]["bucket"] == "day"
+        assert body["period"]["date_to"] == now.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
         # выручка = только реальный accepted 1000.00: ignored отсечён статусом,
         assert body["kpi"]["revenue_rubles"] == 1000.0
         assert body["kpi"]["payments_count"] == 1
@@ -244,6 +336,15 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert body["kpi"]["traffic_gb"] >= 2.0
         assert body["kpi"]["traffic_users"] >= 1
         assert any(s["label"] == "server 99001" and abs(s["gb"] - 2.0) < 0.01 for s in body["traffic_by_server"])
+        assert all(campaign["campaign_key"] != "nakrut" for campaign in body["telegram_ads"]["campaigns"])
+        # Исходные данные nakrut сохраняются: фильтр действует только в аналитике.
+        assert (
+            await pool.fetchval(
+                "SELECT count(*) FROM telegram_ads_attributions WHERE internal_user_id=$1 AND campaign_key='nakrut'",
+                u_nakrut,
+            )
+            == 1
+        )
 
         # period=1d — бакет hour
         r = await client.get("/api/v1/admin/stats?period=1d", headers=h)
@@ -256,10 +357,46 @@ async def test_admin_stats_aggregates(pg_url, admin_env):
         assert r.json()["period"]["bucket"] == "month"
         assert r.json()["kpi"]["new_users"] == 2
 
+        # Произвольный период — обе локальные даты включительны, но nakrut не считается.
+        recent_date = recent.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
+        r = await client.get(
+            f"/api/v1/admin/stats?period=custom&date_from={recent_date}&date_to={recent_date}",
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+        custom = r.json()
+        assert custom["period"]["key"] == "custom"
+        assert custom["period"]["date_from"] == recent_date
+        assert custom["period"]["date_to"] == recent_date
+        assert custom["period"]["bucket"] == "hour"
+        assert custom["kpi"]["new_users"] == 1
+        assert custom["kpi"]["revenue_rubles"] == 1000.0
+
+        old_date = old.astimezone(ZoneInfo("Europe/Moscow")).date().isoformat()
+        r = await client.get(
+            f"/api/v1/admin/stats?period=custom&date_from={old_date}&date_to={old_date}",
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["kpi"]["new_users"] == 1
+        # Текущий gauge подписок не превращаем в исторический snapshot.
+        assert r.json()["kpi"]["active_subscriptions"] == 1
+
         # невалидный period → 400
         assert (await client.get("/api/v1/admin/stats?period=bogus", headers=h)).status_code == 400
         # невалидный tz → 400
         assert (await client.get("/api/v1/admin/stats?period=7d&tz=Not/AZone", headers=h)).status_code == 400
+        today = now.astimezone(ZoneInfo("Europe/Moscow")).date()
+        too_old = (today - timedelta(days=366)).isoformat()
+        for query in (
+            "period=custom",
+            "period=custom&date_from=2026-09-10&date_to=2026-09-01",
+            "period=custom&date_from=2026-09-01&date_to=2999-01-01",
+            f"period=custom&date_from={too_old}&date_to={today.isoformat()}",
+        ):
+            response = await client.get(f"/api/v1/admin/stats?{query}", headers=h)
+            assert response.status_code == 400, response.text
+            assert response.json()["error"] == "invalid_date_range"
         await client.aclose()
     finally:
         await _cleanup(pool)
