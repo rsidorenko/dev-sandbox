@@ -45,6 +45,9 @@ from app.bot_transport.storefront_ui import (
     CB_ANDROID_STEP,
     CB_ANDROID_YES,
     CB_BALANCE,
+    CB_BIND_LINK,
+    CB_BIND_LINK_CANCEL,
+    CB_BIND_LINK_CONFIRM,
     CB_BROADCAST_DAYS,
     CB_BROADCAST_PROMO,
     CB_BUY_VPN,
@@ -138,6 +141,8 @@ from app.bot_transport.storefront_ui import (
     android_step_6_text,
     back_only_keyboard,
     balance_keyboard,
+    bind_link_confirm_keyboard,
+    bind_link_prompt_keyboard,
     buy_vpn_keyboard,
     channel_subscribe_gate_keyboard,
     confirm_pay_keyboard,
@@ -232,6 +237,13 @@ from app.bot_transport.storefront_ui import (
     text_balance_insufficient,
     text_balance_payment_in_progress,
     text_balance_payment_success,
+    text_bind_link_already_linked,
+    text_bind_link_confirm,
+    text_bind_link_error,
+    text_bind_link_invalid_input,
+    text_bind_link_not_found,
+    text_bind_link_prompt,
+    text_bind_link_success,
     text_bonus_subscribe_required,
     text_bonus_subscribe_still_missing,
     text_buy_vpn_intro,
@@ -310,6 +322,7 @@ from app.bot_transport.storefront_ui import (
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT as DEVICES_DEFAULT
 from app.domain.plans import get_plan, make_custom_plan_id, plan_display_name
+from app.persistence.account_merge import BindLinkError, bind_subscription_link, find_link_account
 from app.security.validation import ValidationError, validate_telegram_user_id
 from app.shared.types import SafeUserStatusCategory
 
@@ -329,6 +342,10 @@ _awaiting_custom_days: dict[int, bool] = {}
 # хранится в БД (promo_applied), а не здесь: этот флаг лишь переключает text-input
 # guard, чтобы сообщение-код не ушло в обычную обработку команд.
 _awaiting_promo_code: dict[int, str] = {}
+# Флаг FSM «ждём ссылку-подписку текстом». Значение: None — ждём ввод ссылки;
+# после успешной валидации — токен (стадия подтверждения кнопкой). Повторное
+# сообщение на стадии подтверждения перевалидируется заново (можно вставить другую ссылку).
+_awaiting_sub_link: dict[int, str | None] = {}
 _last_connect_platform: dict[int, str] = {}
 
 # Debounce accidental double-click on the "pay with balance" inline button: two rapid
@@ -360,6 +377,7 @@ def _clear_pending_text_input(uid: int) -> None:
 
     _awaiting_custom_days.pop(uid, None)
     _awaiting_promo_code.pop(uid, None)
+    _awaiting_sub_link.pop(uid, None)
 
 
 # ─── Media path constants per platform/step ──────────────────────────
@@ -1611,6 +1629,91 @@ async def _get_internal_user_id(
     return id_rec.internal_user_id if id_rec is not None else None
 
 
+_SUB_TOKEN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+
+
+def _extract_sub_link_token(text: str) -> str | None:
+    """Токен из пользовательского ввода: ссылка ``…/sub/<token>`` (или ``/auth/<token>``
+    из письма о входе) либо голый токен. None — ввод не похож на ссылку-подписку."""
+    candidate = text.strip()
+    for marker in ("/sub/", "/auth/"):
+        at = candidate.rfind(marker)
+        if at != -1:
+            candidate = candidate[at + len(marker) :]
+            break
+    # urlsafe-токены: [A-Za-z0-9_-]; token_urlsafe(16) даёт 22 символа, но не отсекаем
+    # легаси-длины жёстко — фильтр по длине/charset, точную валидацию делает lookup в БД.
+    if not 8 <= len(candidate) <= 128:
+        return None
+    if any(ch not in _SUB_TOKEN_CHARS for ch in candidate):
+        return None
+    return candidate
+
+
+async def _render_settings_screen(
+    composition: Slice1Composition,
+    uid: int | None,
+) -> tuple[str, dict[str, Any]]:
+    """Экран «Настройки подписки» — общий для CB_SETTINGS и отмены привязки ссылки."""
+    has_sub = await _has_active_subscription(composition, uid)
+    device_count = None
+    plan_name = None
+    active_until = None
+    if has_sub and uid is not None:
+        id_rec = await composition.identity.find_by_telegram_user_id(uid)
+        if id_rec is not None:
+            snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
+            if snap is not None:
+                device_count = snap.device_count
+                if snap.plan_id:
+                    plan_name = plan_display_name(snap.plan_id)
+                if snap.active_until_utc is not None:
+                    active_until = snap.active_until_utc.date().isoformat()
+    return (
+        text_settings(
+            has_sub,
+            plan_name=plan_name,
+            device_count=device_count,
+            active_until=active_until,
+        ),
+        settings_keyboard(has_sub, device_count),
+    )
+
+
+async def _handle_sub_link_input(
+    composition: Slice1Composition,
+    uid: int,
+    user_text: str,
+) -> tuple[str, dict[str, Any]]:
+    """Ввод ссылки-подписки текстом: валидация → экран подтверждения.
+
+    Флаг FSM остаётся взведённым (токен) — привязка выполняется по кнопке
+    «Привязать»; опечатку можно исправить новым сообщением (перевалидация)."""
+    pool = _get_pool_from_composition(composition)
+    token = _extract_sub_link_token(user_text)
+    if token is None:
+        return text_bind_link_invalid_input(), bind_link_prompt_keyboard()
+    if pool is None:
+        return text_bind_link_error(), bind_link_prompt_keyboard()
+    preview = await find_link_account(pool, token)
+    if preview is None:
+        return text_bind_link_not_found(), bind_link_prompt_keyboard()
+    if preview.telegram_user_id > 0:
+        return text_bind_link_already_linked(), bind_link_prompt_keyboard()
+    _awaiting_sub_link[uid] = token
+    _trim_inmemory_dict(_awaiting_sub_link)
+    tg_active = await _has_active_subscription(composition, uid)
+    return (
+        text_bind_link_confirm(
+            plan_name=plan_display_name(preview.plan_id) if preview.plan_id else None,
+            active_until=(preview.active_until_utc.date().isoformat() if preview.active_until_utc else None),
+            balance_rubles=preview.balance_kopecks / 100,
+            both_active=tg_active and preview.has_active_subscription,
+        ),
+        bind_link_confirm_keyboard(),
+    )
+
+
 async def _process_yookassa_payment(
     composition: Slice1Composition,
     uid: int | None,
@@ -2742,33 +2845,12 @@ async def _render_storefront_response(
             )
 
     elif code == CB_SETTINGS:
-        has_sub = await _has_active_subscription(composition, uid)
-        device_count = None
-        plan_name = None
-        active_until = None
-        if has_sub and uid is not None:
-            id_rec = await composition.identity.find_by_telegram_user_id(uid)
-            if id_rec is not None:
-                snap = await composition.snapshots.get_for_user(id_rec.internal_user_id)
-                if snap is not None:
-                    device_count = snap.device_count
-                    if snap.plan_id:
-                        plan_name = plan_display_name(snap.plan_id)
-                    if snap.active_until_utc is not None:
-                        active_until = snap.active_until_utc.date().isoformat()
-        text, keyboard = (
-            text_settings(
-                has_sub,
-                plan_name=plan_name,
-                device_count=device_count,
-                active_until=active_until,
-            ),
-            settings_keyboard(has_sub, device_count),
-        )
+        text, keyboard = await _render_settings_screen(composition, uid)
 
     elif code == CB_CUSTOM_DAYS:
         if uid is not None:
             _awaiting_promo_code.pop(uid, None)
+            _awaiting_sub_link.pop(uid, None)
             _awaiting_custom_days[uid] = True
             _trim_inmemory_dict(_awaiting_custom_days)
         text = text_custom_days_prompt()
@@ -2786,10 +2868,58 @@ async def _render_storefront_response(
             back_callback = CB_MAIN_MENU
         if uid is not None:
             _awaiting_custom_days.pop(uid, None)
+            _awaiting_sub_link.pop(uid, None)
             _awaiting_promo_code[uid] = return_target
             _trim_inmemory_dict(_awaiting_promo_code)
         text = text_promo_prompt()
         keyboard = promo_prompt_keyboard(back_callback=back_callback)
+
+    elif code == CB_BIND_LINK:
+        # Storefront-колбэк обходит командный лимитер — FSM-флаг ставим здесь,
+        # сам ввод обрабатывается в _handle_sub_link_input.
+        if uid is not None:
+            _awaiting_custom_days.pop(uid, None)
+            _awaiting_promo_code.pop(uid, None)
+            _awaiting_sub_link[uid] = None
+            _trim_inmemory_dict(_awaiting_sub_link)
+        text = text_bind_link_prompt()
+        keyboard = bind_link_prompt_keyboard()
+
+    elif code == CB_BIND_LINK_CONFIRM:
+        # Токен берём из FSM-дикта (не из callback): 64-байт лимит + приватность.
+        token = _awaiting_sub_link.pop(uid, None) if uid is not None else None
+        if token is None:
+            # Подтверждение без валидного ввода (перезапуск процесса и т.п.) — заново.
+            if uid is not None:
+                _awaiting_sub_link[uid] = None
+            text = text_bind_link_prompt()
+            keyboard = bind_link_prompt_keyboard()
+        else:
+            # Локальный импорт (как в CB_REFERRAL): в объёме этой функции имя
+            # get_site_base_url уже занято локальной ссылкой — модульный импорт
+            # в этой ветке дал бы UnboundLocalError.
+            from app.shared.site_url import get_site_base_url
+
+            try:
+                await bind_subscription_link(_get_pool_from_composition(composition), uid, token)
+            except BindLinkError as exc:
+                if exc.code == "already_linked":
+                    text = text_bind_link_already_linked()
+                elif exc.code == "token_not_found":
+                    text = text_bind_link_not_found()
+                else:
+                    text = text_bind_link_error()
+                keyboard = bind_link_prompt_keyboard()
+            else:
+                base = get_site_base_url()
+                url = f"{base}/sub/{token}" if base else token
+                text = text_bind_link_success(url)
+                keyboard = back_only_keyboard(CB_SETTINGS)
+
+    elif code == CB_BIND_LINK_CANCEL:
+        if uid is not None:
+            _awaiting_sub_link.pop(uid, None)
+        text, keyboard = await _render_settings_screen(composition, uid)
 
     elif code.startswith(CB_PLAN):
         plan_id = code[len(CB_PLAN) :]
@@ -3087,6 +3217,20 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         action_keys=(),
                         correlation_id=correlation_id or uuid.uuid4().hex,
                         reply_markup=promo_keyboard,
+                        replay_suppresses_outbound=False,
+                        uc01_idempotency_key=None,
+                        parse_mode="HTML",
+                    )
+                if uid in _awaiting_sub_link:
+                    # Ввод ссылки-подписки: валидация → экран подтверждения (привязка —
+                    # по кнопке). Флаг живёт до подтверждения/отмены; новое сообщение
+                    # перевалидируется (можно вставить другую ссылку).
+                    sub_text, sub_keyboard = await _handle_sub_link_input(composition, uid, user_text.strip())
+                    return RenderedMessagePackage(
+                        message_text=sub_text,
+                        action_keys=(),
+                        correlation_id=correlation_id or uuid.uuid4().hex,
+                        reply_markup=sub_keyboard,
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
                         parse_mode="HTML",

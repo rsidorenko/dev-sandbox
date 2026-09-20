@@ -54,6 +54,11 @@ CB_ADD_DEVICE = "add_device"
 CB_ADD_DEV = "add_dev:"
 CB_ADD_DEV_BALANCE = "add_dev_bal:"
 CB_REMOVE_DEVICE = "remove_device"
+# Привязка ссылки-подписки (web-аккаунт → Telegram): FSM-ввод ссылки текстом, затем
+# подтверждение. Токен живёт в FSM-дикте фасада, а не в callback (64-байт лимит + приватность).
+CB_BIND_LINK = "bind_sub_link"
+CB_BIND_LINK_CONFIRM = "bind_sub_link_yes"
+CB_BIND_LINK_CANCEL = "bind_sub_link_no"
 CB_REISSUE_KEYS = "reissue_keys"
 CB_REISSUE_CONFIRM = "reissue_keys_confirm"
 CB_CONNECT_DEVICE = "connect_device"
@@ -298,6 +303,7 @@ def settings_keyboard(has_subscription: bool, device_count: int | None = None) -
         )
         if device_count is not None and device_count > DEFAULT_DEVICE_LIMIT:
             rows.append([{"text": "➖ Убрать устройство (до 5)", "callback_data": CB_REMOVE_DEVICE}])
+    rows.append([{"text": "🔗 Привязать ссылку-подписку", "callback_data": CB_BIND_LINK}])
     rows.append([{"text": "📶 Конфиг для роутера (Скоро)", "callback_data": CB_ROUTER}])
     # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MY_SUB}])
@@ -2268,6 +2274,91 @@ def text_settings(
 
 def text_router_soon() -> str:
     return "<b>📶 Конфиг для роутера</b>\n\n🔜 Эта функция скоро будет доступна!\nСледите за обновлениями."
+
+
+# ─── Привязка ссылки-подписки (web-аккаунт → Telegram) ─────────────────
+
+
+def bind_link_prompt_keyboard() -> dict[str, Any]:
+    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_SETTINGS}]])
+
+
+def bind_link_confirm_keyboard() -> dict[str, Any]:
+    return _inline_kb(
+        [
+            [{"text": "✅ Привязать", "callback_data": CB_BIND_LINK_CONFIRM}],
+            [{"text": "↩️ Отмена", "callback_data": CB_BIND_LINK_CANCEL}],
+        ]
+    )
+
+
+def text_bind_link_prompt() -> str:
+    return (
+        "🔗 Привязка ссылки-подписки\n\n"
+        "Если вы покупали подписку на сайте, пришлите сюда ссылку-подписку из письма "
+        "(или сам токен) — перенесём оплату, баланс и реферальные начисления "
+        "на этот Telegram-аккаунт.\n\n"
+        "После привязки вход на сайт и конфиги будут работать по этой ссылке, "
+        "а прежняя ссылка этого аккаунта перестанет действовать."
+    )
+
+
+def text_bind_link_invalid_input() -> str:
+    return (
+        "❌ Это не похоже на ссылку-подписку.\n\n"
+        "Пришлите ссылку вида <code>https://…/sub/…</code> из письма о покупке "
+        "или сам токен целиком."
+    )
+
+
+def text_bind_link_not_found() -> str:
+    return "❌ Ссылка не найдена. Проверьте, что скопировали её целиком, и пришлите ещё раз."
+
+
+def text_bind_link_already_linked() -> str:
+    return (
+        "❌ Эта ссылка уже привязана к Telegram-аккаунту.\n\n"
+        "Привязать можно только ссылку, купленную на сайте без привязки к Telegram."
+    )
+
+
+def text_bind_link_error() -> str:
+    return "⚠️ Не удалось привязать ссылку. Попробуйте ещё раз позже."
+
+
+def text_bind_link_confirm(
+    *,
+    plan_name: str | None,
+    active_until: str | None,
+    balance_rubles: float,
+    both_active: bool,
+) -> str:
+    lines = ["<b>🔗 Привязать эту ссылку?</b>\n", "Что перенесётся на этот аккаунт:"]
+    if plan_name:
+        suffix = f" (до {active_until})" if active_until else ""
+        lines.append(f"• Подписка «{plan_name}»{suffix}")
+    else:
+        lines.append("• Подписка с сайта (если активна)")
+    if balance_rubles > 0:
+        lines.append(f"• Реферальный баланс: {balance_rubles:.2f} ₽")
+    lines.append("• Реферальные начисления и промокоды\n")
+    lines.append("Прежняя ссылка этого аккаунта перестанет действовать.")
+    if both_active:
+        lines.append(
+            "\n⚠️ <b>Внимание:</b> у вас уже есть активная подписка — она сохранится, "
+            "подписка с этой ссылки будет отброшена."
+        )
+    lines.append("\nПривязать?")
+    return "\n".join(lines)
+
+
+def text_bind_link_success(subscription_url: str) -> str:
+    return (
+        "✅ Готово! Ссылка привязана к этому аккаунту.\n\n"
+        f"Ваша ссылка теперь:\n<code>{escape(subscription_url)}</code>\n\n"
+        "Прежняя ссылка этого аккаунта удалена. Конфиги («Моя подписка → Мои ключи») "
+        "и вход на сайт работают по новой ссылке."
+    )
 
 
 FAQ_ITEMS: tuple[tuple[str, str], ...] = (
