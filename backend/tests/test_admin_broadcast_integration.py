@@ -39,6 +39,7 @@ _TG = {
     "exp_30plus": 990000007,
     "dormant": 990000008,
     "web_only": -990000009,
+    "trial_churned": 990000010,
 }
 _ALL_TG = list(_TG.values())
 
@@ -114,6 +115,21 @@ async def _insert_fixtures(pool: asyncpg.Pool) -> None:
                 str(tg),
                 str(days),
             )
+        # Триал истёк, покупок не было: trial_used=TRUE, plan_id IS NULL,
+        # trial_expires_at в прошлом, записей в billing_events_ledger нет.
+        await c.execute(
+            "INSERT INTO user_identities (telegram_user_id, internal_user_id, trial_used) "
+            "VALUES ($1,'u'||$2, TRUE) ON CONFLICT (telegram_user_id) DO NOTHING",
+            _TG["trial_churned"],
+            str(_TG["trial_churned"]),
+        )
+        await c.execute(
+            "INSERT INTO subscription_snapshots (internal_user_id, state_label, plan_id, "
+            "trial_started_at, trial_expires_at) "
+            "VALUES ('u'||$1, 'expired', NULL, now() - interval '5 days', now() - interval '2 days') "
+            "ON CONFLICT (internal_user_id) DO NOTHING",
+            str(_TG["trial_churned"]),
+        )
         # Спящий: trial_used=FALSE, без снапшота и без billing.
         await c.execute(
             "INSERT INTO user_identities (telegram_user_id, internal_user_id, trial_used) "
@@ -207,6 +223,8 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
             cats = [
                 "all",
                 "active",
+                "trial_active",
+                "trial_expired_no_purchase",
                 "expired_0_2d",
                 "expired_3_5d",
                 "expired_6_7d",
@@ -219,10 +237,13 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
 
             await _insert_fixtures(pool)
 
-            # --- Дельты по категориям (каждая фикстура попадает ровно в одну категорию) ---
+            # --- Дельты по категориям (каждая фикстура попадает ровно в одну категорию;
+            # active_trial попадает и в active, и в trial_active — это одно и то же лицо) ---
             expected_delta = {
-                "all": 8,  # 9 фикстур, web-only (tg<0) исключён из TG-канала
+                "all": 9,  # 10 фикстур, web-only (tg<0) исключён из TG-канала
                 "active": 2,
+                "trial_active": 1,
+                "trial_expired_no_purchase": 1,
                 "expired_0_2d": 1,
                 "expired_3_5d": 1,
                 "expired_6_7d": 1,
@@ -236,11 +257,11 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
 
             # --- Дедуп: active ⊆ all → объединение не больше all ---
             r = await estimate(["all", "active"])
-            assert r.json()["total"] == baseline_all + 8, "active должен быть подмножеством all (дедуп)"
+            assert r.json()["total"] == baseline_all + 9, "active должен быть подмножеством all (дедуп)"
 
             # --- Web-only исключён из all (TG-канал), но входит в web_total ---
             r = await estimate(["all"])
-            assert r.json()["total"] == baseline_all + 8
+            assert r.json()["total"] == baseline_all + 9
             assert r.json()["web_total"] >= 1  # web_only (tg<0) виден веб-каналу
 
             # --- Явные цели: tg-id ---

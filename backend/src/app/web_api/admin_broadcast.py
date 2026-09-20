@@ -111,6 +111,29 @@ _CATEGORY_PREDICATE_CORE: dict[str, str] = {
         " OR (s.plan_id IS NULL AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at > now())"
         ")"
     ),
+    # Активный триал сейчас — trial-ветка предиката active (plan_id IS NULL,
+    # trial_expires_at в будущем), вынесенная в отдельную категорию.
+    "trial_active": (
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE __TG_FILTER__ "
+        "AND s.plan_id IS NULL AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at > now()"
+    ),
+    # Триал активировали, он закончился, но пользователь так и не заплатил:
+    # trial_used + истёкший trial_expires_at, ни одного accepted-платежа в ledger
+    # (как в dormant) и нет активной платной подписки.
+    "trial_expired_no_purchase": (
+        "SELECT i.telegram_user_id FROM user_identities i "
+        "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
+        "WHERE __TG_FILTER__ "
+        "AND COALESCE(i.trial_used, FALSE) = TRUE "
+        "AND s.trial_expires_at IS NOT NULL AND s.trial_expires_at <= now() "
+        "AND NOT EXISTS (SELECT 1 FROM billing_events_ledger b "
+        "WHERE b.internal_user_id = i.internal_user_id AND b.status = 'accepted') "
+        "AND NOT EXISTS (SELECT 1 FROM subscription_snapshots s2 "
+        "WHERE s2.internal_user_id = i.internal_user_id AND s2.plan_id IS NOT NULL "
+        "AND s2.state_label = 'active' AND s2.active_until_utc IS NOT NULL AND s2.active_until_utc > now())"
+    ),
     "expired_0_2d": (
         "SELECT i.telegram_user_id FROM user_identities i "
         "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "

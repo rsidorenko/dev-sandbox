@@ -492,6 +492,8 @@ export interface AdminStatsResponse {
 export type BroadcastCategory =
   | "all"
   | "active"
+  | "trial_active"
+  | "trial_expired_no_purchase"
   | "expired_0_2d"
   | "expired_3_5d"
   | "expired_6_7d"
@@ -503,6 +505,8 @@ export type BroadcastCategory =
 export const BROADCAST_CATEGORY_LABELS: { key: BroadcastCategory; label: string }[] = [
   { key: "all", label: "Все пользователи" },
   { key: "active", label: "Активные (платные + триал)" },
+  { key: "trial_active", label: "Триал активен" },
+  { key: "trial_expired_no_purchase", label: "Триал закончился, не купили" },
   { key: "dormant", label: "Не активировали триал (спящие)" },
   { key: "expired_0_2d", label: "Подписка истекла 0–2 дня назад" },
   { key: "expired_3_5d", label: "Подписка истекла 3–5 дней назад" },
