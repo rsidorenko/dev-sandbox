@@ -58,6 +58,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
     row = await pool.fetchrow(
         """SELECT
                i.internal_user_id,
+               i.subscription_token,
                COALESCE(i.trial_used, FALSE) AS trial_used,
                s.state_label, s.active_until_utc, s.plan_id, s.device_count,
                s.trial_started_at, s.trial_expires_at,
@@ -87,6 +88,17 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
                 "keys": None,
             }
         )
+
+    # Ссылки входа/подписки — в профиле постоянно (link-auth: токен — единственный
+    # креденшл, восстановления нет; без этой строки первый выход = лок-аут).
+    from app.shared.site_url import get_site_base_url
+
+    site_url = get_site_base_url()
+    sub_token = row["subscription_token"]
+    user_info: dict = {"telegram_user_id": telegram_user_id, "email": email}
+    if sub_token:
+        user_info["subscription_url"] = f"{site_url}/sub/{sub_token}"
+        user_info["login_url"] = f"{site_url}/auth/{sub_token}"
 
     trial_used = row["trial_used"]
 
@@ -140,10 +152,7 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "ok": True,
-            "user": {
-                "telegram_user_id": telegram_user_id,
-                "email": email,
-            },
+            "user": user_info,
             "subscription": subscription,
             "keys": keys_info,
             "referral": referral,
