@@ -2,15 +2,26 @@ import type { Page, Route } from "@playwright/test";
 
 export const BASE_URL = "http://localhost:3100";
 
+/** Валидный по формату тестовый токен подписки (см. tokenStore.TOKEN_RE). */
+export const E2E_TOKEN = "e2e-token-1234567890abc";
+
 /**
  * Тестовые данные и перехват API для E2E.
  *
  * Все запросы фронта к бэкенду (/api/v1/**) перехватываются через page.route()
  * и возвращают фиксированные ответы — реальный backend не нужен, тесты
- * детерминированы. Профиль определяет состояние авторизации/подписки.
+ * детерминированы. Профиль определяет состояние авторизации/подписки:
+ * сессия — Bearer-токен в памяти, поэтому «авторизован» в моках = пришёл
+ * заголовок Authorization (как на бэкенде link-auth).
  */
 export type ProfileResponse = {
-  user: { telegram_user_id: number; email: string; internal_user_id: string };
+  user: {
+    telegram_user_id: number;
+    email: string | null;
+    internal_user_id: string;
+    login_url?: string;
+    subscription_url?: string;
+  };
   subscription: {
     state: string;
     active_until: string | null;
@@ -35,8 +46,10 @@ export function makeProfile(opts: {
   return {
     user: {
       telegram_user_id: 123456,
-      email: "user@example.com",
+      email: null,
       internal_user_id: "u-1",
+      login_url: `https://bravada-connect.ru/auth/${E2E_TOKEN}`,
+      subscription_url: `https://bravada-connect.ru/sub/${E2E_TOKEN}`,
     },
     subscription: {
       state: opts.subState ?? "none",
@@ -55,22 +68,24 @@ export function makeProfile(opts: {
   };
 }
 
-type ProfileKind = "auth" | "unauth" | "trial_used" | "active_sub";
+type ProfileKind = "auth" | "unauth" | "bad_token" | "trial_used" | "active_sub";
 type PaymentKind = "payment_url" | "payment_unavailable" | "unauthorized";
-type SendCodeKind = "ok" | "disposable" | "rate_limited";
-type VerifyKind = "ok" | "invalid" | "expired" | "email_not_linked";
+type LinkRequestKind = "ok" | "disposable" | "rate_limited" | "not_configured";
 type TrialKind = "ok" | "already_used" | "already_subscribed" | "unauthorized";
 
 export type MockOptions = {
   profile?: ProfileKind;
   paymentCreate?: PaymentKind;
-  sendCode?: SendCodeKind;
-  verifyCode?: VerifyKind;
+  linkRequest?: LinkRequestKind;
   trialActivate?: TrialKind;
 };
 
 function respondProfile(route: Route, kind: ProfileKind) {
-  if (kind === "unauth") {
+  // Без Bearer профиль недоступен; bad_token — недоступен и с Bearer
+  // (отозванная ссылка), остальные сценарии валидны только с токеном.
+  const authorization = route.request().headers()["authorization"] ?? "";
+  const hasBearer = authorization.startsWith("Bearer ");
+  if (kind === "unauth" || kind === "bad_token" || !hasBearer) {
     return route.fulfill({
       status: 401,
       json: { ok: false, error: "unauthorized" },
@@ -122,35 +137,26 @@ function respondPaymentCreate(route: Route, kind: PaymentKind) {
   });
 }
 
-function respondSendCode(route: Route, kind: SendCodeKind) {
+function respondLinkRequest(route: Route, kind: LinkRequestKind) {
   if (kind === "disposable") {
     return route.fulfill({
-      status: 200,
+      status: 422,
       json: { ok: false, error: "disposable_email" },
     });
   }
   if (kind === "rate_limited") {
     return route.fulfill({
-      status: 200,
+      status: 429,
       json: { ok: false, error: "rate_limited" },
     });
   }
-  return route.fulfill({
-    status: 200,
-    json: { ok: true, ttl_minutes: 10 },
-  });
-}
-
-function respondVerify(route: Route, kind: VerifyKind) {
-  const errorMap: Record<Exclude<VerifyKind, "ok">, string> = {
-    invalid: "invalid_code",
-    expired: "code_expired",
-    email_not_linked: "email_not_linked",
-  };
-  if (kind === "ok") {
-    return route.fulfill({ status: 200, json: { ok: true } });
+  if (kind === "not_configured") {
+    return route.fulfill({
+      status: 503,
+      json: { ok: false, error: "email_not_configured" },
+    });
   }
-  return route.fulfill({ status: 200, json: { ok: false, error: errorMap[kind] } });
+  return route.fulfill({ status: 200, json: { ok: true, sent: true } });
 }
 
 function respondTrial(route: Route, kind: TrialKind) {
@@ -204,11 +210,8 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
     if (url.includes("/api/v1/payment/create") && method === "POST") {
       return respondPaymentCreate(route, opts.paymentCreate ?? "payment_url");
     }
-    if (url.includes("/api/v1/auth/email/send-code") && method === "POST") {
-      return respondSendCode(route, opts.sendCode ?? "ok");
-    }
-    if (url.includes("/api/v1/auth/email/verify") && method === "POST") {
-      return respondVerify(route, opts.verifyCode ?? "ok");
+    if (url.includes("/api/v1/auth/link/request") && method === "POST") {
+      return respondLinkRequest(route, opts.linkRequest ?? "ok");
     }
     if (url.includes("/api/v1/user/trial/activate") && method === "POST") {
       return respondTrial(route, opts.trialActivate ?? "ok");
@@ -218,9 +221,12 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
   });
 }
 
-/** Поставить сессионную cookie, чтобы middleware пропустил защищённый маршрут. */
-export async function setSession(page: Page) {
-  await page.context().addCookies([
-    { name: "session", value: "e2e-session", domain: "localhost", path: "/" },
-  ]);
+/**
+ * «Войти» по ссылке-подписке, как пользователь из письма: визит
+ * /auth/<token>?next=… — токен попадает в память, страница валидирует его
+ * профилем и уходит на next клиентской навигацией.
+ */
+export async function loginByLink(page: Page, next = "/dashboard") {
+  await page.goto(`/auth/${E2E_TOKEN}?next=${encodeURIComponent(next)}`);
+  await page.waitForURL(`**${next}`);
 }

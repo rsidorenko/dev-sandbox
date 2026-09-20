@@ -1,55 +1,73 @@
 import { expect, test } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { E2E_TOKEN, mockApi } from "./fixtures";
 import { LoginPage } from "./pom/LoginPage";
 
-test.describe("Auth", () => {
-  test("login flow: email → code → redirect to next", async ({ page }) => {
-    await mockApi(page, {
-      profile: "unauth",
-      sendCode: "ok",
-      verifyCode: "ok",
-    });
+test.describe("Auth (link-auth)", () => {
+  test("login by pasted subscription link → redirect to next", async ({ page }) => {
+    await mockApi(page, { profile: "auth" });
     const login = new LoginPage(page);
-    // next=/ — не защищённый маршрут, чтобы успех verify корректно навигировал.
-    await login.goto("/");
-    await login.emailInput().fill("user@example.com");
-    await login.sendCodeButton().click();
-    await expect(login.codeStepHint()).toBeVisible();
-    await login.codeInput().fill("123456");
-    await login.verifyButton().click();
-    await expect(page).toHaveURL(/\/$/);
+    await login.goto("/dashboard");
+    await login.linkInput().fill(LoginPage.validLink());
+    await login.loginButton().click();
+    await expect(page).toHaveURL(/\/dashboard$/);
   });
 
-  test("disposable email shows an explanatory alert", async ({ page }) => {
-    await mockApi(page, { profile: "unauth", sendCode: "disposable" });
+  test("revoked link shows an error and stays on /login", async ({ page }) => {
+    await mockApi(page, { profile: "bad_token" });
+    const login = new LoginPage(page);
+    await login.goto("/dashboard");
+    await login.linkInput().fill(LoginPage.validLink());
+    await login.loginButton().click();
+    await expect(page.getByText(/недействительна или отозвана/)).toBeVisible();
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("/auth/<token> validates the token, strips it from the URL and redirects", async ({
+    page,
+  }) => {
+    await mockApi(page, { profile: "auth" });
+    await page.goto(`/auth/${E2E_TOKEN}?next=/trial`);
+    // Предикат по pathname: regex /\/trial$/ ложно матчит сам /auth-URL
+    // (?next=/trial заканчивается на «/trial»).
+    await expect(page).toHaveURL((url: URL) => url.pathname === "/trial");
+    // Токен не должен оставаться в адресной строке/истории.
+    expect(page.url()).not.toContain(E2E_TOKEN);
+  });
+
+  test("/auth/<token> with an unknown token shows the invalid-link state", async ({
+    page,
+  }) => {
+    await mockApi(page, { profile: "bad_token" });
+    await page.goto(`/auth/${E2E_TOKEN}?next=/dashboard`);
+    await expect(page.getByText("Ссылка недействительна")).toBeVisible();
+  });
+
+  test("email link request: success state", async ({ page }) => {
+    await mockApi(page, { profile: "unauth", linkRequest: "ok" });
     const login = new LoginPage(page);
     await login.goto("/");
+    await login.emailTabButton().click();
+    await login.emailInput().fill("user@example.com");
+    await login.sendLinkButton().click();
+    await expect(login.sentHint()).toBeVisible();
+  });
+
+  test("email link request: disposable shows an explanatory alert", async ({ page }) => {
+    await mockApi(page, { profile: "unauth", linkRequest: "disposable" });
+    const login = new LoginPage(page);
+    await login.goto("/");
+    await login.emailTabButton().click();
     await login.emailInput().fill("user@temp.mail");
-    await login.sendCodeButton().click();
+    await login.sendLinkButton().click();
     await expect(page.getByText(/временной почтой/)).toBeVisible();
   });
 
-  test("invalid verification code shows an error", async ({ page }) => {
-    await mockApi(page, {
-      profile: "unauth",
-      sendCode: "ok",
-      verifyCode: "invalid",
-    });
-    const login = new LoginPage(page);
-    await login.goto("/");
-    await login.emailInput().fill("user@example.com");
-    await login.sendCodeButton().click();
-    await login.codeInput().fill("000000");
-    await login.verifyButton().click();
-    await expect(page.getByText(/Неверный код/)).toBeVisible();
-  });
-
-  test("middleware redirects /dashboard to /login without a session cookie", async ({
+  test("/dashboard without a session redirects to /login (client-side)", async ({
     page,
   }) => {
     await mockApi(page, { profile: "unauth" });
     await page.goto("/dashboard");
-    // Next middleware кодирует «/» → %2F в query; покрываем оба варианта.
-    await expect(page).toHaveURL(/\/login\?next=(?:%2F|\/)dashboard$/);
+    // Сессия — токен в памяти (никаких кук): гвард делает AuthProvider.
+    await expect(page).toHaveURL(/\/login/);
   });
 });

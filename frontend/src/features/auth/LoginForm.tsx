@@ -1,125 +1,100 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { authApi } from "./api";
+import { userApi } from "@/entities/user/api";
+import { clearToken, parseLoginToken, setToken } from "@/shared/lib/tokenStore";
 import { siteConfig } from "@/shared/config/site";
-import { useCountdown } from "@/shared/hooks/useCountdown";
 import { safeNextPath } from "@/shared/lib/safeRedirect";
 import { clearPendingReferralCode, readPendingReferralCode } from "@/shared/lib/referralCapture";
 import { Alert } from "@/shared/ui/Alert";
+
+const linkSchema = z.object({
+  link: z.string().min(1, "Вставьте ссылку или токен"),
+});
+type LinkForm = z.infer<typeof linkSchema>;
 
 const emailSchema = z.object({
   email: z.string().min(1, "Введите email").email("Введите корректный email"),
 });
 type EmailForm = z.infer<typeof emailSchema>;
 
-const codeSchema = z.object({
-  code: z
-    .string()
-    .min(4, "Введите код из письма")
-    .max(6)
-    .regex(/^\d+$/, "Только цифры"),
-});
-type CodeForm = z.infer<typeof codeSchema>;
+type Mode = "link" | "email";
 
-type Step = "email" | "code";
+const EMAIL_ERROR_MESSAGES: Record<string, string> = {
+  disposable_email:
+    "Регистрация с временной почтой недоступна. Используйте постоянный email (Gmail, Яндекс, Mail.ru и т. п.).",
+  rate_limited: "Слишком много попыток. Попробуйте позже.",
+  invalid_email: "Введите корректный email.",
+  email_not_configured: "Сервис почты временно недоступен. Попробуйте позже.",
+};
 
 export function LoginForm() {
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<Step>("email");
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("link");
   const [serverError, setServerError] = useState("");
-  const [codeTtl, setCodeTtl] = useState(10);
-  const { seconds: resendTimer, start: startResendTimer } = useCountdown();
+  const [checkingLink, setCheckingLink] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const next = safeNextPath(searchParams.get("next"));
 
-  /* ---------- Email step ---------- */
+  /* ---------- Вход по ссылке (основной путь) ---------- */
+  const linkForm = useForm<LinkForm>({
+    resolver: zodResolver(linkSchema),
+    defaultValues: { link: "" },
+  });
+
+  const onLoginByLink = linkForm.handleSubmit(async ({ link }) => {
+    setServerError("");
+    const token = parseLoginToken(link);
+    if (!token) {
+      setServerError(
+        "Это не похоже на ссылку Bravada. Скопируйте ссылку целиком из письма или от бота.",
+      );
+      return;
+    }
+    setCheckingLink(true);
+    // Токен в память → профиль с Bearer валидирует его на бэкенде.
+    setToken(token);
+    const result = await userApi.profile();
+    setCheckingLink(false);
+    if (!result.ok) {
+      clearToken();
+      setServerError(
+        "Ссылка недействительна или отозвана. Запросите новую на почту или привяжите аккаунт в Telegram-боте.",
+      );
+      return;
+    }
+    // Только клиентская навигация: полная перезагрузка теряет токен в памяти.
+    router.push(next);
+  });
+
+  /* ---------- Заявка ссылки на почту (новые пользователи) ---------- */
   const emailForm = useForm<EmailForm>({
     resolver: zodResolver(emailSchema),
     defaultValues: { email: "" },
   });
 
-  // Arriving via the email CTA (?email=…) — pre-fill the email and jump straight to
-  // the code-entry step. iOS Mail surfaces the code as an AutoFill suggestion only
-  // when the one-time-code input is present and focused, so we must land on the code
-  // step instead of the email step. Runs once on mount.
-  useEffect(() => {
-    const emailParam = searchParams.get("email")?.trim() ?? "";
-    if (emailParam && emailSchema.safeParse({ email: emailParam }).success) {
-      emailForm.reset({ email: emailParam });
-      setStep("code");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const onSendCode = emailForm.handleSubmit(async ({ email }) => {
+  const onSendLink = emailForm.handleSubmit(async ({ email }) => {
     setServerError("");
-    const result = await authApi.sendCode(email);
-    if (!result.ok) {
-      if (result.error === "disposable_email") {
-        setServerError(
-          "Регистрация с временной почтой недоступна. Используйте постоянный email (Gmail, Яндекс, Mail.ru и т. п.).",
-        );
-      } else if (result.error === "rate_limited") {
-        setServerError("Слишком много попыток. Попробуйте позже.");
-      } else {
-        setServerError("Не удалось отправить код. Попробуйте позже.");
-      }
-      return;
-    }
-    setCodeTtl(result.data.ttl_minutes || 10);
-    setStep("code");
-    startResendTimer(60);
-  });
-
-  /* ---------- Code step ---------- */
-  const codeForm = useForm<CodeForm>({
-    resolver: zodResolver(codeSchema),
-    defaultValues: { code: "" },
-  });
-
-  const onVerifyCode = codeForm.handleSubmit(async ({ code }) => {
-    setServerError("");
-    const email = emailForm.getValues("email");
     const referralCode = readPendingReferralCode() || undefined;
-    const result = await authApi.verifyCode(email, code, referralCode);
+    const result = await authApi.requestLink(email, referralCode, next);
     if (!result.ok) {
-      if (result.error === "invalid_code") {
-        setServerError("Неверный код. Попробуйте снова.");
-      } else if (result.error === "code_expired") {
-        setServerError("Код истёк. Запросите новый.");
-        setStep("email");
-      } else if (result.error === "email_not_linked") {
-        setServerError(
-          "Этот email не привязан к аккаунту. Сначала привяжите его через Telegram-бота.",
-        );
-      } else if (result.error === "too_many_attempts") {
-        setServerError("Слишком много попыток. Запросите новый код.");
-        setStep("email");
-      } else {
-        setServerError("Не удалось войти. Попробуйте позже.");
-      }
+      setServerError(
+        EMAIL_ERROR_MESSAGES[result.error] ??
+          "Не удалось отправить письмо. Попробуйте позже.",
+      );
       return;
     }
+    // Реферальный код потреблён при создании аккаунта на бэкенде.
     clearPendingReferralCode();
-    const next = safeNextPath(searchParams.get("next"));
-    window.location.href = next;
+    setSentTo(email);
   });
-
-  const handleResend = async () => {
-    if (resendTimer > 0) return;
-    setServerError("");
-    const email = emailForm.getValues("email");
-    const result = await authApi.sendCode(email);
-    if (result.ok) {
-      startResendTimer(60);
-    } else {
-      setServerError("Не удалось отправить код повторно.");
-    }
-  };
 
   return (
     <section className="flex min-h-[70vh] items-center justify-center py-20">
@@ -129,120 +104,147 @@ export function LoginForm() {
             Вход в аккаунт
           </h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Введите email, привязанный к вашему аккаунту
+            Вход — по ссылке-подписке. Куки и пароли не используем.
           </p>
 
           {serverError && <Alert className="mt-4">{serverError}</Alert>}
 
-          {step === "email" && (
-            <form onSubmit={onSendCode} className="mt-6 space-y-4">
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  {...emailForm.register("email")}
-                  placeholder="email@example.com"
-                  className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
-                  disabled={emailForm.formState.isSubmitting}
-                  autoFocus
-                />
-                {emailForm.formState.errors.email && (
-                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                    {emailForm.formState.errors.email.message}
-                  </p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={emailForm.formState.isSubmitting}
-                className="w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
-              >
-                {emailForm.formState.isSubmitting
-                  ? "Отправка..."
-                  : "Получить код"}
-              </button>
-            </form>
-          )}
-
-          {step === "code" && (
-            <form onSubmit={onVerifyCode} className="mt-6 space-y-4">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Код подтверждения отправлен на{" "}
-                  <strong>{emailForm.getValues("email")}</strong>
+          {sentTo ? (
+            <div className="mt-6 space-y-4">
+              <div className="rounded-xl bg-brand-50 p-4 text-center dark:bg-brand-900/20">
+                <p className="text-sm font-semibold text-brand-900 dark:text-brand-200">
+                  Проверьте почту
+                </p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  Мы отправили ссылку для входа на{" "}
+                  <strong>{sentTo}</strong>. Откройте письмо и перейдите по
+                  ссылке — вернём вас сюда для оплаты.
                 </p>
               </div>
-              <div>
-                <label
-                  htmlFor="code"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Код подтверждения
-                </label>
-                <input
-                  id="code"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  {...codeForm.register("code")}
-                  placeholder="123456"
-                  className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-center text-lg tracking-widest text-gray-900 transition focus:border-brand-500 focus:placeholder:text-transparent focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
-                  disabled={codeForm.formState.isSubmitting}
-                  autoFocus
-                />
-                {codeForm.formState.errors.code && (
-                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                    {codeForm.formState.errors.code.message}
-                  </p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={codeForm.formState.isSubmitting}
-                className="w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
-              >
-                {codeForm.formState.isSubmitting ? "Проверка..." : "Войти"}
-              </button>
-              <div className="flex items-center justify-between text-sm">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Ссылка — единственный способ входа: почта нигде не сохраняется,
+                восстановить потерянную ссылку нельзя. Сохраните письмо или
+                привяжите ссылку к Telegram-аккаунту в боте.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1 dark:bg-zinc-700/60">
                 <button
                   type="button"
-                  onClick={handleResend}
-                  disabled={resendTimer > 0 || codeForm.formState.isSubmitting}
-                  className="text-brand-600 transition hover:text-brand-700 disabled:text-gray-400"
+                  onClick={() => {
+                    setMode("link");
+                    setServerError("");
+                  }}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    mode === "link"
+                      ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-gray-100"
+                      : "text-gray-500 hover:text-gray-700 dark:text-zinc-400"
+                  }`}
                 >
-                  {resendTimer > 0
-                    ? `Отправить повторно (${resendTimer}с)`
-                    : "Отправить код повторно"}
+                  По ссылке
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setStep("email");
-                    codeForm.reset();
+                    setMode("email");
                     setServerError("");
                   }}
-                  className="text-gray-500 transition hover:text-gray-700"
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    mode === "email"
+                      ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-gray-100"
+                      : "text-gray-500 hover:text-gray-700 dark:text-zinc-400"
+                  }`}
                 >
-                  Изменить email
+                  Получить на почту
                 </button>
               </div>
-              <p className="text-xs text-gray-400">
-                Код действителен {codeTtl} минут
-              </p>
-            </form>
+
+              {mode === "link" && (
+                <form onSubmit={onLoginByLink} className="mt-6 space-y-4">
+                  <div>
+                    <label
+                      htmlFor="login-link"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      Ссылка или токен подписки
+                    </label>
+                    <input
+                      id="login-link"
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      {...linkForm.register("link")}
+                      placeholder="https://bravada-connect.ru/sub/…"
+                      className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
+                      disabled={checkingLink}
+                      autoFocus
+                    />
+                    {linkForm.formState.errors.link && (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                        {linkForm.formState.errors.link.message}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={checkingLink}
+                    className="w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {checkingLink ? "Проверка..." : "Войти"}
+                  </button>
+                  <p className="text-xs text-gray-400">
+                    Ссылка есть в письме при покупке и в Telegram-боте
+                    («Моя подписка»).
+                  </p>
+                </form>
+              )}
+
+              {mode === "email" && (
+                <form onSubmit={onSendLink} className="mt-6 space-y-4">
+                  <div>
+                    <label
+                      htmlFor="email"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      Email
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      {...emailForm.register("email")}
+                      placeholder="email@example.com"
+                      className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
+                      disabled={emailForm.formState.isSubmitting}
+                    />
+                    {emailForm.formState.errors.email && (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                        {emailForm.formState.errors.email.message}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={emailForm.formState.isSubmitting}
+                    className="w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {emailForm.formState.isSubmitting
+                      ? "Отправка..."
+                      : "Получить ссылку"}
+                  </button>
+                  <p className="text-xs text-gray-400">
+                    Почта используется только для доставки ссылки и не
+                    сохраняется.
+                  </p>
+                </form>
+              )}
+            </>
           )}
 
           <div className="mt-6 border-t border-gray-100 pt-4 text-center text-sm text-gray-500 dark:border-zinc-700">
             <p>
-              Нет аккаунта? Привяжите email через{" "}
+              Нет ссылки? Оформите подписку через{" "}
               <a
                 href={`https://t.me/${siteConfig.botUsername}`}
                 target="_blank"

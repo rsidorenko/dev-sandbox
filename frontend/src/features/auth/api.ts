@@ -1,17 +1,19 @@
 import { apiFetch } from "@/shared/api/client";
-import type { SendCodeResponse, VerifyResponse } from "@/entities/auth/types";
+import type { LinkRequestResponse } from "@/entities/auth/types";
 
 export const authApi = {
-  sendCode: (email: string) =>
-    apiFetch<SendCodeResponse>("/api/v1/auth/email/send-code", {
+  /**
+   * Запросить ссылку-подписку на почту (путь новых пользователей без ссылки).
+   * Почта используется только как канал доставки и нигде не сохраняется;
+   * referral_code атрибутируется при создании аккаунта на бэкенде.
+   */
+  requestLink: (email: string, referral_code?: string, next?: string) =>
+    apiFetch<LinkRequestResponse>("/api/v1/auth/link/request", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({
+        email,
+        ...(referral_code && { referral_code }),
+        ...(next && { next }),
+      }),
     }),
-  verifyCode: (email: string, code: string, referral_code?: string) =>
-    apiFetch<VerifyResponse>("/api/v1/auth/email/verify", {
-      method: "POST",
-      body: JSON.stringify({ email, code, ...(referral_code && { referral_code }) }),
-    }),
-  logout: () =>
-    apiFetch<{ ok: boolean }>("/api/v1/auth/logout", { method: "POST" }),
 };

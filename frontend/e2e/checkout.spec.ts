@@ -3,18 +3,25 @@ import { mockApi } from "./fixtures";
 import { CheckoutPage } from "./pom/CheckoutPage";
 
 test.describe("Checkout (/payment/[planId])", () => {
-  test("unauthenticated visitor sees the AuthGate", async ({ page }) => {
-    await mockApi(page, { profile: "unauth" });
+  test("unauthenticated visitor sees the AuthGate (email link request)", async ({ page }) => {
+    await mockApi(page, { profile: "unauth", linkRequest: "ok" });
     const checkout = new CheckoutPage(page);
-    await checkout.goto("1m");
-    await expect(checkout.emailGateLink()).toHaveAttribute(
-      "href",
-      "/login?next=/payment/1m",
-    );
+    await checkout.gotoDirect("1m");
+    await expect(checkout.gateEmailInput()).toBeVisible();
+    await expect(checkout.gateSubmitButton()).toBeVisible();
     await expect(checkout.botGateLink()).toHaveAttribute(
       "href",
       /^https:\/\/t\.me\/.+bot\?start=1m$/,
     );
+  });
+
+  test("AuthGate sends the link request and shows the sent state", async ({ page }) => {
+    await mockApi(page, { profile: "unauth", linkRequest: "ok" });
+    const checkout = new CheckoutPage(page);
+    await checkout.gotoDirect("1m");
+    await checkout.gateEmailInput().fill("user@example.com");
+    await checkout.gateSubmitButton().click();
+    await expect(checkout.gateSentHint()).toBeVisible();
   });
 
   test("unknown plan shows 'Тариф не найден'", async ({ page }) => {
@@ -67,7 +74,9 @@ test.describe("Checkout (/payment/[planId])", () => {
   test("recovery URL restores plan, devices and payment method", async ({ page }) => {
     await mockApi(page, { profile: "auth" });
     const checkout = new CheckoutPage(page);
-    await checkout.goto("3m?devices=8&method=crypto");
+    // ?devices=8&method=crypto возвращается ссылкой из письма: wait-паттерн
+    // отдельный, чтобы query не мешал glob-матчингу.
+    await checkout.goto("3m", { query: "?devices=8&method=crypto", wait: "**/payment/3m*" });
     await expect(checkout.deviceSlider()).toHaveValue("8");
     // 699 ₽ + 3 дополнительных устройства × 240 ₽ за 90 дней.
     await expect(checkout.cryptoPayButton()).toContainText(/1.419 ₽/);

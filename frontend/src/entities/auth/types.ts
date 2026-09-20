@@ -1,11 +1,5 @@
-export interface SendCodeResponse {
+/** Ответ POST /api/v1/auth/link/request — заявка ссылки-подписки на почту. */
+export interface LinkRequestResponse {
   ok: boolean;
   sent: boolean;
-  ttl_minutes: number;
-}
-
-export interface VerifyResponse {
-  ok: boolean;
-  token: string;
-  user: { telegram_user_id: number; email: string };
 }

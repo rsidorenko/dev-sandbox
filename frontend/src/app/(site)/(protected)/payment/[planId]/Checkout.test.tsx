@@ -2,10 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { auth, paymentApi, experimentApi, params, navigation } = vi.hoisted(() => ({
+const { auth, paymentApi, experimentApi, params, navigation, authApi } = vi.hoisted(() => ({
   auth: { authenticated: true, loading: false, profile: null as null | { referral: { balance_rubles: number; code: string; referrals_count: number } } },
   paymentApi: { create: vi.fn(), payWithBalance: vi.fn() },
   experimentApi: { resolve: vi.fn() },
+  authApi: { requestLink: vi.fn() },
   params: { planId: "1m" },
   navigation: { query: "" },
 }));
@@ -20,6 +21,7 @@ vi.mock("@/shared/lib/auth", () => ({
 }));
 vi.mock("@/entities/payment/api", () => ({ paymentApi }));
 vi.mock("@/entities/experiment/api", () => ({ experimentApi }));
+vi.mock("@/features/auth/api", () => ({ authApi }));
 vi.mock("next/navigation", () => ({
   useParams: () => params,
   useSearchParams: () => new URLSearchParams(navigation.query),
@@ -39,6 +41,7 @@ beforeEach(() => {
   navigation.query = "";
   paymentApi.create.mockReset();
   paymentApi.payWithBalance.mockReset();
+  authApi.requestLink.mockReset();
   experimentApi.resolve.mockReset();
   experimentApi.resolve.mockResolvedValue({
     ok: true,
@@ -61,16 +64,33 @@ describe("Checkout (payment/[planId])", () => {
     expect(screen.getByText("Тариф не найден")).toBeInTheDocument();
   });
 
-  it("shows the AuthGate (email + Telegram) for an unauthenticated visitor", () => {
+  it("shows the AuthGate (email link request + Telegram) for an unauthenticated visitor", () => {
     auth.authenticated = false;
     auth.loading = false;
     render(<PaymentPage />);
+    expect(screen.getByPlaceholderText("email@example.com")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Войти по email" }),
-    ).toHaveAttribute("href", "/login?next=/payment/1m");
+      screen.getByRole("button", { name: "Получить ссылку" }),
+    ).toBeInTheDocument();
     const botLink = screen.getByRole("link", { name: /Telegram-бот/ });
     expect(botLink.getAttribute("href")).toMatch(
       /^https:\/\/t\.me\/.+bot\?start=1m$/,
+    );
+  });
+
+  it("requests a login link from the gate and shows the sent state", async () => {
+    auth.authenticated = false;
+    auth.loading = false;
+    authApi.requestLink.mockResolvedValue({ ok: true, data: { ok: true, sent: true } });
+    const user = userEvent.setup();
+    render(<PaymentPage />);
+    await user.type(screen.getByPlaceholderText("email@example.com"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
+    expect(await screen.findByText("Проверьте почту")).toBeInTheDocument();
+    expect(authApi.requestLink).toHaveBeenCalledWith(
+      "user@example.com",
+      undefined,
+      "/payment/1m",
     );
   });
 

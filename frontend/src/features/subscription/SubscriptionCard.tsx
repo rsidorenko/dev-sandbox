@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { subscriptionApi } from "@/entities/subscription/api";
 import { paymentApi } from "@/entities/payment/api";
 import { calcExtraDeviceCost, getTariffInfo } from "@/entities/payment/calc";
@@ -47,6 +48,7 @@ export function SubscriptionCard({
   onOpenKeys,
   onRenew,
 }: Props) {
+  const router = useRouter();
   const isActive = sub?.state === "active";
   // Prefer the server-computed remaining_days (shared with the bot -> identical
   // 'days left' on web and Telegram). Fall back to local daysLeft for safety.
@@ -81,7 +83,8 @@ export function SubscriptionCard({
   const canAddWithBalance = referral != null && addDeviceCost > 0 && balanceRubles >= addDeviceCost;
 
   const handleChangePlan = () => {
-    window.location.href = `/payment/${normalizePlanId(selectedPlan)}`;
+    // Клиентская навигация: полная перезагрузка теряет токен сессии в памяти.
+    router.push(`/payment/${normalizePlanId(selectedPlan)}`);
   };
 
   const handleChangeDevices = async () => {

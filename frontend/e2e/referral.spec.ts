@@ -40,15 +40,15 @@ test.describe("Referral capture", () => {
     await expectCapturedRef(page, "LOGIN123");
   });
 
-  test("preserves ref across middleware redirect on protected route", async ({
+  test("captures ref on /dashboard even when redirected to /login (no session)", async ({
     page,
   }) => {
-    // /dashboard?ref= without a session → middleware redirects to
-    // /login?next=/dashboard&ref=... — the ref must survive and be captured.
+    // Сессия — токен в памяти, middleware-гварда больше нет: /dashboard?ref=
+    // без токена клиентски уходит на /login, но ReferralCapture в layout
+    // успевает захватить ref.
     await mockApi(page, { profile: "unauth" });
     await page.goto("/dashboard?ref=DASH456");
-    expect(page.url()).toContain("/login");
-    expect(page.url()).toContain("ref=DASH456");
+    await expect(page).toHaveURL(/\/login/);
     await expectCapturedRef(page, "DASH456");
   });
 

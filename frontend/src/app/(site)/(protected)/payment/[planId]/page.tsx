@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi, type PaymentMethod } from "@/entities/payment/api";
+import { authApi } from "@/features/auth/api";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
 import { usePlans } from "@/features/plans/PlansProvider";
@@ -568,10 +569,43 @@ function AuthGate({
   planId: string;
   refParam: string | null;
 }) {
-  // Preserve ?ref= across the /login redirect so a referral link to /payment/...
-  // still attributes after email verification.
-  const loginUrl = `/login?next=/payment/${planId}${refParam ? `&ref=${encodeURIComponent(refParam)}` : ""}`;
+  // Инлайн-заявка ссылки-подписки: не уводим пользователя с оффера. Почта —
+  // только канал доставки ссылки, нигде не сохраняется. ?ref= уходит в запрос
+  // (атрибуция при создании аккаунта), next возвращает сюда после входа.
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const botUrl = `https://t.me/${siteConfig.botUsername}?start=${planId}`;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const trimmed = email.trim();
+    if (!trimmed.includes("@")) {
+      setError("Введите корректный email.");
+      return;
+    }
+    setBusy(true);
+    const result = await authApi.requestLink(
+      trimmed,
+      refParam ?? undefined,
+      `/payment/${planId}`,
+    );
+    setBusy(false);
+    if (!result.ok) {
+      setError(
+        result.error === "disposable_email"
+          ? "Регистрация с временной почтой недоступна. Используйте постоянный email."
+          : result.error === "rate_limited"
+            ? "Слишком много попыток. Попробуйте позже."
+            : "Не удалось отправить письмо. Попробуйте позже.",
+      );
+      return;
+    }
+    setSentTo(trimmed);
+  };
+
   return (
     <section className="py-12">
       <div className="mx-auto max-w-lg px-4">
@@ -597,20 +631,45 @@ function AuthGate({
 
           <div className="mt-8 rounded-xl bg-brand-50 p-4 text-center dark:bg-brand-900/20">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              Войдите, чтобы оплатить подписку
+              Введите почту — отправим ссылку для входа и оплаты
             </p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Или оплатите через Telegram-бота — без регистрации, в один клик
+              Почта нигде не сохраняется. Или оплатите через Telegram-бота — без регистрации
             </p>
           </div>
 
-          <Link
-            href={loginUrl}
-            onClick={() => reachGoal("auth_gate_email", { plan: planId })}
-            className="mt-4 block w-full rounded-xl bg-brand-600 py-3 text-center text-sm font-bold text-white transition hover:bg-brand-700"
-          >
-            Войти по email
-          </Link>
+          {sentTo ? (
+            <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4 text-center dark:border-brand-800 dark:bg-brand-900/20">
+              <p className="text-sm font-semibold text-brand-900 dark:text-brand-200">
+                Проверьте почту
+              </p>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Мы отправили ссылку на <strong>{sentTo}</strong>. Откройте её —
+                вернём сюда для оплаты.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="mt-4 space-y-3">
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="email@example.com"
+                className="block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
+                disabled={busy}
+              />
+              {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+              <button
+                type="submit"
+                onClick={() => reachGoal("auth_gate_link", { plan: planId })}
+                disabled={busy}
+                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                {busy ? "Отправка..." : "Получить ссылку"}
+              </button>
+            </form>
+          )}
           <a
             href={botUrl}
             target="_blank"

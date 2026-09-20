@@ -1,8 +1,13 @@
 export interface UserProfile {
   user: {
     telegram_user_id: number;
-    email: string;
+    // link-auth: у токен-сессий почты нет; поле остаётся для legacy-JWT перехода.
+    email: string | null;
     internal_user_id: string;
+    /** Ссылка входа {site}/auth/<token> — единственный креденшл, показываем в ЛК. */
+    login_url?: string;
+    /** Ссылка подписки {site}/sub/<token> (VPN-конфиги). */
+    subscription_url?: string;
   };
   subscription: {
     state: string;

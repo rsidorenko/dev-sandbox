@@ -1,12 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { authApi } = vi.hoisted(() => ({
-  authApi: {
-    sendCode: vi.fn(),
-    verifyCode: vi.fn(),
-  },
+const { authApi, userApi, push } = vi.hoisted(() => ({
+  authApi: { requestLink: vi.fn() },
+  userApi: { profile: vi.fn() },
+  push: vi.fn(),
 }));
 
 const { useSearch, setSearch } = vi.hoisted(() => {
@@ -20,111 +19,113 @@ const { useSearch, setSearch } = vi.hoisted(() => {
 });
 
 vi.mock("@/features/auth/api", () => ({ authApi }));
-vi.mock("@/shared/hooks/useCountdown", () => ({
-  useCountdown: () => ({ seconds: 0, start: vi.fn(), isRunning: false }),
-}));
+vi.mock("@/entities/user/api", () => ({ userApi }));
 vi.mock("next/navigation", () => ({
   useSearchParams: useSearch,
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/login",
   useParams: () => ({}),
 }));
 
 import { LoginForm } from "./LoginForm";
+import { clearToken, getToken } from "@/shared/lib/tokenStore";
 
-const originalLocation = window.location;
+// Формат как у secrets.token_urlsafe(16) — см. tokenStore.TOKEN_RE.
+const TOKEN = "e2e-token-1234567890abc";
+const SUB_LINK = `https://bravada-connect.ru/sub/${TOKEN}`;
 
 beforeEach(() => {
   setSearch("next=/dashboard");
-  authApi.sendCode.mockReset();
-  authApi.verifyCode.mockReset();
-  Object.defineProperty(window, "location", {
-    value: { ...originalLocation, href: "" },
-    writable: true,
-    configurable: true,
+  authApi.requestLink.mockReset();
+  userApi.profile.mockReset();
+  push.mockReset();
+  clearToken();
+});
+
+describe("LoginForm (вход по ссылке)", () => {
+  it("shows a validation error for an empty input", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    expect(await screen.findByText("Вставьте ссылку или токен")).toBeInTheDocument();
+  });
+
+  it("rejects text that is not a Bravada link/token without calling the API", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText(/Ссылка или токен/i), "hello world");
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    expect(await screen.findByText(/не похоже на ссылку/i)).toBeInTheDocument();
+    expect(userApi.profile).not.toHaveBeenCalled();
+    expect(getToken()).toBeNull();
+  });
+
+  it("logs in with a pasted subscription link and navigates to next", async () => {
+    userApi.profile.mockResolvedValue({ ok: true, data: { user: {}, subscription: null } });
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText(/Ссылка или токен/i), SUB_LINK);
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
+    expect(getToken()).toBe(TOKEN);
+  });
+
+  it("accepts an /auth/<token> link and extracts the token", async () => {
+    userApi.profile.mockResolvedValue({ ok: true, data: { user: {}, subscription: null } });
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.type(
+      screen.getByLabelText(/Ссылка или токен/i),
+      `https://bravada-connect.ru/auth/${TOKEN}?next=/trial`,
+    );
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(getToken()).toBe(TOKEN);
+  });
+
+  it("clears the token and shows an error when the link is invalid on the server", async () => {
+    userApi.profile.mockResolvedValue({ ok: false, error: "unauthorized" });
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await user.type(screen.getByLabelText(/Ссылка или токен/i), SUB_LINK);
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    expect(await screen.findByText(/недействительна или отозвана/i)).toBeInTheDocument();
+    expect(getToken()).toBeNull();
+    expect(push).not.toHaveBeenCalled();
   });
 });
 
-describe("LoginForm", () => {
+describe("LoginForm (заявка ссылки на почту)", () => {
   it("shows a validation error for an empty email", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: "Получить код" }));
+    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
+    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
     expect(await screen.findByText("Введите email")).toBeInTheDocument();
   });
 
-  it("shows a validation error for an invalid email", async () => {
+  it("sends the request with next and shows the 'check your email' state", async () => {
+    authApi.requestLink.mockResolvedValue({ ok: true, data: { ok: true, sent: true } });
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Email/i), "abc");
-    // type=email + нативная constraint-validation блокируют JS-submit в happy-dom;
-    // отправляем форму напрямую, чтобы сработал zod-resolver RHF.
-    const form = screen
-      .getByRole("button", { name: "Получить код" })
-      .closest("form") as HTMLFormElement;
-    fireEvent.submit(form);
-    expect(
-      await screen.findByText("Введите корректный email"),
-    ).toBeInTheDocument();
-  });
-
-  it("moves to the code step on a successful code send", async () => {
-    authApi.sendCode.mockResolvedValue({ ok: true, data: { ttl_minutes: 10 } });
-    const user = userEvent.setup();
-    render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Email/i), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "Получить код" }));
-    expect(
-      await screen.findByText(/Код подтверждения отправлен/),
-    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
+    await user.type(screen.getByLabelText(/^Email$/i), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
+    expect(await screen.findByText("Проверьте почту")).toBeInTheDocument();
+    expect(authApi.requestLink).toHaveBeenCalledWith(
+      "user@example.com",
+      undefined,
+      "/dashboard",
+    );
   });
 
   it("shows the disposable-email error", async () => {
-    authApi.sendCode.mockResolvedValue({ ok: false, error: "disposable_email" });
+    authApi.requestLink.mockResolvedValue({ ok: false, error: "disposable_email" });
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Email/i), "user@temp.mail");
-    await user.click(screen.getByRole("button", { name: "Получить код" }));
+    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
+    await user.type(screen.getByLabelText(/^Email$/i), "user@temp.mail");
+    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
     expect(await screen.findByText(/временной почтой/)).toBeInTheDocument();
-  });
-
-  it("verifies the code and redirects to next on success", async () => {
-    authApi.sendCode.mockResolvedValue({ ok: true, data: { ttl_minutes: 10 } });
-    authApi.verifyCode.mockResolvedValue({ ok: true, data: {} });
-    const user = userEvent.setup();
-    render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Email/i), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "Получить код" }));
-    const codeInput = await screen.findByLabelText(/Код подтверждения/i);
-    await user.type(codeInput, "123456");
-    await user.click(screen.getByRole("button", { name: "Войти" }));
-    await waitFor(() => {
-      expect(window.location.href).toBe("/dashboard");
-    });
-  });
-
-  it("marks the OTP input with autocomplete=one-time-code for OS autofill", async () => {
-    authApi.sendCode.mockResolvedValue({ ok: true, data: { ttl_minutes: 10 } });
-    const user = userEvent.setup();
-    render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Email/i), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "Получить код" }));
-    const codeInput = await screen.findByLabelText(/Код подтверждения/i);
-    expect(codeInput.getAttribute("autocomplete")).toBe("one-time-code");
-  });
-
-  it("lands on the code step with a pre-filled email when ?email= is present", async () => {
-    // Email CTA carries ?email= so iOS Mail can AutoFill the code into the
-    // already-present one-time-code input (landing on the email step would leave
-    // no field for iOS to fill).
-    setSearch("email=friend@example.com&next=/dashboard");
-    render(<LoginForm />);
-
-    // The OTP input is shown immediately (email-entry step is skipped).
-    const codeInput = await screen.findByLabelText(/Код подтверждения/i);
-    expect(codeInput.getAttribute("autocomplete")).toBe("one-time-code");
-    expect(screen.queryByRole("button", { name: "Получить код" })).not.toBeInTheDocument();
-    // Email is pre-filled and surfaced in the "sent to" line.
-    expect(screen.getByText((content) => content === "friend@example.com")).toBeInTheDocument();
   });
 });

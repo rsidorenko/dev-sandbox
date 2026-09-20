@@ -1,10 +1,23 @@
 import type { Locator, Page } from "@playwright/test";
+import { E2E_TOKEN } from "../fixtures";
 
 /** Page Object для страницы оформления подписки /payment/[planId]. */
 export class CheckoutPage {
   constructor(private readonly page: Page) {}
 
-  goto(planId: string) {
+  /**
+   * Вход по ссылке (как из письма) → клиентский редирект на чекаут: токен
+   * живёт в памяти, полная перезагрузка страницы его теряет, поэтому
+   * «авторизованные» сценарии начинаются с /auth/<token>?next=…
+   */
+  async goto(planId: string, opts: { query?: string; wait?: string } = {}) {
+    const next = `/payment/${planId}${opts.query ?? ""}`;
+    await this.page.goto(`/auth/${E2E_TOKEN}?next=${encodeURIComponent(next)}`);
+    await this.page.waitForURL(opts.wait ?? `**${next}`);
+  }
+
+  /** Прямая навигация без сессии (сценарий AuthGate). */
+  gotoDirect(planId: string) {
     return this.page.goto(`/payment/${planId}`);
   }
 
@@ -37,8 +50,16 @@ export class CheckoutPage {
     return this.page.getByRole("button", { name: /Оплатить криптовалютой/ });
   }
 
-  emailGateLink(): Locator {
-    return this.page.getByRole("link", { name: "Войти по email" });
+  gateEmailInput(): Locator {
+    return this.page.getByPlaceholder("email@example.com");
+  }
+
+  gateSubmitButton(): Locator {
+    return this.page.getByRole("button", { name: "Получить ссылку" });
+  }
+
+  gateSentHint(): Locator {
+    return this.page.getByText("Проверьте почту");
   }
 
   botGateLink(): Locator {
