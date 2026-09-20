@@ -10,7 +10,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import secrets
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,6 +17,10 @@ from urllib.parse import quote
 
 import asyncpg
 
+from app.issuance.subscription_token import (
+    ensure_subscription_token,
+    generate_subscription_token,
+)
 from app.issuance.vless_provider import (
     VlessProviderOutcome,
     VlessProviderPort,
@@ -52,7 +55,8 @@ _TRIAL_DEVICE_LIMIT = int(os.environ.get("TRIAL_DEVICE_LIMIT", "5"))
 
 
 def _generate_subscription_token() -> str:
-    return secrets.token_urlsafe(16)
+    # Делегат к общему модулю (link-auth: токен нужен и вне провайдера).
+    return generate_subscription_token()
 
 
 def _web_sub_url(token: str) -> str:
@@ -60,23 +64,9 @@ def _web_sub_url(token: str) -> str:
 
 
 async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) -> str:
-    # URL подписки постоянный (f620f73): существующий токен возвращаем как есть,
-    # без TTL-ротации. 90-дневный TTL из #74, молча возвращённый #94 (7bfd690),
-    # ломал Karing-автообновление на 90-й день (404/410 на /sub/). Новые токены
-    # выдаём без expires (NULL = бессрочный); миграция 075 обнулила expires у всех.
-    row = await pool.fetchrow(
-        "SELECT subscription_token FROM user_identities WHERE internal_user_id = $1",
-        internal_user_id,
-    )
-    if row and row["subscription_token"]:
-        return row["subscription_token"]
-    token = _generate_subscription_token()
-    await pool.execute(
-        "UPDATE user_identities SET subscription_token = $1 WHERE internal_user_id = $2",
-        token,
-        internal_user_id,
-    )
-    return token
+    # Делегат к общему модулю issuance.subscription_token; историческая справка
+    # о бессрочности токенов — в docstring-модуле.
+    return await ensure_subscription_token(pool, internal_user_id)
 
 
 def _user_uuid_from_internal(internal_user_id: str) -> str:

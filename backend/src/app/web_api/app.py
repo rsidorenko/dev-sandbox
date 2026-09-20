@@ -56,6 +56,7 @@ from app.web_api.connection_check import (
     handle_check_status,
 )
 from app.web_api.experiments import handle_resolve_experiment
+from app.web_api.link_auth import handle_link_request
 from app.web_api.middleware import require_auth, require_csrf
 from app.web_api.notifications import (
     handle_list_notifications,
@@ -163,6 +164,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/auth/email/send-code", handle_send_code, methods=["POST"]),
         Route("/api/v1/auth/email/verify", handle_verify_code, methods=["POST"]),
         Route("/api/v1/auth/logout", handle_logout, methods=["POST"]),
+        # Link-auth: выдача ссылки-подписки на почту (почта не сохраняется)
+        Route("/api/v1/auth/link/request", handle_link_request, methods=["POST"]),
         # Profile
         Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
         Route(
