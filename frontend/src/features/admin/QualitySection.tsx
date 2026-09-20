@@ -47,9 +47,9 @@ function formatCalendarDate(value: string): string {
 }
 
 function QualityHeading({ title, help, level = 3 }: { title: string; help: string; level?: 2 | 3 }) {
-  const titleClass = "text-sm font-semibold text-gray-900 dark:text-gray-100";
+  const titleClass = "min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-gray-100";
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       {level === 2 ? <h2 className={titleClass}>{title}</h2> : <h3 className={titleClass}>{title}</h3>}
       <MetricHelp label={title}>{help}</MetricHelp>
     </div>
@@ -72,7 +72,10 @@ export function QualitySection({
   notificationHoldout?: AdminNotificationHoldout;
 }) {
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+    <section
+      data-testid="quality-section"
+      className="mt-6 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
+    >
       <div className="border-b border-gray-200 px-4 py-4 dark:border-zinc-700 sm:px-5">
         <QualityHeading title="Качество и данные" help={QUALITY_HELP.root} level={2} />
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -83,19 +86,19 @@ export function QualitySection({
       {dataHealth && (
         <div className="border-b border-gray-200 p-4 dark:border-zinc-700 sm:p-5">
           <QualityHeading title="Качество данных" help={QUALITY_HELP.data} />
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-zinc-700">
-              <div className="flex items-center gap-2 bg-gray-50 px-4 py-3 text-xs font-medium text-gray-700 dark:bg-zinc-900/50 dark:text-gray-300">
-                <span>Сбор событий: источник · собирается с · строк</span>
+          <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-gray-200 dark:border-zinc-700">
+              <div className="flex min-w-0 items-center gap-2 bg-gray-50 px-4 py-3 text-xs font-medium text-gray-700 dark:bg-zinc-900/50 dark:text-gray-300">
+                <span className="min-w-0 break-words">Сбор событий: источник · собирается с · строк</span>
                 <MetricHelp label="Сбор событий">{QUALITY_HELP.sources}</MetricHelp>
               </div>
               <div className="max-h-64 divide-y divide-gray-100 overflow-y-auto dark:divide-zinc-700">
                 {dataHealth.sources.map((source) => (
                   <div
                     key={`${source.source}:${source.detail}`}
-                    className="flex items-center justify-between gap-2 px-4 py-2 text-xs"
+                    className="flex min-w-0 flex-col items-start gap-1 px-4 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-2"
                   >
-                    <span className="font-mono text-gray-600 dark:text-gray-400">
+                    <span className="min-w-0 max-w-full break-all font-mono text-gray-600 dark:text-gray-400">
                       {source.source}/{source.detail}
                     </span>
                     <span className={`whitespace-nowrap text-gray-900 dark:text-gray-100 ${adminNum}`}>
@@ -105,13 +108,13 @@ export function QualitySection({
                 ))}
               </div>
             </div>
-            <div className="space-y-4">
+            <div className="min-w-0 space-y-4">
               {dataHealth.campaigns_missing_spend.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs dark:border-amber-900/60 dark:bg-amber-900/20">
                   <div className="font-medium text-amber-800 dark:text-amber-300">
                     Расходы не внесены — CAC/ROAS по этим кампаниям не посчитать
                   </div>
-                  <div className={`mt-1 text-amber-700 dark:text-amber-400 ${adminNum}`}>
+                  <div className="mt-1 whitespace-normal break-words tabular-nums text-amber-700 [overflow-wrap:anywhere] dark:text-amber-400">
                     {dataHealth.campaigns_missing_spend
                       .map((campaign) => `${campaign.campaign_key}: ${campaign.attributed_users} польз.`)
                       .join(" · ")}
@@ -119,12 +122,12 @@ export function QualitySection({
                 </div>
               )}
               <div className="rounded-xl border border-gray-200 px-4 py-3 text-xs dark:border-zinc-700">
-                <div className="flex items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
-                  <span>Источники атрибуции за период</span>
+                <div className="flex min-w-0 items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
+                  <span className="min-w-0 break-words">Источники атрибуции за период</span>
                   <MetricHelp label="Источники атрибуции">{QUALITY_HELP.attribution}</MetricHelp>
                 </div>
                 {dataHealth.attribution_sources.length ? (
-                  <div className={`mt-1 text-gray-600 dark:text-gray-400 ${adminNum}`}>
+                  <div className="mt-1 whitespace-normal break-words tabular-nums text-gray-600 [overflow-wrap:anywhere] dark:text-gray-400">
                     {dataHealth.attribution_sources
                       .map(
                         (source) =>
@@ -137,11 +140,11 @@ export function QualitySection({
                 )}
               </div>
               <div className="rounded-xl border border-gray-200 px-4 py-3 text-xs dark:border-zinc-700">
-                <div className="flex items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
-                  <span>Несогласованные цепочки (триалы периода)</span>
+                <div className="flex min-w-0 items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
+                  <span className="min-w-0 break-words">Несогласованные цепочки (триалы периода)</span>
                   <MetricHelp label="Несогласованные цепочки">{QUALITY_HELP.anomalies}</MetricHelp>
                 </div>
-                <div className={`mt-1 text-gray-600 dark:text-gray-400 ${adminNum}`}>
+                <div className="mt-1 whitespace-normal break-words tabular-nums text-gray-600 [overflow-wrap:anywhere] dark:text-gray-400">
                   {[
                     ["без шага подключения", dataHealth.chain_anomalies.trials_without_setup],
                     ["значимый трафик без маршрута", dataHealth.chain_anomalies.meaningful_without_route],
@@ -163,7 +166,7 @@ export function QualitySection({
             Значимый трафик ≥1 МиБ · D1–D3 — только полностью завершённые дни · оплата ≤10 дней от старта триала
           </p>
           <MobileScrollHint />
-          <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
+          <div className="mt-2 max-w-full touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
             <table className="w-full min-w-[860px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>
@@ -222,7 +225,7 @@ export function QualitySection({
           {vpnQuality.servers.length > 0 && (
             <>
               <MobileScrollHint />
-              <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
+              <div className="mt-2 max-w-full touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
                 <table className="w-full min-w-[800px] text-left text-xs">
                   <thead className="text-gray-500 dark:text-gray-400">
                     <tr>
@@ -262,7 +265,7 @@ export function QualitySection({
             </>
           )}
           {(vpnQuality.web_verdicts.confirmed_users > 0 || vpnQuality.web_verdicts.problem_users > 0) && (
-            <p className={`mt-3 text-xs text-gray-500 dark:text-gray-400 ${adminNum}`}>
+            <p className="mt-3 whitespace-normal break-words text-xs tabular-nums text-gray-500 [overflow-wrap:anywhere] dark:text-gray-400">
               Вердикты с сайта: «всё работает» — {vpnQuality.web_verdicts.confirmed_users} · «есть проблема» —{" "}
               {vpnQuality.web_verdicts.problem_users}
               {vpnQuality.web_problem_reasons.length > 0 &&
@@ -282,7 +285,7 @@ export function QualitySection({
             отправки · CR считается только по зрелым наблюдениям
           </p>
           <MobileScrollHint />
-          <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
+          <div className="mt-2 max-w-full touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
             <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>

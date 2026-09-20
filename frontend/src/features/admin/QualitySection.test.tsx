@@ -88,6 +88,23 @@ describe("QualitySection", () => {
     expect(screen.getByText(/значимый трафик без маршрута: 3/)).toBeInTheDocument();
   });
 
+  it("keeps the quality block within the mobile viewport and wraps technical values", () => {
+    render(<QualitySection dataHealth={DATA_HEALTH} trialCohorts={COHORTS} vpnQuality={VPN_QUALITY} />);
+
+    expect(screen.getByTestId("quality-section")).toHaveClass("w-full", "min-w-0", "max-w-full", "overflow-hidden");
+    expect(screen.getByText("funnel_events/trial_started")).toHaveClass("min-w-0", "max-w-full", "break-all");
+    expect(screen.getByText(/nakrut \(исключён\): 350/)).toHaveClass(
+      "whitespace-normal",
+      "break-words",
+      "[overflow-wrap:anywhere]",
+    );
+    expect(screen.getByText(/«всё работает» — 4/)).toHaveClass(
+      "whitespace-normal",
+      "break-words",
+      "[overflow-wrap:anywhere]",
+    );
+  });
+
   it("renders cohort table with retention and paid columns", () => {
     render(<QualitySection dataHealth={undefined} trialCohorts={COHORTS} vpnQuality={undefined} />);
     expect(screen.getByText("Когорты триалов по неделям")).toBeInTheDocument();
