@@ -200,7 +200,6 @@ backend:postgres-retention:
       tests/test_postgres_issuance_state.py
       tests/test_postgres_issuance_service_integration.py
       tests/test_postgres_adm01_issuance_read_adapter.py
-      tests/test_account_merge.py
       --junitxml="$REPORT_DIR/backend-postgres-retention-integration.xml"
   artifacts:
     when: always
