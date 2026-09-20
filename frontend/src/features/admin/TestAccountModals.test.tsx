@@ -7,7 +7,7 @@ import { ResetTestAccountModal } from "./TestAccountModals";
 const user: AdminUser = {
   internal_user_id: "u123456",
   telegram_user_id: 123456,
-  email: null,
+  is_web: false,
   trial_used: true,
   is_internal: true,
   subscription_state: "active",

@@ -144,7 +144,9 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     return_url = os.environ.get(ENV_RETURN_URL, "").strip()
     if not return_url:
         return_url = "https://bravada-connect.ru"
-    return_url = f"{return_url.rstrip('/')}/dashboard"
+    # /success — статичная страница: токен живёт в памяти клиента, полная
+    # перезагрузка после оплаты = разлогин; /dashboard потребовал бы повторный вход.
+    return_url = f"{return_url.rstrip('/')}/success"
 
     # Resolve the real internal_user_id from the identity row. Web-only (email)
     # accounts carry a NON-POSITIVE telegram_user_id and an internal_user_id of
@@ -460,7 +462,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
             amount_rubles=charge_rubles,
             description=f"Bravada VPN - add devices ({current}->{new_device_count})",
             context=context,
-            return_url=f"{return_url}/dashboard",
+            return_url=f"{return_url}/success",
         )
         if created is None:
             return safe_json_error(502, "payment_creation_failed")
@@ -489,7 +491,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
             amount_rubles=charge_rubles,
             plan_id=plan_id,
             device_count=new_device_count,
-            return_url=f"{return_url}/dashboard",
+            return_url=f"{return_url}/success",
             description=f"Bravada VPN — добавление устройств ({current}→{new_device_count})",
             metadata=add_device_meta,
         )

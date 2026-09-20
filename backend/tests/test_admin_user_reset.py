@@ -50,7 +50,6 @@ async def _login(client: httpx.AsyncClient) -> dict[str, str]:
 async def _cleanup(pool: asyncpg.Pool) -> None:
     telegram_ids = [_TG_INTERNAL, _TG_REGULAR, _TG_PROVIDER_FAILURE]
     user_ids = [f"u{telegram_id}" for telegram_id in telegram_ids]
-    emails = [f"reset-{telegram_id}@example.test" for telegram_id in telegram_ids]
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
@@ -93,12 +92,6 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             await conn.execute("DELETE FROM referral_balances WHERE internal_user_id = ANY($1::text[])", user_ids)
             await conn.execute("DELETE FROM referral_codes WHERE internal_user_id = ANY($1::text[])", user_ids)
             await conn.execute(
-                "DELETE FROM email_verification_codes WHERE telegram_user_id = ANY($1::bigint[]) OR email = ANY($2::text[])",
-                telegram_ids,
-                emails,
-            )
-            await conn.execute("DELETE FROM user_emails WHERE telegram_user_id = ANY($1::bigint[])", telegram_ids)
-            await conn.execute(
                 "DELETE FROM bare_xray_traffic_state WHERE email LIKE 'user-u99984000%' OR email LIKE 'x-user-u99984000%'"
             )
             await conn.execute(
@@ -131,7 +124,6 @@ async def _make_identity(pool: asyncpg.Pool, telegram_user_id: int, *, internal:
 
 async def _fill_user_state(pool: asyncpg.Pool, telegram_user_id: int, internal_user_id: str) -> None:
     now = datetime.now(UTC)
-    email = f"reset-{telegram_user_id}@example.test"
     fact_ref = f"reset-test-{telegram_user_id}"
     await pool.execute(
         "INSERT INTO issuance_state "
@@ -192,17 +184,6 @@ async def _fill_user_state(pool: asyncpg.Pool, telegram_user_id: int, internal_u
     await pool.execute(
         "INSERT INTO web_notifications (internal_user_id,kind,title) VALUES ($1,'trial_expiring','Test')",
         internal_user_id,
-    )
-    await pool.execute(
-        "INSERT INTO user_emails (telegram_user_id,email,is_verified,verified_at) VALUES ($1,$2,TRUE,NOW())",
-        telegram_user_id,
-        email,
-    )
-    await pool.execute(
-        "INSERT INTO email_verification_codes (email,code_hash,telegram_user_id,expires_at) "
-        "VALUES ($1,'hash',$2,NOW() + INTERVAL '10 minutes')",
-        email,
-        telegram_user_id,
     )
     await pool.execute(
         "INSERT INTO promo_codes "

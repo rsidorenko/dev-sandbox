@@ -1,27 +1,20 @@
 """Auth middleware for web API.
 
-Два способа аутентификации (link-auth миграция, 2026-09-20):
+Единственный способ аутентификации (link-auth, срезка email-логина 2026-09-20):
+``Authorization: Bearer <subscription_token>`` — lookup по ``user_identities``.
+Без entitlement-гейта: токен вечный, истёкшая подписка обязана видеть кабинет
+и продлеваться (в отличие от ``/sub/``, который 403-ит истёкших). Куков нет —
+CSRF для юзер-API не нужен вовсе.
 
-1. **Bearer subscription-token** — ``Authorization: Bearer <subscription_token>``
-   (без entitlement-гейта: истёкшая подписка обязана уметь продлиться).
-2. **Legacy JWT** — кука ``session`` или Bearer-JWT (переходный период; удаляется
-   в срезке email-логина).
-
-Bearer-заголовок отличаем по форме: JWT — три dot-части с валидной подписью,
-subscription-токен — dot-free urlsafe строка.
+Legacy email/JWT-логин удалён; ``check_jwt_not_revoked`` и ``generate_csrf_token``
+остаются — их импортирует админка (``admin_auth.py``).
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
 import logging
-import os
 import secrets
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from starlette.requests import Request
@@ -29,45 +22,12 @@ from starlette.responses import JSONResponse
 
 _LOGGER = logging.getLogger(__name__)
 
-_CSRF_COOKIE_NAME = "csrf_token"
-_CSRF_HEADER_NAME = "x-csrf-token"
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
 # Rate limit неудачных попыток token-auth (перебор/DB-нагрузка; успешные не считаются).
 _TOKEN_AUTH_FAIL_MAX = 30
 _TOKEN_AUTH_FAIL_WINDOW = 60
 _TOKEN_AUTH_FAIL_MAX_ENTRIES = 10000
 _token_auth_fail_store: dict[str, list[float]] = {}
 _token_auth_fail_last_cleanup = 0.0
-
-
-def _get_jwt_secret() -> str | None:
-    return os.environ.get("JWT_SECRET", "").strip() or None
-
-
-def _decode_jwt(token: str) -> dict[str, Any] | None:
-    secret = _get_jwt_secret()
-    if not secret:
-        return None
-    parts = token.split(".")
-    if len(parts) != 3:
-        return None
-    header_b64, body_b64, sig = parts
-    sig_input = f"{header_b64}.{body_b64}".encode()
-    expected_sig = hmac.new(secret.encode(), sig_input, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected_sig):
-        return None
-    try:
-        padding = 4 - len(body_b64) % 4
-        if padding != 4:
-            body_b64 += "=" * padding
-        claims = json.loads(base64.urlsafe_b64decode(body_b64))
-    except Exception:
-        return None
-    exp = claims.get("exp")
-    if exp is not None and datetime.now(UTC).timestamp() > exp:
-        return None
-    return claims
 
 
 def _token_auth_fail_limit_hit(client_ip: str) -> bool:
@@ -104,7 +64,8 @@ async def _resolve_subscription_token(request: Request, token: str) -> dict[str,
         return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
 
     if not token or "." in token:
-        # subscription-токены не содержат точек; JWT-подобные строки сюда не попадают
+        # subscription-токены не содержат точек (secrets.token_urlsafe);
+        # JWT-подобные строки отсюда сразу 401 без похода в БД.
         _record_token_auth_fail(client_ip)
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
 
@@ -127,8 +88,8 @@ async def _resolve_subscription_token(request: Request, token: str) -> dict[str,
 
 
 async def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
-    """Аутентификация: Bearer (subscription-token или legacy JWT) либо кука session.
-    Возвращает claims-словарь либо error-ответ."""
+    """Аутентификация: Bearer subscription-token. Возвращает claims-словарь
+    либо error-ответ."""
     # Идемпотентность: обёртка _with_auth уже резолвила identity и положила его
     # в request.state — внутренний вызов из хендлера не ходит в БД второй раз.
     existing = getattr(request.state, "user", None)
@@ -136,29 +97,12 @@ async def require_auth(request: Request) -> dict[str, Any] | JSONResponse:
         return existing
 
     auth_header = request.headers.get("authorization", "").strip()
-    if auth_header:
-        bearer = auth_header.removeprefix("Bearer ").strip()
-        if not bearer:
-            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-        # JWT-форма (подпись валидна) — legacy-путь; иначе — subscription-токен.
-        claims = _decode_jwt(bearer)
-        if claims is not None:
-            revocation_err = await check_jwt_not_revoked(request, claims)
-            if revocation_err is not None:
-                return revocation_err
-            return claims
-        return await _resolve_subscription_token(request, bearer)
-
-    token = request.cookies.get("session")
-    if not token:
+    if not auth_header:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    claims = _decode_jwt(token)
-    if claims is None:
+    bearer = auth_header.removeprefix("Bearer ").strip()
+    if not bearer:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    revocation_err = await check_jwt_not_revoked(request, claims)
-    if revocation_err is not None:
-        return revocation_err
-    return claims
+    return await _resolve_subscription_token(request, bearer)
 
 
 async def check_jwt_not_revoked(request: Request, claims: dict[str, Any]) -> JSONResponse | None:
@@ -181,28 +125,3 @@ async def check_jwt_not_revoked(request: Request, claims: dict[str, Any]) -> JSO
 def generate_csrf_token() -> str:
     """Generate a random CSRF token."""
     return secrets.token_urlsafe(32)
-
-
-def validate_csrf(request: Request) -> bool:
-    """Validate CSRF token: cookie must match header for non-safe methods."""
-    if request.method in _SAFE_METHODS:
-        return True
-    cookie_token = request.cookies.get(_CSRF_COOKIE_NAME, "")
-    header_token = request.headers.get(_CSRF_HEADER_NAME, "")
-    if not cookie_token or not header_token:
-        return False
-    return hmac.compare_digest(cookie_token, header_token)
-
-
-def require_csrf(request: Request) -> JSONResponse | None:
-    """Returns error response if CSRF check fails, None if OK.
-
-    Bearer-заголовок — не CSRF-вектор: креденшл прикрепляется JS явно, браузер
-    не отправляет его кросс-сайтно (custom header = CORS-preflight). Double-submit
-    нужен только для cookie-аутентификации.
-    """
-    if request.headers.get("authorization", "").strip():
-        return None
-    if not validate_csrf(request):
-        return JSONResponse({"ok": False, "error": "csrf_validation_failed"}, status_code=403)
-    return None

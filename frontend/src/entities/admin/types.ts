@@ -3,7 +3,7 @@
 export interface AdminUser {
   internal_user_id: string;
   telegram_user_id: number;
-  email: string | null;
+  is_web: boolean;
   trial_used: boolean;
   is_internal: boolean;
   subscription_state: string | null;

@@ -4,7 +4,7 @@
 auth/CSRF, лента+unread+has_more, клейм бонус-дней (atomic claim + grant + trial_used
 + аудит broadcast_claim_web:*), клейм промокода (gate + apply_promo_intent), отказы
 (already/expired/no_bonus/чужое уведомление). Каркас — test_web_api_promocode.py
-(httpx.AsyncClient + ASGITransport на одном loop, JWT в Bearer, CSRF double-submit).
+(httpx.AsyncClient + ASGITransport на одном loop, Bearer subscription_token).
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.persistence.postgres_promo import PostgresPromoCodeRepository
-from app.web_api.auth import _issue_jwt
-from app.web_api.middleware import generate_csrf_token
+
+# Авторизация — Bearer subscription-токен (link-auth): сидируется в _seed_identity.
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
@@ -30,7 +30,7 @@ _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
 _WEB_TG = -9_000_000_300
 _WEB_INTERNAL = f"web_notif_test_{abs(_WEB_TG)}"
 _OTHER_INTERNAL = "web_notif_test_other"
-_TEST_EMAIL = "notifications-web-test@example.com"
+_SUB_TOKEN = "notifWebSubToken1234567890ab"  # dot-free urlsafe — как prod-токен
 
 _FUTURE = datetime(9999, 12, 31, tzinfo=UTC)
 _PAST = datetime(2000, 1, 1, tzinfo=UTC)
@@ -68,9 +68,11 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
 
 async def _seed_identity(pool: asyncpg.Pool) -> None:
     await pool.execute(
-        "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token) "
+        "VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         _WEB_TG,
         _WEB_INTERNAL,
+        _SUB_TOKEN,
     )
 
 
@@ -130,17 +132,13 @@ async def _seed_notification(
     return int(row["id"])
 
 
-def _make_authed_client(monkeypatch, pool):
-    monkeypatch.setenv("JWT_SECRET", "test-secret-notifications-web")
+def _make_authed_client(pool):
     from app.web_api.app import build_web_api_app
 
     app = build_web_api_app(pool=pool)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
-    token = _issue_jwt({"telegram_user_id": _WEB_TG, "internal_user_id": _WEB_INTERNAL, "email": _TEST_EMAIL})
-    client.headers["Authorization"] = f"Bearer {token}"
-    csrf = generate_csrf_token()
-    client.cookies.set("csrf_token", csrf)
-    return client, csrf
+    client.headers["Authorization"] = f"Bearer {_SUB_TOKEN}"
+    return client
 
 
 def _bonus_payload(job_id: str, bonus: dict) -> dict:
@@ -148,7 +146,6 @@ def _bonus_payload(job_id: str, bonus: dict) -> dict:
 
 
 async def test_list_requires_auth(pg_url, monkeypatch):
-    monkeypatch.setenv("JWT_SECRET", "test-secret-notifications-web")
     pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
     try:
         await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
@@ -173,7 +170,7 @@ async def test_list_read_all_flow(pg_url, monkeypatch):
         await _seed_identity(pool)
         first = await _seed_notification(pool, title="Первое")
         await _seed_notification(pool, title="Второе", read=True)
-        client, csrf = _make_authed_client(monkeypatch, pool)
+        client = _make_authed_client(pool)
 
         listed = await client.get("/api/v1/user/notifications")
         assert listed.status_code == 200, listed.text
@@ -182,14 +179,10 @@ async def test_list_read_all_flow(pg_url, monkeypatch):
         assert body["has_more"] is False
         assert [item["id"] for item in body["items"]] == [first + 1, first]  # DESC
 
-        # Мутация без CSRF-заголовка → 403
-        denied = await client.post("/api/v1/user/notifications/read", json={"all": True})
-        assert denied.status_code == 403
-
+        # Bearer-токен: мутация без CSRF-заголовка проходит (кук нет — CSRF-вектора нет)
         marked = await client.post(
             "/api/v1/user/notifications/read",
             json={"ids": [first]},
-            headers={"x-csrf-token": csrf},
         )
         assert marked.status_code == 200, marked.text
         assert marked.json()["updated"] == 1
@@ -208,7 +201,7 @@ async def test_list_paginates_has_more(pg_url, monkeypatch):
         await _seed_identity(pool)
         for _ in range(3):
             await _seed_notification(pool)
-        client, _ = _make_authed_client(monkeypatch, pool)
+        client = _make_authed_client(pool)
         body = (await client.get("/api/v1/user/notifications?limit=2")).json()
         assert len(body["items"]) == 2
         assert body["has_more"] is True
@@ -231,11 +224,9 @@ async def test_claim_days_full_flow(pg_url, monkeypatch):
         notification_id = await _seed_notification(
             pool, payload=_bonus_payload(job_id, {"type": "days", "days": 5, "label": "+5 дней"})
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
+        client = _make_authed_client(pool)
 
-        claimed = await client.post(
-            f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf}
-        )
+        claimed = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert claimed.status_code == 200, claimed.text
         body = claimed.json()
         assert body["status"] == "ok"
@@ -258,7 +249,7 @@ async def test_claim_days_full_flow(pg_url, monkeypatch):
         )
         assert int(audit or 0) == 1
 
-        again = await client.post(f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf})
+        again = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert again.status_code == 409
         assert again.json()["error"] == "already_claimed"
         await client.aclose()
@@ -279,8 +270,8 @@ async def test_claim_days_expired_410(pg_url, monkeypatch):
         notification_id = await _seed_notification(
             pool, payload=_bonus_payload(job_id, {"type": "days", "days": 5, "label": "+5"})
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
-        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf})
+        client = _make_authed_client(pool)
+        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert resp.status_code == 410
         assert resp.json()["error"] == "expired"
         await client.aclose()
@@ -301,11 +292,11 @@ async def test_claim_without_bonus_400_and_foreign_404(pg_url, monkeypatch):
             internal_user_id=_OTHER_INTERNAL,
             payload=_bonus_payload(str(uuid.uuid4()), {"type": "days", "days": 3, "label": "+3"}),
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
-        no_bonus = await client.post(f"/api/v1/user/notifications/{plain_id}/claim", headers={"x-csrf-token": csrf})
+        client = _make_authed_client(pool)
+        no_bonus = await client.post(f"/api/v1/user/notifications/{plain_id}/claim")
         assert no_bonus.status_code == 400
         assert no_bonus.json()["error"] == "no_bonus"
-        foreign = await client.post(f"/api/v1/user/notifications/{foreign_id}/claim", headers={"x-csrf-token": csrf})
+        foreign = await client.post(f"/api/v1/user/notifications/{foreign_id}/claim")
         assert foreign.status_code == 404
         await client.aclose()
     finally:
@@ -326,18 +317,16 @@ async def test_claim_promo_full_flow(pg_url, monkeypatch):
             pool, payload=_bonus_payload(job_id, {"type": "promo", "code": "NOTIFPROMO", "label": "Промик"})
         )
         await PostgresPromoCodeRepository(pool).create(_make_promo("NOTIFPROMO"))
-        client, csrf = _make_authed_client(monkeypatch, pool)
+        client = _make_authed_client(pool)
 
-        claimed = await client.post(
-            f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf}
-        )
+        claimed = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert claimed.status_code == 200, claimed.text
         assert claimed.json() == {"ok": True, "status": "ok", "code": "NOTIFPROMO"}
         applied_code = await pool.fetchval("SELECT code FROM promo_applied WHERE internal_user_id=$1", _WEB_INTERNAL)
         assert applied_code == "NOTIFPROMO"
 
         # Повторный клик — идемпотентное «уже получено» (даже после истечения claim-окна).
-        again = await client.post(f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf})
+        again = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert again.status_code == 200
         assert again.json()["status"] == "already_claimed"
         await client.aclose()
@@ -358,8 +347,8 @@ async def test_claim_promo_expired_410(pg_url, monkeypatch):
         notification_id = await _seed_notification(
             pool, payload=_bonus_payload(job_id, {"type": "promo", "code": "NOTIFPROMO", "label": "Промик"})
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
-        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf})
+        client = _make_authed_client(pool)
+        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert resp.status_code == 410
         await client.aclose()
     finally:
@@ -388,8 +377,8 @@ async def test_claim_promo_already_used_409(pg_url, monkeypatch):
             "VALUES ('r-notif-1', 'NOTIFPROMO', $1, 'idem-notif-1', 249, 125, 12400, 'pay-1')",
             _WEB_INTERNAL,
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
-        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim", headers={"x-csrf-token": csrf})
+        client = _make_authed_client(pool)
+        resp = await client.post(f"/api/v1/user/notifications/{notification_id}/claim")
         assert resp.status_code == 409
         assert resp.json()["error"] == "already_claimed"
         await client.aclose()
@@ -418,7 +407,7 @@ async def test_list_enriches_claim_status(pg_url, monkeypatch):
         expired = await _seed_notification(
             pool, payload=_bonus_payload(expired_job, {"type": "days", "days": 5, "label": "+5"})
         )
-        client, csrf = _make_authed_client(monkeypatch, pool)
+        client = _make_authed_client(pool)
 
         items = {item["id"]: item for item in (await client.get("/api/v1/user/notifications")).json()["items"]}
         assert items[plain].get("claim_status") is None
@@ -426,7 +415,7 @@ async def test_list_enriches_claim_status(pg_url, monkeypatch):
         assert items[expired]["claim_status"] == "expired"
 
         # После клейма статус в ленте становится claimed.
-        claim_resp = await client.post(f"/api/v1/user/notifications/{eligible}/claim", headers={"x-csrf-token": csrf})
+        claim_resp = await client.post(f"/api/v1/user/notifications/{eligible}/claim")
         assert claim_resp.status_code == 200, claim_resp.text
         items = {item["id"]: item for item in (await client.get("/api/v1/user/notifications")).json()["items"]}
         assert items[eligible]["claim_status"] == "claimed"

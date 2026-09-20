@@ -130,12 +130,12 @@ def test_web_predicates_mirror_tg_without_sign_filter():
         assert tg_sql.replace("i.telegram_user_id > 0", "TRUE") == _WEB_CATEGORY_PREDICATES[key]
 
 
-def test_web_count_and_fetch_sql_filter_by_verified_email():
-    """Web-аудитория: EXISTS verified email; без `> 0` (web-only с отрицательным tg-id)."""
+def test_web_count_and_fetch_sql_filter_by_web_only_sign():
+    """Web-аудитория: tg-id < 0 (вход по ссылке-подписке); почтового lookup больше нет."""
     for fn in (_web_count_sql, _web_fetch_sql):
         sql = fn(["all"])
-        assert "user_emails" in sql
-        assert "is_verified = TRUE" in sql
+        assert "user_emails" not in sql
+        assert "telegram_user_id < 0" in sql
         assert "DISTINCT" in sql
         assert "telegram_user_id > 0" not in sql
         assert sql.count("$1") == 1
@@ -144,35 +144,12 @@ def test_web_count_and_fetch_sql_filter_by_verified_email():
 # --- _resolve_explicit_targets (функция чистая, пул подменяем) ---------------
 
 
-class _EmailResolvePool:
-    """fetchval(email) → telegram_user_id (или None). Помнит SQL для ассертов."""
-
-    def __init__(self, mapping: dict[str, int | None]) -> None:
-        self._mapping = {k.lower(): v for k, v in mapping.items()}
-        self.email_sql: str | None = None
-
-    async def fetchval(self, sql: str, *args):
-        self.email_sql = sql
-        return self._mapping.get(str(args[0]).lower())
-
-
-def test_resolve_explicit_targets_numbers_and_emails():
-    pool = _EmailResolvePool({"web@example.com": -42, "tg@example.com": 777})
-    resolved, unresolved = _run(
-        _resolve_explicit_targets(pool, ["12345", "-9", "0", "web@example.com", "tg@example.com", "unknown@x.io"])
-    )
-    assert resolved == [12345, -42, 777]  # web-only (отрицательный) тоже резолвится
-    # числа обрабатываются раньше email — потому «0» и «-9» в начале
-    assert unresolved == ["0", "-9", "unknown@x.io"]
-
-
-def test_resolve_explicit_targets_email_sql_has_no_sign_filter():
-    """Email-резолв НЕ фильтрует по знаку tg-id (web-only имеют право на рассылку)."""
-    pool = _EmailResolvePool({"a@b.io": 1})
-    _run(_resolve_explicit_targets(pool, ["a@b.io"]))
-    assert pool.email_sql is not None
-    assert "telegram_user_id > 0" not in pool.email_sql
-    assert "is_verified = TRUE" in pool.email_sql
+def test_resolve_explicit_targets_numbers_any_sign():
+    """Адресация только числовыми tg-id любого знака (web-only — отрицательным);
+    почты больше не хранятся — email-строки неразрешимы."""
+    resolved, unresolved = _run(_resolve_explicit_targets(None, ["12345", "-9", "0", "a@b.io", "abc"]))
+    assert resolved == [12345, -9]  # 0 — не цель
+    assert unresolved == ["0", "a@b.io", "abc"]
 
 
 # --- _extract_retry_after ---------------------------------------------------
@@ -239,7 +216,7 @@ class _FakeConn:
 
 class _FakePool:
     """Запоминает UPDATE-вызовы и имитирует конфиг задачи + списки получателей
-    (TG- и web-аудитория — отдельно: fetch различает по user_emails в SQL)."""
+    (TG- и web-аудитория — отдельно: fetch различает по знаку tg-id в SQL)."""
 
     def __init__(self, job_row: dict, recipients: list[int], web_recipients: list[int] | None = None) -> None:
         self._job_row = job_row
@@ -281,8 +258,8 @@ class _FakePool:
         return self._job_row
 
     async def fetch(self, sql: str, *args):
-        # web-аудитория отличается по user_emails в SQL; дефолт — пустая (TG-only тесты)
-        if "user_emails" in sql.lower():
+        # web-аудитория — внешний фильтр tg < 0; дефолт — пустая (TG-only тесты)
+        if "telegram_user_id < 0" in sql.lower():
             return list(self._web_recipients)
         return list(self._recipients)
 

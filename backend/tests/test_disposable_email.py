@@ -113,7 +113,7 @@ def test_env_allowlist_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
         de._allowlist.cache_clear()
 
 
-# --- handler wiring: POST /api/v1/auth/email/send-code ---
+# --- handler wiring: POST /api/v1/auth/link/request ---
 
 
 class _FakePool:
@@ -132,7 +132,7 @@ class _FakePool:
         return []
 
 
-def test_send_code_rejects_disposable_email(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_link_request_rejects_disposable_email(monkeypatch: pytest.MonkeyPatch) -> None:
     # avoid wiring real infra (XUI / telegram client) at app build time
     for var in ("XUI_ENABLED", "TELEGRAM_BOT_TOKEN", "BOT_TOKEN"):
         monkeypatch.delenv(var, raising=False)
@@ -149,13 +149,13 @@ def test_send_code_rejects_disposable_email(monkeypatch: pytest.MonkeyPatch) -> 
     app = build_web_api_app(pool=_FakePool())  # type: ignore[arg-type]
     client = TestClient(app)
 
-    r = client.post("/api/v1/auth/email/send-code", json={"email": "spammer@mailinator.com"})
+    r = client.post("/api/v1/auth/link/request", json={"email": "spammer@mailinator.com"})
     assert r.status_code == 422
     body = r.json()
     assert body["ok"] is False
     assert body["error"] == "disposable_email"
 
     # normal provider passes the disposable gate (-> SMTP-not-configured 503, NOT 422)
-    r2 = client.post("/api/v1/auth/email/send-code", json={"email": "user@gmail.com"})
+    r2 = client.post("/api/v1/auth/link/request", json={"email": "user@gmail.com"})
     assert r2.status_code == 503
     assert r2.json()["error"] == "email_not_configured"

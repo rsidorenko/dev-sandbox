@@ -432,7 +432,7 @@ export default function AdminBroadcastPage() {
                 value={explicitRaw}
                 onChange={(e) => setExplicitRaw(e.target.value)}
                 rows={2}
-                placeholder="Telegram id или email, каждый с новой строки (или через запятую)"
+                placeholder="Telegram id (для web-only — отрицательный), каждый с новой строки (или через запятую)"
                 className={`${adminInput} w-full font-mono`}
               />
               {estimate && estimate.explicit_unresolved.length > 0 && (

@@ -97,7 +97,7 @@ def _throttle_sec() -> float:
 # Каждый предикат — самодостаточный SELECT telegram_user_id. __TG_FILTER__ — плейсхолдер
 # знакового фильтра: TG-вариант (> 0: web-only с отрицательным telegram_user_id выкидываются
 # — у них нет TG-чата) и web-вариант (TRUE: web-аудитория фильтруется отдельно по
-# verified email в user_emails, см. _WEB_EMAIL_EXISTS).
+# знаку id, см. _WEB_IS_WEB_ONLY — email-логина больше нет).
 # now()/интервалы — литералы, единственный параметр $1 (массив явных tg-id)
 # подставляется во внешнем unnest — как в admin_users._LIST_*.
 
@@ -185,13 +185,11 @@ def _fetch_sql(categories: list[str]) -> str:
 
 
 # --- Web-аудитория (веб-уведомления) ------------------------------------------
-# Те же категории, но без знакового фильтра + обязательный verified email
-# (возможность залогиниться на сайт). Линкнутые TG-пользователи (положительный id
-# + email) попадают и в TG-рассылку, и в веб-канал — дубль осознанный.
+# Те же категории, но аудитория веб-канала — web-only identities (tg < 0):
+# колокольчик видит тот, кто входит на сайт по ссылке-подписке. TG-пользователи
+# получают своё через бот-канал — дубля каналов больше нет.
 
-_WEB_EMAIL_EXISTS = (
-    "EXISTS (SELECT 1 FROM user_emails e WHERE e.telegram_user_id = t.telegram_user_id AND e.is_verified = TRUE)"
-)
+_WEB_IS_WEB_ONLY = "t.telegram_user_id < 0"
 
 
 def _web_build_inner_union(categories: list[str]) -> str:
@@ -202,12 +200,12 @@ def _web_build_inner_union(categories: list[str]) -> str:
 
 def _web_count_sql(categories: list[str]) -> str:
     inner = _web_build_inner_union(categories)
-    return f"SELECT COUNT(DISTINCT telegram_user_id) AS n FROM ({inner}) t WHERE {_WEB_EMAIL_EXISTS}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
+    return f"SELECT COUNT(DISTINCT telegram_user_id) AS n FROM ({inner}) t WHERE {_WEB_IS_WEB_ONLY}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
 
 
 def _web_fetch_sql(categories: list[str]) -> str:
     inner = _web_build_inner_union(categories)
-    return f"SELECT DISTINCT telegram_user_id FROM ({inner}) t WHERE {_WEB_EMAIL_EXISTS}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
+    return f"SELECT DISTINCT telegram_user_id FROM ({inner}) t WHERE {_WEB_IS_WEB_ONLY}"  # noqa: S608 — литеральные предикаты из allowlist + единственный параметр $1
 
 
 async def _count_category(pool: asyncpg.Pool, key: str) -> int:
@@ -216,41 +214,23 @@ async def _count_category(pool: asyncpg.Pool, key: str) -> int:
 
 
 async def _resolve_explicit_targets(pool: asyncpg.Pool, raw: list[str]) -> tuple[list[int], list[str]]:
-    """Числа → telegram id (>0); прочее трактуется как email и резолвится через
-    user_emails (верифицированные, любой знак tg-id: web-only отрицательные тоже
-    получают веб-рассылку). Возвращает (resolved_ids, unresolved_tokens).
+    """Числа → telegram id любого знака (положительные — TG, отрицательные —
+    web-only: у веб-канала нет другого адресуемого ключа, почты не хранятся).
+    Прочее — unresolved. Возвращает (resolved_ids, unresolved_tokens).
     """
+    del pool  # БД-резолв не нужен: адресация только числовыми id
     resolved: list[int] = []
     unresolved: list[str] = []
-    email_tokens: list[str] = []
     for token in raw:
         t = (token or "").strip()
         if not t:
             continue
-        if t.lstrip("+").isdigit():  # telegram id (отрицательные/ноль отбрасываем ниже)
-            try:
-                value = int(t)
-            except ValueError:
-                unresolved.append(t)
-                continue
-            if value > 0:
+        if t.lstrip("-").isdigit():
+            value = int(t)
+            if value != 0:
                 resolved.append(value)
-            else:
-                unresolved.append(t)
-            continue
-        # иначе — считаем email (точное совпадение, case-insensitive)
-        email_tokens.append(t)
-
-    for email in email_tokens:
-        tg = await pool.fetchval(
-            "SELECT telegram_user_id FROM user_emails WHERE LOWER(email) = LOWER($1) AND is_verified = TRUE",
-            email,
-        )
-        if tg is not None:
-            resolved.append(int(tg))
-        else:
-            unresolved.append(email)
-
+                continue
+        unresolved.append(t)
     return resolved, unresolved
 
 
@@ -637,8 +617,8 @@ class BroadcastRunner:
             return
 
         categories = list(job["categories"] or [])
-        # Явные цели: TG-канал — только положительные; веб-канал — все
-        # (web-only с отрицательным tg-id резолвятся по email в _resolve_explicit_targets).
+        # Явные цели: TG-канал — только положительные; веб-канал — отрицательные
+        # (web-only адресуются своим tg-id; email-резолва больше нет).
         explicit_all = [int(x) for x in (job["explicit_telegram_ids"] or [])]
         explicit_ids = [x for x in explicit_all if x > 0]
         text: str = job["message_text"]
@@ -726,10 +706,8 @@ class BroadcastRunner:
     async def _web_fanout(self, categories: list[str], explicit_ids: list[int], text: str, bonus: dict | None) -> None:
         """Веб-канал рассылки: уведомления + bonus-claims для web-аудитории.
 
-        Аудитория — те же категории/явные цели, но с verified email в user_emails
-        (web-only с отрицательным tg-id И линкнутые TG-пользователи — дубль каналов
-        осознан). Claims сидируются только для web-only (tg_id <= 0): у линкнутых
-        строка уже сидирована TG-этапом по общему PK (job_id, telegram_user_id).
+        Аудитория — те же категории/явные цели, но web-only (tg < 0 — вход на
+        сайт по ссылке-подписке). Claims по общему PK (job_id, telegram_user_id).
         Best-effort: сбой веб-канала не должен ронять TG-цикл.
         """
         from app.domain.web_notifications import plain_title

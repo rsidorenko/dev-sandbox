@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import secrets
 from typing import Any
 
 from starlette.responses import JSONResponse
@@ -29,21 +26,3 @@ def validate_email(email: str) -> bool:
         return False
     local, domain = parts
     return bool(local) and bool(domain) and "." in domain
-
-
-def get_jwt_secret() -> str:
-    import os
-
-    secret = os.environ.get("JWT_SECRET", "").strip()
-    if not secret:
-        raise ValueError("JWT_SECRET is not configured")
-    return secret
-
-
-def hash_code(code: str) -> str:
-    secret = get_jwt_secret()
-    return hmac.new(secret.encode(), code.encode(), hashlib.sha256).hexdigest()
-
-
-def generate_code(length: int = 6) -> str:
-    return "".join(secrets.choice("0123456789") for _ in range(length))

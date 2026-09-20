@@ -1,13 +1,12 @@
 """Тесты веб-канала NotificationScheduler (двухканальный _send_notification).
 
-Юниты — на фейковом пуле/HTTP (без БД и сети): web-only получает
-web_notification + дедуп-запись без TG-вызова; линкнутый — оба канала и ОДНА
-запись notification_log; TG-only — как раньше; сбой TG при наличии email не
-мешает веб-доставке. Контракт ``_WEB_KINDS`` ⊆ CHECK миграции 077.
+Юниты — на фейковом пуле/HTTP (без БД и сети): web-only (tg<0) получает
+web_notification + дедуп-запись без TG-вызова; tg>0 — только бот-канал (дубль
+каналов убран 2026-09-20: веб-канал адресуется знаком tg-id, а не хранимой
+почтой). Контракт ``_WEB_KINDS`` ⊆ CHECK миграции 077.
 
 Интеграционная часть (opt-in DATABASE_URL, реальный PG): снятие ``> 0`` с
-referral-запросов — web-only с verified email получает referral_offer_trial
-веб-уведомление.
+referral-запросов — web-only получает referral_offer_trial веб-уведомление.
 """
 
 from __future__ import annotations
@@ -57,19 +56,17 @@ class _FakeConn:
 
 
 class _FakePool:
-    """Скриптованный пул: идентичность (tg_id + has_email), дедуп, лог-вставки."""
+    """Скриптованный пул: идентичность (tg_id — знак решает канал), дедуп, лог-вставки."""
 
     def __init__(
         self,
         *,
         tg_id: int,
-        has_email: bool,
         dedup: bool = False,
         identity_missing: bool = False,
         web_failure: bool = False,
     ) -> None:
         self.tg_id = tg_id
-        self.has_email = has_email
         self.dedup = dedup
         self.identity_missing = identity_missing
         self.web_failure = web_failure
@@ -81,7 +78,7 @@ class _FakePool:
 
     async def fetchrow(self, sql: str, *args):
         if "FROM user_identities" in sql:
-            return None if self.identity_missing else {"telegram_user_id": self.tg_id, "has_email": self.has_email}
+            return None if self.identity_missing else {"telegram_user_id": self.tg_id}
         return None
 
     async def fetchval(self, sql: str, *args):
@@ -150,9 +147,9 @@ def test_web_kind_map_is_subset_of_migration_check():
 
 
 def test_web_only_user_gets_web_notification_without_tg_call():
-    """Web-only (tg<0, email): веб-вставка + дедуп-запись; TG НЕ зовётся
+    """Web-only (tg<0): веб-вставка + дедуп-запись; TG НЕ зовётся
     (раньше — ежечасный 400 от Bot API)."""
-    pool = _FakePool(tg_id=_WEB_TG, has_email=True)
+    pool = _FakePool(tg_id=_WEB_TG)
     http = _FakeHttp()
     assert _send(_scheduler(pool, http), pool) is True
     assert len(pool.web_inserts) == 1
@@ -167,7 +164,7 @@ def test_web_only_user_gets_web_notification_without_tg_call():
 
 
 def test_non_broadcast_web_notification_does_not_expose_telegram_html() -> None:
-    pool = _FakePool(tg_id=_WEB_TG, has_email=True)
+    pool = _FakePool(tg_id=_WEB_TG)
     http = _FakeHttp()
     scheduler = _scheduler(pool, http)
 
@@ -185,7 +182,7 @@ def test_non_broadcast_web_notification_does_not_expose_telegram_html() -> None:
 
 
 def test_web_notification_merges_safe_action_payload() -> None:
-    pool = _FakePool(tg_id=_WEB_TG, has_email=True)
+    pool = _FakePool(tg_id=_WEB_TG)
     scheduler = _scheduler(pool, _FakeHttp())
 
     result = asyncio.run(
@@ -205,17 +202,10 @@ def test_web_notification_merges_safe_action_payload() -> None:
     }
 
 
-def test_linked_user_gets_both_channels_and_single_log_row():
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
-    http = _FakeHttp()
-    assert _send(_scheduler(pool, http), pool) is True
-    assert http.calls == [_LINKED_TG]
-    assert len(pool.web_inserts) == 1
-    assert len(pool.log_inserts) == 1  # одна запись на оба канала
-
-
-def test_tg_only_user_unchanged_behavior():
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=False)
+def test_tg_user_never_duplicated_to_web_channel():
+    """tg>0 — только бот-канал: дубль каналов убран (раньше при хранимой почте
+    шла и веб-вставка). Одна запись лога."""
+    pool = _FakePool(tg_id=_LINKED_TG)
     http = _FakeHttp()
     assert _send(_scheduler(pool, http), pool) is True
     assert http.calls == [_LINKED_TG]
@@ -223,25 +213,35 @@ def test_tg_only_user_unchanged_behavior():
     assert len(pool.log_inserts) == 1
 
 
-def test_tg_failure_with_email_still_delivers_via_web():
-    """TG упал (400), но email есть → веб-доставка считается успехом, дедуп пишется."""
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
-    http = _FakeHttp(status_code=400)
+def test_tg_only_user_unchanged_behavior():
+    pool = _FakePool(tg_id=_LINKED_TG)
+    http = _FakeHttp()
     assert _send(_scheduler(pool, http), pool) is True
-    assert len(pool.web_inserts) == 1
+    assert http.calls == [_LINKED_TG]
+    assert pool.web_inserts == []
     assert len(pool.log_inserts) == 1
 
 
-def test_tg_failure_without_email_no_log_retry_next_tick():
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=False)
+def test_tg_failure_no_web_fallback():
+    """TG упал (400) у tg>0: веб-фолбэка больше нет (был только при хранимой
+    почте) — False без лога, ретрай следующим тиком."""
+    pool = _FakePool(tg_id=_LINKED_TG)
+    http = _FakeHttp(status_code=400)
+    assert _send(_scheduler(pool, http), pool) is False
+    assert pool.web_inserts == []
+    assert pool.log_inserts == []
+
+
+def test_tg_failure_no_log_retry_next_tick():
+    pool = _FakePool(tg_id=_LINKED_TG)
     http = _FakeHttp(status_code=400)
     assert _send(_scheduler(pool, http), pool) is False
     assert pool.web_inserts == []
     assert pool.log_inserts == []  # без лога → ретрай следующим тиком
 
 
-def test_tg_forbidden_without_email_records_terminal_failure() -> None:
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=False)
+def test_tg_forbidden_records_terminal_failure() -> None:
+    pool = _FakePool(tg_id=_LINKED_TG)
     http = _FakeHttp(status_code=403)
 
     assert _send(_scheduler(pool, http), pool) is False
@@ -249,26 +249,19 @@ def test_tg_forbidden_without_email_records_terminal_failure() -> None:
     assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "terminal_failure")]
 
 
-def test_tg_forbidden_with_successful_web_is_delivered() -> None:
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True)
-    http = _FakeHttp(status_code=403)
-
-    assert _send(_scheduler(pool, http), pool) is True
-    assert len(pool.web_inserts) == 1
-    assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "delivered")]
-
-
-def test_tg_forbidden_does_not_hide_retryable_web_failure() -> None:
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True, web_failure=True)
-    http = _FakeHttp(status_code=403)
+def test_web_only_web_insert_failure_retries() -> None:
+    """tg<0, сбой вставки web_notifications: False без лога — ретрай следующим тиком."""
+    pool = _FakePool(tg_id=_WEB_TG, web_failure=True)
+    http = _FakeHttp()
 
     assert _send(_scheduler(pool, http), pool) is False
+    assert http.calls == []
     assert pool.web_inserts == []
     assert pool.log_inserts == []
 
 
 def test_dedup_skips_both_channels():
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True, dedup=True)
+    pool = _FakePool(tg_id=_LINKED_TG, dedup=True)
     http = _FakeHttp()
     assert _send(_scheduler(pool, http), pool) is False
     assert http.calls == []
@@ -277,19 +270,20 @@ def test_dedup_skips_both_channels():
 
 
 def test_missing_identity_returns_false():
-    pool = _FakePool(tg_id=_LINKED_TG, has_email=True, identity_missing=True)
+    pool = _FakePool(tg_id=_LINKED_TG, identity_missing=True)
     http = _FakeHttp()
     assert _send(_scheduler(pool, http), pool) is False
     assert http.calls == []
 
 
-def test_web_only_without_email_never_delivers():
-    """tg<0 и без email — доставить некому: False без лога (ретрай)."""
-    pool = _FakePool(tg_id=_WEB_TG, has_email=False)
+def test_web_only_delivers_by_sign_not_email():
+    """tg<0 — веб-канал адресуется знаком id, а не хранимой почтой (почт больше нет)."""
+    pool = _FakePool(tg_id=_WEB_TG)
     http = _FakeHttp()
-    assert _send(_scheduler(pool, http), pool) is False
+    assert _send(_scheduler(pool, http), pool) is True
     assert http.calls == []  # отрицательный chat_id не уходит в Bot API
-    assert pool.log_inserts == []
+    assert len(pool.web_inserts) == 1
+    assert pool.log_inserts == [(_INTERNAL, "trial_expiring", "delivered")]
 
 
 # --- Интеграция (opt-in DATABASE_URL) -----------------------------------------
@@ -309,7 +303,7 @@ def pg_url() -> str:
 
 
 def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
-    """Регресс снятия `> 0` с referral-запросов: web-only с verified email получает
+    """Регресс снятия `> 0` с referral-запросов: web-only (tg<0) получает
     referral_offer_trial веб-уведомлением; TG не зовётся (инжект фейк-HTTP)."""
 
     async def _run():
@@ -328,11 +322,6 @@ def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
                     "VALUES ($1, $2) ON CONFLICT (telegram_user_id) DO NOTHING",
                     _WEB_TG,
                     _INTERNAL,
-                )
-                await c.execute(
-                    "INSERT INTO user_emails (telegram_user_id, email, is_verified) "
-                    "VALUES ($1, 'sched-web-test@example.test', TRUE) ON CONFLICT DO NOTHING",
-                    _WEB_TG,
                 )
                 await c.execute(
                     "INSERT INTO subscription_snapshots "
@@ -386,7 +375,6 @@ def test_referral_offer_reaches_web_only_user_via_web_channel(pg_url):
                 )
                 await c.execute("DELETE FROM notification_log WHERE internal_user_id = $1", _INTERNAL)
                 await c.execute("DELETE FROM web_notifications WHERE internal_user_id = $1", _INTERNAL)
-                await c.execute("DELETE FROM user_emails WHERE telegram_user_id = $1", _WEB_TG)
                 await c.execute("DELETE FROM subscription_snapshots WHERE internal_user_id = $1", _INTERNAL)
                 await c.execute("DELETE FROM user_identities WHERE telegram_user_id = $1", _WEB_TG)
             await pool.close()

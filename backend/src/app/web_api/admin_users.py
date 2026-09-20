@@ -37,52 +37,36 @@ _ADD_DAYS_MAX = 3650
 _LIST_SEARCH = (
     "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
-    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
+    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
+    "(i.telegram_user_id < 0) AS is_web "
     "FROM user_identities i "
     "LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
     "LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id "
-    "LEFT JOIN LATERAL ("
-    "SELECT email FROM user_emails WHERE telegram_user_id = i.telegram_user_id "
-    "ORDER BY verified_at DESC NULLS LAST LIMIT 1"
-    ") ue ON TRUE "
-    "WHERE (ue.email ILIKE '%' || $1 || '%' OR CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%') "
+    "WHERE CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%' "
     "ORDER BY i.telegram_user_id DESC LIMIT $2 OFFSET $3"
 )
 
 _LIST_NO_SEARCH = (
     "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
-    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
+    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
+    "(i.telegram_user_id < 0) AS is_web "
     "FROM user_identities i "
     "LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
     "LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id "
-    "LEFT JOIN LATERAL ("
-    "SELECT email FROM user_emails WHERE telegram_user_id = i.telegram_user_id "
-    "ORDER BY verified_at DESC NULLS LAST LIMIT 1"
-    ") ue ON TRUE "
     "ORDER BY i.telegram_user_id DESC LIMIT $1 OFFSET $2"
 )
 
-_COUNT_SEARCH = (
-    "SELECT COUNT(*) FROM user_identities i "
-    "LEFT JOIN LATERAL ("
-    "SELECT email FROM user_emails WHERE telegram_user_id = i.telegram_user_id "
-    "ORDER BY verified_at DESC NULLS LAST LIMIT 1"
-    ") ue ON TRUE "
-    "WHERE (ue.email ILIKE '%' || $1 || '%' OR CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%')"
-)
+_COUNT_SEARCH = "SELECT COUNT(*) FROM user_identities i WHERE CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%'"
 
 _GET_BY_ID = (
     "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
     "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
-    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, ue.email "
+    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
+    "(i.telegram_user_id < 0) AS is_web "
     "FROM user_identities i "
     "LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
     "LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id "
-    "LEFT JOIN LATERAL ("
-    "SELECT email FROM user_emails WHERE telegram_user_id = i.telegram_user_id "
-    "ORDER BY verified_at DESC NULLS LAST LIMIT 1"
-    ") ue ON TRUE "
     "WHERE i.internal_user_id = $1"
 )
 
@@ -92,7 +76,7 @@ def _row_to_user(row: asyncpg.Record) -> dict:
     return {
         "internal_user_id": row["internal_user_id"],
         "telegram_user_id": row["telegram_user_id"],
-        "email": row["email"],
+        "is_web": bool(row["is_web"]),
         "trial_used": bool(row["trial_used"]),
         "is_internal": bool(row["is_internal"]),
         "subscription_state": row["state_label"],

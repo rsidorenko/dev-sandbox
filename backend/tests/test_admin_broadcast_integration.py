@@ -128,18 +128,6 @@ async def _insert_fixtures(pool: asyncpg.Pool) -> None:
             _TG["web_only"],
             str(_TG["web_only"]),
         )
-        # Email для теста резолва явной цели по почте.
-        await c.execute(
-            "INSERT INTO user_emails (telegram_user_id, email, is_verified) "
-            "VALUES ($1, 'broadcast-test-1@example.test', TRUE) ON CONFLICT DO NOTHING",
-            _TG["active_paid"],
-        )
-        # Verified email у web-only — попадает ТОЛЬКО в web-аудиторию (TG-канал его не видит).
-        await c.execute(
-            "INSERT INTO user_emails (telegram_user_id, email, is_verified) "
-            "VALUES ($1, 'broadcast-test-2@example.test', TRUE) ON CONFLICT DO NOTHING",
-            _TG["web_only"],
-        )
 
 
 async def _cleanup(pool: asyncpg.Pool) -> None:
@@ -149,7 +137,6 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             "(SELECT ('u'||tg)::text FROM unnest($1::bigint[]) AS tg)",
             _ALL_TG,
         )
-        await c.execute("DELETE FROM user_emails WHERE telegram_user_id = ANY($1::bigint[])", _ALL_TG)
         await c.execute(
             "DELETE FROM subscription_snapshots WHERE internal_user_id IN "
             "(SELECT ('u'||tg)::text FROM unnest($1::bigint[]) AS tg)",
@@ -254,19 +241,21 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
             # --- Web-only исключён из all (TG-канал), но входит в web_total ---
             r = await estimate(["all"])
             assert r.json()["total"] == baseline_all + 8
-            assert r.json()["web_total"] >= 1  # web_only с verified email виден веб-каналу
+            assert r.json()["web_total"] >= 1  # web_only (tg<0) виден веб-каналу
 
             # --- Явные цели: tg-id ---
             r = await estimate([], targets=[str(_TG["exp_0_2"]), str(_TG["dormant"])])
             assert r.status_code == 200, r.text
             assert r.json()["total"] == 2
 
-            # --- Явные цели: email (резолв через user_emails) ---
-            r = await estimate([], targets=["broadcast-test-1@example.test"])
-            assert r.json()["total"] == 1
-            assert _TG["active_paid"] in r.json()["explicit_resolved"]
+            # --- Явные цели: отрицательный web-only id (адресация числом) ---
+            r = await estimate([], targets=[str(_TG["web_only"])])
+            assert r.status_code == 200, r.text
+            assert r.json()["total"] == 0  # TG-канал web-only не видит
+            assert r.json()["web_total"] == 1
+            assert _TG["web_only"] in r.json()["explicit_resolved"]
 
-            # --- Неразрешённая цель ---
+            # --- Неразрешённая цель (почта больше не резолвится) ---
             r = await estimate([], targets=["no-such-user-xyz@example.test"])
             assert r.json()["total"] == 0
             assert r.json()["explicit_unresolved"] == ["no-such-user-xyz@example.test"]
@@ -338,8 +327,8 @@ def test_broadcast_estimate_and_handler_wiring(pg_url, admin_env):
 
 
 def test_broadcast_web_fanout_full_flow(pg_url, admin_env):
-    """Реальный BroadcastRunner + PG: линкнутый (tg>0 + email) получает оба канала,
-    web-only (tg<0 + email) — только веб; claims по одному на получателя; счётчики web_*."""
+    """Реальный BroadcastRunner + PG: tg>0 — только бот-канал, web-only (tg<0) —
+    только веб; claims по одному на получателя; счётчики web_*."""
 
     async def _run():
         import json as _json
@@ -359,18 +348,18 @@ def test_broadcast_web_fanout_full_flow(pg_url, admin_env):
             assert r.status_code == 200, r.text
             h = {"x-csrf-token": r.json()["csrf_token"]}
 
-            # estimate: TG-канал видит только положительный id, web-аудитория — обоих.
+            # estimate: TG-канал видит только положительный id; web-аудитория — tg<0.
             r = await client.post(
                 "/api/v1/admin/broadcast/estimate",
                 json={
                     "categories": [],
-                    "explicit_targets": ["broadcast-test-1@example.test", "broadcast-test-2@example.test"],
+                    "explicit_targets": [str(_TG["active_paid"]), str(_TG["web_only"])],
                 },
                 headers=h,
             )
             assert r.status_code == 200, r.text
             assert r.json()["total"] == 1
-            assert r.json()["web_total"] == 2
+            assert r.json()["web_total"] == 1
             assert set(r.json()["explicit_resolved"]) == {_TG["active_paid"], _TG["web_only"]}
 
             # Джоба в формате send-хендлера: явные цели = оба id (web-only отрицательный).
@@ -395,12 +384,12 @@ def test_broadcast_web_fanout_full_flow(pg_url, admin_env):
             )
             assert job["status"] == "completed"
             assert (job["total_recipients"], job["sent_count"]) == (1, 1)
-            assert (job["web_recipient_count"], job["web_notified_count"]) == (2, 2)
+            assert (job["web_recipient_count"], job["web_notified_count"]) == (1, 1)
 
             # TG-канал не видел web-only.
             assert tg_client.calls == [_TG["active_paid"]]
 
-            # web_notifications: оба внутренних id, kind=broadcast, title=plain, body=HTML,
+            # web_notifications: только web-only id, kind=broadcast, title=plain, body=HTML,
             # payload несёт job_id + bonus (asyncpg JSONB без кодека → str).
             rows = {
                 row["internal_user_id"]: row
@@ -411,7 +400,7 @@ def test_broadcast_web_fanout_full_flow(pg_url, admin_env):
                     f"u{_TG['web_only']}",
                 )
             }
-            assert set(rows) == {f"u{_TG['active_paid']}", f"u{_TG['web_only']}"}
+            assert set(rows) == {f"u{_TG['web_only']}"}
             for row in rows.values():
                 assert row["kind"] == "broadcast"
                 assert row["title"] == "Привет! Бонус внутри"

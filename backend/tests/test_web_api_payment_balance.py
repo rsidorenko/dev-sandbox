@@ -2,8 +2,8 @@
 
 Opt-in via DATABASE_URL — exercises the REAL handlers against PostgreSQL with a
 StubVlessProvider, validating atomic debit + snapshot + idempotency (UNIQUE description
-dedup + advisory lock) + commissions. JWT is issued via the real _issue_jwt helper;
-CSRF via double-submit cookie.
+dedup + advisory lock) + commissions. Auth — Bearer subscription-token
+(куки/CSRF больше не используются).
 """
 
 from __future__ import annotations
@@ -13,11 +13,10 @@ import os
 from pathlib import Path
 
 import asyncpg
+import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.web_api.auth import _issue_jwt
-from app.web_api.middleware import generate_csrf_token
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
@@ -25,8 +24,8 @@ _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
 # Distinctive test ids (far from any real values).
 _WEB_TG = -9_000_000_100
 _REFERRER_TG = 8_888_888_800_100
-_TEST_EMAIL = "balance-payment-test@example.com"
 _WEB_INTERNAL = f"web_balance_test_{abs(_WEB_TG)}"
+_SUB_TOKEN = "balWebSubToken1234567890ab"
 
 
 def _pg_url() -> str | None:
@@ -44,7 +43,6 @@ def pg_url() -> str:
 
 async def _cleanup(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM user_emails WHERE email = $1", _TEST_EMAIL)
         await conn.execute(
             "DELETE FROM referral_transactions WHERE internal_user_id = ANY($1::text[])",
             [_WEB_INTERNAL, f"u{_REFERRER_TG}"],
@@ -71,22 +69,17 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
         )
 
 
-def _make_authed_client(monkeypatch, pool, *, telegram_user_id=_WEB_TG, internal_user_id=_WEB_INTERNAL):
-    """Build a TestClient with valid session + csrf cookies for a test web user."""
-    monkeypatch.setenv("JWT_SECRET", "test-secret-balance-payment")
-    from starlette.testclient import TestClient
-
+def _make_authed_client(pool):
+    """httpx-клиент с Bearer subscription-token на том же loop, что и пул.
+    Раньше auth не ходил в БД (JWT без lookup) и sync TestClient проходил; теперь
+    require_auth делает token-lookup — anyio-портал TestClient даёт cross-loop
+    asyncpg (паттерн test_web_api_notifications.py)."""
     from app.web_api.app import build_web_api_app
 
     app = build_web_api_app(pool=pool)
-    client = TestClient(app)
-    token = _issue_jwt(
-        {"telegram_user_id": telegram_user_id, "internal_user_id": internal_user_id, "email": _TEST_EMAIL}
-    )
-    csrf = generate_csrf_token()
-    client.cookies.set("session", token, domain="testserver")
-    client.cookies.set("csrf_token", csrf, domain="testserver")
-    return client, csrf
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    client.headers["Authorization"] = f"Bearer {_SUB_TOKEN}"
+    return client
 
 
 def test_balance_payment_success_completes_and_debits(pg_url, monkeypatch):
@@ -100,9 +93,11 @@ def test_balance_payment_success_completes_and_debits(pg_url, monkeypatch):
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
                 await conn.execute(
                     "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, $2)"
@@ -111,12 +106,8 @@ def test_balance_payment_success_completes_and_debits(pg_url, monkeypatch):
                     1000_00,
                 )
 
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/balance",
-                json={"plan_id": "1m", "device_count": 5},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["status"] == "completed"
@@ -160,9 +151,11 @@ def test_balance_payment_insufficient_returns_402_and_no_audit(pg_url, monkeypat
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
                 await conn.execute(
                     "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, $2)"
@@ -171,12 +164,8 @@ def test_balance_payment_insufficient_returns_402_and_no_audit(pg_url, monkeypat
                     100_00,  # less than 249.00
                 )
 
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/balance",
-                json={"plan_id": "1m", "device_count": 5},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
             assert resp.status_code == 402, resp.text
             assert resp.json()["error"] == "insufficient_balance"
 
@@ -209,9 +198,11 @@ def test_balance_payment_idempotent_same_key(pg_url, monkeypatch):
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
                 await conn.execute(
                     "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, $2)"
@@ -220,11 +211,15 @@ def test_balance_payment_idempotent_same_key(pg_url, monkeypatch):
                     1000_00,
                 )
 
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            headers = {"x-csrf-token": csrf, "X-Idempotency-Key": "stable-key-123"}
-            r1 = client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5}, headers=headers)
+            client = _make_authed_client(pool)
+            headers = {"X-Idempotency-Key": "stable-key-123"}
+            r1 = await client.post(
+                "/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5}, headers=headers
+            )
             assert r1.status_code == 200 and r1.json()["status"] == "completed"
-            r2 = client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5}, headers=headers)
+            r2 = await client.post(
+                "/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5}, headers=headers
+            )
             assert r2.status_code == 200 and r2.json()["status"] == "already_completed"
 
             async with pool.acquire() as conn:
@@ -256,16 +251,14 @@ def test_balance_payment_invalid_plan_id(pg_url, monkeypatch):
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/balance",
-                json={"plan_id": "nonexistent", "device_count": 5},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "nonexistent", "device_count": 5})
             assert resp.status_code == 400 and resp.json()["error"] == "invalid_plan_id"
         finally:
             await _cleanup(pool)
@@ -288,9 +281,11 @@ def test_add_device_balance_increases_device_count_without_extending(pg_url, mon
             existing_until = datetime.now(UTC) + timedelta(days=10)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
                 await conn.execute(
                     "INSERT INTO referral_balances (internal_user_id, balance_kopecks) VALUES ($1, $2)"
@@ -305,12 +300,8 @@ def test_add_device_balance_increases_device_count_without_extending(pg_url, mon
                     existing_until,
                 )
 
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/add-devices/balance",
-                json={"device_count": 7},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/add-devices/balance", json={"device_count": 7})
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["status"] == "completed"
@@ -323,7 +314,9 @@ def test_add_device_balance_increases_device_count_without_extending(pg_url, mon
                 )
                 assert snap["device_count"] == 7
                 # active_until must NOT have changed (no renewal).
-                assert snap["active_until_utc"].replace(tzinfo=UTC) == existing_until.replace(microsecond=0)
+                assert snap["active_until_utc"].replace(tzinfo=UTC, microsecond=0) == existing_until.replace(
+                    microsecond=0
+                )
                 bal = await conn.fetchval(
                     "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id=$1",
                     _WEB_INTERNAL,
@@ -347,16 +340,14 @@ def test_add_device_balance_no_active_subscription(pg_url, monkeypatch):
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/add-devices/balance",
-                json={"device_count": 7},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/add-devices/balance", json={"device_count": 7})
             assert resp.status_code == 409 and resp.json()["error"] == "no_active_subscription"
         finally:
             await _cleanup(pool)
@@ -377,9 +368,11 @@ def test_balance_payment_credits_l1_commission_to_referrer(pg_url, monkeypatch):
             await _cleanup(pool)
             async with pool.acquire() as conn:
                 await conn.execute(
-                    "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     _WEB_TG,
                     _WEB_INTERNAL,
+                    _SUB_TOKEN,
                 )
                 await conn.execute(
                     "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
@@ -407,27 +400,24 @@ def test_balance_payment_credits_l1_commission_to_referrer(pg_url, monkeypatch):
                     referrer_internal,
                 )
 
-            client, csrf = _make_authed_client(monkeypatch, pool)
-            resp = client.post(
-                "/api/v1/payment/balance",
-                json={"plan_id": "1m", "device_count": 5},
-                headers={"x-csrf-token": csrf},
-            )
+            client = _make_authed_client(pool)
+            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
             assert resp.status_code == 200, resp.text
 
             async with pool.acquire() as conn:
-                # 1m L1 rate = 0.35 → 249.00 * 0.35 = 87.15 → 8715 kopecks.
+                # 1m L1 (balanced_v1 — дефолт reward_policy в схеме) = 0.20
+                # → 249.00 * 0.20 = 49.80 → 4980 kopecks.
                 credit = await conn.fetchrow(
                     "SELECT amount_kopecks, transaction_type FROM referral_transactions"
                     " WHERE internal_user_id=$1 AND transaction_type='referral_credit'",
                     referrer_internal,
                 )
-                assert credit is not None and credit["amount_kopecks"] == 8715
+                assert credit is not None and credit["amount_kopecks"] == 4980
                 ref_bal = await conn.fetchval(
                     "SELECT balance_kopecks FROM referral_balances WHERE internal_user_id=$1",
                     referrer_internal,
                 )
-                assert ref_bal == 8715
+                assert ref_bal == 4980
         finally:
             await _cleanup(pool)
             await pool.close()

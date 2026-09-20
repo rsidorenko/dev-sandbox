@@ -46,7 +46,6 @@ from app.web_api.admin_users import (
     handle_admin_reset_test_account,
     handle_admin_set_internal,
 )
-from app.web_api.auth import handle_logout, handle_send_code, handle_verify_code
 from app.web_api.connection_check import (
     handle_check_feedback,
     handle_check_ping,
@@ -57,7 +56,7 @@ from app.web_api.connection_check import (
 )
 from app.web_api.experiments import handle_resolve_experiment
 from app.web_api.link_auth import handle_link_request
-from app.web_api.middleware import require_auth, require_csrf
+from app.web_api.middleware import require_auth
 from app.web_api.notifications import (
     handle_list_notifications,
     handle_notification_claim,
@@ -98,18 +97,6 @@ async def _healthz(_: Request) -> JSONResponse:
 
 def _truthy(raw: str | None) -> bool:
     return raw is not None and raw.strip().lower() in ("1", "true", "yes")
-
-
-def _with_csrf(handler):
-    """Wrap a handler to enforce CSRF validation before execution."""
-
-    async def _wrapped(request: Request) -> JSONResponse:
-        csrf_err = require_csrf(request)
-        if csrf_err is not None:
-            return csrf_err
-        return await handler(request)
-
-    return _wrapped
 
 
 def _with_auth(handler):
@@ -160,17 +147,14 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/healthz", _healthz, methods=["GET"]),
         # Публичный каталог тарифов: эффективные цены + глобальная скидка (Cache-Control 30с).
         Route("/api/v1/plans", handle_list_plans, methods=["GET"]),
-        # Auth
-        Route("/api/v1/auth/email/send-code", handle_send_code, methods=["POST"]),
-        Route("/api/v1/auth/email/verify", handle_verify_code, methods=["POST"]),
-        Route("/api/v1/auth/logout", handle_logout, methods=["POST"]),
-        # Link-auth: выдача ссылки-подписки на почту (почта не сохраняется)
+        # Auth: вход по ссылке-подписке (email-OTP удалён вместе с куками; почта —
+        # только канал доставки ссылки и нигде не хранится)
         Route("/api/v1/auth/link/request", handle_link_request, methods=["POST"]),
         # Profile
         Route("/api/v1/user/profile", _with_auth(handle_get_profile), methods=["GET"]),
         Route(
             "/api/v1/user/experiments/resolve",
-            _with_auth(_with_csrf(handle_resolve_experiment)),
+            _with_auth(handle_resolve_experiment),
             methods=["POST"],
         ),
         # Referral dashboard (stats, conversion, recent transactions)
@@ -183,52 +167,50 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         ),
         # Keys
         Route("/api/v1/user/keys", _with_auth(handle_get_keys), methods=["GET"]),
-        Route("/api/v1/user/keys/reissue", _with_auth(_with_csrf(handle_reissue_keys)), methods=["POST"]),
-        # Subscription management (auth + CSRF-protected)
-        Route("/api/v1/user/subscription/renew", _with_auth(_with_csrf(handle_renew_subscription)), methods=["POST"]),
-        Route("/api/v1/user/subscription/change-plan", _with_auth(_with_csrf(handle_change_plan)), methods=["POST"]),
-        Route("/api/v1/user/subscription/cancel", _with_auth(_with_csrf(handle_cancel_subscription)), methods=["POST"]),
+        Route("/api/v1/user/keys/reissue", _with_auth(handle_reissue_keys), methods=["POST"]),
+        # Subscription management (Bearer-токен; CSRF не нужен — кук нет)
+        Route("/api/v1/user/subscription/renew", _with_auth(handle_renew_subscription), methods=["POST"]),
+        Route("/api/v1/user/subscription/change-plan", _with_auth(handle_change_plan), methods=["POST"]),
+        Route("/api/v1/user/subscription/cancel", _with_auth(handle_cancel_subscription), methods=["POST"]),
         # Trial
-        Route("/api/v1/user/trial/activate", _with_auth(_with_csrf(handle_activate_trial)), methods=["POST"]),
+        Route("/api/v1/user/trial/activate", _with_auth(handle_activate_trial), methods=["POST"]),
         # Promocode (web session) — display/apply/clear the 24h-pinned promo. Discount
         # math stays in promo_service; these are input/display surface (Фаза 4).
         Route("/api/v1/user/promocode", _with_auth(handle_get_promocode), methods=["GET"]),
         Route(
             "/api/v1/user/promocode/apply",
-            _with_auth(_with_csrf(handle_apply_promocode)),
+            _with_auth(handle_apply_promocode),
             methods=["POST"],
         ),
         Route(
             "/api/v1/user/promocode/clear",
-            _with_auth(_with_csrf(handle_clear_promocode)),
+            _with_auth(handle_clear_promocode),
             methods=["POST"],
         ),
         # Notifications (web session): лента + прочтение + клейм бонуса рассылки
-        # (claims-ядра shared с ботом). Мутации под CSRF.
+        # (claims-ядра shared с ботом).
         Route("/api/v1/user/notifications", _with_auth(handle_list_notifications), methods=["GET"]),
         Route(
             "/api/v1/user/notifications/read",
-            _with_auth(_with_csrf(handle_notifications_read)),
+            _with_auth(handle_notifications_read),
             methods=["POST"],
         ),
         Route(
             "/api/v1/user/notifications/{notification_id}/claim",
-            _with_auth(_with_csrf(handle_notification_claim)),
+            _with_auth(handle_notification_claim),
             methods=["POST"],
         ),
         # Payment
-        Route("/api/v1/payment/create", _with_auth(_with_csrf(handle_create_payment)), methods=["POST"]),
-        Route(
-            "/api/v1/payment/add-devices", _with_auth(_with_csrf(handle_create_add_device_payment)), methods=["POST"]
-        ),
+        Route("/api/v1/payment/create", _with_auth(handle_create_payment), methods=["POST"]),
+        Route("/api/v1/payment/add-devices", _with_auth(handle_create_add_device_payment), methods=["POST"]),
         Route(
             "/api/v1/payment/balance",
-            _with_auth(_with_csrf(handle_create_balance_payment)),
+            _with_auth(handle_create_balance_payment),
             methods=["POST"],
         ),
         Route(
             "/api/v1/payment/add-devices/balance",
-            _with_auth(_with_csrf(handle_create_add_device_balance_payment)),
+            _with_auth(handle_create_add_device_balance_payment),
             methods=["POST"],
         ),
         Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
@@ -361,8 +343,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
                 CORSMiddleware,
                 allow_origins=origins,
                 allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-                allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
-                allow_credentials=True,
+                allow_headers=["Content-Type", "Authorization"],
             )
 
     return app

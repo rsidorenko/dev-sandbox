@@ -334,7 +334,7 @@ class NotificationScheduler:
         keyboard: dict,
         web_payload: dict | None = None,
     ) -> bool:
-        """Двухканальная доставка: веб (verified email) + Telegram (tg_id > 0).
+        """Двухканальная доставка: веб (web-only, tg < 0) + Telegram (tg_id > 0).
 
         Дедуп notification_log — ОДНА запись на оба канала (по ней же тики
         пропускают повтор). Возвращает True, если доставлено хотя бы по одному
@@ -343,17 +343,16 @@ class NotificationScheduler:
         дедуп-записью.
         """
         row = await self._pool.fetchrow(
-            "SELECT i.telegram_user_id, "
-            "EXISTS (SELECT 1 FROM user_emails e "
-            "        WHERE e.telegram_user_id = i.telegram_user_id AND e.is_verified = TRUE) AS has_email "
-            "FROM user_identities i WHERE i.internal_user_id = $1",
+            "SELECT telegram_user_id FROM user_identities WHERE internal_user_id = $1",
             internal_user_id,
         )
         if row is None:
             return False
 
         telegram_user_id = row["telegram_user_id"]
-        has_email = bool(row["has_email"])
+        # Веб-канал — web-only identities (tg < 0): колокольчик видит тот, кто
+        # входит на сайт по ссылке-подписке (email-логина больше нет).
+        is_web = telegram_user_id < 0
 
         # Holdout контрольной группы: не отправляем, но занимает слот дедупа
         # наблюдаемой записью 'holdout'. Сбой вставки — обычная отправка (fail-open).
@@ -395,9 +394,9 @@ class NotificationScheduler:
         retryable_failure = False
         telegram_terminal_failure = False
 
-        # --- Веб-канал (у кого есть verified email — «может залогиниться») ---
+        # --- Веб-канал (web-only identities — «может залогиниться по ссылке») ---
         web_kind = _WEB_KINDS.get(notification_type)
-        if has_email and web_kind is not None:
+        if is_web and web_kind is not None:
             try:
                 kind, title = web_kind
                 payload = {"notification_type": notification_type}

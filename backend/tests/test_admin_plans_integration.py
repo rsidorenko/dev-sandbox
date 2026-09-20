@@ -31,8 +31,6 @@ import pytest
 from app.issuance.vless_provider import StubVlessProvider
 from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.web_api.app import build_web_api_app
-from app.web_api.auth import _issue_jwt
-from app.web_api.middleware import generate_csrf_token
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
@@ -41,6 +39,7 @@ _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
 _TG = 9_000_777_001
 _INTERNAL = f"u{_TG}"
 _PROMO_CODE = "TESTPRICING30"
+_SUB_TOKEN = "plansWebSubToken1234567890"
 
 
 def _pg_url() -> str | None:
@@ -111,18 +110,14 @@ async def _login_client(pool) -> tuple[httpx.AsyncClient, dict]:
     return client, {"x-csrf-token": csrf}
 
 
-def _authed_web_client(monkeypatch, pool) -> tuple[httpx.AsyncClient, dict]:
-    """Клиент веб-пользователя (session JWT + csrf) поверх того же пула.
+def _authed_web_client(pool) -> tuple[httpx.AsyncClient, dict]:
+    """Клиент веб-пользователя (Bearer subscription-token) поверх того же пула.
 
-    JWT_SECRET НЕ трогаем: admin_env уже выставил свой, а админ-сессия
-    (выданная _login_client ДО этого вызова) валидируется тем же секретом."""
+    Пустой dict заголовков — симметрично _login_client; CSRF для юзер-API
+    не нужен (кук нет), админ-канал остаётся при своих куко-сессиях."""
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=build_web_api_app(pool=pool)), base_url="http://test")
-    token = _issue_jwt({"telegram_user_id": _TG, "internal_user_id": _INTERNAL})
-    csrf = generate_csrf_token()
-    # ВАЖНО: без domain= — httpx>=0.28 не отправляет вручную поставленные cookie с доменом.
-    client.cookies.set("session", token)
-    client.cookies.set("csrf_token", csrf)
-    return client, {"x-csrf-token": csrf}
+    client.headers["Authorization"] = f"Bearer {_SUB_TOKEN}"
+    return client, {}
 
 
 def _fake_yookassa(monkeypatch) -> AsyncMock:
@@ -277,14 +272,15 @@ async def test_checkout_runtime_price_and_bestof_metadata(pg_url, admin_env, mon
         await _cleanup_user(pool, _INTERNAL, _TG)
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)"
-                " ON CONFLICT (telegram_user_id) DO NOTHING",
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                " VALUES ($1, $2, $3) ON CONFLICT (telegram_user_id) DO NOTHING",
                 _TG,
                 _INTERNAL,
+                _SUB_TOKEN,
             )
 
         admin, h = await _login_client(pool)
-        web, wh = _authed_web_client(monkeypatch, pool)
+        web, wh = _authed_web_client(pool)
         create_payment = _fake_yookassa(monkeypatch)
 
         # оверрайд 1m=300 (круглые числа — точные проценты) + акция 10%
@@ -367,14 +363,15 @@ async def test_webhook_amount_gate_race_after_price_change(pg_url, admin_env, mo
         await _cleanup_user(pool, _INTERNAL, _TG)
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2)"
-                " ON CONFLICT (telegram_user_id) DO NOTHING",
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                " VALUES ($1, $2, $3) ON CONFLICT (telegram_user_id) DO NOTHING",
                 _TG,
                 _INTERNAL,
+                _SUB_TOKEN,
             )
 
         admin, h = await _login_client(pool)
-        web, wh = _authed_web_client(monkeypatch, pool)
+        web, wh = _authed_web_client(pool)
         create_payment = _fake_yookassa(monkeypatch)
 
         # платёж создан по цене 300

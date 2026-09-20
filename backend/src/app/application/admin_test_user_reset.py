@@ -207,21 +207,6 @@ async def reset_test_user(
             ):
                 await _delete(conn, deleted_rows, name, query, telegram_user_id)
 
-            await _delete(
-                conn,
-                deleted_rows,
-                "email_verification_codes",
-                "DELETE FROM email_verification_codes WHERE telegram_user_id = $1 OR email IN "
-                "(SELECT email FROM user_emails WHERE telegram_user_id = $1)",
-                telegram_user_id,
-            )
-            await _delete(
-                conn,
-                deleted_rows,
-                "user_emails",
-                "DELETE FROM user_emails WHERE telegram_user_id = $1",
-                telegram_user_id,
-            )
             for name, query in (
                 ("bare_xray_traffic_state", "DELETE FROM bare_xray_traffic_state WHERE email = ANY($1::text[])"),
                 ("bare_xray_traffic_daily", "DELETE FROM bare_xray_traffic_daily WHERE email = ANY($1::text[])"),

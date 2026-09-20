@@ -68,9 +68,7 @@ export default function AdminUsersPage() {
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return allUsers;
-    return allUsers.filter(
-      (u) => (u.email ?? "").toLowerCase().includes(q) || String(u.telegram_user_id).includes(q),
-    );
+    return allUsers.filter((u) => String(u.telegram_user_id).includes(q));
   }, [allUsers, search]);
 
   const facets = useMemo(() => computeFacets(searched, filters), [searched, filters]);
@@ -180,7 +178,7 @@ export default function AdminUsersPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="поиск: email или telegram id"
+            placeholder="поиск: telegram id"
             className={`${adminInput} w-full sm:w-72`}
           />
         </div>
@@ -310,7 +308,7 @@ function UserRow({
   return (
     <tr className={adminRow}>
       <td className={`${adminTd} ${adminMono} text-xs text-gray-600 dark:text-gray-400`}>{u.telegram_user_id}</td>
-      <td className={`${adminTd} max-w-[16rem] truncate`}>{u.email ?? "—"}</td>
+      <td className={`${adminTd} text-xs`}>{u.is_web ? "веб" : "TG"}</td>
       <td className={adminTd}>
         <StateBadge state={u.subscription_state} isActive={u.is_active} />
       </td>

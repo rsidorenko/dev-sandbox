@@ -22,7 +22,6 @@ import httpx
 import pytest
 
 from app.persistence.postgres_migrations import apply_postgres_migrations
-from app.web_api.auth import _issue_jwt
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
@@ -30,7 +29,7 @@ _MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
 # Главный (реферер) аккаунт
 _WEB_TG = -9_000_000_400
 _WEB_INTERNAL = f"web_ref_test_{abs(_WEB_TG)}"
-_TEST_EMAIL = "ref-web-test@example.com"
+_SUB_TOKEN = "refWebMainSubToken0000000001"
 _REF_CODE = "TESTREF1"
 
 # Приглашённые L1: l1a оплатил, l1b — нет
@@ -45,7 +44,7 @@ _L2_TG, _L2_INT = -9_000_000_403, "web_ref_l2"
 # нулями, а не 404/500.
 _WEB_ONLY_TG = -9_000_000_500
 _WEB_ONLY_INT = "web_ref_only_friend"
-_WEB_ONLY_EMAIL = "friend-ref@example.com"
+_WEB_ONLY_SUB_TOKEN = "refWebOnlySubToken000000001"
 
 _ALL_TG = [_WEB_TG, _L1A_TG, _L1B_TG, _L2_TG, _WEB_ONLY_TG]
 _ALL_INT = [_WEB_INTERNAL, _L1A_INT, _L1B_INT, _L2_INT, _WEB_ONLY_INT]
@@ -84,10 +83,6 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
             _ALL_INT,
         )
         await conn.execute(
-            "DELETE FROM user_emails WHERE telegram_user_id = ANY($1::bigint[])",
-            _ALL_TG,
-        )
-        await conn.execute(
             "DELETE FROM billing_events_ledger WHERE internal_user_id = ANY($1::text[])",
             [_L1A_INT, _L1B_INT, _L2_INT],
         )
@@ -99,8 +94,15 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
 
 async def _seed(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
-        # Identities
-        for tg, internal in [(_WEB_TG, _WEB_INTERNAL), (_L1A_TG, _L1A_INT), (_L1B_TG, _L1B_INT), (_L2_TG, _L2_INT)]:
+        # Identities (у главного — subscription-токен: им аутентифицируется веб-клиент)
+        await conn.execute(
+            "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+            " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            _WEB_TG,
+            _WEB_INTERNAL,
+            _SUB_TOKEN,
+        )
+        for tg, internal in [(_L1A_TG, _L1A_INT), (_L1B_TG, _L1B_INT), (_L2_TG, _L2_INT)]:
             await conn.execute(
                 "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 tg,
@@ -169,30 +171,19 @@ async def _authed_client(
     monkeypatch,
     pool,
     *,
-    telegram_user_id,
-    internal_user_id,
-    email,
+    subscription_token,
     with_session: bool = True,
 ) -> httpx.AsyncClient:
     """httpx client wired to the ASGI app on the SAME loop as `pool` — no cross-loop
-    asyncpg errors. Auth via the Authorization: Bearer header (require_auth accepts
-    both cookie and Bearer; the cookie domain "test" is rejected by httpx's jar, so
-    the header is the reliable in-test transport). Same JWT validation either way."""
-    monkeypatch.setenv("JWT_SECRET", "test-secret-referral-web")
+    asyncpg errors. Auth via Authorization: Bearer <subscription_token> — единственный
+    способ входа на сайте (кук/JWT больше нет)."""
     monkeypatch.setenv("BOT_USERNAME", "bravadavpn_bot")
     from app.web_api.app import build_web_api_app
 
     app = build_web_api_app(pool=pool)
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     if with_session:
-        token = _issue_jwt(
-            {
-                "telegram_user_id": telegram_user_id,
-                "internal_user_id": internal_user_id,
-                "email": email,
-            }
-        )
-        client.headers["Authorization"] = f"Bearer {token}"
+        client.headers["Authorization"] = f"Bearer {subscription_token}"
     return client
 
 
@@ -202,9 +193,7 @@ async def test_referral_dashboard_stats_and_conversion(pg_url, monkeypatch):
         await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
         await _cleanup(pool)
         await _seed(pool)
-        client = await _authed_client(
-            monkeypatch, pool, telegram_user_id=_WEB_TG, internal_user_id=_WEB_INTERNAL, email=_TEST_EMAIL
-        )
+        client = await _authed_client(monkeypatch, pool, subscription_token=_SUB_TOKEN)
         resp = await client.get("/api/v1/user/referral")
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -244,9 +233,7 @@ async def test_referral_dashboard_requires_auth(pg_url, monkeypatch):
         monkeypatch,
         # pool must exist for build_web_api_app; auth is rejected before any DB use.
         pool=await asyncpg.create_pool(pg_url, min_size=1, max_size=2),
-        telegram_user_id=0,
-        internal_user_id="unused",
-        email="unused@example.com",
+        subscription_token="unused",
         with_session=False,
     )
     try:
@@ -260,28 +247,21 @@ async def test_referral_dashboard_requires_auth(pg_url, monkeypatch):
 async def test_referral_dashboard_web_only_user_empty(pg_url, monkeypatch):
     """Кейс «друга»: чистый web-only юзер (отрицательный telegram_user_id, internal_user_id
     'web_…'), БЕЗ referral-кода/отношений/баланса/транзакций. Эндпоинт резолвит
-    internal_user_id из JWT напрямую и возвращает 200 с авто-кодом и нулями — а не 404
-    identity_not_found, как было при lookup по telegram_user_id."""
+    identity по subscription-токену и возвращает 200 с авто-кодом и нулями."""
     pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
     try:
         await apply_postgres_migrations(pool, migrations_directory=_MIGRATIONS_DIR)
         await _cleanup(pool)
-        # Сеет ТОЛЬКО identity (как verify_code для нового web-юзера) — без referral-данных.
+        # Сеет ТОЛЬКО identity (как выдача ссылки новому web-юзеру) — без referral-данных.
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO user_identities (telegram_user_id, internal_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                "INSERT INTO user_identities (telegram_user_id, internal_user_id, subscription_token)"
+                " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                 _WEB_ONLY_TG,
                 _WEB_ONLY_INT,
+                _WEB_ONLY_SUB_TOKEN,
             )
-            await conn.execute(
-                """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
-                   VALUES ($1, $2, TRUE, now()) ON CONFLICT DO NOTHING""",
-                _WEB_ONLY_TG,
-                _WEB_ONLY_EMAIL,
-            )
-        client = await _authed_client(
-            monkeypatch, pool, telegram_user_id=_WEB_ONLY_TG, internal_user_id=_WEB_ONLY_INT, email=_WEB_ONLY_EMAIL
-        )
+        client = await _authed_client(monkeypatch, pool, subscription_token=_WEB_ONLY_SUB_TOKEN)
         resp = await client.get("/api/v1/user/referral")
         assert resp.status_code == 200, resp.text
         body = resp.json()
