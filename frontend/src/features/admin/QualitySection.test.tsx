@@ -134,6 +134,7 @@ describe("QualitySection", () => {
   it("renders section shell when no optional data provided", () => {
     render(<QualitySection dataHealth={undefined} trialCohorts={[]} vpnQuality={undefined} />);
     expect(screen.getByText("Качество и данные")).toBeInTheDocument();
+    expect(screen.getByLabelText("Справка: Качество и данные")).toBeInTheDocument();
     expect(screen.queryByText("Качество данных")).not.toBeInTheDocument();
     expect(screen.queryByText("Когорты триалов по неделям")).not.toBeInTheDocument();
   });

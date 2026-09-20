@@ -21,6 +21,7 @@ from app.persistence.postgres_migrations import apply_postgres_migrations
 from app.web_api.admin_stats import (
     _completed_through_date,
     _compute_window,
+    _experiment_runtime_status,
     _funnel_diagnostics_v2,
     _trial_feedback_stats,
 )
@@ -102,6 +103,32 @@ def test_custom_window_rejects_invalid_ranges(date_from: str | None, date_to: st
             date_to_raw=date_to,
             now=datetime(2026, 9, 19, 12, 30, tzinfo=UTC),
         )
+
+
+def test_experiment_runtime_status_reflects_flags_and_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in (
+        "EXPERIMENT_CHECKOUT_REASSURANCE_ENABLE",
+        "EXPERIMENT_CHANNEL_GATE_ENABLE",
+        "EXPERIMENT_TRIAL_DURATION_ENABLE",
+        "NOTIFICATION_HOLDOUT_ENABLE",
+        "TRIAL_CHANNEL_SUBSCRIBE_ENABLE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    statuses = {item["experiment_key"]: item for item in _experiment_runtime_status()}
+    assert all(item["status"] == "paused" for item in statuses.values())
+
+    monkeypatch.setenv("EXPERIMENT_CHANNEL_GATE_ENABLE", "1")
+    statuses = {item["experiment_key"]: item for item in _experiment_runtime_status()}
+    assert statuses["trial_channel_gate_v1"]["status"] == "misconfigured"
+
+    monkeypatch.setenv("TRIAL_CHANNEL_SUBSCRIBE_ENABLE", "1")
+    monkeypatch.setenv("NOTIFICATION_HOLDOUT_ENABLE", "1")
+    monkeypatch.setenv("NOTIFICATION_HOLDOUT_PERCENT", "20")
+    statuses = {item["experiment_key"]: item for item in _experiment_runtime_status()}
+    assert statuses["trial_channel_gate_v1"]["status"] == "running"
+    assert statuses["notification_holdout_v1"]["status"] == "running"
+    assert statuses["notification_holdout_v1"]["allocation"] == "80/20"
 
 
 async def _cleanup(pool: asyncpg.Pool) -> None:

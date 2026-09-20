@@ -12,7 +12,19 @@ import type {
   AdminTrialCohort,
   AdminVpnQuality,
 } from "@/entities/admin/types";
+import { MetricHelp } from "@/features/admin/MetricHelp";
 import { adminNum } from "@/features/admin/ui";
+
+const QUALITY_HELP = {
+  root: "Техническая достоверность отчёта, поведение зрелых когорт и реальные проверки VPN. Начинайте отсюда, если бизнес-метрика выглядит неожиданно.",
+  data: "Показывает полноту источников и нарушения ожидаемой последовательности событий. Аномалии могут означать баг трекинга, а не реальную проблему пользователей.",
+  sources: "Дата первого доступного события и число строк за период. Метрика помогает понять, с какого момента конкретному срезу можно доверять.",
+  attribution: "Количество пользователей по рекламным меткам. Исключённые источники не входят в бизнес-агрегаты и CAC/ROAS.",
+  anomalies: "События, нарушающие ожидаемый порядок воронки. Рост показателя — повод проверить дедупликацию, время событий и покрытие клиентов.",
+  cohorts: "Пользователи сгруппированы по неделе старта триала. D1–D3 и оплаты считаются только там, где окно уже полностью завершилось.",
+  vpn: "Результаты автоматической проверки /check: доля подключений, задержка и скорость по серверам. Низкая доля подключения важнее единичного медленного замера.",
+  holdout: "Сравнение пользователей, получивших маркетинговое уведомление, с контрольной группой без него. Положительная разница после созревания показывает добавочный эффект сообщения.",
+} as const;
 
 const CONNECTION_REASON_LABELS: Record<string, string> = {
   install_failed: "Не установилось приложение",
@@ -34,6 +46,20 @@ function formatCalendarDate(value: string): string {
   return dateValue.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
 }
 
+function QualityHeading({ title, help, level = 3 }: { title: string; help: string; level?: 2 | 3 }) {
+  const titleClass = "text-sm font-semibold text-gray-900 dark:text-gray-100";
+  return (
+    <div className="flex items-center gap-2">
+      {level === 2 ? <h2 className={titleClass}>{title}</h2> : <h3 className={titleClass}>{title}</h3>}
+      <MetricHelp label={title}>{help}</MetricHelp>
+    </div>
+  );
+}
+
+function MobileScrollHint() {
+  return <p className="mt-3 text-[11px] text-gray-400 sm:hidden">Проведите по таблице влево, чтобы увидеть остальные столбцы →</p>;
+}
+
 export function QualitySection({
   dataHealth,
   trialCohorts,
@@ -47,20 +73,21 @@ export function QualitySection({
 }) {
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="border-b border-gray-200 px-5 py-4 dark:border-zinc-700">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Качество и данные</h2>
+      <div className="border-b border-gray-200 px-4 py-4 dark:border-zinc-700 sm:px-5">
+        <QualityHeading title="Качество и данные" help={QUALITY_HELP.root} level={2} />
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           Достоверность срезов · недельные когорты триалов · качество VPN по проверкам /check
         </p>
       </div>
 
       {dataHealth && (
-        <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Качество данных</h3>
+        <div className="border-b border-gray-200 p-4 dark:border-zinc-700 sm:p-5">
+          <QualityHeading title="Качество данных" help={QUALITY_HELP.data} />
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-zinc-700">
-              <div className="bg-gray-50 px-4 py-3 text-xs font-medium text-gray-700 dark:bg-zinc-900/50 dark:text-gray-300">
-                Сбор событий: источник · собирается с · строк
+              <div className="flex items-center gap-2 bg-gray-50 px-4 py-3 text-xs font-medium text-gray-700 dark:bg-zinc-900/50 dark:text-gray-300">
+                <span>Сбор событий: источник · собирается с · строк</span>
+                <MetricHelp label="Сбор событий">{QUALITY_HELP.sources}</MetricHelp>
               </div>
               <div className="max-h-64 divide-y divide-gray-100 overflow-y-auto dark:divide-zinc-700">
                 {dataHealth.sources.map((source) => (
@@ -92,7 +119,10 @@ export function QualitySection({
                 </div>
               )}
               <div className="rounded-xl border border-gray-200 px-4 py-3 text-xs dark:border-zinc-700">
-                <div className="font-medium text-gray-700 dark:text-gray-300">Источники атрибуции за период</div>
+                <div className="flex items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
+                  <span>Источники атрибуции за период</span>
+                  <MetricHelp label="Источники атрибуции">{QUALITY_HELP.attribution}</MetricHelp>
+                </div>
                 {dataHealth.attribution_sources.length ? (
                   <div className={`mt-1 text-gray-600 dark:text-gray-400 ${adminNum}`}>
                     {dataHealth.attribution_sources
@@ -107,8 +137,9 @@ export function QualitySection({
                 )}
               </div>
               <div className="rounded-xl border border-gray-200 px-4 py-3 text-xs dark:border-zinc-700">
-                <div className="font-medium text-gray-700 dark:text-gray-300">
-                  Несогласованные цепочки (триалы периода)
+                <div className="flex items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
+                  <span>Несогласованные цепочки (триалы периода)</span>
+                  <MetricHelp label="Несогласованные цепочки">{QUALITY_HELP.anomalies}</MetricHelp>
                 </div>
                 <div className={`mt-1 text-gray-600 dark:text-gray-400 ${adminNum}`}>
                   {[
@@ -126,12 +157,13 @@ export function QualitySection({
       )}
 
       {trialCohorts.length > 0 && (
-        <div className="border-b border-gray-200 p-5 dark:border-zinc-700">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Когорты триалов по неделям</h3>
+        <div className="border-b border-gray-200 p-4 dark:border-zinc-700 sm:p-5">
+          <QualityHeading title="Когорты триалов по неделям" help={QUALITY_HELP.cohorts} />
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             Значимый трафик ≥1 МиБ · D1–D3 — только полностью завершённые дни · оплата ≤10 дней от старта триала
           </p>
-          <div className="mt-4 overflow-x-auto">
+          <MobileScrollHint />
+          <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
             <table className="w-full min-w-[860px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>
@@ -176,8 +208,8 @@ export function QualitySection({
       )}
 
       {vpnQuality && (
-        <div className="p-5">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Качество VPN</h3>
+        <div className="p-4 sm:p-5">
+          <QualityHeading title="Качество VPN" help={QUALITY_HELP.vpn} />
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             {vpnQuality.overall.checks > 0
               ? `Проверок: ${vpnQuality.overall.checks} · подключено ${
@@ -188,43 +220,46 @@ export function QualitySection({
               : "Проверок /check за период не было"}
           </p>
           {vpnQuality.servers.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[800px] text-left text-xs">
-                <thead className="text-gray-500 dark:text-gray-400">
-                  <tr>
-                    {["Сервер", "Проверки", "Подключено", "Пользователи", "Задержка p50", "Задержка p95", "Скорость p50"].map(
-                      (label) => (
-                        <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
-                          {label}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
-                  {vpnQuality.servers.map((server) => (
-                    <tr key={server.server_label} className="text-gray-700 dark:text-gray-300">
-                      <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
-                        {server.server_label}
-                      </td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{server.checks}</td>
-                      <td className={`px-3 py-2 ${adminNum}`}>
-                        {server.connected_checks}
-                        {formatRate(server.connected_rate)}
-                      </td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{server.users}</td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p50_ms ?? "—"}</td>
-                      <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p95_ms ?? "—"}</td>
-                      <td className={`px-3 py-2 ${adminNum}`}>
-                        {server.throughput_p50_kbps == null
-                          ? "—"
-                          : `${Math.round(server.throughput_p50_kbps / 100) / 10} Мбит/с`}
-                      </td>
+            <>
+              <MobileScrollHint />
+              <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
+                <table className="w-full min-w-[800px] text-left text-xs">
+                  <thead className="text-gray-500 dark:text-gray-400">
+                    <tr>
+                      {["Сервер", "Проверки", "Подключено", "Пользователи", "Задержка p50", "Задержка p95", "Скорость p50"].map(
+                        (label) => (
+                          <th key={label} className="whitespace-nowrap px-3 py-2 font-medium">
+                            {label}
+                          </th>
+                        ),
+                      )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
+                    {vpnQuality.servers.map((server) => (
+                      <tr key={server.server_label} className="text-gray-700 dark:text-gray-300">
+                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                          {server.server_label}
+                        </td>
+                        <td className={`px-3 py-2 ${adminNum}`}>{server.checks}</td>
+                        <td className={`px-3 py-2 ${adminNum}`}>
+                          {server.connected_checks}
+                          {formatRate(server.connected_rate)}
+                        </td>
+                        <td className={`px-3 py-2 ${adminNum}`}>{server.users}</td>
+                        <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p50_ms ?? "—"}</td>
+                        <td className={`px-3 py-2 ${adminNum}`}>{server.latency_p95_ms ?? "—"}</td>
+                        <td className={`px-3 py-2 ${adminNum}`}>
+                          {server.throughput_p50_kbps == null
+                            ? "—"
+                            : `${Math.round(server.throughput_p50_kbps / 100) / 10} Мбит/с`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
           {(vpnQuality.web_verdicts.confirmed_users > 0 || vpnQuality.web_verdicts.problem_users > 0) && (
             <p className={`mt-3 text-xs text-gray-500 dark:text-gray-400 ${adminNum}`}>
@@ -240,13 +275,14 @@ export function QualitySection({
       )}
 
       {notificationHoldout && Object.keys(notificationHoldout).length > 0 && (
-        <div className="border-t border-gray-200 p-5 dark:border-zinc-700">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Эффект уведомлений (holdout)</h3>
+        <div className="border-t border-gray-200 p-4 dark:border-zinc-700 sm:p-5">
+          <QualityHeading title="Эффект уведомлений (holdout)" help={QUALITY_HELP.holdout} />
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             Контрольная группа не получает nudge-уведомление · конверсия = оплата в точные 7 суток после
             отправки · CR считается только по зрелым наблюдениям
           </p>
-          <div className="mt-4 overflow-x-auto">
+          <MobileScrollHint />
+          <div className="mt-2 touch-pan-x overflow-x-auto [-webkit-overflow-scrolling:touch] sm:mt-4">
             <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="text-gray-500 dark:text-gray-400">
                 <tr>

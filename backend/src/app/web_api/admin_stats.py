@@ -26,7 +26,12 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.application.notification_holdout import holdout_percent, notification_holdout_enabled
+from app.application.trial_channel_gate import trial_channel_gate_enabled_from_env
+from app.application.trial_duration_experiment import experiment_trial_duration_enabled
+from app.application.trial_gate_experiment import experiment_channel_gate_enabled
 from app.web_api.admin_auth import _with_admin_auth
+from app.web_api.experiments import checkout_reassurance_enabled
 from app.web_api.helpers import safe_json_error
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +69,51 @@ _PERIODS: dict[str, tuple[int | None, str]] = {
 
 # Sentinel «от начала времён» для периода all (приложение запущено с 2026).
 _ALL_FROM = datetime(2025, 1, 1, tzinfo=UTC)
+
+
+def _experiment_runtime_status() -> list[dict[str, object]]:
+    """Безопасный публичный для админки срез реально применённых kill-switch."""
+    channel_flag = experiment_channel_gate_enabled()
+    channel_dependency = trial_channel_gate_enabled_from_env()
+    notification_flag = notification_holdout_enabled()
+    return [
+        {
+            "experiment_key": "checkout_reassurance_v1",
+            "kind": "ab",
+            "status": "running" if checkout_reassurance_enabled() else "paused",
+            "variants": ["control", "reassurance"],
+            "allocation": "50/50",
+            "primary_metric": "payment_created_rate",
+        },
+        {
+            "experiment_key": "trial_channel_gate_v1",
+            "kind": "ab",
+            "status": "running"
+            if channel_flag and channel_dependency
+            else "misconfigured"
+            if channel_flag
+            else "paused",
+            "variants": ["control", "soft"],
+            "allocation": "50/50",
+            "primary_metric": "trial_to_paid_rate",
+        },
+        {
+            "experiment_key": "trial_duration_v1",
+            "kind": "ab",
+            "status": "running" if experiment_trial_duration_enabled() else "paused",
+            "variants": ["control", "7d"],
+            "allocation": "50/50",
+            "primary_metric": "trial_to_paid_rate",
+        },
+        {
+            "experiment_key": "notification_holdout_v1",
+            "kind": "holdout",
+            "status": "running" if notification_flag else "paused",
+            "variants": ["delivered", "holdout"],
+            "allocation": f"{100 - holdout_percent()}/{holdout_percent()}",
+            "primary_metric": "paid_rate_lift_7d",
+        },
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1618,6 +1668,7 @@ async def handle_admin_stats(request: Request) -> JSONResponse:
             "funnel_diagnostics_v2": funnel_diagnostics_v2,
             "trial_feedback": trial_feedback,
             "experiments": experiments,
+            "experiment_runtime": _experiment_runtime_status(),
             "data_health": data_health,
             "trial_cohorts": trial_cohorts,
             "vpn_quality": vpn_quality,

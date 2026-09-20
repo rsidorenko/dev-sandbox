@@ -265,6 +265,15 @@ export interface AdminExperimentResult {
   meaningful_traffic_rate: number | null;
 }
 
+export interface AdminExperimentRuntime {
+  experiment_key: string;
+  kind: "ab" | "holdout";
+  status: "running" | "paused" | "misconfigured";
+  variants: string[];
+  allocation: string;
+  primary_metric: string;
+}
+
 // --- Качество данных / когорты / качество VPN (admin-quality-dashboard) ------
 
 export interface AdminDataHealthSource {
@@ -460,6 +469,7 @@ export interface AdminStatsResponse {
   funnel_diagnostics_v2?: AdminFunnelDiagnosticsV2;
   trial_feedback?: AdminTrialFeedback;
   experiments?: AdminExperimentResult[];
+  experiment_runtime?: AdminExperimentRuntime[];
   data_health?: AdminDataHealth;
   trial_cohorts?: AdminTrialCohort[];
   vpn_quality?: AdminVpnQuality;
