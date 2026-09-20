@@ -27,9 +27,8 @@ source of truth — this file provides workflow rules and context, not a substit
 5. **Key lifecycle** — automatic deactivation on expiry, deletion after 20-day grace period, reactivation on renewal, key reissue
 6. **Notifications** — trial/subscription expiry warnings, key deletion notices via scheduled notification scheduler
 7. **Referral program** — 2-level referral system (L1: 25-35%, L2: 2-5% depending on plan), referral balance usable for payments
-8. **Email linking** — email verification with SMTP, account merge between Telegram and web accounts
-9. **Web API** — subscription URL endpoint (`/sub/<token>`), payment processing, auth/login, profile management
-10. **Admin support** — ADM-01 (read-only user lookup) and ADM-02 (ensure-access with opt-in and audit)
+8. **Web API** — subscription URL endpoint (`/sub/<token>`), payment processing, auth/login, profile management
+9. **Admin support** — ADM-01 (read-only user lookup) and ADM-02 (ensure-access with opt-in and audit)
 
 ---
 
@@ -96,7 +95,7 @@ TelegramBotVPN/
 - My subscription, my keys (per-server view, all keys list), subscription URL
 - Connect device flow (Windows/Android/iOS/macOS instructions)
 - Referral program, balance display, settings (add/remove devices)
-- Email linking flow, key reissue with confirmation
+- Key reissue with confirmation
 - Trial activation with instant VLESS key delivery
 
 ### VPN provider integration (real)
@@ -115,7 +114,7 @@ TelegramBotVPN/
 - `vpn_servers` — active VPN servers with panel credentials (encrypted passwords)
 - `billing_events_ledger` — billing event audit trail
 - `referral_codes`, `referral_relationships`, `referral_balances` — 2-level referral system
-- `user_emails`, `email_verification_codes` — email linking with verification
+- `user_emails`, `email_verification_codes` — web login (email OTP); Telegram-bot email linking removed
 - `notification_state`, `notification_log` — notification scheduler tracking
 - `issuance_state` — VPN key issuance state
 - Plus: idempotency, audit events, outbound delivery, telegram update dedup, access reconcile runs

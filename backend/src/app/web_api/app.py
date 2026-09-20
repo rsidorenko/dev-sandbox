@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import logging
 import os
 
@@ -56,7 +55,6 @@ from app.web_api.connection_check import (
     handle_check_speed_legacy,
     handle_check_status,
 )
-from app.web_api.email_link import handle_bot_send_code, handle_bot_verify_code
 from app.web_api.experiments import handle_resolve_experiment
 from app.web_api.middleware import require_auth, require_csrf
 from app.web_api.notifications import (
@@ -92,23 +90,6 @@ from app.yookassa.webhook import create_yookassa_webhook_handler
 
 _LOGGER = logging.getLogger(__name__)
 
-ENV_INTERNAL_API_SECRET = "INTERNAL_API_SECRET"
-
-
-def _require_internal_auth(request: Request) -> JSONResponse | None:
-    """Validate internal API secret from header. Returns error response or None if OK."""
-    secret = os.environ.get(ENV_INTERNAL_API_SECRET, "").strip()
-    if not secret:
-        _LOGGER.error("INTERNAL_API_SECRET is not configured — internal endpoint rejected")
-        return JSONResponse(
-            {"ok": False, "error": "internal_api_not_configured"},
-            status_code=503,
-        )
-    header_val = request.headers.get("X-Internal-Secret", "").strip()
-    if not header_val or not hmac.compare_digest(header_val, secret):
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    return None
-
 
 async def _healthz(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -116,18 +97,6 @@ async def _healthz(_: Request) -> JSONResponse:
 
 def _truthy(raw: str | None) -> bool:
     return raw is not None and raw.strip().lower() in ("1", "true", "yes")
-
-
-def _wrap_internal(handler):
-    """Wrap an internal endpoint handler with mandatory secret-based auth."""
-
-    async def _wrapped(request: Request) -> JSONResponse:
-        auth_err = _require_internal_auth(request)
-        if auth_err is not None:
-            return auth_err
-        return await handler(request)
-
-    return _wrapped
 
 
 def _with_csrf(handler):
@@ -260,9 +229,6 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
             methods=["POST"],
         ),
         Route("/api/v1/payment/{payment_id}/status", _with_auth(handle_get_payment_status), methods=["GET"]),
-        # Email linking (called by bot internally, protected by INTERNAL_API_SECRET)
-        Route("/api/v1/internal/email/send-code", _wrap_internal(handle_bot_send_code), methods=["POST"]),
-        Route("/api/v1/internal/email/verify-code", _wrap_internal(handle_bot_verify_code), methods=["POST"]),
         # Public subscription endpoint (no auth)
         Route("/sub/{token}", handle_subscription, methods=["GET"]),
         # Connection Check (bearer-токен как /sub; ping не отдаёт объёмных данных).
