@@ -16,8 +16,7 @@ web-аккаунта переносятся на реальную TG-identity в
 
 Порядок перепривязки токена важен: ``idx_user_identities_sub_token`` —
 partial UNIQUE, поэтому сначала обнуляем токен web-строки, затем назначаем
-TG-строке, затем удаляем web-identity (вместе с её ``user_emails`` — FK без
-CASCADE — и недостижимыми web-уведомлениями).
+TG-строке, затем удаляем web-identity (вместе с недостижимыми web-уведомлениями).
 """
 
 from __future__ import annotations
@@ -359,11 +358,6 @@ async def bind_subscription_link(
             # --- Web-колокольчик: после удаления web-identity уведомления
             # приходят только в бот — висячие строки web_notifications чистим.
             await conn.execute("DELETE FROM web_notifications WHERE internal_user_id = $1", old_id)
-
-            # --- Email web-аккаунта: user_emails держит FK на user_identities
-            # (без CASCADE), а почта по продукту — только канал доставки первой
-            # ссылки; привязка к TG её не наследует.
-            await conn.execute("DELETE FROM user_emails WHERE telegram_user_id = $1", web_tg)
 
             # --- Перепривязка токена (unique-index-безопасный порядок) и
             # удаление web-строки. FOR UPDATE обеих строк — защита от гонки

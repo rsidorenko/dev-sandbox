@@ -44,8 +44,6 @@ _WEB_TOKEN = "bindWebToken000000000001"  # токен web-аккаунта (пр
 _TG_OLD_TOKEN = "bindTgOldToken00000001"  # прежний токен TG-юзера
 _OTHER_TOKEN = "bindOtherTgToken000001"  # токен второго TG-юзера
 
-_TEST_EMAIL = "bind-link-test@example.com"
-
 
 def _pg_url() -> str | None:
     raw = os.environ.get("DATABASE_URL", "").strip()
@@ -65,12 +63,6 @@ async def _cleanup(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM analytics_internal_audit WHERE internal_user_id = ANY($1::text[])", ids)
         await conn.execute("DELETE FROM experiment_assignments WHERE internal_user_id = ANY($1::text[])", ids)
-        # user_emails держит FK на user_identities (без CASCADE) — чистим ДО identity.
-        await conn.execute(
-            "DELETE FROM user_emails WHERE telegram_user_id = ANY($1::bigint[])",
-            [_WEB_TG, _REAL_TG, _OTHER_TG],
-        )
-        await conn.execute("DELETE FROM user_emails WHERE email = $1", _TEST_EMAIL)
         await conn.execute("DELETE FROM web_notifications WHERE internal_user_id = ANY($1::text[])", ids)
         await conn.execute("DELETE FROM promo_applied WHERE internal_user_id = ANY($1::text[])", ids)
         await conn.execute("DELETE FROM promo_redemptions WHERE internal_user_id = ANY($1::text[])", ids)
@@ -202,16 +194,11 @@ async def _seed_web_account(
             " ON CONFLICT DO NOTHING",
             _WEB_INTERNAL,
         )
-        # Колокольчик + почта (канал доставки первой ссылки).
+        # Колокольчик (web-канал уведомлений).
         await conn.execute(
             "INSERT INTO web_notifications (internal_user_id, kind, title, body)"
             " VALUES ($1, 'broadcast', 'Тест', '<b>привет</b>')",
             _WEB_INTERNAL,
-        )
-        await conn.execute(
-            "INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at) VALUES ($1, $2, TRUE, now())",
-            _WEB_TG,
-            _TEST_EMAIL,
         )
 
 
@@ -244,7 +231,7 @@ async def _seed_telegram_user(
 
 def test_bind_link_full_transfer(pg_url: str) -> None:
     """Полный перенос: подписка/issuance/billing/рефералка/промо/эксперимент —
-    на TG identity; токен перепривязан; web-строка, почта и колокольчик удалены."""
+    на TG identity; токен перепривязан; web-строка и колокольчик удалены."""
 
     async def main() -> None:
         pool = await asyncpg.create_pool(pg_url, min_size=1, max_size=2)
@@ -339,7 +326,7 @@ def test_bind_link_full_transfer(pg_url: str) -> None:
                     == 1
                 )
 
-                # Колокольчик и почта web-аккаунта удалены.
+                # Колокольчик web-аккаунта удалён.
                 assert (
                     await conn.fetchval(
                         "SELECT COUNT(*) FROM web_notifications WHERE internal_user_id = $1",
@@ -347,7 +334,6 @@ def test_bind_link_full_transfer(pg_url: str) -> None:
                     )
                     == 0
                 )
-                assert await conn.fetchval("SELECT COUNT(*) FROM user_emails WHERE email = $1", _TEST_EMAIL) == 0
 
                 # Web-identity удалена; токен перепривязан на TG-строку
                 # (partial unique index не нарушен — порядок обнуление→назначение).
