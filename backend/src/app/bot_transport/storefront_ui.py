@@ -54,9 +54,6 @@ CB_ADD_DEVICE = "add_device"
 CB_ADD_DEV = "add_dev:"
 CB_ADD_DEV_BALANCE = "add_dev_bal:"
 CB_REMOVE_DEVICE = "remove_device"
-CB_LINK_EMAIL = "link_email"
-CB_LINK_EMAIL_CONFIRM = "link_email_confirm:"
-CB_RESEND_EMAIL_CODE = "resend_email_code"
 CB_REISSUE_KEYS = "reissue_keys"
 CB_REISSUE_CONFIRM = "reissue_keys_confirm"
 CB_CONNECT_DEVICE = "connect_device"
@@ -154,8 +151,8 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
             # действия. На старых клиентах поле игнорируется — кнопка остаётся рабочей.
             [{"text": "🔑 Купить VPN", "callback_data": CB_BUY_VPN, "style": "success"}],
             [{"text": "📱 Подключить устройство", "callback_data": CB_CONNECT_DEVICE, "style": "primary"}],
-            # «Мои ключи», «Настройки подписки», «Привязать email» перенесены в
-            # подменю «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
+            # «Мои ключи», «Настройки подписки» перенесены в подменю
+            # «Моя подписка» (my_subscription_keyboard) — туда же ведёт Назад
             # с этих экранов (контекстный возврат «откуда пришёл»). Кнопка нейтральная
             # (без style) и идёт после целевых действий — по референсу главного меню.
             [{"text": "👤 Моя подписка", "callback_data": CB_MY_SUB}],
@@ -174,16 +171,15 @@ def main_menu_keyboard(*, trial_available: bool = False) -> dict[str, Any]:
 
 
 def my_subscription_keyboard() -> dict[str, Any]:
-    """Подменю «Моя подписка»: ключи / настройки / email + Назад в главное меню.
+    """Подменю «Моя подписка»: ключи / настройки + Назад в главное меню.
 
-    Кнопки «Мои ключи», «Настройки подписки», «Привязать email» живут здесь (а не в
-    главном меню); их Назад ведёт обратно сюда (контекстный возврат «откуда пришёл»).
+    Кнопки «Мои ключи», «Настройки подписки» живут здесь (а не в главном меню);
+    их Назад ведёт обратно сюда (контекстный возврат «откуда пришёл»).
     """
     return _inline_kb(
         [
             [{"text": "🔐 Мои ключи", "callback_data": CB_MY_KEYS}],
             [{"text": "⚙️ Настройки подписки", "callback_data": CB_SETTINGS}],
-            [{"text": "📧 Привязать email", "callback_data": CB_LINK_EMAIL}],
             [{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}],
         ]
     )
@@ -2498,61 +2494,6 @@ def text_remove_device_confirm(current: int, new_count: int) -> str:
 
 def text_remove_device_success(new_count: int) -> str:
     return f"✅ Готово! Теперь у вас {new_count} устройств."
-
-
-# ─── Email linking ──────────────────────────────────────────────────
-
-
-def link_email_keyboard() -> dict[str, Any]:
-    # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
-    return _inline_kb([[{"text": "↩️ Назад", "callback_data": CB_MY_SUB}]])
-
-
-def link_email_code_keyboard() -> dict[str, Any]:
-    # Экран кода предшествует вводу email: Назад возвращает к экрану ввода (откуда пришли).
-    return _inline_kb(
-        [
-            [{"text": "📧 Отправить код повторно", "callback_data": CB_RESEND_EMAIL_CODE}],
-            [{"text": "↩️ Назад", "callback_data": CB_LINK_EMAIL}],
-        ]
-    )
-
-
-def text_link_email_intro(email: str | None = None) -> str:
-    if email:
-        return (
-            "<b>📧 Привязка email</b>\n\n"
-            f"Текущий email: {email}\n\n"
-            "Если хотите заменить, введите новый email.\n"
-            "Для подтверждения на почту будет отправлен код."
-        )
-    return "<b>📧 Привязка email</b>\n\nВведите ваш email-адрес.\nНа него будет отправлен код подтверждения."
-
-
-def text_link_email_code_sent(email: str) -> str:
-    return f"📧 Код отправлен на {email}\n\nВведите 6-значный код из письма.\nКод действителен 10 минут."
-
-
-def text_link_email_success(email: str) -> str:
-    return f"✅ Email {email} успешно привязан!\n\nТеперь вы можете входить на сайт используя этот email."
-
-
-def text_link_email_already_linked(email: str) -> str:
-    return f"ℹ️ К вашему аккаунту уже привязан email: {email}"
-
-
-def text_link_email_error(error: str) -> str:
-    messages = {
-        "invalid_email": "❌ Некорректный email. Попробуйте снова.",
-        "email_already_linked": "ℹ️ Этот email уже привязан к вашему аккаунту.",
-        "email_belongs_to_other_account": "❌ Этот email привязан к другому аккаунту.",
-        "rate_limited": "⏳ Слишком много попыток. Попробуйте позже.",
-        "invalid_code": "❌ Неверный код. Попробуйте снова.",
-        "code_expired": "❌ Код истёк. Запросите новый.",
-        "too_many_attempts": "❌ Слишком много неверных попыток. Запросите новый код.",
-        "smtp_not_configured": "⚠️ Отправка писем временно недоступна. Попробуйте позже.",
-    }
-    return messages.get(error, "⚠️ Что-то пошло не так. Попробуйте позже.")
 
 
 # ─── Trial period ──────────────────────────────────────────────────

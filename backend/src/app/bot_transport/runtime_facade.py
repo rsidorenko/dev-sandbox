@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 import uuid
@@ -75,7 +74,6 @@ from app.bot_transport.storefront_ui import (
     CB_IOS_RETRY,
     CB_IOS_STEP,
     CB_IOS_YES,
-    CB_LINK_EMAIL,
     CB_MAC_DID_WORK,
     CB_MAC_HAPP_STEP,
     CB_MAC_NO,
@@ -93,7 +91,6 @@ from app.bot_transport.storefront_ui import (
     CB_REISSUE_CONFIRM,
     CB_REISSUE_KEYS,
     CB_REMOVE_DEVICE,
-    CB_RESEND_EMAIL_CODE,
     CB_ROUTER,
     CB_SERVER,
     CB_SETTINGS,
@@ -183,8 +180,6 @@ from app.bot_transport.storefront_ui import (
     ios_step_6_text,
     ios_success_text,
     keys_keyboard,
-    link_email_code_keyboard,
-    link_email_keyboard,
     mac_app_chooser_keyboard,
     mac_did_work_keyboard,
     mac_happ_step_1_keyboard,
@@ -252,11 +247,6 @@ from app.bot_transport.storefront_ui import (
     text_help,
     text_ios_app_chooser,
     text_keys_not_available,
-    text_link_email_already_linked,
-    text_link_email_code_sent,
-    text_link_email_error,
-    text_link_email_intro,
-    text_link_email_success,
     text_mac_app_chooser,
     text_main_menu,
     text_my_keys,
@@ -337,7 +327,7 @@ _awaiting_custom_days: dict[int, bool] = {}
 # Значение = callback возврата (CB_MAIN_MENU из меню либо f"{CB_CONFIRM_PAY}...:N" из
 # сводки покупки) — куда вернуться после успешного ввода. Сам применённый промокод
 # хранится в БД (promo_applied), а не здесь: этот флаг лишь переключает text-input
-# guard, чтобы сообщение-код не ушло в email-linking.
+# guard, чтобы сообщение-код не ушло в обычную обработку команд.
 _awaiting_promo_code: dict[int, str] = {}
 _last_connect_platform: dict[int, str] = {}
 
@@ -1006,10 +996,8 @@ _CALLBACK_ONLY_STOREFRONT = frozenset(
         CB_CHECK_SUB,
         CB_ADD_DEVICE,
         CB_REMOVE_DEVICE,
-        CB_LINK_EMAIL,
         CB_REISSUE_KEYS,
         CB_REISSUE_CONFIRM,
-        CB_RESEND_EMAIL_CODE,
         CB_IOS_DID_WORK,
         CB_IOS_YES,
         CB_IOS_NO,
@@ -1611,311 +1599,6 @@ def _get_pool_from_composition(composition: Slice1Composition):
     if pool is not None:
         return pool
     return None
-
-
-async def _get_linked_email(
-    composition: Slice1Composition,
-    uid: int | None,
-) -> str | None:
-    """Return verified email for a telegram user, if any."""
-    if uid is None:
-        return None
-
-    pool = _get_pool_from_composition(composition)
-    if pool is None:
-        return None
-    row = await pool.fetchrow(
-        "SELECT email FROM user_emails WHERE telegram_user_id = $1 AND is_verified = TRUE LIMIT 1",
-        uid,
-    )
-    return row["email"] if row else None
-
-
-async def _handle_email_linking(
-    composition: Slice1Composition,
-    uid: int | None,
-    user_text: str,
-) -> tuple[str, dict[str, Any] | None] | None:
-    """Handle email input or verification code during email linking flow.
-
-    Returns (text, keyboard) if handled, None otherwise.
-    """
-    if uid is None:
-        return None
-
-    pool = _get_pool_from_composition(composition)
-    if pool is None:
-        return None
-
-    text = user_text.strip()
-
-    # Check if there's a pending email verification for this user
-    pending = await pool.fetchrow(
-        """SELECT v.email, v.expires_at
-           FROM email_verification_codes v
-           WHERE v.telegram_user_id = $1 AND v.purpose = 'link_email' AND v.used_at IS NULL
-           ORDER BY v.created_at DESC LIMIT 1""",
-        uid,
-    )
-
-    if pending is not None:
-        # User is in code verification phase — treat text as code
-        from datetime import UTC, datetime
-
-        if pending["expires_at"] < datetime.now(UTC):
-            return text_link_email_error("code_expired"), link_email_keyboard()
-
-        # Try to verify via internal API logic
-        from app.web_api.helpers import hash_code as _hash_code
-
-        code_hash = _hash_code(text)
-        row = await pool.fetchrow(
-            """SELECT id, code_hash, attempts, max_attempts
-               FROM email_verification_codes
-               WHERE email = $1 AND purpose = 'link_email' AND telegram_user_id = $2 AND used_at IS NULL
-               ORDER BY created_at DESC LIMIT 1""",
-            pending["email"],
-            uid,
-        )
-        if row is None:
-            return text_link_email_error("invalid_code"), link_email_keyboard()
-
-        await pool.execute(
-            "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = $1",
-            row["id"],
-        )
-
-        import hmac as hmac_mod
-
-        if row["attempts"] >= row["max_attempts"]:
-            return text_link_email_error("too_many_attempts"), link_email_keyboard()
-
-        if not hmac_mod.compare_digest(row["code_hash"], code_hash):
-            return text_link_email_error("invalid_code"), link_email_code_keyboard()
-
-        # Code is correct — link email
-        now = datetime.now(UTC)
-        await pool.execute(
-            "UPDATE email_verification_codes SET used_at = $1 WHERE id = $2",
-            now,
-            row["id"],
-        )
-        # Drop any emails previously linked to THIS telegram identity so the
-        # partial unique index (one verified row per email) stays satisfied.
-        await pool.execute(
-            "DELETE FROM user_emails WHERE telegram_user_id = $1",
-            uid,
-        )
-
-        # Merge a web-only account BEFORE inserting our own (uid, email) row.
-        # Why order matters: user_emails has idx_user_emails_email_verified — at most
-        # one VERIFIED row per email. A leftover verified web row (telegram_user_id
-        # <= 0) would make the insert below raise a unique-violation. The merge
-        # reassigns that web row onto `uid` (clearing the index) and migrates the
-        # web account's data (subscription and referral) onto the real identity.
-        from app.persistence.account_merge import merge_web_account_if_needed
-
-        merged = await merge_web_account_if_needed(pool, uid, pending["email"])
-
-        await pool.execute(
-            """INSERT INTO user_emails (telegram_user_id, email, is_verified, verified_at)
-               VALUES ($1, $2, TRUE, $3)
-               ON CONFLICT (telegram_user_id, email) DO UPDATE SET is_verified = TRUE, verified_at = $3""",
-            uid,
-            pending["email"],
-            now,
-        )
-
-        # A merged web account had its VLESS keys provisioned under web_<hash> — a
-        # different per-transport uuid than u<uid>. Re-provision under the real
-        # identity now (instead of waiting for the hourly reconcile) and revoke the
-        # stale web clients so no orphan panel clients remain. Best-effort: never
-        # blocks the link success.
-        if merged:
-            await _reprovision_keys_after_merge(composition, uid, pending["email"])
-
-        return text_link_email_success(pending["email"]), await _main_menu_keyboard(composition, uid)
-
-    # No pending verification — treat text as email
-    if "@" not in text or "." not in text.split("@")[-1]:
-        return None  # Not an email, let normal processing handle it
-
-    email = text.lower().strip()
-
-    # Check if already linked / claimed by another account
-    existing = await pool.fetchrow(
-        "SELECT telegram_user_id FROM user_emails WHERE email = $1 AND is_verified = TRUE",
-        email,
-    )
-    if existing and existing["telegram_user_id"] == uid:
-        return text_link_email_already_linked(email), await _main_menu_keyboard(composition, uid)
-    if existing and existing["telegram_user_id"] > 0:
-        # Verified email belongs to a DIFFERENT real Telegram account — refuse.
-        # A web-only account has a non-positive telegram_user_id; claiming it by
-        # proving inbox ownership is legitimate and triggers an account merge on
-        # verify, so we let it through.
-        return text_link_email_error("email_belongs_to_other_account"), link_email_keyboard()
-
-    # Send verification code
-    from datetime import UTC, datetime, timedelta
-
-    from app.web_api.email_link import _MAX_SEND_PER_EMAIL_PER_HOUR
-    from app.web_api.helpers import generate_code
-    from app.web_api.helpers import hash_code as _hash
-
-    recent = await pool.fetchval(
-        """SELECT COUNT(*) FROM email_verification_codes
-           WHERE email = $1 AND created_at > NOW() - INTERVAL '1 hour'""",
-        email,
-    )
-    if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
-        return text_link_email_error("rate_limited"), link_email_keyboard()
-
-    code = generate_code()
-    code_hash = _hash(code)
-    expires_at = datetime.now(UTC) + timedelta(minutes=10)
-
-    await pool.execute(
-        """INSERT INTO email_verification_codes (email, code_hash, purpose, telegram_user_id, expires_at)
-           VALUES ($1, $2, 'link_email', $3, $4)""",
-        email,
-        code_hash,
-        uid,
-        expires_at,
-    )
-
-    from app.email.sender import send_verification_code
-
-    sent = await send_verification_code(email, code)
-    if not sent:
-        return text_link_email_error("smtp_not_configured"), link_email_keyboard()
-
-    return text_link_email_code_sent(email), link_email_code_keyboard()
-
-
-async def _reprovision_keys_after_merge(
-    composition: Slice1Composition,
-    uid: int,
-    email: str,
-) -> None:
-    """After merging a web-only account into ``uid``, move its VLESS keys onto the
-    real identity.
-
-    A web account's keys were provisioned under ``web_<hash>`` — a different
-    per-transport uuid than ``u<uid>`` — so after the merge they no longer resolve.
-    Here we revoke the stale ``web_<hash>`` clients across all panels and, if the
-    merged subscription is active, create fresh clients under ``u<uid>`` so the user
-    has working keys immediately (instead of waiting for the hourly reconcile).
-
-    Best-effort: a provider failure is logged and swallowed — the email link itself
-    already succeeded and reconcile will heal the keys regardless.
-    """
-    import logging
-
-    log = logging.getLogger(__name__)
-    provider = getattr(composition, "vless_provider", None)
-    pool = _get_pool_from_composition(composition)
-    if provider is None or pool is None:
-        return
-    try:
-        from app.persistence.account_merge import _web_internal_id
-
-        old_web_id = _web_internal_id(email)
-        # Revoke the stale web_<hash> clients (compute their uuids from old_web_id).
-        # Suppress: a panel hiccup must not abort the link.
-        with contextlib.suppress(Exception):
-            await provider.revoke_user(internal_user_id=old_web_id)
-
-        id_rec = await composition.identity.find_by_telegram_user_id(uid)
-        if id_rec is None:
-            return
-        # Only re-create keys if the user has an active subscription.
-        snap = await pool.fetchrow(
-            "SELECT state_label, device_count FROM subscription_snapshots WHERE internal_user_id = $1",
-            id_rec.internal_user_id,
-        )
-        if snap is None or snap["state_label"] != "active":
-            return
-        device_count = snap["device_count"]
-        if device_count:
-            await provider.create_user(internal_user_id=id_rec.internal_user_id, device_count=device_count)
-        else:
-            await provider.create_user(internal_user_id=id_rec.internal_user_id)
-    except Exception:
-        log.warning("email_link.reprovision_after_merge_failed uid=%s email=***", uid, exc_info=True)
-
-
-async def _handle_resend_email_code(
-    composition: Slice1Composition,
-    uid: int | None,
-) -> tuple[str, dict[str, Any] | None]:
-    if uid is None:
-        return text_link_email_intro(), link_email_keyboard()
-
-    pool = _get_pool_from_composition(composition)
-    if pool is None:
-        return text_link_email_intro(), link_email_keyboard()
-
-    # Find the most recent pending email for this user
-    pending = await pool.fetchrow(
-        """SELECT email FROM email_verification_codes
-           WHERE telegram_user_id = $1 AND purpose = 'link_email' AND used_at IS NULL
-           ORDER BY created_at DESC LIMIT 1""",
-        uid,
-    )
-    if pending is None:
-        return text_link_email_intro(), link_email_keyboard()
-
-    email = pending["email"]
-
-    # Invalidate old unused codes for this email+user
-    from datetime import UTC, datetime
-
-    await pool.execute(
-        """UPDATE email_verification_codes SET used_at = $1
-           WHERE email = $2 AND purpose = 'link_email' AND telegram_user_id = $3 AND used_at IS NULL""",
-        datetime.now(UTC),
-        email,
-        uid,
-    )
-
-    # Rate limit check
-    from app.web_api.email_link import _MAX_SEND_PER_EMAIL_PER_HOUR
-
-    recent = await pool.fetchval(
-        """SELECT COUNT(*) FROM email_verification_codes
-           WHERE email = $1 AND created_at > NOW() - INTERVAL '1 hour'""",
-        email,
-    )
-    if recent is not None and recent >= _MAX_SEND_PER_EMAIL_PER_HOUR:
-        return text_link_email_error("rate_limited"), link_email_code_keyboard()
-
-    # Generate and send new code
-    from datetime import timedelta
-
-    from app.web_api.helpers import generate_code
-    from app.web_api.helpers import hash_code as _hash
-
-    code = generate_code()
-    code_hash = _hash(code)
-    expires_at = datetime.now(UTC) + timedelta(minutes=10)
-
-    await pool.execute(
-        """INSERT INTO email_verification_codes (email, code_hash, purpose, telegram_user_id, expires_at)
-           VALUES ($1, $2, 'link_email', $3, $4)""",
-        email,
-        code_hash,
-        uid,
-        expires_at,
-    )
-
-    from app.email.sender import send_verification_code
-
-    sent = await send_verification_code(email, code)
-    if not sent:
-        return text_link_email_error("smtp_not_configured"), link_email_code_keyboard()
-
-    return text_link_email_code_sent(email), link_email_code_keyboard()
 
 
 async def _get_internal_user_id(
@@ -2725,26 +2408,6 @@ async def _render_storefront_response(
     elif code == CB_ROUTER:
         text, keyboard = text_router_soon(), back_only_keyboard(CB_SETTINGS)
 
-    elif code == CB_LINK_EMAIL:
-        # Invalidate all previous pending codes so user can start fresh
-        pool = _get_pool_from_composition(composition)
-        if pool is not None and uid is not None:
-            from datetime import UTC, datetime
-
-            await pool.execute(
-                """UPDATE email_verification_codes SET used_at = $1
-                   WHERE telegram_user_id = $2 AND purpose = 'link_email' AND used_at IS NULL""",
-                datetime.now(UTC),
-                uid,
-            )
-        # Check if email already linked
-        existing_email = await _get_linked_email(composition, uid)
-        text = text_link_email_intro(existing_email)
-        keyboard = link_email_keyboard()
-
-    elif code == CB_RESEND_EMAIL_CODE:
-        text, keyboard = await _handle_resend_email_code(composition, uid)
-
     elif code == "identity_ready":
         # Show trial offer for new users who haven't used trial yet
         trial_available = await _is_trial_available(composition, uid)
@@ -3427,17 +3090,6 @@ async def handle_slice1_telegram_update_to_rendered_message(
                         replay_suppresses_outbound=False,
                         uc01_idempotency_key=None,
                         parse_mode="HTML",
-                    )
-                email_result = await _handle_email_linking(composition, uid, user_text.strip())
-                if email_result is not None:
-                    email_text, email_keyboard = email_result
-                    return RenderedMessagePackage(
-                        message_text=email_text,
-                        action_keys=(),
-                        correlation_id=correlation_id or uuid.uuid4().hex,
-                        reply_markup=email_keyboard,
-                        replay_suppresses_outbound=False,
-                        uc01_idempotency_key=None,
                     )
 
     # Short-circuit "noop" callbacks (non-clickable label buttons) — no message sent, spinner dismissed.

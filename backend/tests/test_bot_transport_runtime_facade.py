@@ -20,7 +20,6 @@ from app.bot_transport.storefront_ui import (
     CB_CUSTOM_DAYS,
     CB_DEVICES,
     CB_HELP,
-    CB_LINK_EMAIL,
     CB_MAIN_MENU,
     CB_MY_KEYS,
     CB_MY_SUB,
@@ -31,7 +30,6 @@ from app.bot_transport.storefront_ui import (
     CB_SETTINGS,
     CB_TRIAL,
     back_only_keyboard,
-    link_email_keyboard,
     my_keys_menu_keyboard,
     my_subscription_keyboard,
     rich_help_message,
@@ -348,13 +346,13 @@ def test_main_menu_keyboard_trial_button_only_when_available() -> None:
 
 
 def test_main_menu_moved_buttons_into_subscription_submenu() -> None:
-    """Главное меню не содержит «Мои ключи»/«Настройки»/«Привязать email» — они
-    переехали в подменю «Моя подписка». «Моя подписка» остаётся в главном меню."""
+    """Главное меню не содержит «Мои ключи»/«Настройки» — они переехали в подменю
+    «Моя подписка». «Моя подписка» остаётся в главном меню."""
     from app.bot_transport.storefront_ui import main_menu_keyboard
 
     buttons = [b.get("callback_data") for row in main_menu_keyboard()["inline_keyboard"] for b in row]
     assert CB_MY_SUB in buttons
-    for moved in (CB_MY_KEYS, CB_SETTINGS, CB_LINK_EMAIL):
+    for moved in (CB_MY_KEYS, CB_SETTINGS):
         assert moved not in buttons, f"{moved} должно быть только в подменю"
 
 
@@ -377,25 +375,24 @@ def test_main_menu_colored_action_buttons() -> None:
 
 
 def test_my_subscription_keyboard_has_submenu_buttons_and_back_to_main() -> None:
-    """Подменю «Моя подписка»: 3 функциональные кнопки + Назад→главное меню."""
+    """Подменю «Моя подписка»: 2 функциональные кнопки + Назад→главное меню.
+    Привязки email в боте больше нет — кнопка удалена вместе с флоу."""
     rows = my_subscription_keyboard()["inline_keyboard"]
     buttons = [b.get("callback_data") for row in rows for b in row]
-    assert buttons[:3] == [CB_MY_KEYS, CB_SETTINGS, CB_LINK_EMAIL]
-    assert buttons[-1] == CB_MAIN_MENU  # Назад из подменю → главное меню
+    assert buttons == [CB_MY_KEYS, CB_SETTINGS, CB_MAIN_MENU]
+    assert "link_email" not in buttons
 
 
 def test_subscription_screens_back_returns_to_my_subscription() -> None:
-    """Назад с экранов ключей/настроек/email ведёт в «Моя подписку» (контекстный возврат
+    """Назад с экранов ключей/настроек ведёт в «Моя подписку» (контекстный возврат
     «откуда пришёл» — теперь единственный путь на эти экраны из подменю)."""
     # my_keys_menu_keyboard требует servers; пустой кортеж — Назад всё равно в конце.
     from app.bot_transport.storefront_ui import VlessServerConfig  # noqa: F401  (тип для сигнатуры)
 
     keys_buttons = [b.get("callback_data") for row in my_keys_menu_keyboard(())["inline_keyboard"] for b in row]
     settings_buttons = [b.get("callback_data") for row in settings_keyboard(True)["inline_keyboard"] for b in row]
-    email_buttons = [b.get("callback_data") for row in link_email_keyboard()["inline_keyboard"] for b in row]
     assert keys_buttons[-1] == CB_MY_SUB
     assert settings_buttons[-1] == CB_MY_SUB
-    assert email_buttons[-1] == CB_MY_SUB
 
 
 def test_facade_start_offer_unchanged_two_buttons() -> None:
