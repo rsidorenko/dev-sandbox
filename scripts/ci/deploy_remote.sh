@@ -30,6 +30,13 @@ cp -p /opt/bravada/.env /tmp/root.env.backup 2>/dev/null || true
 rm -rf /tmp/ssl.backup
 cp -rp /opt/bravada/ssl /tmp/ssl.backup 2>/dev/null || true
 
+# Артефакт заменяет весь /opt/bravada; vhost соседнего VK Mini App пока
+# устанавливаются его собственным деплоем и отсутствуют в этом репозитории.
+miniapp_vhosts_backup="$(mktemp -d)"
+trap 'rm -rf "$miniapp_vhosts_backup"' EXIT
+bash /opt/bravada-release/scripts/ci/copy_miniapp_vhosts.sh \
+  /opt/bravada/nginx/conf.d "$miniapp_vhosts_backup"
+
 echo "=== Swap artifact into place ==="
 cd /
 rm -rf /opt/bravada
@@ -40,6 +47,8 @@ cp -p /tmp/backend.env.backup /opt/bravada/backend/.env 2>/dev/null || true
 cp -p /tmp/root.env.backup /opt/bravada/.env 2>/dev/null || true
 mkdir -p /opt/bravada/ssl
 cp -a /tmp/ssl.backup/. /opt/bravada/ssl/ 2>/dev/null || true
+bash /opt/bravada/scripts/ci/copy_miniapp_vhosts.sh \
+  "$miniapp_vhosts_backup" /opt/bravada/nginx/conf.d
 
 echo "=== Verify excluded dev paths are absent on server ==="
 test ! -e /opt/bravada/.codegraph || { echo "FAIL: .codegraph on server"; exit 1; }

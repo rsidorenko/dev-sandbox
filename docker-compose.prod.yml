@@ -205,11 +205,13 @@ services:
       - certbot-www:/var/www/certbot:ro
       - certs:/etc/letsencrypt:ro
       - /opt/bravada-downloads:/var/www/downloads:ro
+      # Общий nginx обслуживает VK Mini App из отдельного каталога BravadaGPT.
+      - /opt/bravada-gpt/frontend/dist:/opt/bravada-gpt/frontend/dist:ro
     depends_on:
       - backend
       - frontend
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "--header=Host: bravada-connect.ru", "http://127.0.0.1:80/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
