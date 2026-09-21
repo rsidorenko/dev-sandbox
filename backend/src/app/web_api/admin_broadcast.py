@@ -78,6 +78,12 @@ _ACTION_BUTTONS: dict[str, str] = {
 }
 _URL_BUTTON_MAX_LEN = 512
 _BUTTON_LABEL_MAX_LEN = 64  # лимит Telegram на text кнопки
+# Опциональное оформление кнопок (Bot API 10.3): style — цвет (danger=красная,
+# success=зелёная, primary=синяя); icon_custom_emoji_id — анимированный премиум-эмодзи
+# перед текстом кнопки. Иконка доступна ботам, чей владелец имеет Telegram Premium,
+# в приватных чатах (рассылка = приватные чаты) — тот же допуск, что и у tg-emoji в тексте.
+_BUTTON_STYLES = frozenset({"danger", "success", "primary"})
+_BUTTON_EMOJI_ID_MAX_LEN = 32  # custom emoji id — 64-битное число (~19 цифр), с запасом
 
 
 def _max_recipients() -> int:
@@ -393,23 +399,49 @@ def _html_for_telegram(text: str) -> str:
 
 
 # --- Кнопки под сообщением ---------------------------------------------------
+def _parse_button_extras(raw_emoji: Any, raw_style: Any) -> tuple[dict[str, str], str | None]:
+    """Опциональное оформление кнопки (Bot API 10.3): emoji_id → icon_custom_emoji_id
+    (анимированный премиум-эмодзи перед текстом), style → цвет danger/success/primary.
+    Возвращает (extras, None) — пустой словарь, если не заданы, либо ({}, код ошибки)."""
+    emoji_id = str(raw_emoji or "").strip()
+    style = str(raw_style or "").strip()
+    if emoji_id and (not emoji_id.isdigit() or len(emoji_id) > _BUTTON_EMOJI_ID_MAX_LEN):
+        return {}, "invalid_button_emoji_id"
+    if style and style not in _BUTTON_STYLES:
+        return {}, "invalid_button_style"
+    extras: dict[str, str] = {}
+    if emoji_id:
+        extras["icon_custom_emoji_id"] = emoji_id
+    if style:
+        extras["style"] = style
+    return extras, None
+
+
 def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
     """Из тела запроса собирает итоговый список кнопок в формате Telegram.
-    actions ({text,callback_data}) идут раньше url-кнопок ({text,url}). Возвращает
-    (buttons, None) при успехе или (None, error_response).
+    actions ({text,callback_data}) идут раньше url-кнопок ({text,url}); любая кнопка
+    может нести опциональные icon_custom_emoji_id/style (см. _parse_button_extras).
+    Возвращает (buttons, None) при успехе или (None, error_response).
     """
     buttons: list[dict] = []
 
     raw_actions = data.get("action_buttons") or []
     if not isinstance(raw_actions, list):
         return [], safe_json_error(400, "invalid_action_buttons")
-    # Дедуп + сохранение порядка, только известные callback_data.
+    # Дедуп + сохранение порядка, только известные callback_data. Элемент — ключ
+    # (str, как раньше) или объект {key, emoji_id?, style?} от фронта.
     seen: set[str] = set()
-    for key in raw_actions:
-        k = str(key)
+    for entry in raw_actions:
+        k = str(entry.get("key") if isinstance(entry, dict) else entry)
         if k in _ACTION_BUTTONS and k not in seen:
             seen.add(k)
-            buttons.append({"text": _ACTION_BUTTONS[k], "callback_data": k})
+            button = {"text": _ACTION_BUTTONS[k], "callback_data": k}
+            if isinstance(entry, dict):
+                extras, err_code = _parse_button_extras(entry.get("emoji_id"), entry.get("style"))
+                if err_code is not None:
+                    return [], safe_json_error(400, err_code)
+                button.update(extras)
+            buttons.append(button)
 
     raw_urls = data.get("url_buttons") or []
     if not isinstance(raw_urls, list):
@@ -426,7 +458,10 @@ def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
             return [], safe_json_error(400, "invalid_button_url", "допустимы только http/https")
         if len(url) > _URL_BUTTON_MAX_LEN:
             return [], safe_json_error(400, "invalid_button_url", "url слишком длинный")
-        buttons.append({"text": label[:_BUTTON_LABEL_MAX_LEN], "url": url})
+        extras, err_code = _parse_button_extras(entry.get("emoji_id"), entry.get("style"))
+        if err_code is not None:
+            return [], safe_json_error(400, err_code)
+        buttons.append({"text": label[:_BUTTON_LABEL_MAX_LEN], "url": url, **extras})
 
     if len(buttons) > _MAX_BUTTONS:
         return [], safe_json_error(400, "too_many_buttons", f"максимум {_MAX_BUTTONS} кнопок")
@@ -469,6 +504,11 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
         if not (_BONUS_TTL_MIN <= ttl_days <= _BONUS_TTL_MAX):
             return None, safe_json_error(400, "invalid_bonus_ttl")
 
+    # Опциональное оформление кнопки (icon_custom_emoji_id/style) — как у прочих кнопок.
+    extras, extras_err = _parse_button_extras(raw.get("emoji_id"), raw.get("style"))
+    if extras_err is not None:
+        return None, safe_json_error(400, extras_err)
+
     if btype == "days":
         try:
             days = int(raw.get("days"))
@@ -479,7 +519,7 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
                 400, "invalid_bonus_days", f"days должен быть {_BONUS_DAYS_MIN}..{_BONUS_DAYS_MAX}"
             )
         return (
-            {"type": "days", "days": days, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days},
+            {"type": "days", "days": days, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days, **extras},
             None,
         )
 
@@ -489,7 +529,7 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
     if fmt_err is not None:
         return None, safe_json_error(400, "invalid_bonus_code", fmt_err)
     return (
-        {"type": "promo", "code": code, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days},
+        {"type": "promo", "code": code, "label": label[:_BUTTON_LABEL_MAX_LEN], "ttl_days": ttl_days, **extras},
         None,
     )
 
@@ -533,6 +573,22 @@ async def _validate_bonus_promo_exists(pool: asyncpg.Pool, bonus: dict | None) -
     return None, warnings
 
 
+def _decode_button_extras(raw: dict) -> dict:
+    """icon_custom_emoji_id/style из JSONB кнопки/бонуса — только валидные значения
+    (defense-in-depth: запись всегда проходит _parse_button_extras, здесь страховка
+    от битых данных, чтобы не ронять Runner.run())."""
+    emoji_id = raw.get("icon_custom_emoji_id")
+    style = raw.get("style")
+    extras: dict[str, str] = {}
+    if isinstance(emoji_id, str):
+        emoji_id = emoji_id.strip()
+        if emoji_id.isdigit() and len(emoji_id) <= _BUTTON_EMOJI_ID_MAX_LEN:
+            extras["icon_custom_emoji_id"] = emoji_id
+    if isinstance(style, str) and style in _BUTTON_STYLES:
+        extras["style"] = style
+    return extras
+
+
 def _decode_bonus(raw: Any) -> dict | None:
     """JSONB bonus из строки broadcast_jobs → dict или None. Поддерживает type="days" и "promo".
     Используется в Runner.run(), а также в /status и /list API (видимость промокода на рассылке).
@@ -563,12 +619,12 @@ def _decode_bonus(raw: Any) -> dict | None:
         days = raw.get("days")
         if not isinstance(days, int):
             return None
-        return {"type": "days", "days": days, "label": label, "ttl_days": ttl_days}
+        return {"type": "days", "days": days, "label": label, "ttl_days": ttl_days, **_decode_button_extras(raw)}
     if btype == "promo":
         code = raw.get("code")
         if not isinstance(code, str):
             return None
-        return {"type": "promo", "code": code, "label": label, "ttl_days": ttl_days}
+        return {"type": "promo", "code": code, "label": label, "ttl_days": ttl_days, **_decode_button_extras(raw)}
     return None
 
 
@@ -687,7 +743,9 @@ class BroadcastRunner:
             # параметры бонуса (дни/код) лежат в claims-таблице, а не в callback (приватность
             # + укладывается в 64-байт лимит Telegram: "bc_days:"/"bc_promo:" + UUID ≤ 45 байт).
             cb_prefix = CB_BROADCAST_PROMO if bonus["type"] == "promo" else CB_BROADCAST_DAYS
-            buttons.append({"text": bonus["label"], "callback_data": _cb(cb_prefix, self._job_id)})
+            bonus_button = {"text": bonus["label"], "callback_data": _cb(cb_prefix, self._job_id)}
+            bonus_button.update(_decode_button_extras(bonus))
+            buttons.append(bonus_button)
         reply_markup = _build_reply_markup(buttons)
 
         sent = blocked = failed = 0
@@ -1220,7 +1278,9 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
         # Предпросмотр бонус-кнопки. job_id="preview" — нажатие в тесте не найдёт claim и
         # безопасно завершится отказом (это только визуальный предпросмотр для оператора).
         cb_prefix = CB_BROADCAST_PROMO if bonus["type"] == "promo" else CB_BROADCAST_DAYS
-        buttons.append({"text": bonus["label"], "callback_data": _cb(cb_prefix, "preview")})
+        bonus_button = {"text": bonus["label"], "callback_data": _cb(cb_prefix, "preview")}
+        bonus_button.update(_decode_button_extras(bonus))
+        buttons.append(bonus_button)
     reply_markup = _build_reply_markup(buttons)
 
     disable_preview = bool(data.get("disable_web_page_preview", False))

@@ -555,6 +555,8 @@ export interface BroadcastButtonView {
   text: string;
   callback_data?: string;
   url?: string;
+  icon_custom_emoji_id?: string;
+  style?: BroadcastButtonStyle;
 }
 
 /** Курированные действия бота (callback_data) — ключи для выбора в UI. */
@@ -573,22 +575,33 @@ export const BROADCAST_ACTION_BUTTONS: { key: BroadcastActionButton; label: stri
   { key: "help", label: "❓ Помощь" },
 ];
 
+/** Цвет кнопки (Bot API 10.3): danger — красная, success — зелёная, primary — синяя. */
+export type BroadcastButtonStyle = "danger" | "success" | "primary";
+
 export interface BroadcastUrlButton {
   label: string;
   url: string;
+  /** ID анимированного премиум-эмодзи (→ icon_custom_emoji_id): иконка перед текстом. */
+  emoji_id?: string;
+  style?: BroadcastButtonStyle;
 }
+
+/** Элемент action_buttons: ключ действия или объект с оформлением (иконка/цвет). */
+export type BroadcastActionButtonEntry =
+  | BroadcastActionButton
+  | { key: BroadcastActionButton; emoji_id?: string; style?: BroadcastButtonStyle };
 
 /** Payload кнопок для send/test. */
 export interface BroadcastButtonsPayload {
-  action_buttons?: BroadcastActionButton[];
+  action_buttons?: BroadcastActionButtonEntry[];
   url_buttons?: BroadcastUrlButton[];
 }
 
 /** Бонус-кнопка рассылки (MVP: только бесплатные дни, type="days"; type="promo" зарезервирован
  * под следующий PR). При нажатении получателю начисляются дни подписки. */
 export type BroadcastBonusConfig =
-  | { type: "days"; days: number; label: string; ttl_days?: number } // дни 3..30
-  | { type: "promo"; code: string; label: string; ttl_days?: number }; // авто-применение промокода
+  | { type: "days"; days: number; label: string; ttl_days?: number; emoji_id?: string; style?: BroadcastButtonStyle } // дни 3..30
+  | { type: "promo"; code: string; label: string; ttl_days?: number; emoji_id?: string; style?: BroadcastButtonStyle }; // авто-применение промокода
 
 export interface BroadcastJobsResponse {
   jobs: BroadcastJob[];

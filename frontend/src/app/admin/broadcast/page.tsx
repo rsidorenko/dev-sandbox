@@ -18,7 +18,9 @@ import {
   BROADCAST_ACTION_BUTTONS,
   BROADCAST_CATEGORY_LABELS,
   type BroadcastActionButton,
+  type BroadcastActionButtonEntry,
   type BroadcastBonusConfig,
+  type BroadcastButtonStyle,
   type BroadcastCategory,
   type BroadcastEstimate,
   type BroadcastJob,
@@ -48,6 +50,69 @@ function statusBadgeClass(status: BroadcastJobStatus): string {
 /** Markdown-форма премиум-эмодзи ![🔥](tg://emoji?id=N) → fallback-эмодзи 🔥:
  * анимированный рендер возможен только в Telegram; <tg-emoji> ниже разворачивается так же. */
 const TG_EMOJI_MD_RE = /!\[([^\]]+)\]\(tg:\/\/emoji\?id=(\d+)\)/g;
+
+/** Оформление inline-кнопок (Bot API 10.3): цвет + иконка-премиум-эмодзи перед текстом. */
+const BUTTON_STYLE_OPTIONS: { value: "" | BroadcastButtonStyle; label: string }[] = [
+  { value: "", label: "Обычный" },
+  { value: "danger", label: "Красная" },
+  { value: "success", label: "Зелёная" },
+  { value: "primary", label: "Синяя" },
+];
+
+const isValidEmojiId = (raw: string) => /^\d+$/.test(raw.trim());
+
+/** Цвет чипа кнопки в предпросмотре — приближение Telegram-стилей danger/success/primary. */
+const STYLE_CHIP_CLASS: Record<BroadcastButtonStyle, string> = {
+  danger: "border-red-300 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400",
+  success:
+    "border-green-300 bg-green-50 text-green-700 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-400",
+  primary: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-400",
+};
+
+/** Пара полей «Иконка (emoji id)» + «Цвет» — опциональные параметры любой кнопки рассылки. */
+function ButtonExtrasFields({
+  emojiId,
+  onEmojiId,
+  style,
+  onStyle,
+}: {
+  emojiId: string;
+  onEmojiId: (v: string) => void;
+  style: "" | BroadcastButtonStyle;
+  onStyle: (v: "" | BroadcastButtonStyle) => void;
+}) {
+  const invalid = emojiId.trim() !== "" && !isValidEmojiId(emojiId);
+  return (
+    <>
+      <label className="block w-full sm:w-44">
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Иконка (emoji id)</span>
+        <input
+          type="text"
+          value={emojiId}
+          onChange={(e) => onEmojiId(e.target.value)}
+          placeholder="5420315771991497307"
+          inputMode="numeric"
+          title="ID анимированного эмодзи — число из tg://emoji?id=…"
+          className={`${adminInput} w-full ${invalid ? "!border-red-400" : ""}`}
+        />
+      </label>
+      <label className="block w-full sm:w-36">
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Цвет</span>
+        <select
+          value={style}
+          onChange={(e) => onStyle(e.target.value as "" | BroadcastButtonStyle)}
+          className={`${adminInput} w-full`}
+        >
+          {BUTTON_STYLE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}
 
 /** Превью HTML в стиле Telegram: allowlist тегов, безопасные схемы ссылок.
  * Обычные переводы строк конвертируются в <br> — Telegram рендерит \n как перенос,
@@ -104,6 +169,13 @@ export default function AdminBroadcastPage() {
   const [disablePreview, setDisablePreview] = useState(false);
   const [actionBtns, setActionBtns] = useState<Set<BroadcastActionButton>>(new Set());
   const [urlButtons, setUrlButtons] = useState<BroadcastUrlButton[]>([]);
+  // Оформление кнопок (Bot API 10.3): иконка-премиум-эмодзи + цвет — для каждой
+  // кнопки-действия отдельно и для бонус-кнопки.
+  const [actionExtras, setActionExtras] = useState<
+    Partial<Record<BroadcastActionButton, { emojiId: string; style: "" | BroadcastButtonStyle }>>
+  >({});
+  const [bonusEmojiRaw, setBonusEmojiRaw] = useState("");
+  const [bonusStyle, setBonusStyle] = useState<"" | BroadcastButtonStyle>("");
 
   // Бонус-кнопка: получатель жмёт → бесплатно получает N дней (3..30) ИЛИ авто-применяется промокод.
   const [bonusEnabled, setBonusEnabled] = useState(false);
@@ -139,11 +211,35 @@ export default function AdminBroadcastPage() {
   );
 
   const buttonsPayload = useMemo(() => {
-    const actions = Array.from(actionBtns);
-    const urls = urlButtons.filter((b) => b.label.trim() && b.url.trim());
+    // Действия: без оформления — просто ключ (обратная совместимость), с иконкой/цветом — объект.
+    const actions: BroadcastActionButtonEntry[] = Array.from(actionBtns).map((key) => {
+      const ex = actionExtras[key];
+      const emoji_id = (ex?.emojiId ?? "").trim();
+      const style = ex?.style ?? "";
+      if (!emoji_id && !style) return key;
+      return { key, ...(emoji_id ? { emoji_id } : {}), ...(style ? { style } : {}) };
+    });
+    const urls = urlButtons
+      .filter((b) => b.label.trim() && b.url.trim())
+      .map(({ label, url, emoji_id, style }) => ({
+        label,
+        url,
+        ...(emoji_id?.trim() ? { emoji_id: emoji_id.trim() } : {}),
+        ...(style ? { style } : {}),
+      }));
     if (actions.length === 0 && urls.length === 0) return undefined;
     return { action_buttons: actions, url_buttons: urls };
-  }, [actionBtns, urlButtons]);
+  }, [actionBtns, actionExtras, urlButtons]);
+
+  // Невалидный emoji id (не число) в любой из кнопок — блокируем отправку, а не молча теряем.
+  const hasInvalidButtonEmoji = useMemo(() => {
+    const ids = [
+      ...Array.from(actionBtns).map((k) => actionExtras[k]?.emojiId ?? ""),
+      ...urlButtons.map((b) => b.emoji_id ?? ""),
+      bonusEmojiRaw,
+    ];
+    return ids.some((s) => s.trim() !== "" && !isValidEmojiId(s));
+  }, [actionBtns, actionExtras, urlButtons, bonusEmojiRaw]);
 
   // Бонус-конфиг для send/test. null, если выключено или невалидно — тогда кнопка не отправляется.
   const bonusPayload = useMemo<BroadcastBonusConfig | null>(() => {
@@ -152,15 +248,20 @@ export default function AdminBroadcastPage() {
     if (!label || label.length > 64) return null;
     const ttl = Number.parseInt(bonusTtlRaw, 10);
     const ttl_days = Number.isFinite(ttl) && ttl >= 1 ? ttl : 30;
+    const emoji_id = bonusEmojiRaw.trim();
+    const extras = {
+      ...(isValidEmojiId(emoji_id) ? { emoji_id } : {}),
+      ...(bonusStyle ? { style: bonusStyle } : {}),
+    };
     if (bonusType === "promo") {
       const code = promoCodeRaw.trim().toUpperCase();
       if (!code || code.length < 3 || code.length > 32 || !/^[A-Z0-9]+$/.test(code)) return null;
-      return { type: "promo", code, label, ttl_days };
+      return { type: "promo", code, label, ttl_days, ...extras };
     }
     const days = Number.parseInt(bonusDaysRaw, 10);
     if (!Number.isFinite(days) || days < 3 || days > 30) return null;
-    return { type: "days", days, label, ttl_days };
-  }, [bonusEnabled, bonusType, bonusDaysRaw, promoCodeRaw, bonusLabel, bonusTtlRaw]);
+    return { type: "days", days, label, ttl_days, ...extras };
+  }, [bonusEnabled, bonusType, bonusDaysRaw, promoCodeRaw, bonusLabel, bonusTtlRaw, bonusEmojiRaw, bonusStyle]);
 
   // Подгрузка списка активных промокодов для подсказки (datalist) при выборе типа promo.
   useEffect(() => {
@@ -180,18 +281,37 @@ export default function AdminBroadcastPage() {
   }, [bonusEnabled, bonusType, promoOptions.length]);
 
   const previewButtons = useMemo(() => {
-    const out: { text: string }[] = [];
+    const out: { text: string; style?: BroadcastButtonStyle; icon?: string }[] = [];
     for (const key of Array.from(actionBtns)) {
       const meta = BROADCAST_ACTION_BUTTONS.find((b) => b.key === key);
-      if (meta) out.push({ text: meta.label });
+      if (!meta) continue;
+      const ex = actionExtras[key];
+      const emoji_id = (ex?.emojiId ?? "").trim();
+      out.push({
+        text: meta.label,
+        ...(isValidEmojiId(emoji_id) ? { icon: emoji_id } : {}),
+        ...(ex?.style ? { style: ex.style } : {}),
+      });
     }
     for (const b of urlButtons) {
       const t = b.label.trim();
-      if (t) out.push({ text: t });
+      if (!t) continue;
+      const emoji_id = (b.emoji_id ?? "").trim();
+      out.push({
+        text: t,
+        ...(isValidEmojiId(emoji_id) ? { icon: emoji_id } : {}),
+        ...(b.style ? { style: b.style } : {}),
+      });
     }
-    if (bonusPayload) out.push({ text: bonusPayload.label });
+    if (bonusPayload) {
+      out.push({
+        text: bonusPayload.label,
+        ...(bonusPayload.emoji_id ? { icon: bonusPayload.emoji_id } : {}),
+        ...(bonusPayload.style ? { style: bonusPayload.style } : {}),
+      });
+    }
     return out;
-  }, [actionBtns, urlButtons, bonusPayload]);
+  }, [actionBtns, actionExtras, urlButtons, bonusPayload]);
 
   const toggleActionButton = (key: BroadcastActionButton) => {
     setActionBtns((prev) => {
@@ -335,6 +455,10 @@ export default function AdminBroadcastPage() {
       setActionError("Сначала введите текст сообщения.");
       return;
     }
+    if (hasInvalidButtonEmoji) {
+      setActionError("ID иконки кнопки — число из tg://emoji?id=…");
+      return;
+    }
     setBusy(true);
     const r = await adminApi.broadcastTest({ chat_id: chatId, message_text: message, disable_web_page_preview: disablePreview, buttons: buttonsPayload, bonus: bonusPayload });
     setBusy(false);
@@ -358,6 +482,10 @@ export default function AdminBroadcastPage() {
     setBonusWarnings([]);
     if (!message.trim()) {
       setActionError("Введите текст сообщения.");
+      return;
+    }
+    if (hasInvalidButtonEmoji) {
+      setActionError("ID иконки кнопки — число из tg://emoji?id=…");
       return;
     }
     if (selectedArr.length === 0 && explicitTargets.length === 0) {
@@ -547,23 +675,44 @@ export default function AdminBroadcastPage() {
               Кнопки под сообщением
             </h2>
             <p className="mb-3 text-xs text-gray-400 dark:text-gray-500">
-              Клик по кнопке-действию откроет экран бота и заменит текст этого сообщения. URL-кнопки открывают ссылку и не меняют сообщение.
+              Клик по кнопке-действию откроет экран бота и заменит текст этого сообщения. URL-кнопки открывают
+              ссылку и не меняют сообщение. Иконка (emoji id) — анимированный премиум-эмодзи перед текстом кнопки
+              (число из tg://emoji?id=…); цвет — красная/зелёная/синяя.
             </p>
 
             <div className="space-y-2">
               {BROADCAST_ACTION_BUTTONS.map(({ key, label }) => (
-                <label
-                  key={key}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-zinc-700/50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={actionBtns.has(key)}
-                    onChange={() => toggleActionButton(key)}
-                    className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
-                </label>
+                <div key={key}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-zinc-700/50">
+                    <input
+                      type="checkbox"
+                      checked={actionBtns.has(key)}
+                      onChange={() => toggleActionButton(key)}
+                      className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                  </label>
+                  {actionBtns.has(key) && (
+                    <div className="ml-6 mt-1 flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <ButtonExtrasFields
+                        emojiId={actionExtras[key]?.emojiId ?? ""}
+                        onEmojiId={(v) =>
+                          setActionExtras((prev) => ({
+                            ...prev,
+                            [key]: { emojiId: v, style: prev[key]?.style ?? "" },
+                          }))
+                        }
+                        style={actionExtras[key]?.style ?? ""}
+                        onStyle={(v) =>
+                          setActionExtras((prev) => ({
+                            ...prev,
+                            [key]: { emojiId: prev[key]?.emojiId ?? "", style: v },
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
 
@@ -583,33 +732,49 @@ export default function AdminBroadcastPage() {
                   <p className="text-xs text-gray-400 dark:text-gray-500">Нет ссылок. Например: «Наш сайт» → https://bravada-connect.ru</p>
                 )}
                 {urlButtons.map((b, i) => (
-                  <div key={i} className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="text"
-                      value={b.label}
-                      onChange={(e) =>
-                        setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
-                      }
-                      placeholder="Текст"
-                      className={`${adminInput} w-full sm:w-1/3`}
-                    />
-                    <input
-                      type="url"
-                      value={b.url}
-                      onChange={(e) =>
-                        setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
-                      }
-                      placeholder="https://…"
-                      className={`${adminInput} w-full sm:flex-1`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setUrlButtons((prev) => prev.filter((_, j) => j !== i))}
-                      className="self-end rounded-lg px-2 py-2 text-sm font-semibold text-red-600 transition hover:text-red-700 sm:self-auto"
-                      aria-label="Удалить ссылку"
-                    >
-                      ×
-                    </button>
+                  <div key={i} className="space-y-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="text"
+                        value={b.label}
+                        onChange={(e) =>
+                          setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
+                        }
+                        placeholder="Текст"
+                        className={`${adminInput} w-full sm:w-1/3`}
+                      />
+                      <input
+                        type="url"
+                        value={b.url}
+                        onChange={(e) =>
+                          setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))
+                        }
+                        placeholder="https://…"
+                        className={`${adminInput} w-full sm:flex-1`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setUrlButtons((prev) => prev.filter((_, j) => j !== i))}
+                        className="self-end rounded-lg px-2 py-2 text-sm font-semibold text-red-600 transition hover:text-red-700 sm:self-auto"
+                        aria-label="Удалить ссылку"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <ButtonExtrasFields
+                        emojiId={b.emoji_id ?? ""}
+                        onEmojiId={(v) =>
+                          setUrlButtons((prev) => prev.map((x, j) => (j === i ? { ...x, emoji_id: v } : x)))
+                        }
+                        style={b.style ?? ""}
+                        onStyle={(v) =>
+                          setUrlButtons((prev) =>
+                            prev.map((x, j) => (j === i ? { ...x, style: v || undefined } : x)),
+                          )
+                        }
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -707,6 +872,14 @@ export default function AdminBroadcastPage() {
                     />
                   </label>
                 </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <ButtonExtrasFields
+                    emojiId={bonusEmojiRaw}
+                    onEmojiId={setBonusEmojiRaw}
+                    style={bonusStyle}
+                    onStyle={setBonusStyle}
+                  />
+                </div>
                 {bonusType === "days" &&
                   (() => {
                     const d = Number.parseInt(bonusDaysRaw, 10);
@@ -786,8 +959,14 @@ export default function AdminBroadcastPage() {
                 {previewButtons.map((b, i) => (
                   <span
                     key={i}
-                    className="cursor-default rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-200"
+                    title={b.icon ? `Анимированная иконка (emoji id ${b.icon}) — рендер только в Telegram` : undefined}
+                    className={`cursor-default rounded-lg border px-3 py-1.5 text-sm font-medium shadow-sm ${
+                      b.style
+                        ? STYLE_CHIP_CLASS[b.style]
+                        : "border-gray-300 bg-white text-gray-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-200"
+                    }`}
                   >
+                    {b.icon ? "✨ " : ""}
                     {b.text}
                   </span>
                 ))}

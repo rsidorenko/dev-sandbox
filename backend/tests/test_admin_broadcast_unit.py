@@ -581,6 +581,76 @@ def test_validate_buttons_reads_nested_shape_like_frontend():
     assert [b["callback_data"] for b in buttons] == ["buy_vpn", "main_menu"]
 
 
+# --- Иконка (icon_custom_emoji_id) и цвет (style) кнопок — Bot API 10.3 ------
+
+
+def test_validate_buttons_action_object_with_emoji_and_style():
+    """Элемент action_buttons может быть объектом {key, emoji_id?, style?} —
+    фронт шлёт его, когда оператор настроил иконку/цвет кнопки-действия."""
+    buttons, err = _validate_buttons(
+        {"action_buttons": [{"key": "buy_vpn", "emoji_id": "5420315771991497307", "style": "success"}]}
+    )
+    assert err is None
+    assert buttons == [
+        {
+            "text": "🔑 Купить VPN",
+            "callback_data": "buy_vpn",
+            "icon_custom_emoji_id": "5420315771991497307",
+            "style": "success",
+        }
+    ]
+
+
+def test_validate_buttons_url_emoji_and_style_normalized():
+    buttons, err = _validate_buttons(
+        {
+            "url_buttons": [
+                {
+                    "label": "Сайт",
+                    "url": "https://example.com",
+                    "emoji_id": " 5368324177772172337 ",
+                    "style": " danger ",
+                }
+            ]
+        }
+    )
+    assert err is None
+    assert buttons == [
+        {
+            "text": "Сайт",
+            "url": "https://example.com",
+            "icon_custom_emoji_id": "5368324177772172337",
+            "style": "danger",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"label": "x", "url": "https://e.io", "emoji_id": "abc"},
+        {"label": "x", "url": "https://e.io", "emoji_id": "12x3"},
+        {"label": "x", "url": "https://e.io", "style": "blue"},
+        {"label": "x", "url": "https://e.io", "style": "link"},  # link — только у RichMessageButton
+    ],
+)
+def test_validate_buttons_rejects_bad_emoji_or_style(entry):
+    _, err = _validate_buttons({"url_buttons": [entry]})
+    assert err is not None and err.status_code == 400
+
+
+def test_validate_buttons_action_object_bad_style_rejected():
+    _, err = _validate_buttons({"action_buttons": [{"key": "buy_vpn", "style": "blue"}]})
+    assert err is not None and err.status_code == 400
+
+
+def test_build_reply_markup_passes_icon_and_style_through():
+    buttons = [{"text": "Go", "url": "https://e.io", "icon_custom_emoji_id": "1", "style": "primary"}]
+    assert _build_reply_markup(buttons) == {
+        "inline_keyboard": [[{"text": "Go", "url": "https://e.io", "icon_custom_emoji_id": "1", "style": "primary"}]]
+    }
+
+
 def test_runner_forwards_reply_markup_when_buttons_present():
     buttons = [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
     client = _FakeClient()
@@ -693,6 +763,27 @@ def test_validate_bonus_config_rejects_non_dict():
     assert err is not None and err.status_code == 400
 
 
+def test_validate_bonus_config_accepts_emoji_and_style():
+    """Оформление бонус-кнопки — те же опциональные параметры, что у прочих кнопок."""
+    bonus, err = _validate_bonus_config(
+        {"type": "days", "days": 7, "label": "Бонус", "emoji_id": "5420315771991497307", "style": "success"}
+    )
+    assert err is None
+    assert bonus["icon_custom_emoji_id"] == "5420315771991497307"
+    assert bonus["style"] == "success"
+    # без оформления — ключей нет (обратная совместимость формы бонуса)
+    bonus, err = _validate_bonus_config({"type": "days", "days": 7, "label": "Бонус"})
+    assert err is None
+    assert "icon_custom_emoji_id" not in bonus and "style" not in bonus
+
+
+def test_validate_bonus_config_rejects_bad_emoji_or_style():
+    _, err = _validate_bonus_config({"type": "days", "days": 5, "label": "x", "emoji_id": "abc"})
+    assert err is not None and err.status_code == 400
+    _, err = _validate_bonus_config({"type": "days", "days": 5, "label": "x", "style": "blue"})
+    assert err is not None and err.status_code == 400
+
+
 def test_decode_bonus_none_and_empty():
     assert _decode_bonus(None) is None
     assert _decode_bonus("") is None
@@ -722,6 +813,16 @@ def test_decode_bonus_tolerates_bad_ttl_without_crash():
     assert _decode_bonus({**base, "ttl_days": None})["ttl_days"] == 30
     assert _decode_bonus({**base})["ttl_days"] == 30  # ttl отсутствует — дефолт
     assert _decode_bonus({**base, "ttl_days": 14})["ttl_days"] == 14  # валидный — как есть
+
+
+def test_decode_bonus_carries_valid_extras_and_drops_invalid():
+    """icon_custom_emoji_id/style едут через JSONB: валидные — переносятся,
+    битые — выбрасываются (не роняют рассылку)."""
+    base = {"type": "days", "days": 5, "label": "x"}
+    out = _decode_bonus({**base, "icon_custom_emoji_id": "111", "style": "danger"})
+    assert out["icon_custom_emoji_id"] == "111" and out["style"] == "danger"
+    out = _decode_bonus({**base, "icon_custom_emoji_id": "abc", "style": "blue"})
+    assert "icon_custom_emoji_id" not in out and "style" not in out
 
 
 # --- Runner: бонус-кнопка в markup + seed claims ----------------------------
@@ -764,6 +865,30 @@ def test_runner_bonus_decoded_from_json_string_like_asyncpg():
     expected_cb = _cb(CB_BROADCAST_DAYS, _JOB_UUID)
     assert client.markups[0]["inline_keyboard"][-1] == [{"text": "Бонус", "callback_data": expected_cb}]
     assert pool.bonus_seed_rows is not None and pool.bonus_seed_rows[0][2] == 3
+
+
+def test_runner_bonus_button_carries_icon_and_style():
+    """Оформление бонус-кнопки (icon_custom_emoji_id/style) доезжает до markup."""
+    client = _FakeClient()
+    bonus = {
+        "type": "days",
+        "days": 5,
+        "label": "🎁 Бонус",
+        "ttl_days": 14,
+        "icon_custom_emoji_id": "5420315771991497307",
+        "style": "success",
+    }
+    runner, _pool = _runner(client, [11], bonus=bonus)
+    _run(runner.run())
+    expected_cb = _cb(CB_BROADCAST_DAYS, _JOB_UUID)
+    assert client.markups[0]["inline_keyboard"][-1] == [
+        {
+            "text": "🎁 Бонус",
+            "callback_data": expected_cb,
+            "icon_custom_emoji_id": "5420315771991497307",
+            "style": "success",
+        }
+    ]
 
 
 def test_runner_without_bonus_has_no_days_button_and_no_claims():
