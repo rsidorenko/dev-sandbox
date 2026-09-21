@@ -417,6 +417,23 @@ def _parse_button_extras(raw_emoji: Any, raw_style: Any) -> tuple[dict[str, str]
     return extras, None
 
 
+_LABEL_MULTI_SPACE_RE = re.compile(r" {2,}")
+
+
+def _extract_label_icon(label: str) -> tuple[str, dict[str, str]]:
+    """Премиум-эмодзи-конструкция в ТЕКСТЕ кнопки: text кнопки — plain (без parse_mode),
+    рендерить ![👉](tg://emoji?id=N) там нельзя — превращаем её в icon_custom_emoji_id
+    (иконка рисуется перед текстом в любом случае) и вырезаем из текста. Первое
+    совпадание становится иконкой, прочие вырезаются. Не-совпадающие формы (пустой alt,
+    не-цифровой id) остаются literal-текстом — как в тексте сообщения. Идемпотентно.
+    Возвращает (clean_label, extras)."""
+    matches = _TG_EMOJI_MD_RE.findall(label)
+    if not matches:
+        return label, {}
+    clean = _LABEL_MULTI_SPACE_RE.sub(" ", _TG_EMOJI_MD_RE.sub("", label)).strip()
+    return clean, {"icon_custom_emoji_id": matches[0][1]}
+
+
 def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
     """Из тела запроса собирает итоговый список кнопок в формате Telegram.
     actions ({text,callback_data}) идут раньше url-кнопок ({text,url}); любая кнопка
@@ -453,6 +470,10 @@ def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
         url = str(entry.get("url") or "").strip()
         if not label or not url:
             return [], safe_json_error(400, "invalid_url_buttons", "label и url обязательны")
+        # Эмодзи-конструкция в тексте кнопки → иконка (конструкция приоритетнее поля).
+        label, label_extras = _extract_label_icon(label)
+        if not label:
+            return [], safe_json_error(400, "invalid_url_buttons", "label и url обязательны")
         scheme = urlparse(url).scheme.lower()
         if scheme not in ("http", "https"):
             return [], safe_json_error(400, "invalid_button_url", "допустимы только http/https")
@@ -461,7 +482,7 @@ def _validate_buttons(data: dict) -> tuple[list[dict], JSONResponse | None]:
         extras, err_code = _parse_button_extras(entry.get("emoji_id"), entry.get("style"))
         if err_code is not None:
             return [], safe_json_error(400, err_code)
-        buttons.append({"text": label[:_BUTTON_LABEL_MAX_LEN], "url": url, **extras})
+        buttons.append({"text": label[:_BUTTON_LABEL_MAX_LEN], "url": url, **extras, **label_extras})
 
     if len(buttons) > _MAX_BUTTONS:
         return [], safe_json_error(400, "too_many_buttons", f"максимум {_MAX_BUTTONS} кнопок")
@@ -493,6 +514,10 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
     label = str(raw.get("label") or "").strip()
     if not label:
         return None, safe_json_error(400, "invalid_bonus_label", "label обязателен")
+    # Эмодзи-конструкция в тексте кнопки → иконка (text кнопки — plain, см. _extract_label_icon).
+    label, label_extras = _extract_label_icon(label)
+    if not label:
+        return None, safe_json_error(400, "invalid_bonus_label")
 
     ttl_days = _BONUS_DEFAULT_TTL_DAYS
     raw_ttl = raw.get("ttl_days")
@@ -504,10 +529,12 @@ def _validate_bonus_config(raw: Any) -> tuple[dict | None, JSONResponse | None]:
         if not (_BONUS_TTL_MIN <= ttl_days <= _BONUS_TTL_MAX):
             return None, safe_json_error(400, "invalid_bonus_ttl")
 
-    # Опциональное оформление кнопки (icon_custom_emoji_id/style) — как у прочих кнопок.
+    # Опциональное оформление кнопки (icon_custom_emoji_id/style) — как у прочих кнопок;
+    # конструкция в тексте приоритетнее отдельного поля emoji_id.
     extras, extras_err = _parse_button_extras(raw.get("emoji_id"), raw.get("style"))
     if extras_err is not None:
         return None, safe_json_error(400, extras_err)
+    extras = {**extras, **label_extras}
 
     if btype == "days":
         try:

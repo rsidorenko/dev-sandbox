@@ -651,6 +651,52 @@ def test_build_reply_markup_passes_icon_and_style_through():
     }
 
 
+# --- Эмодзи-конструкция ![👉](tg://emoji?id=…) в тексте кнопки → иконка -------
+
+
+def test_validate_buttons_url_label_markdown_becomes_icon():
+    """Операторский формат: конструкция в тексте URL-кнопки превращается
+    в icon_custom_emoji_id и вырезается из text (text кнопки — plain)."""
+    buttons, err = _validate_buttons(
+        {"url_buttons": [{"label": "![👉](tg://emoji?id=5471978009449731768) Подключить", "url": "https://e.io"}]}
+    )
+    assert err is None
+    assert buttons == [{"text": "Подключить", "url": "https://e.io", "icon_custom_emoji_id": "5471978009449731768"}]
+
+
+def test_validate_buttons_url_label_markdown_overrides_field():
+    # конструкция в тексте приоритетнее отдельного поля emoji_id
+    buttons, err = _validate_buttons(
+        {"url_buttons": [{"label": "![👉](tg://emoji?id=111) X", "url": "https://e.io", "emoji_id": "222"}]}
+    )
+    assert err is None
+    assert buttons[0]["icon_custom_emoji_id"] == "111"
+
+
+def test_validate_buttons_url_label_mid_text_and_double_space():
+    # конструкция в середине текста: иконка в Telegram всё равно перед текстом —
+    # вырезаем, схлопываем освободившиеся пробелы
+    buttons, err = _validate_buttons(
+        {"url_buttons": [{"label": "Забрать ![🔥](tg://emoji?id=9) бонус", "url": "https://e.io"}]}
+    )
+    assert err is None
+    assert buttons[0]["text"] == "Забрать бонус"
+    assert buttons[0]["icon_custom_emoji_id"] == "9"
+
+
+def test_validate_buttons_url_label_non_matching_markdown_left_as_is():
+    # не-совпадающие формы (не-цифровой id) остаются literal-текстом — как в сообщении
+    buttons, err = _validate_buttons({"url_buttons": [{"label": "![🔥](tg://emoji?id=abc) X", "url": "https://e.io"}]})
+    assert err is None
+    assert buttons == [{"text": "![🔥](tg://emoji?id=abc) X", "url": "https://e.io"}]
+
+
+def test_validate_buttons_url_label_only_markdown_rejected():
+    # из текста исчезло всё (кроме конструкции) → label пуст → 400
+    _, err = _validate_buttons({"url_buttons": [{"label": "![👉](tg://emoji?id=111)", "url": "https://e.io"}]})
+    assert err is not None and err.status_code == 400
+
+
 def test_runner_forwards_reply_markup_when_buttons_present():
     buttons = [{"text": "🏠 Главное меню", "callback_data": "main_menu"}]
     client = _FakeClient()
@@ -782,6 +828,37 @@ def test_validate_bonus_config_rejects_bad_emoji_or_style():
     assert err is not None and err.status_code == 400
     _, err = _validate_bonus_config({"type": "days", "days": 5, "label": "x", "style": "blue"})
     assert err is not None and err.status_code == 400
+
+
+def test_validate_bonus_label_markdown_becomes_icon():
+    """Конструкция премиум-эмодзи в тексте бонус-кнопки → иконка + чистый text."""
+    bonus, err = _validate_bonus_config(
+        {"type": "days", "days": 5, "label": "![👉](tg://emoji?id=5471978009449731768) Подключить месяц за 99 ₽"}
+    )
+    assert err is None
+    assert bonus["label"] == "Подключить месяц за 99 ₽"
+    assert bonus["icon_custom_emoji_id"] == "5471978009449731768"
+
+
+def test_validate_bonus_label_markdown_overrides_field_and_keeps_style():
+    bonus, err = _validate_bonus_config(
+        {"type": "days", "days": 5, "label": "![👉](tg://emoji?id=111) X", "emoji_id": "222", "style": "success"}
+    )
+    assert err is None
+    assert bonus["icon_custom_emoji_id"] == "111"  # конструкция приоритетнее поля
+    assert bonus["style"] == "success"  # стиль не тронут
+
+
+def test_validate_bonus_label_only_markdown_rejected():
+    _, err = _validate_bonus_config({"type": "days", "days": 5, "label": "![👉](tg://emoji?id=111)"})
+    assert err is not None and err.status_code == 400
+
+
+def test_validate_bonus_label_non_matching_markdown_left_as_is():
+    bonus, err = _validate_bonus_config({"type": "days", "days": 5, "label": "![🔥](tg://emoji?id=abc) X"})
+    assert err is None
+    assert bonus["label"] == "![🔥](tg://emoji?id=abc) X"
+    assert "icon_custom_emoji_id" not in bonus
 
 
 def test_decode_bonus_none_and_empty():

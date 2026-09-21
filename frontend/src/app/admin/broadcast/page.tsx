@@ -61,6 +61,18 @@ const BUTTON_STYLE_OPTIONS: { value: "" | BroadcastButtonStyle; label: string }[
 
 const isValidEmojiId = (raw: string) => /^\d+$/.test(raw.trim());
 
+/** ![👉](tg://emoji?id=N) в тексте кнопки → иконка: text кнопки — plain, рендерить
+ * конструкцию там нельзя, поэтому вырезаем её и передаём как emoji_id (бэкенд делает
+ * то же — нормализация идемпотентна с обеих сторон). Зеркало _extract_label_icon. */
+const LABEL_EMOJI_MD_RE = /!\[([^\]]+)\]\(tg:\/\/emoji\?id=(\d+)\)/g;
+
+function extractLabelIcon(label: string): { text: string; icon?: string } {
+  const matches = Array.from(label.matchAll(LABEL_EMOJI_MD_RE));
+  if (matches.length === 0) return { text: label };
+  const text = label.replace(LABEL_EMOJI_MD_RE, "").replace(/ {2,}/g, " ").trim();
+  return { text, icon: matches[0][2] };
+}
+
 /** Цвет чипа кнопки в предпросмотре — приближение Telegram-стилей danger/success/primary. */
 const STYLE_CHIP_CLASS: Record<BroadcastButtonStyle, string> = {
   danger: "border-red-300 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400",
@@ -221,12 +233,18 @@ export default function AdminBroadcastPage() {
     });
     const urls = urlButtons
       .filter((b) => b.label.trim() && b.url.trim())
-      .map(({ label, url, emoji_id, style }) => ({
-        label,
-        url,
-        ...(emoji_id?.trim() ? { emoji_id: emoji_id.trim() } : {}),
-        ...(style ? { style } : {}),
-      }));
+      .map(({ label, url, emoji_id, style }) => {
+        // Эмодзи-конструкция в тексте кнопки → иконка (приоритетнее поля emoji_id).
+        const { text, icon } = extractLabelIcon(label.trim());
+        const fieldEmoji = emoji_id?.trim();
+        const emoji = icon ?? (fieldEmoji || undefined);
+        return {
+          label: text,
+          url,
+          ...(emoji ? { emoji_id: emoji } : {}),
+          ...(style ? { style } : {}),
+        };
+      });
     if (actions.length === 0 && urls.length === 0) return undefined;
     return { action_buttons: actions, url_buttons: urls };
   }, [actionBtns, actionExtras, urlButtons]);
@@ -244,13 +262,15 @@ export default function AdminBroadcastPage() {
   // Бонус-конфиг для send/test. null, если выключено или невалидно — тогда кнопка не отправляется.
   const bonusPayload = useMemo<BroadcastBonusConfig | null>(() => {
     if (!bonusEnabled) return null;
-    const label = bonusLabel.trim();
+    // Конструкция премиум-эмодзи в тексте → иконка кнопки (приоритетнее поля emoji_id).
+    const { text: label, icon: mdIcon } = extractLabelIcon(bonusLabel.trim());
     if (!label || label.length > 64) return null;
     const ttl = Number.parseInt(bonusTtlRaw, 10);
     const ttl_days = Number.isFinite(ttl) && ttl >= 1 ? ttl : 30;
-    const emoji_id = bonusEmojiRaw.trim();
+    const fieldEmoji = bonusEmojiRaw.trim();
+    const emoji_id = mdIcon ?? (isValidEmojiId(fieldEmoji) ? fieldEmoji : undefined);
     const extras = {
-      ...(isValidEmojiId(emoji_id) ? { emoji_id } : {}),
+      ...(emoji_id ? { emoji_id } : {}),
       ...(bonusStyle ? { style: bonusStyle } : {}),
     };
     if (bonusType === "promo") {
@@ -296,10 +316,13 @@ export default function AdminBroadcastPage() {
     for (const b of urlButtons) {
       const t = b.label.trim();
       if (!t) continue;
-      const emoji_id = (b.emoji_id ?? "").trim();
+      const { text, icon: mdIcon } = extractLabelIcon(t);
+      if (!text) continue; // лейбл состоял только из конструкции — чип пуст, не показываем
+      const fieldEmoji = (b.emoji_id ?? "").trim();
+      const icon = mdIcon ?? (isValidEmojiId(fieldEmoji) ? fieldEmoji : undefined);
       out.push({
-        text: t,
-        ...(isValidEmojiId(emoji_id) ? { icon: emoji_id } : {}),
+        text,
+        ...(icon ? { icon } : {}),
         ...(b.style ? { style: b.style } : {}),
       });
     }
@@ -677,7 +700,8 @@ export default function AdminBroadcastPage() {
             <p className="mb-3 text-xs text-gray-400 dark:text-gray-500">
               Клик по кнопке-действию откроет экран бота и заменит текст этого сообщения. URL-кнопки открывают
               ссылку и не меняют сообщение. Иконка (emoji id) — анимированный премиум-эмодзи перед текстом кнопки
-              (число из tg://emoji?id=…); цвет — красная/зелёная/синяя.
+              (число из tg://emoji?id=…, можно вставить конструкцию ![👉](tg://emoji?id=…) прямо в текст);
+              цвет — красная/зелёная/синяя.
             </p>
 
             <div className="space-y-2">
@@ -866,10 +890,13 @@ export default function AdminBroadcastPage() {
                       type="text"
                       value={bonusLabel}
                       onChange={(e) => setBonusLabel(e.target.value)}
-                      maxLength={64}
+                      maxLength={128}
                       placeholder={bonusType === "days" ? "🎁 Получить 3 дня бесплатно" : "🎟 Забрать скидку"}
                       className={`${adminInput} w-full`}
                     />
+                    <span className="mt-1 block text-xs text-gray-400 dark:text-gray-500">
+                      Можно вставить ![👉](tg://emoji?id=…) — станет анимированной иконкой кнопки.
+                    </span>
                   </label>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
