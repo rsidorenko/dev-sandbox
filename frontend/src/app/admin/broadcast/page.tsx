@@ -45,10 +45,16 @@ function statusBadgeClass(status: BroadcastJobStatus): string {
   return "bg-gray-100 text-gray-500 dark:bg-zinc-700 dark:text-gray-400";
 }
 
-/** Превью HTML в стиле Telegram: allowlist тегов, безопасные схемы ссылок. */
+/** Markdown-форма премиум-эмодзи ![🔥](tg://emoji?id=N) → fallback-эмодзи 🔥:
+ * анимированный рендер возможен только в Telegram; <tg-emoji> ниже разворачивается так же. */
+const TG_EMOJI_MD_RE = /!\[([^\]]+)\]\(tg:\/\/emoji\?id=(\d+)\)/g;
+
+/** Превью HTML в стиле Telegram: allowlist тегов, безопасные схемы ссылок.
+ * Обычные переводы строк конвертируются в <br> — Telegram рендерит \n как перенос,
+ * а браузер в HTML схлопывает (кроме <pre>, где \n и так виден). */
 function renderPreviewHtml(html: string): string {
   if (typeof window === "undefined") return html;
-  const doc = new DOMParser().parseFromString(html, "text/html");
+  const doc = new DOMParser().parseFromString(html.replace(TG_EMOJI_MD_RE, "$1"), "text/html");
   const allowed = new Set([
     "B", "STRONG", "I", "EM", "U", "INS", "S", "STRIKE", "DEL", "CODE", "PRE", "BLOCKQUOTE", "A", "BR",
   ]);
@@ -65,6 +71,29 @@ function renderPreviewHtml(html: string): string {
       if (!/^(https?:|mailto:|tg:)/i.test(href)) el.removeAttribute("href");
     }
   });
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+  for (const node of textNodes) {
+    const raw = node.nodeValue ?? "";
+    if (!raw.includes("\n")) continue;
+    let parent: Element | null = node.parentElement;
+    let inPre = false;
+    while (parent) {
+      if (parent.tagName === "PRE") {
+        inPre = true;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    if (inPre) continue;
+    const frag = doc.createDocumentFragment();
+    raw.split("\n").forEach((part, i) => {
+      if (i > 0) frag.appendChild(doc.createElement("br"));
+      if (part) frag.appendChild(doc.createTextNode(part));
+    });
+    node.replaceWith(frag);
+  }
   return doc.body.innerHTML;
 }
 
@@ -278,6 +307,19 @@ export default function AdminBroadcastPage() {
     });
   };
 
+  // Анимированный (премиум) эмодзи: вставляем markdown-форму — бэкенд нормализует
+  // её в <tg-emoji> перед отправкой. Доступно, т.к. владелец бота имеет Telegram Premium.
+  const insertTgEmoji = () => {
+    const raw = window.prompt("ID анимированного эмодзи (число из tg://emoji?id=…):", "");
+    if (!raw) return;
+    const id = raw.trim();
+    if (!/^\d+$/.test(id)) {
+      setActionError("ID эмодзи — число из ссылки tg://emoji?id=…");
+      return;
+    }
+    insertAtCursor(`![🔥](tg://emoji?id=${id})`);
+  };
+
   const onTest = async () => {
     setActionError("");
     setActionInfo("");
@@ -462,6 +504,7 @@ export default function AdminBroadcastPage() {
               <button type="button" onClick={() => wrapSelection("<code>", "</code>")} className={`${adminBtnSecondary} font-mono`}>Моно</button>
               <button type="button" onClick={insertLink} className={adminBtnSecondary}>Ссылка</button>
               <button type="button" onClick={() => insertAtCursor("<br>")} className={adminBtnSecondary}>↵ Перенос</button>
+              <button type="button" onClick={insertTgEmoji} className={adminBtnSecondary}>🔥 Эмодзи</button>
             </div>
 
             <textarea
@@ -472,6 +515,11 @@ export default function AdminBroadcastPage() {
               placeholder="Текст сообщения. Используйте тулбар для форматирования: моноширинный фрагмент (копируемый), ссылка…"
               className={`${adminInput} w-full`}
             />
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              Переносы строк сохраняются как в Telegram. Анимированные эмодзи: вставьте
+              &lt;tg-emoji emoji-id=&quot;…&quot;&gt;🔥&lt;/tg-emoji&gt; или markdown-форму ![🔥](tg://emoji?id=…) —
+              отправится как премиум-эмодзи.
+            </p>
 
             <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
               <input

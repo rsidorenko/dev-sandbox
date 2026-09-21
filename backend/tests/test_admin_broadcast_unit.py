@@ -25,6 +25,7 @@ from app.web_api.admin_broadcast import (
     _extract_retry_after,
     _fetch_sql,
     _html_for_telegram,
+    _normalize_emoji_markdown,
     _resolve_explicit_targets,
     _validate_bonus_config,
     _validate_bonus_promo_exists,
@@ -82,6 +83,71 @@ def test_html_for_telegram_autocloses_unclosed_tags():
     assert _html_for_telegram("line1<br><b>bold") == "line1\n<b>bold</b>"
     # уже сбалансировано — ничего не добавляется
     assert _html_for_telegram("<b>x</b>") == "<b>x</b>"
+
+
+# --- Премиум-эмодзи (tg-emoji + markdown-форма) ------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('<tg-emoji emoji-id="5420315771991497307">🔥</tg-emoji>', None),
+        ("<tg-emoji>🔥</tg-emoji>", "emoji_missing_id"),
+        ('<tg-emoji emoji-id="">🔥</tg-emoji>', "emoji_missing_id"),
+        ('<tg-emoji emoji-id="abc">🔥</tg-emoji>', "emoji_bad_id"),
+        ('<tg-emoji emoji-id="12x3">🔥</tg-emoji>', "emoji_bad_id"),
+        # незакрытый tg-emoji не блокируется — автозакроется в _html_for_telegram
+        ('<tg-emoji emoji-id="5420315771991497307">🔥', None),
+        # вперемешку с другими тегами
+        ('<b>x</b> <tg-emoji emoji-id="1">⚡</tg-emoji>', None),
+    ],
+)
+def test_validate_html_tg_emoji(text, expected):
+    assert _validate_html(text) == expected
+
+
+def test_normalize_emoji_markdown_basic_and_idempotent():
+    assert (
+        _normalize_emoji_markdown("![🔥](tg://emoji?id=5420315771991497307)")
+        == '<tg-emoji emoji-id="5420315771991497307">🔥</tg-emoji>'
+    )
+    # повторный прогон по уже нормализованному тексту — no-op
+    once = _normalize_emoji_markdown("![🔥](tg://emoji?id=1)")
+    assert _normalize_emoji_markdown(once) == once
+
+
+def test_normalize_emoji_markdown_leaves_other_forms_alone():
+    # пустой alt (нет fallback-эмодзи), не-цифровой id и обычные markdown-картинки
+    assert _normalize_emoji_markdown("![](tg://emoji?id=123)") == "![](tg://emoji?id=123)"
+    assert _normalize_emoji_markdown("![🔥](tg://emoji?id=abc)") == "![🔥](tg://emoji?id=abc)"
+    assert _normalize_emoji_markdown("![img](https://x.io/y.png)") == "![img](https://x.io/y.png)"
+
+
+def test_html_for_telegram_normalizes_operator_format():
+    """Формат оператора: markdown-эмодзи вперемешку с <b> и обычными переносами строк
+    (они сохраняются — Telegram рендерит \\n как перенос)."""
+    src = (
+        "![🔥](tg://emoji?id=5420315771991497307) <b>Месяц BRAVADA VPN за 99 ₽</b>\n"
+        "\n"
+        "Только <b>3 дня</b>.\n"
+        "![⚡](tg://emoji?id=5431449001532594346) Подключение за ~1 минуту"
+    )
+    expected = (
+        '<tg-emoji emoji-id="5420315771991497307">🔥</tg-emoji> <b>Месяц BRAVADA VPN за 99 ₽</b>\n'
+        "\n"
+        "Только <b>3 дня</b>.\n"
+        '<tg-emoji emoji-id="5431449001532594346">⚡</tg-emoji> Подключение за ~1 минуту'
+    )
+    assert _html_for_telegram(src) == expected
+
+
+def test_html_for_telegram_autocloses_unclosed_tg_emoji():
+    # операторский незакрытый тег — автозакроется, как и <b>
+    assert _html_for_telegram('<tg-emoji emoji-id="111">🔥') == '<tg-emoji emoji-id="111">🔥</tg-emoji>'
+    # markdown-форма сбалансирована по построению — автозакрытие не срабатывает
+    out = _html_for_telegram("![⚡](tg://emoji?id=222)")
+    assert out.count("<tg-emoji") == 1
+    assert out.endswith("</tg-emoji>")
 
 
 # --- _validate_categories ---------------------------------------------------

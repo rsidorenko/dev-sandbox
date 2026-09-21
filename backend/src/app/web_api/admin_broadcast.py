@@ -18,6 +18,7 @@ safe_json_error, _admin_actor). SQL — как в admin_users.py (литерал
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -270,9 +271,11 @@ def _validate_categories(raw: Any) -> list[str] | None:
 # --- Pre-flight валидация HTML ----------------------------------------------
 # Allowlist тегов Telegram HTML + обязательный href для <a>. Ловит битую разметку
 # ДО массовой отправки, чтобы один 400 не повторился на всех получателях.
+# tg-emoji — премиум (анимированные) эмодзи: доступны ботам, чей владелец имеет
+# Telegram Premium, в приватных чатах (рассылка = приватные чаты).
 
 _ALLOWED_HTML_TAGS = frozenset(
-    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "blockquote", "a", "br"}
+    {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "blockquote", "a", "br", "tg-emoji"}
 )
 _ALLOWED_HREF_SCHEMES = frozenset({"http", "https", "mailto", "tg"})
 
@@ -300,6 +303,20 @@ class _HtmlAudit(HTMLParser):
             # Относительные ссылки без схемы — запрещены (нечего кликать в Telegram).
             if scheme not in _ALLOWED_HREF_SCHEMES:
                 self.error = f"link_bad_scheme:{scheme or 'none'}"
+                return
+        if tag == "tg-emoji":
+            emoji_id: str | None = None
+            for k, v in attrs:
+                if k == "emoji-id" and v:
+                    emoji_id = v
+                    break
+            # Telegram требует числовой custom emoji id; пустой alt-эмодзи (fallback для
+            # клиентов без Premium) отсеивается regex-нормализацией markdown-формы.
+            if not emoji_id:
+                self.error = "emoji_missing_id"
+                return
+            if not emoji_id.isdigit():
+                self.error = "emoji_bad_id"
                 return
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -339,14 +356,30 @@ def _validate_html(text: str) -> str | None:
 
 _BR_RE = re.compile(r"<br\b[^>]*>", re.IGNORECASE)
 
+# Markdown-форма премиум-эмодзи `![🔥](tg://emoji?id=N)` валидна только в parse_mode
+# MarkdownV2 (где запрещён <b>), а рассылка ходит с parse_mode=HTML — нормализуем её
+# в <tg-emoji>. Alt обязан быть непустым: это fallback-эмодзи для клиентов без Premium.
+_TG_EMOJI_MD_RE = re.compile(r"!\[([^\]]+)\]\(tg://emoji\?id=(\d+)\)")
+
+
+def _normalize_emoji_markdown(text: str) -> str:
+    """`![🔥](tg://emoji?id=…)` → `<tg-emoji emoji-id="…">🔥</tg-emoji>` (идемпотентно).
+    Прочие `![…](…)`-конструкции (пустой alt, не-цифровой id, обычные картинки) не трогаем."""
+    return _TG_EMOJI_MD_RE.sub(
+        lambda m: f'<tg-emoji emoji-id="{m.group(2)}">{html.escape(m.group(1), quote=False)}</tg-emoji>',
+        text,
+    )
+
 
 def _html_for_telegram(text: str) -> str:
     """Нормализация HTML под Telegram перед отправкой:
+    * markdown-форма премиум-эмодзи → `<tg-emoji>` (см. _normalize_emoji_markdown);
     * `<br>` (в т.ч. с атрибутами/самозакрывающийся) → `\\n` — Telegram HTML
       не поддерживает <br> ('Unsupported start tag \"br\"');
     * автозакрытие незакрытых тегов allowlist'а — Telegram строго требует
       баланса ('Can't find end tag'); прощаем оператору забытый </b> и т.п.
     """
+    text = _normalize_emoji_markdown(text)
     text = _BR_RE.sub("\n", text)
     audit = _HtmlAudit()
     try:
@@ -1004,14 +1037,16 @@ async def handle_admin_broadcast_send(request: Request) -> JSONResponse:
     if categories is None:
         return safe_json_error(400, "invalid_categories", f"allowed: {sorted(_ALLOWED_CATEGORIES)}")
 
-    text = str(data.get("message_text") or "")
+    # Эмодзи-markdown нормализуется ДО валидации (аудит видит итоговый <tg-emoji>);
+    # лимит длины — по финальному тексту: нормализация/автозакрытие меняют длину.
+    text = _normalize_emoji_markdown(str(data.get("message_text") or ""))
     if not text.strip():
         return safe_json_error(400, "empty_message")
-    if len(text) > _MAX_MESSAGE_LEN:
-        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
     text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
+    if len(text) > _MAX_MESSAGE_LEN:
+        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
 
     # Фронт присылает кнопки вложенно: {buttons:{action_buttons,url_buttons}}.
     buttons, buttons_err = _validate_buttons(data.get("buttons") or {})
@@ -1158,14 +1193,16 @@ async def handle_admin_broadcast_test(request: Request) -> JSONResponse:
     if chat_id <= 0:
         return safe_json_error(400, "invalid_chat_id")
 
-    text = str(data.get("message_text") or "")
+    # Эмодзи-markdown нормализуется ДО валидации (аудит видит итоговый <tg-emoji>);
+    # лимит длины — по финальному тексту: нормализация/автозакрытие меняют длину.
+    text = _normalize_emoji_markdown(str(data.get("message_text") or ""))
     if not text.strip():
         return safe_json_error(400, "empty_message")
-    if len(text) > _MAX_MESSAGE_LEN:
-        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
     if (html_err := _validate_html(text)) is not None:
         return safe_json_error(400, "invalid_html", html_err)
     text = _html_for_telegram(text)  # <br> → \n (Telegram HTML не поддерживает <br>)
+    if len(text) > _MAX_MESSAGE_LEN:
+        return safe_json_error(400, "message_too_long", f"max {_MAX_MESSAGE_LEN} chars")
 
     # Фронт присылает кнопки вложенно: {buttons:{action_buttons,url_buttons}}.
     buttons, buttons_err = _validate_buttons(data.get("buttons") or {})
