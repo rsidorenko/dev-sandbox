@@ -1,8 +1,8 @@
 # CLAUDE.md — Claude Code Repository Workflow Guide
 
 This file is the primary orientation document for Claude Code sessions operating in this repository.
-Read it at the start of every session. Treat current repo state and GitHub/CI state as the authoritative
-source of truth — this file provides workflow rules and context, not a substitute for reading the code.
+Читайте документ в начале каждой сессии. Источник истины — текущий код репозитория и состояние GitLab/CI;
+этот файл описывает процесс работы и контекст, но не заменяет чтение кода.
 
 ---
 
@@ -10,12 +10,12 @@ source of truth — this file provides workflow rules and context, not a substit
 
 **TelegramBotVPN** (branded "Bravada VPN") is a production Telegram bot + web backend for selling and managing VPN subscriptions via VLESS/Reality protocol through 3x-ui panels.
 
-- **GitHub remote:** `https://github.com/rsidorenko/dev-sandbox.git` (remote name: `origin`)
-- **Local path:** `D:\TelegramBotVPN`
+- **GitLab remote:** `git@gitlab.com:rsidorenko/dev-sandbox.git` (remote: `origin`)
+- **Локальный каталог:** используйте фактический корень текущего checkout (`git rev-parse --show-toplevel`).
 - **Primary language:** Python 3.12+
 - **Runtime stack:** httpx, starlette/uvicorn, asyncpg (PostgreSQL), Telegram Bot API (polling + webhook)
 - **VPN infrastructure:** 3x-ui panels (VLESS + Reality TLS), multi-server across NL/DE/FI/US/JP
-- **Web frontend:** Next.js site (separate repo) with payment, login, profile pages
+- **Web frontend:** Next.js в `frontend/` этого репозитория; оплата, вход и личный кабинет.
 - **Domain:** bravada-connect.ru
 
 ### What the system actually does
@@ -37,14 +37,15 @@ source of truth — this file provides workflow rules and context, not a substit
 ```
 TelegramBotVPN/
 ├── CLAUDE.md                         # this file
-├── PROJECT_HANDOFF.md                # handoff index (legacy, may be stale)
-├── .github/workflows/                # CI/CD: release readiness, smoke tests, deploy
+├── .gitlab-ci.yml                   # действующие проверки и production-деплой
+├── .github/workflows/                # историческая конфигурация GitHub
+├── frontend/                        # Next.js, unit-тесты и Playwright
 ├── docs/architecture/                # ADRs (system design, billing, issuance, security)
 ├── backend/
 │   ├── RELEASE_STATUS.md             # release status (legacy, may reference old state)
 │   ├── pyproject.toml                # project metadata, deps, pytest config
 │   ├── docs/                         # runbooks
-│   ├── migrations/                   # 30 PostgreSQL migrations
+│   ├── migrations/                   # актуальная последовательность SQL-миграций
 │   ├── scripts/                      # operator/validation/release scripts
 │   └── src/app/
 │       ├── application/              # use-case handlers, bootstrap, purchase, referral
@@ -68,7 +69,7 @@ TelegramBotVPN/
 ## Source-of-truth priority
 
 1. **Current local repo state** — actual files, HEAD code, git history
-2. **GitHub remote and CI state** — branch/PR state, workflow runs, CI results
+2. **GitLab и CI** — актуальные ветки, MR, pipelines и результаты проверок
 3. **Current code** — read actual source files before trusting any doc
 4. **ADRs** — `docs/architecture/` for design decisions
 5. **`.cursor/plans/`** — historical context only, read-only, HEAD always wins
@@ -128,9 +129,9 @@ TelegramBotVPN/
 - `TELEGRAM_ACCESS_RESEND_ENABLE` feature flag (disabled by default)
 
 ### CI/CD
-- `backend-mvp-release-readiness` — static release validation
-- `backend-postgres-mvp-smoke-validation` — PostgreSQL integration tests
-- Deploy workflow with Docker, nginx, SSL, post-deploy hardening, Xray restart, DB cleanup
+- Источник истины — `.gitlab-ci.yml`: автоматические backend/frontend-проверки, PostgreSQL и E2E для MR и main.
+- Production-деплой из main ждёт все предыдущие стадии, сериализован через `resource_group: production` и проверяет готовность через nginx.
+- Названия `backend-mvp-release-readiness` и `backend-postgres-mvp-smoke-validation` относятся к прежним GitHub workflows.
 
 ---
 
@@ -239,7 +240,7 @@ type(scope): imperative description
 5. **Validate** — `cd backend && python -m pytest -q` (must pass before push)
 6. **Commit** — stage only intended files, never `git add .` blindly
 7. **Push** — `git push -u origin <branch>` (within 24h of branch creation)
-8. **PR** — `gh pr create` with summary and test plan
+8. **MR** — `glab mr create` с описанием изменения и результатами проверок
 9. **CI + review** — wait for green CI, get review approval
 10. **Merge and cleanup** — delete branch after merge
 
@@ -249,17 +250,17 @@ Return a concise delivery report using the format below. Do not invent output, c
 
 ---
 
-## GitHub and CI workflow
+## Работа с GitLab и CI
 
-**Repository:** `rsidorenko/dev-sandbox` on GitHub (remote `origin`)
+**Репозиторий:** `rsidorenko/dev-sandbox` на GitLab.com (remote `origin`).
 
 **Useful commands:**
 ```bash
-gh pr create --title "..." --body "..."
-gh pr view
-gh run list --limit 10
-gh run view <run-id>
-gh run view <run-id> --log-failed
+glab mr create --title "..." --description "..."
+glab mr view <номер-MR>
+glab ci list
+glab ci view <ветка>
+glab ci trace <job-id>
 ```
 
 **CI rules:**
@@ -268,7 +269,7 @@ gh run view <run-id> --log-failed
 - Never force-push
 - A CI failure caused by this batch's changes must be fixed before reporting done
 - A pre-existing CI failure must be reported with evidence
-- `CLAUDE.md` at repo root does **not** trigger CI workflows
+- Изменения документации, включая `CLAUDE.md`, также запускают CI для MR/main: фильтра по изменённым файлам нет.
 
 ---
 
@@ -324,10 +325,10 @@ gh run view <run-id> --log-failed
 - All git-facing prose (commit messages, PR titles and bodies, code comments) must be in Russian; branch names must be in English (`type/scope`)
 
 **GitLab usage — anti-ban (HARD RULES, every session):**
-We migrated off GitHub (account `rsidorenko` was **suspended 2026-07-22**) → **GitLab.com** (`rsidorenko/dev-sandbox`, private). Access: SSH key `~/.ssh/id_ed25519_gitlab` (remote `gitlab`) + `glab` CLI (PAT). Full detail in memory `reference_gitlab_workflow_rules.md` — **READ IT before any non-trivial GitLab work**. To never get banned again for "suspicious activity":
+We migrated off GitHub (account `rsidorenko` was **suspended 2026-07-22**) → **GitLab.com** (`rsidorenko/dev-sandbox`, private). Access: SSH key `~/.ssh/id_ed25519_gitlab` (remote `origin`) + `glab` CLI (PAT). Full detail in memory `reference_gitlab_workflow_rules.md` — **READ IT before any non-trivial GitLab work**. To never get banned again for "suspicious activity":
 - **NEVER clone/fork/download many repos, and NEVER script loops of `git clone`/fork** — GitLab auto-bans accounts for this ("git abuse rate limit"). This is the #1 ban trigger. Only ever clone/pull this project's own remote.
 - **NEVER hammer the API** (`glab`/`curl`) in tight loops. Check pipeline/CI status a few times **with pauses**, not sub-minute polling. Cache results. Authenticated API rate limits apply (~64,800 max; sensitive endpoints 5/min).
-- **CI minutes are scarce** (400/month on free private namespace): heavy jobs are manual (`.manual-rules` in `.gitlab-ci.yml`); do not re-run pipelines frivolously; prefer a self-hosted runner when one is set up.
+- **Берегите ресурсы CI:** backend/frontend, PostgreSQL, build и E2E сейчас автоматические; правила проверять в `.gitlab-ci.yml`. Определение `.manual-rules` не означает, что эти jobs его используют. Не перезапускайте pipelines без причины; предпочтителен self-hosted runner.
 - **Shared runners are for THIS project's CI only** — never run crypto-mining or unrelated workloads (abuse policy).
 - **Before any bulk/automated git or API operation, STOP** and confirm it won't trip abuse detection. When unsure, ask the user first.
 - Normal push/pull/branch/MR is fine and expected — limits are generous for ordinary dev work; the danger is **automation and bulk operations**.

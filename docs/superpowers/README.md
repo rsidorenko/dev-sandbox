@@ -70,7 +70,7 @@ brainstorm  →  spec  →  review  →  plan  →  tasks  →  implement  →  
 | **review** | Проверить spec на полноту/противоречия (самопроверка или subagent-reviewer), согласовать с пользователем. | правки spec'а |
 | **plan** | Декомпозировать spec на фазы и задачи, каждая задача — с file-refs и acceptance-критерием. | `docs/superpowers/plans/YYYY-MM-DD-<feature>.md` |
 | **tasks / implement** | Реализовывать по одной задаче из плана; после каждой — код компилируется/тесты зелёные. | код + коммиты |
-| **finish** | Проверить тесты, прогнать preflight/health-check, открыть PR/MR. | PR/MR |
+| **finish** | Проверить тесты, прогнать preflight/health-check, открыть MR в GitLab. | MR |
 
 ### Конвенция именования файлов
 
@@ -98,14 +98,14 @@ brainstorm  →  spec  →  review  →  plan  →  tasks  →  implement  →  
 ## Интеграция с `/deliver`
 
 SDD не отменяет Trunk-Based Development, а добавляет **фазу проектирования перед кодом**.
-Одна фича = один spec + один plan + одна короткая ветка (`<type>/<scope>`) + один PR.
+Одна фича = один spec + один plan + одна короткая ветка (`<type>/<scope>`) + один MR.
 
 | Этап SDD | Куда в цикле `/deliver` |
 |---|---|
 | brainstorm → spec | **До ветки** или на шагах Branch/Read: понять задачу, оформить design-spec, согласовать |
 | review + plan | Там же, перед кодом: план с задачами и acceptance |
 | implement (задачи плана) | Шаг **Implement** `/deliver` — код строго по задачам плана |
-| finish | Шаги **Validate → Commit → Push → PR → Merge** `/deliver` |
+| finish | Шаги **Validate → Commit → Push → MR → Merge** `/deliver` |
 
 Правила веток/коммитов/CI из `CLAUDE.md` и `/deliver` остаются главными; SDD лишь фиксирует
 «что и зачем» делается перед тем, как «как» делать.
