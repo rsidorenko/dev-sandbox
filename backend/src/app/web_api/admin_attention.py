@@ -16,7 +16,7 @@ def _issue(kind, ref, title, user=None, severity="warning"):
     }
 
 
-async def attention_snapshot(pool):
+async def attention_snapshot(pool, *, servers=None):
     issues = []
     for row in await pool.fetch(
         "SELECT internal_user_id,COUNT(*) count FROM balance_access_jobs WHERE status='pending' AND created_at<NOW()-INTERVAL '10 minutes' GROUP BY internal_user_id"
@@ -33,7 +33,8 @@ async def attention_snapshot(pool):
         _issue("payment", row["internal_fact_ref"], "Применение оплаты требует проверки", row["internal_user_id"])
         for row in review_rows
     )
-    servers = await server_snapshot(pool)
+    if servers is None:
+        servers = await server_snapshot(pool)
     for server in servers["servers"]:
         if server["is_active"] and server["provider_kind"] == "bare_xray" and server["health"] in {"error", "stale"}:
             label = "Ошибка опроса статистики" if server["health"] == "error" else "Статистика устарела"

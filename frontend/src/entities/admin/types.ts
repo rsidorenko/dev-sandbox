@@ -658,3 +658,11 @@ export interface AdminIncidentsResponse {
   events: { id: number; incident_id: string; actor: string; action: string; note: string; created_at: string }[];
   audit: { id: string; created_at: string; actor: string; internal_user_id: string | null; action: string; detail: string }[];
 }
+
+export interface AdminOverviewResponse {
+  observed_at: string; day: string; active_users: number; new_users: number;
+  revenue_kopecks: number; payments: number; unknown_amount_payments: number;
+  pending_access: number; pending_rotations: number; open_incidents: number;
+  hosts: number; connections: number; observations: Record<"healthy" | "error" | "stale" | "unknown", number>;
+  attention_total: number; issues: AdminAttentionIssue[];
+}

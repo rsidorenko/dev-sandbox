@@ -34,7 +34,7 @@ function AdminLoginForm() {
       }
       return;
     }
-    const next = safeNextPath(searchParams.get("next"));
+    const next = safeNextPath(searchParams.get("next"), "/admin");
     // Полная перезагрузка, чтобы middleware увидел куку admin_session.
     window.location.href = next;
   });

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { adminNavActive, adminNavIdle } from "./ui";
 
 const groups = [
+  { label: "Сервис сегодня", links: [["/admin", "Обзор"]] },
   { label: "Работа с клиентами", links: [
     ["/admin/users", "Пользователи"],
     ["/admin/payments", "Платежи"],
@@ -23,7 +24,7 @@ function NavigationLinks({ close }: { close?: () => void }) {
     {groups.map(group => <div key={group.label}>
       <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
       <div className="flex flex-col gap-1">{group.links.map(([href, label]) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+        const active = pathname === href || (href !== "/admin" && pathname.startsWith(`${href}/`));
         return <Link key={href} href={href} onClick={close} aria-current={active ? "page" : undefined}
           className={`${active ? adminNavActive : adminNavIdle} block py-2.5`}>{label}</Link>;
       })}</div>
