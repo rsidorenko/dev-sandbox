@@ -1221,13 +1221,35 @@ class XuiVlessProvider(VlessProviderPort):
                 }
                 continue
 
+            try:
+                expected_flow = REALITY_TCP_FLOW if transport == "tcp" else ""
+                expected = {
+                    _email_from_internal(uid, transport_type=transport): (
+                        await self._uuid_for_transport(uid, transport),
+                        expected_flow,
+                    )
+                    for uid in user_ids
+                }
+                if not await client.persist_accounts(expected):
+                    raise RuntimeError("Cannot persist desired accounts")
+            except Exception:
+                _LOGGER.warning("reconcile_bare_xray persist_failed server=%s", client.server_id)
+                failed_inbounds += 1
+                summary[key] = {
+                    "present": len(present),
+                    "desired": len(desired),
+                    "added": 0,
+                    "removed": 0,
+                    "status": "persist_failed",
+                }
+                continue
+
             added = removed = 0
             mutation_failed = False
             for uid in user_ids:
                 email = _email_from_internal(uid, transport_type=transport)
                 try:
-                    expected_uuid = await self._uuid_for_transport(uid, transport)
-                    expected_flow = REALITY_TCP_FLOW if transport == "tcp" else ""
+                    expected_uuid, expected_flow = expected[email]
                     if accounts.get(email) == (expected_uuid, expected_flow):
                         continue
                     if email in present:

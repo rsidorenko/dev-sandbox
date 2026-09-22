@@ -27,7 +27,7 @@ from typing import Any
 from urllib.parse import quote
 
 from scripts.bare_xray_provision import connect
-from scripts.canonicalize_routing import _persist_users, _run
+from scripts.canonicalize_routing import _run, apply_remote_config
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,47}$")
 _TAG_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -369,16 +369,6 @@ def profile_summary(profile: AutoSelectionProfile) -> str:
     )
 
 
-def _restore(cli: Any, profile: AutoSelectionProfile, backup_path: str) -> bool:
-    config_q = shlex.quote(profile.config_path)
-    backup_q = shlex.quote(backup_path)
-    service_q = shlex.quote(profile.service_name)
-    _run(cli, f"sudo cp {backup_q} {config_q}")
-    _run(cli, f"sudo systemctl restart {service_q}")
-    rc, active, _ = _run(cli, f"systemctl is-active {service_q}")
-    return rc == 0 and active.strip() == "active"
-
-
 def apply_profile(profile: AutoSelectionProfile, *, dry_run: bool) -> bool:
     """Проверить или безопасно применить профиль по SSH."""
     try:
@@ -387,12 +377,7 @@ def apply_profile(profile: AutoSelectionProfile, *, dry_run: bool) -> bool:
         print(f"[{profile.name}] SSH-подключение к {profile.host} не удалось: {exc!r}", file=sys.stderr)
         return False
     config_q = shlex.quote(profile.config_path)
-    xray_q = shlex.quote(profile.xray_bin)
     service_q = shlex.quote(profile.service_name)
-    backup_path = f"{profile.config_path}{_BACKUP_SUFFIX}"
-    backup_q = shlex.quote(backup_path)
-    remote_tmp = f"/tmp/xray-auto-selection-{profile.name}.json"
-    tmp_q = shlex.quote(remote_tmp)
     try:
         rc, raw_config, err = _run(cli, f"sudo cat {config_q}")
         if rc != 0:
@@ -410,46 +395,15 @@ def apply_profile(profile: AutoSelectionProfile, *, dry_run: bool) -> bool:
         if dry_run:
             return True
 
-        persisted, persist_failed = _persist_users(cli, current)
-        if persist_failed:
-            print(
-                f"[{profile.name}] сохранение live-users не удалось для {persist_failed} inbound; применение отменено",
-                file=sys.stderr,
-            )
+        if profile.xray_bin != _DEFAULT_XRAY_BIN or profile.service_name != "xray":
+            raise ValueError("Durable writer supports the standard Xray service only")
+        if not apply_remote_config(cli, merged, config_path=profile.config_path):
+            print(f"[{profile.name}] обновление конфигурации не завершено", file=sys.stderr)
             return False
-        merged = merge_auto_selection(current, profile)
-        payload = json.dumps(merged, ensure_ascii=False, indent=2)
-        sftp = cli.open_sftp()
-        try:
-            with sftp.open(remote_tmp, "w") as handle:
-                handle.write(payload)
-        finally:
-            sftp.close()
-
-        rc, _, test_err = _run(cli, f"sudo {xray_q} run -test -config {tmp_q}", timeout=60)
-        if rc != 0:
-            _run(cli, f"rm -f {tmp_q}")
-            print(f"[{profile.name}] xray test не прошёл: {test_err.strip()[:300]}", file=sys.stderr)
-            return False
-
-        rc, _, err = _run(
-            cli,
-            f"sudo cp {config_q} {backup_q} && sudo install -m 600 {tmp_q} {config_q} && rm -f {tmp_q}",
-        )
-        if rc != 0:
-            print(f"[{profile.name}] установка конфига не удалась: {err.strip()[:200]}", file=sys.stderr)
-            return False
-
-        _run(cli, f"sudo systemctl restart {service_q}")
         rc, active, _ = _run(cli, f"systemctl is-active {service_q}")
         if rc != 0 or active.strip() != "active":
-            restored = _restore(cli, profile, backup_path)
-            print(
-                f"[{profile.name}] Xray не запустился; backup {'восстановлен' if restored else 'НЕ восстановлен'}",
-                file=sys.stderr,
-            )
             return False
-        print(f"[{profile.name}] OK: xray=active, users_saved={persisted}, backup={backup_path}")
+        print(f"[{profile.name}] OK: xray=active, актуальные clients сохранены")
         return True
     finally:
         cli.close()

@@ -55,6 +55,10 @@ class _FakeBareXrayClient:
         self.added: list[tuple[str, str]] = []
         self.removed: list[str] = []
 
+    async def persist_accounts(self, accounts):
+        self.persisted = dict(accounts)
+        return True
+
     async def list_user_accounts(self):
         transport = self.server_config.transport_type
         prefix = "user-" if transport == "tcp" else "x-user-"
@@ -451,4 +455,22 @@ def test_malformed_account_in_snapshot_prevents_all_mutations():
     client.list_user_accounts = types.MethodType(XrayApiClient.list_user_accounts, client)
     p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
     assert _run(p.reconcile_bare_xray())["failed_inbounds"] == 1
+    assert client.added == client.removed == []
+
+
+def test_reconcile_persistence_failure_prevents_live_changes():
+    client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["orphan"])
+    client.persist_accounts = AsyncMock(return_value=False)
+    p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+    result = _run(p.reconcile_bare_xray())
+    assert result["failed_inbounds"] == 1
+    assert result["inbounds"]["2/tcp"]["status"] == "persist_failed"
+    assert client.added == client.removed == []
+
+
+def test_reconcile_persists_accounts_even_when_live_already_matches():
+    client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["user-u1"])
+    p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+    assert _run(p.reconcile_bare_xray())["failed_inbounds"] == 0
+    assert client.persisted == {"user-u1": (_vless_uuid_for_transport("u1", "tcp"), "xtls-rprx-vision")}
     assert client.added == client.removed == []

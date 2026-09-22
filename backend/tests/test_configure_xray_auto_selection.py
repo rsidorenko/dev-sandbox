@@ -344,7 +344,7 @@ class _SshClient:
         self.closed = True
 
 
-def test_apply_restores_backup_when_restart_fails(monkeypatch) -> None:
+def test_apply_does_not_restore_stale_backup_when_service_fails(monkeypatch) -> None:
     profile = auto.parse_profile(_profile_data())
     ssh = _SshClient()
     commands: list[str] = []
@@ -363,15 +363,15 @@ def test_apply_restores_backup_when_restart_fails(monkeypatch) -> None:
 
     monkeypatch.setattr(auto, "connect", lambda *_args: ssh)
     monkeypatch.setattr(auto, "_run", fake_run)
-    monkeypatch.setattr(auto, "_persist_users", lambda *_args: (7, 0))
+    monkeypatch.setattr(auto, "apply_remote_config", lambda *_args, **_kwargs: True)
 
     assert auto.apply_profile(profile, dry_run=False) is False
     assert ssh.closed is True
-    assert any(".pre-auto-selection.bak /usr/local/etc/xray/config.json" in cmd for cmd in commands)
-    assert active_checks == 2
+    assert not any("sudo cp" in cmd for cmd in commands)
+    assert active_checks == 1
 
 
-def test_apply_aborts_before_write_when_live_user_persist_fails(monkeypatch) -> None:
+def test_apply_aborts_when_durable_writer_fails(monkeypatch) -> None:
     profile = auto.parse_profile(_profile_data())
     ssh = _SshClient()
     commands: list[str] = []
@@ -383,7 +383,7 @@ def test_apply_aborts_before_write_when_live_user_persist_fails(monkeypatch) -> 
 
     monkeypatch.setattr(auto, "connect", lambda *_args: ssh)
     monkeypatch.setattr(auto, "_run", fake_run)
-    monkeypatch.setattr(auto, "_persist_users", lambda *_args: (3, 1))
+    monkeypatch.setattr(auto, "apply_remote_config", lambda *_args, **_kwargs: False)
 
     assert auto.apply_profile(profile, dry_run=False) is False
     assert not ssh.files

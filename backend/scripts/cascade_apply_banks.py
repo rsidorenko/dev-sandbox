@@ -44,25 +44,54 @@ _LOGGER = logging.getLogger(__name__)
 # `.com`/cloud variants deterministic and re-confirms the key ones.
 BANK_DOMAINS: list[str] = [
     # --- banks (.ru + .com/cloud variants) ---
-    "domain:sberbank.ru", "domain:sberbank.com", "domain:sber.ru", "domain:sberbank-online.ru",
-    "domain:tinkoff.ru", "domain:tinkoff.com", "domain:tbank.ru",
-    "domain:vtb.ru", "domain:vtbdirect.ru",
-    "domain:alfabank.ru", "domain:alfa-bank.ru", "domain:alfabank.com",
-    "domain:gpb.ru", "domain:gazprombank.ru",
-    "domain:raiffeisen.ru", "domain:raif.ru",
-    "domain:mkb.ru", "domain:psbank.ru", "domain:open.ru", "domain:rosbank.ru",
-    "domain:homecredit.ru", "domain:sovkombank.ru", "domain:otpbank.ru",
-    "domain:pochtabank.ru", "domain:pochta.ru", "domain:mtsbank.ru", "domain:bcs.ru",
-    "domain:ubrr.ru", "domain:tochka.com", "domain:tochka.ru", "domain:avangard.ru",
-    "domain:bspb.ru", "domain:unicreditbank.ru", "domain:bank-zenit.ru", "domain:rencredit.ru",
+    "domain:sberbank.ru",
+    "domain:sberbank.com",
+    "domain:sber.ru",
+    "domain:sberbank-online.ru",
+    "domain:tinkoff.ru",
+    "domain:tinkoff.com",
+    "domain:tbank.ru",
+    "domain:vtb.ru",
+    "domain:vtbdirect.ru",
+    "domain:alfabank.ru",
+    "domain:alfa-bank.ru",
+    "domain:alfabank.com",
+    "domain:gpb.ru",
+    "domain:gazprombank.ru",
+    "domain:raiffeisen.ru",
+    "domain:raif.ru",
+    "domain:mkb.ru",
+    "domain:psbank.ru",
+    "domain:open.ru",
+    "domain:rosbank.ru",
+    "domain:homecredit.ru",
+    "domain:sovkombank.ru",
+    "domain:otpbank.ru",
+    "domain:pochtabank.ru",
+    "domain:pochta.ru",
+    "domain:mtsbank.ru",
+    "domain:bcs.ru",
+    "domain:ubrr.ru",
+    "domain:tochka.com",
+    "domain:tochka.ru",
+    "domain:avangard.ru",
+    "domain:bspb.ru",
+    "domain:unicreditbank.ru",
+    "domain:bank-zenit.ru",
+    "domain:rencredit.ru",
     "domain:ozonbank.ru",
     # --- payment systems / fintech ---
-    "domain:yoomoney.ru", "domain:money.yandex.ru",
-    "domain:qiwi.com", "domain:qiwi.ru",
-    "domain:mir.ru", "domain:mirpay.ru", "domain:mironline.ru",
+    "domain:yoomoney.ru",
+    "domain:money.yandex.ru",
+    "domain:qiwi.com",
+    "domain:qiwi.ru",
+    "domain:mir.ru",
+    "domain:mirpay.ru",
+    "domain:mironline.ru",
     "domain:nspk.ru",  # covers sbp.nspk.ru (NSPK / SBP)
     "domain:gosuslugi.ru",
-    "domain:troika.ru", "domain:mos.ru",  # transport.mos.ru covered by mos.ru
+    "domain:troika.ru",
+    "domain:mos.ru",  # transport.mos.ru covered by mos.ru
     # --- anti-fraud / security vendors bank apps phone home to (non-.ru) ---
     # All *.ru bank domains already egress via direct via regexp:.*\.ru$ / geoip:ru below;
     # the banks rule's real value is these non-.ru endpoints banks' sites/apps contact.
@@ -90,17 +119,14 @@ def merge_banks_direct(config: dict) -> dict:
     rules = cfg.setdefault("routing", {}).setdefault("rules", [])
     # idempotency: drop any existing rule that is exactly our banks rule
     rules[:] = [
-        r for r in rules
-        if not (r.get("outboundTag") == "direct" and set(r.get("domain") or []) == BANK_DOMAINS_SET)
+        r for r in rules if not (r.get("outboundTag") == "direct" and set(r.get("domain") or []) == BANK_DOMAINS_SET)
     ]
     insert_at = 0
     for i, r in enumerate(rules):
         ot = r.get("outboundTag")
         if ot == "api" or any("geoip:private" in str(x) for x in (r.get("ip") or [])):
             insert_at = i + 1
-    rules[insert_at:insert_at] = [
-        {"type": "field", "domain": list(BANK_DOMAINS), "outboundTag": "direct"}
-    ]
+    rules[insert_at:insert_at] = [{"type": "field", "domain": list(BANK_DOMAINS), "outboundTag": "direct"}]
     return cfg
 
 
@@ -120,10 +146,8 @@ BARE_XRAY_ENTRIES = [
     # All four are bare_xray now (US converted from x-ui on 2026-07-27).
     CascadeEntry("DE cascade-entry (Frankfurt egress)", "158.160.188.35"),
     CascadeEntry("FI cascade-entry (Helsinki egress)", "85.208.85.117"),
-    CascadeEntry("LT cascade-entry (Lithuania egress)", "158.160.80.40",
-                 key="C:/Users/Roman/.ssh/yandex_new_key"),
-    CascadeEntry("US cascade-entry (US egress)", "89.169.139.153",
-                 key="D:/TelegramBotVPN/.ssh/yandex-relay"),
+    CascadeEntry("LT cascade-entry (Lithuania egress)", "158.160.80.40", key="C:/Users/Roman/.ssh/yandex_new_key"),
+    CascadeEntry("US cascade-entry (US egress)", "89.169.139.153", key="D:/TelegramBotVPN/.ssh/yandex-relay"),
 ]
 
 
@@ -135,8 +159,15 @@ def apply_to_entry(entry: CascadeEntry, *, dry_run: bool) -> bool:
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        cli.connect(entry.host, port=22, username=entry.user, key_filename=entry.key,
-                    look_for_keys=False, allow_agent=False, timeout=15)
+        cli.connect(
+            entry.host,
+            port=22,
+            username=entry.user,
+            key_filename=entry.key,
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=15,
+        )
     except Exception as exc:
         print(f"[{entry.name}] SSH connect FAILED: {exc!r}", file=sys.stderr)
         return False
@@ -170,27 +201,17 @@ def apply_to_entry(entry: CascadeEntry, *, dry_run: bool) -> bool:
             print(f"[{entry.name}] OK (banks rule already present — no-op)")
             return True
 
-        # backup
-        run(f"sudo cp {entry.config} {entry.config}{BACKUP_SUFFIX}")
-        # write merged
-        run(f"sudo tee {entry.config} > /dev/null <<'__CFG__'\n{json.dumps(merged, ensure_ascii=False, indent=2)}\n__CFG__")
-        # test
-        rc, _, test_err = run(f"sudo /usr/local/bin/xray run -test -config {entry.config}")
-        if rc != 0:
-            # restore backup on test failure
-            run(f"sudo cp {entry.config}{BACKUP_SUFFIX} {entry.config}")
-            print(f"[{entry.name}] xray test FAILED (restored backup): {test_err.strip()[:300]}", file=sys.stderr)
+        from scripts.canonicalize_routing import apply_remote_config
+
+        if not apply_remote_config(cli, merged, config_path=entry.config):
+            print(f"[{entry.name}] обновление конфигурации не завершено", file=sys.stderr)
             return False
-        # restart
-        rc, _, restart_err = run("sudo systemctl restart xray")
-        if rc != 0:
-            print(f"[{entry.name}] systemctl restart returned rc={rc}: {restart_err.strip()[:200]}", file=sys.stderr)
-            return False
-        # verify: rule present + xray active + :443 listening
         rc, active, _ = run("systemctl is-active xray")
         _, ports, _ = run("sudo ss -lnt | grep -E ':443 ' || true")
         ok = active.strip() == "active" and ":443" in ports
-        print(f"[{entry.name}] {'OK' if ok else 'VERIFY-FAIL'}: xray={active.strip()} :443={'up' if ':443' in ports else 'DOWN'}; banks rule inserted")
+        print(
+            f"[{entry.name}] {'OK' if ok else 'VERIFY-FAIL'}: xray={active.strip()} :443={'up' if ':443' in ports else 'DOWN'}; banks rule inserted"
+        )
         return ok
     finally:
         cli.close()

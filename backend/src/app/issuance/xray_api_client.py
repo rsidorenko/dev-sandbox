@@ -22,6 +22,7 @@ import logging
 import shlex
 import time
 
+from app.issuance.xray_config_store import decode_vless_account, run_remote_transaction
 from app.issuance.xui_client import REALITY_TCP_FLOW, XuiServerConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,49 +79,6 @@ def _enc_uint32(field: int, value: int) -> bytes:
 def encode_vless_account(*, id: str, flow: str = "", encryption: str = "none") -> bytes:
     """xray.proxy.vless.Account { string id=1; string flow=2; string encryption=3; ... }."""
     return _enc_string(1, id) + _enc_string(2, flow) + _enc_string(3, encryption)
-
-
-def decode_vless_account(raw: bytes) -> tuple[str, str]:
-    """Строго извлекает UUID и flow, пропуская остальные protobuf-поля."""
-    pos = 0
-    fields: dict[int, str] = {}
-
-    def read_varint() -> int:
-        nonlocal pos
-        value = 0
-        for shift in range(0, 70, 7):
-            if pos >= len(raw):
-                raise ValueError("Truncated account")
-            byte = raw[pos]
-            pos += 1
-            value |= (byte & 127) << shift
-            if not byte & 128:
-                return value
-        raise ValueError("Invalid varint")
-
-    while pos < len(raw):
-        tag = read_varint()
-        field, wire = tag >> 3, tag & 7
-        if field == 0 or (field in (1, 2) and wire != 2):
-            raise ValueError("Invalid account field")
-        if wire == 0:
-            read_varint()
-            continue
-        if wire == 2:
-            size = read_varint()
-        elif wire in (1, 5):
-            size = 8 if wire == 1 else 4
-        else:
-            raise ValueError("Unsupported account wire type")
-        end = pos + size
-        if end > len(raw):
-            raise ValueError("Truncated account field")
-        if field in (1, 2):
-            fields[field] = raw[pos:end].decode("utf-8")
-        pos = end
-    if not fields.get(1):
-        raise ValueError("Missing account id")
-    return fields[1], fields.get(2, "")
 
 
 def encode_typed_message(type_url: str, value: bytes) -> bytes:
@@ -325,10 +283,33 @@ class XrayApiClient:
                 self._ssh.close()
         self._ssh = None
 
-    async def _mutating_rpc(self, payload: str) -> tuple[bool, str]:
+    def _run_durable_mutation(self, request: dict) -> tuple[bool, str]:
+        try:
+            ok = run_remote_transaction(self._connect(), request, root=self._ssh_user == "root")
+            if not ok:
+                self._reset_ssh()
+                _LOGGER.warning("xray_durable mutation_failed server=%s", self.server_id)
+            return ok, ""
+        except Exception:
+            self._reset_ssh()
+            _LOGGER.warning("xray_durable transport_failed server=%s", self.server_id)
+            return False, ""
+
+    async def persist_accounts(self, accounts: dict[str, tuple[str, str]]) -> bool:
+        """Фиксирует весь желаемый набор перед live-reconcile, не перезапуская Xray."""
+        clients = [{"email": email, "id": value[0], "flow": value[1]} for email, value in accounts.items()]
+        ok, _ = await self._mutating_rpc("", durable={"action": "snapshot", "clients": clients})
+        return ok
+
+    async def _mutating_rpc(self, payload: str, *, durable: dict | None = None) -> tuple[bool, str]:
         # Отмена ожидания не останавливает SSH-поток. Не отдаём fleet-lock,
         # пока поток не завершён: иначе старый AddUser переживёт ротацию.
-        task = asyncio.create_task(asyncio.to_thread(self._run_grpcurl, "AlterInbound", payload))
+        if durable is None:
+            raise ValueError("Durable mutation is required")
+        durable = {**durable, "tag": self._config.xray_inbound_tag, "api_port": self._api_port}
+        if payload:
+            durable["rpc"] = json.loads(payload)
+        task = asyncio.create_task(asyncio.to_thread(self._run_durable_mutation, durable))
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
@@ -343,20 +324,28 @@ class XrayApiClient:
             raise
 
     async def add_client(self, *, user_uuid: str, email: str, **_ignored: object) -> bool:
-        """Add (or replace) a user on this inbound. flow follows the transport."""
+        """Сначала сохраняет ключ для restart, затем добавляет пользователя через API."""
         payload = alter_add_payload(
             tag=self._config.xray_inbound_tag,
             email=email,
             uuid=user_uuid,
             flow=_flow_for_transport(self._config.transport_type),
         )
-        ok, _ = await self._mutating_rpc(payload)
+        ok, _ = await self._mutating_rpc(
+            payload,
+            durable={
+                "action": "add",
+                "clients": [
+                    {"email": email, "id": user_uuid, "flow": _flow_for_transport(self._config.transport_type)}
+                ],
+            },
+        )
         return ok
 
     async def remove_client(self, *, email: str, **_ignored: object) -> bool:
         """Remove a user by email. Idempotent (missing user still returns ok)."""
         payload = alter_remove_payload(tag=self._config.xray_inbound_tag, email=email)
-        ok, _ = await self._mutating_rpc(payload)
+        ok, _ = await self._mutating_rpc(payload, durable={"action": "remove", "email": email})
         return ok
 
     async def list_user_accounts(self) -> dict[str, tuple[str, str]]:

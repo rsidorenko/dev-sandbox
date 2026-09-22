@@ -16,14 +16,13 @@ Rollout-скрипт для коллектора traffic-stats (ветка B): �
 api-блока — это не наш кейс (rollback-миграция): скрипт abort с ValueError.
 
 Порядок работы per-target (скелет = canonicalize_routing.py): SSH → sudo cat →
-persist живых gRPC-юзеров в settings.clients (провал = abort, рестарт не делаем)
-→ merge → backup ``.pre-stats.bak`` → tee → ``xray run -test`` gate (провал =
-auto-restore) → restart → verify: is-active + read-back трёх ключей + число
+merge → сохранение актуальных clients с диска под общим host-lock →
+``xray run -test`` staged-файла → atomic replace → restart → verify: is-active + read-back трёх ключей + число
 юзеров GetInboundUsers == до рестарта + QueryStats rc=0/валидный JSON (пустой
 ``stat`` сразу после рестарта — НОРМА: счётчики появляются после первого трафика).
 
-Откат per-host: ``sudo cp config.json.pre-stats.bak config.json && sudo systemctl
-restart xray`` (reconcile-таймер дозаполнит юзеров за ~3 мин).
+Откат сетевых настроек выполняется общим writer с сохранением текущих clients.
+Прямое восстановление полного старого backup запрещено: оно возвращает отозванные ключи.
 
 Rollout-порядок (план, оператор согласовал): пилот YT → 24h soak → FI (первый
 dual-inbound — валидирует атрибуцию email→строки) → DE/LT/US → CDN-LT/CDN-DE
@@ -50,10 +49,9 @@ from dataclasses import dataclass
 # Хелперы и константы — из канонизатора (тот же SSH/gRPC/backup-паттерн, DRY).
 from scripts.canonicalize_routing import (
     GRPC_API,
-    XRAY_BIN,
     RoutingTarget,
-    _persist_users,
     _run,
+    apply_remote_config,
     parse_grpc_users,
 )
 
@@ -221,21 +219,8 @@ def verify_query_stats(cli) -> tuple[bool, str]:
     return True, f"QueryStats ok (stat entries={len(data.get('stat', []))}; 0 сразу после рестарта — норма)"
 
 
-def _restore_backup_and_restart(cli, target: StatsTarget) -> bool:
-    """Откат: восстановить .pre-stats.bak и перезапустить xray. True если активен."""
-    _run(cli, f"sudo cp {target.config}{BACKUP_SUFFIX} {target.config}")
-    _run(cli, "sudo systemctl restart xray")
-    rc, active, _ = _run(cli, "systemctl is-active xray")
-    return rc == 0 and active.strip() == "active"
-
-
 def apply_to_target(target: StatsTarget, *, dry_run: bool) -> bool:
-    """SSH → persist users → merge трёх ключей → backup → test → restart → verify.
-
-    Safe by construction: persist-users до рестарта (юзеров не теряем), test-gate
-    с auto-restore, после рестарта — сверка read-back/юзеров/QueryStats. Если после
-    рестарта xray не активен — авто-откат бэкапа. Уже-включённый бокс = verify-only.
-    """
+    """Merge → staged test → atomic write с актуальными clients → restart → verify."""
     import paramiko
 
     cli = paramiko.SSHClient()
@@ -288,15 +273,6 @@ def apply_to_target(target: StatsTarget, *, dry_run: bool) -> bool:
             )
             return True
 
-        # живые gRPC-юзеры — в settings.clients, чтобы рестарт их не снёс
-        persisted, persist_failed = _persist_users(cli, config)
-        if persist_failed:
-            print(
-                f"[{target.name}] ABORT: gRPC persist failed on {persist_failed} inbound(s); no write, no restart",
-                file=sys.stderr,
-            )
-            return False
-
         try:
             merged, changes = merge_stats_keys(config)
         except ValueError as exc:  # pragma: no cover - preview уже прогнал этот кейс
@@ -305,30 +281,10 @@ def apply_to_target(target: StatsTarget, *, dry_run: bool) -> bool:
 
         counts_before = configured_user_counts(merged)
 
-        # backup + write + test (auto-restore on failure)
-        _run(cli, f"sudo cp {target.config} {target.config}{BACKUP_SUFFIX}")
-        _run(
-            cli,
-            f"sudo tee {target.config} > /dev/null <<'__CFG__'\n"
-            f"{json.dumps(merged, ensure_ascii=False, indent=2)}\n__CFG__",
-        )
-        rc, _, test_err = _run(cli, f"sudo {XRAY_BIN} run -test -config {target.config}")
-        if rc != 0:
-            _run(cli, f"sudo cp {target.config}{BACKUP_SUFFIX} {target.config}")
-            print(f"[{target.name}] xray test FAILED (restored backup): {test_err.strip()[:300]}", file=sys.stderr)
+        if not apply_remote_config(cli, merged, config_path=target.config):
+            print(f"[{target.name}] обновление конфигурации не завершено", file=sys.stderr)
             return False
-
-        # restart
-        _run(cli, "sudo systemctl restart xray")
         rc, active, _ = _run(cli, "systemctl is-active xray")
-        if rc != 0 or active.strip() != "active":
-            restored = _restore_backup_and_restart(cli, target)
-            print(
-                f"[{target.name}] FAILED: xray not active after restart; "
-                f"backup restore attempted -> {'active (rolled back)' if restored else 'STILL DOWN — manual action needed'}",
-                file=sys.stderr,
-            )
-            return False
 
         # verify: read-back трёх ключей
         rc, rb_json, _ = _run(cli, f"sudo cat {target.config}")
@@ -352,7 +308,7 @@ def apply_to_target(target: StatsTarget, *, dry_run: bool) -> bool:
         detail = f"readback3keys={rb_ok} users={'ok' if not user_problems else ','.join(user_problems)}"
         print(
             f"[{target.name}] {'OK' if ok else 'VERIFY-WARN'}: xray={active.strip()} "
-            f"changes[{len(changes)}]={'; '.join(changes)} persisted={persisted} {detail} {query_msg}"
+            f"changes[{len(changes)}]={'; '.join(changes)} persisted={sum(counts_before.values())} {detail} {query_msg}"
         )
         if user_problems:
             print(

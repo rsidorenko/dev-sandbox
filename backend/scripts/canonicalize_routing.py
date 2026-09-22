@@ -34,11 +34,11 @@ artifact, not a fleet default).
 api/static/m.vk.com (the whole auth path). BANK_DOMAINS is owned by cascade_apply_banks
 (imported here to stay DRY); the other families are defined here.
 
-Before restart, live gRPC users (in-memory on bare_xray) are persisted into
-settings.clients via HandlerService/GetInboundUsers, so the restart does not drop clients.
+Перед restart сохраняются актуальные clients с диска под общим host-lock.
+Backend должен уже сохранять постоянные ключи; старые live-снимки не используются.
 A geoip.dat pre-flight check warns + aborts if the box lacks geodata (canonical rules need
 geoip:private / geoip:ru — a pass-through server freshly converted will not have it). Then
-backup -> write -> `xray run -test` (auto-restore on failure) -> restart -> verify.
+Проверка staged-конфига -> atomic replace -> restart -> verify; rollback под тем же lock.
 
 Targets (7 RU split-routing servers, verified 2026-08-10): 4 cascade-entries DE/FI/LT/US,
 the YouTube-ad-free entry YT, and the two CDN-bypass origins CDN-LT / CDN-DE. All bare_xray.
@@ -419,6 +419,15 @@ TARGETS: list[RoutingTarget] = [
 ]
 
 
+def apply_remote_config(cli, config: dict, *, config_path: str) -> bool:
+    """Общий atomic writer сохраняет актуальные clients и держит lock до restart."""
+    from app.issuance.xray_config_store import CONFIG_PATH, run_remote_transaction
+
+    if config_path != CONFIG_PATH:
+        raise ValueError("Unsupported config path")
+    return run_remote_transaction(cli, {"action": "replace_config", "config": config}, root=False)
+
+
 def _run(cli, cmd: str, timeout: int = 30) -> tuple[int, str, str]:
     _, out, err = cli.exec_command(cmd, timeout=timeout)
     rc = out.channel.recv_exit_status()
@@ -500,34 +509,12 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
             )
             return False
 
-        # persist live gRPC users into settings.clients so the restart does not drop them.
-        persisted, persist_failed = _persist_users(cli, config)
-        if persist_failed:
-            print(
-                f"[{target.name}] ABORT: gRPC persist failed on {persist_failed} inbound(s); no write, no restart",
-                file=sys.stderr,
-            )
+        # Clients берутся с диска под host-lock: live-снимок может содержать
+        # уже отозванный ключ после неудачного RPC удаления.
+        if not apply_remote_config(cli, rebuilt, config_path=target.config):
+            print(f"[{target.name}] обновление конфигурации не завершено", file=sys.stderr)
             return False
-        # re-derive canonical on the config that now carries persisted clients
-        rebuilt = _rebuilt()
-
-        # backup + write
-        _run(cli, f"sudo cp {target.config} {target.config}{BACKUP_SUFFIX}")
-        _run(
-            cli,
-            f"sudo tee {target.config} > /dev/null <<'__CFG__'\n"
-            f"{json.dumps(rebuilt, ensure_ascii=False, indent=2)}\n__CFG__",
-        )
-
-        # test (auto-restore on failure)
-        rc, _, test_err = _run(cli, f"sudo {XRAY_BIN} run -test -config {target.config}")
-        if rc != 0:
-            _run(cli, f"sudo cp {target.config}{BACKUP_SUFFIX} {target.config}")
-            print(f"[{target.name}] xray test FAILED (restored backup): {test_err.strip()[:300]}", file=sys.stderr)
-            return False
-
-        # restart + verify
-        _run(cli, "sudo systemctl restart xray")
+        persisted = sum(len(ib.get("settings", {}).get("clients", [])) for ib in config.get("inbounds", []))
         rc, active, _ = _run(cli, "systemctl is-active xray")
         rules = rebuilt["routing"]["rules"]
 

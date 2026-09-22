@@ -39,18 +39,30 @@ _LOGGER = logging.getLogger(__name__)
 # Supercell domains (v2fly domain-list-community/data/supercell + official our-domains).
 # `domain:X` matches X and all subdomains. Covers Brawl Stars + all Supercell titles.
 SUPERCELL_DOMAINS: list[str] = [
-    "domain:supercell.com", "domain:supercell.net", "domain:supercellid.com",
-    "domain:supercellgames.com", "domain:supercellcreators.com",
-    "domain:supercellstore.com", "domain:supr.cl",
+    "domain:supercell.com",
+    "domain:supercell.net",
+    "domain:supercellid.com",
+    "domain:supercellgames.com",
+    "domain:supercellcreators.com",
+    "domain:supercellstore.com",
+    "domain:supr.cl",
     # Brawl Stars
-    "domain:brawlstars.com", "domain:brawlstarsgame.com",
+    "domain:brawlstars.com",
+    "domain:brawlstarsgame.com",
     # Clash family
-    "domain:clash.com", "domain:clashofclans.com", "domain:clashroyale.com",
-    "domain:clashroyaleapp.com", "domain:clashmini.com",
+    "domain:clash.com",
+    "domain:clashofclans.com",
+    "domain:clashroyale.com",
+    "domain:clashroyaleapp.com",
+    "domain:clashmini.com",
     # Other titles
-    "domain:boombeach.com", "domain:hayday.com", "domain:haydaygame.com",
-    "domain:squadbusters.com", "domain:gamesfirsthelsinki.com",
-    "domain:seeurlpcl.com", "domain:mo.co",
+    "domain:boombeach.com",
+    "domain:hayday.com",
+    "domain:haydaygame.com",
+    "domain:squadbusters.com",
+    "domain:gamesfirsthelsinki.com",
+    "domain:seeurlpcl.com",
+    "domain:mo.co",
 ]
 
 SUPERCELL_DOMAINS_SET = frozenset(SUPERCELL_DOMAINS)
@@ -83,18 +95,13 @@ def merge_supercell_egress(config: dict) -> dict:
         return cfg  # nothing to route to; leave untouched
     rules = cfg.setdefault("routing", {}).setdefault("rules", [])
     # idempotency: drop any existing rule whose domain set is our supercell set
-    rules[:] = [
-        r for r in rules
-        if set(r.get("domain") or []) != SUPERCELL_DOMAINS_SET
-    ]
+    rules[:] = [r for r in rules if set(r.get("domain") or []) != SUPERCELL_DOMAINS_SET]
     insert_at = 0
     for i, r in enumerate(rules):
         ot = r.get("outboundTag")
         if ot == "api" or any("geoip:private" in str(x) for x in (r.get("ip") or [])):
             insert_at = i + 1
-    rules[insert_at:insert_at] = [
-        {"type": "field", "domain": list(SUPERCELL_DOMAINS), "outboundTag": egress}
-    ]
+    rules[insert_at:insert_at] = [{"type": "field", "domain": list(SUPERCELL_DOMAINS), "outboundTag": egress}]
     return cfg
 
 
@@ -121,8 +128,15 @@ def apply_to_entry(entry: CascadeEntry, *, dry_run: bool) -> bool:
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        cli.connect(entry.host, port=22, username=entry.user, key_filename=entry.key,
-                    look_for_keys=False, allow_agent=False, timeout=15)
+        cli.connect(
+            entry.host,
+            port=22,
+            username=entry.user,
+            key_filename=entry.key,
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=15,
+        )
     except Exception as exc:
         print(f"[{entry.name}] SSH connect FAILED: {exc!r}", file=sys.stderr)
         return False
@@ -148,27 +162,25 @@ def apply_to_entry(entry: CascadeEntry, *, dry_run: bool) -> bool:
         already = config == merged
 
         if dry_run:
-            print(f"[{entry.name}] DRY-RUN: egress='{egress}' -> {'no-op (rule present)' if already else 'would INSERT supercell rule'}")
+            print(
+                f"[{entry.name}] DRY-RUN: egress='{egress}' -> {'no-op (rule present)' if already else 'would INSERT supercell rule'}"
+            )
             return True
         if already:
             print(f"[{entry.name}] OK (supercell rule already present — no-op)")
             return True
 
-        run(f"sudo cp {entry.config} {entry.config}{BACKUP_SUFFIX}")
-        run(f"sudo tee {entry.config} > /dev/null <<'__CFG__'\n{json.dumps(merged, ensure_ascii=False, indent=2)}\n__CFG__")
-        rc, _, test_err = run(f"sudo /usr/local/bin/xray run -test -config {entry.config}")
-        if rc != 0:
-            run(f"sudo cp {entry.config}{BACKUP_SUFFIX} {entry.config}")
-            print(f"[{entry.name}] xray test FAILED (restored): {test_err.strip()[:300]}", file=sys.stderr)
-            return False
-        rc, _, restart_err = run("sudo systemctl restart xray")
-        if rc != 0:
-            print(f"[{entry.name}] restart rc={rc}: {restart_err.strip()[:200]}", file=sys.stderr)
+        from scripts.canonicalize_routing import apply_remote_config
+
+        if not apply_remote_config(cli, merged, config_path=entry.config):
+            print(f"[{entry.name}] обновление конфигурации не завершено", file=sys.stderr)
             return False
         rc, active, _ = run("systemctl is-active xray")
         _, ports, _ = run("sudo ss -lnt | grep -E ':443 ' || true")
         ok = active.strip() == "active" and ":443" in ports
-        print(f"[{entry.name}] {'OK' if ok else 'VERIFY-FAIL'}: xray={active.strip()} :443={'up' if ':443' in ports else 'DOWN'}; supercell->{egress}")
+        print(
+            f"[{entry.name}] {'OK' if ok else 'VERIFY-FAIL'}: xray={active.strip()} :443={'up' if ':443' in ports else 'DOWN'}; supercell->{egress}"
+        )
         return ok
     finally:
         cli.close()

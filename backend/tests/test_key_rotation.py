@@ -214,8 +214,10 @@ async def test_cancelled_bare_mutation_waits_for_ssh_thread():
         return True, ""
 
     client = object.__new__(XrayApiClient)
-    client._run_grpcurl = rpc
-    task = asyncio.create_task(client._mutating_rpc("test-payload"))
+    client._config = SimpleNamespace(xray_inbound_tag="test")
+    client._api_port = 10085
+    client._run_durable_mutation = lambda request: rpc("AlterInbound", "test-payload")
+    task = asyncio.create_task(client._mutating_rpc("{}", durable={"action": "remove", "email": "test"}))
     assert await asyncio.to_thread(entered.wait, 2)
     task.cancel()
     await asyncio.sleep(0.05)
