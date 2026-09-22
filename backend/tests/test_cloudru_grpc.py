@@ -36,6 +36,7 @@ def _bx_config(transport: str, port: int, tag: str, ws_path: str = "/bravada-xht
 
 def _provider_with_bare_xray() -> XuiVlessProvider:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     p._bare_xray_configs = (_bx_config("tcp", 443, "cloudru-tcp"), _bx_config("xhttp", 8443, "cloudru-xhttp"))
     return p
 
@@ -77,6 +78,7 @@ async def test_bare_xray_servers_emits_tcp_and_xhttp_links() -> None:
 
 async def test_bare_xray_servers_empty_when_no_bare_xray() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     p._bare_xray_configs = ()
     assert await p._bare_xray_servers("u1") == []
 
@@ -96,6 +98,7 @@ def _mock_client(transport: str, tag: str) -> AsyncMock:
 
 async def test_bare_xray_lifecycle_add_dispatches_per_transport() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     tcp = _mock_client("tcp", "cloudru-tcp")
     xhttp = _mock_client("xhttp", "cloudru-xhttp")
     p._bare_xray_clients = (tcp, xhttp)  # bypass env-driven _get_bare_xray_clients
@@ -113,6 +116,7 @@ async def test_bare_xray_lifecycle_add_dispatches_per_transport() -> None:
 
 async def test_bare_xray_lifecycle_remove_dispatches_per_transport() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     tcp = _mock_client("tcp", "cloudru-tcp")
     xhttp = _mock_client("xhttp", "cloudru-xhttp")
     p._bare_xray_clients = (tcp, xhttp)
@@ -129,6 +133,7 @@ async def test_bare_xray_lifecycle_remove_dispatches_per_transport() -> None:
 async def test_bare_xray_lifecycle_swallows_client_failure() -> None:
     """A failing bare_xray op must not crash the bot (reconcile re-applies)."""
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     bad = _mock_client("tcp", "cloudru-tcp")
     bad.add_client = AsyncMock(side_effect=RuntimeError("boom"))
     p._bare_xray_clients = (bad,)
@@ -138,5 +143,6 @@ async def test_bare_xray_lifecycle_swallows_client_failure() -> None:
 
 async def test_bare_xray_lifecycle_noop_without_clients() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     p._bare_xray_clients = ()  # nothing configured / creds unset
     await p._bare_xray_lifecycle("u1", "add")  # must not raise

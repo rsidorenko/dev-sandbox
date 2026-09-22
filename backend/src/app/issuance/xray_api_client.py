@@ -282,6 +282,23 @@ class XrayApiClient:
                 self._ssh.close()
         self._ssh = None
 
+    async def _mutating_rpc(self, payload: str) -> tuple[bool, str]:
+        # Отмена ожидания не останавливает SSH-поток. Не отдаём fleet-lock,
+        # пока поток не завершён: иначе старый AddUser переживёт ротацию.
+        task = asyncio.create_task(asyncio.to_thread(self._run_grpcurl, "AlterInbound", payload))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+            # Забрать исключение потока, сохранив отмену как результат операции.
+            if not task.cancelled():
+                task.exception()
+            raise
+
     async def add_client(self, *, user_uuid: str, email: str, **_ignored: object) -> bool:
         """Add (or replace) a user on this inbound. flow follows the transport."""
         payload = alter_add_payload(
@@ -290,13 +307,13 @@ class XrayApiClient:
             uuid=user_uuid,
             flow=_flow_for_transport(self._config.transport_type),
         )
-        ok, _ = await asyncio.to_thread(self._run_grpcurl, "AlterInbound", payload)
+        ok, _ = await self._mutating_rpc(payload)
         return ok
 
     async def remove_client(self, *, email: str, **_ignored: object) -> bool:
         """Remove a user by email. Idempotent (missing user still returns ok)."""
         payload = alter_remove_payload(tag=self._config.xray_inbound_tag, email=email)
-        ok, _ = await asyncio.to_thread(self._run_grpcurl, "AlterInbound", payload)
+        ok, _ = await self._mutating_rpc(payload)
         return ok
 
     async def list_user_emails(self) -> list[str]:

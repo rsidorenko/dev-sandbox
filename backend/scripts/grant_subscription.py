@@ -72,7 +72,7 @@ async def _show_plans(pool: asyncpg.Pool) -> None:
 
 async def _lookup_user(pool: asyncpg.Pool, tg_id: int) -> asyncpg.Record | None:
     return await pool.fetchrow(
-        "SELECT telegram_user_id, internal_user_id, vless_uuid FROM user_identities "
+        "SELECT telegram_user_id, internal_user_id, vless_uuid, vless_key_seed, vless_rotation_pending FROM user_identities "
         "WHERE telegram_user_id = $1",
         tg_id,
     )
@@ -99,6 +99,7 @@ async def _show_user(pool: asyncpg.Pool, tg_id: int) -> dict | None:
     else:
         print("  snapshot: NONE")
     return {"internal_user_id": ident["internal_user_id"], "vless_uuid": ident["vless_uuid"],
+            "vless_key_seed": ident["vless_key_seed"], "vless_rotation_pending": ident["vless_rotation_pending"],
             "snap": snap, "device_count": (snap["device_count"] if snap else None)}
 
 
@@ -119,95 +120,99 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
 
     pool = await asyncpg.create_pool(dsn, min_size=1, max_size=4)
     try:
-        await _show_plans(pool)
-        info = await _show_user(pool, tg_id)
-        if not info:
-            print("\n!! user not found — cannot grant")
-            return
-        # uuid is derived per-transport (no stored vless_uuid needed); the user just
-        # needs an identity (they get keys via create_user/reconcile on /start).
+        from app.issuance.fleet_lock import vpn_fleet_lock
+        async with vpn_fleet_lock(pool):
+            await _show_plans(pool)
+            info = await _show_user(pool, tg_id)
+            if not info:
+                print("\n!! user not found — cannot grant")
+                return
+            if info.get("vless_rotation_pending"):
+                raise RuntimeError("Сначала завершите перевыпуск ключей через reconcile")
+            # uuid is derived per-transport (no stored vless_uuid needed); the user just
+            # needs an identity (they get keys via create_user/reconcile on /start).
 
-        plan = get_plan(plan_id)
-        if plan is None:
-            print(f"\n!! plan {plan_id} not found in code (app.domain.plans)")
-            return
-        print(f"\n=== GRANT plan={plan.plan_id} ({plan.duration_days}d, "
-              f"{plan.price_rubles} RUB, devices={plan.default_device_limit}) ===")
+            plan = get_plan(plan_id)
+            if plan is None:
+                print(f"\n!! plan {plan_id} not found in code (app.domain.plans)")
+                return
+            print(f"\n=== GRANT plan={plan.plan_id} ({plan.duration_days}d, "
+                  f"{plan.price_rubles} RUB, devices={plan.default_device_limit}) ===")
 
-        internal_user_id = info["internal_user_id"]
-        device_count = info["device_count"] or plan.default_device_limit
-        now = datetime.now(UTC)
-        # extend from current active_until if still in the future, else from now
-        base = info["snap"]["active_until_utc"] if info["snap"] and info["snap"]["active_until_utc"] else None
-        start = base if (base and base > now) else now
-        new_until = start + timedelta(days=int(plan.duration_days))
+            internal_user_id = info["internal_user_id"]
+            device_count = info["device_count"] or plan.default_device_limit
+            now = datetime.now(UTC)
+            # extend from current active_until if still in the future, else from now
+            base = info["snap"]["active_until_utc"] if info["snap"] and info["snap"]["active_until_utc"] else None
+            start = base if (base and base > now) else now
+            new_until = start + timedelta(days=int(plan.duration_days))
 
-        # 1) record the billing fact + run the real UC-05 apply FIRST.
-        #    Apply's snapshot upsert sets state_label='active' but clobbers plan_id /
-        #    active_until, so the duration UPDATE must run AFTER it (step 2).
-        fact_ref = f"grant:{internal_user_id}:{plan.plan_id}:{uuid.uuid4().hex[:12]}"
-        ext_id = f"grant-{uuid.uuid4().hex[:16]}"
-        corr = f"grant-{uuid.uuid4().hex[:8]}"
-        amount_kopecks = int(plan.price_rubles) * 100
-        await pool.execute(
-            """INSERT INTO billing_events_ledger
-               (internal_fact_ref, billing_provider_key, external_event_id, event_type,
-                event_effective_at, event_received_at, internal_user_id, checkout_attempt_id,
-                amount_minor_units, currency_code, status, ingestion_correlation_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,'accepted',$10)""",
-            fact_ref, PROVIDER_KEY, ext_id, EVENT_TYPE, now, now,
-            internal_user_id, amount_kopecks, CURRENCY, corr,
-        )
-        print(f"  ledger fact inserted: ref={fact_ref} amount={amount_kopecks} kopecks status=accepted")
-        apply_pg = PostgresAtomicUC05SubscriptionApply(pool)
-        ar = await apply_pg.apply_by_internal_fact_ref(fact_ref)
-        print(f"  UC-05 apply: outcome={ar.operation_outcome} apply={ar.apply_outcome} idempotent={ar.idempotent_replay}")
-
-        # 2) set plan + duration + devices AFTER apply (so apply's upsert doesn't clobber them)
-        result = await pool.execute(
-            """UPDATE subscription_snapshots
-               SET state_label = 'active',
-                   plan_id = $2,
-                   device_count = $3,
-                   active_until_utc = $4,
-                   keys_deactivated_at = NULL,
-                   keys_deleted_at = NULL,
-                   updated_at = NOW()
-               WHERE internal_user_id = $1""",
-            internal_user_id, str(plan.plan_id), device_count, new_until,
-        )
-        print(f"  snapshot UPDATE: {result}  active_until={new_until.isoformat()}")
-
-        # 3) re-provision the user's VLESS client on every active server
-        print("\n  provisioning keys on active servers...")
-        servers = await _load_server_configs(pool)
-        expiry_ts = _expiry_from_datetime(new_until)
-        added = failed = 0
-        for s in servers:
-            pc = PanelClient(
-                panel_url=s["panel_url"], username=s["panel_username"], password=s["panel_password"],
-                inbound_id=s["inbound_id"], server_id=s["server_id"], label=s["label"],
-                transport_type=s["transport_type"], server_host=s["server_host"], server_port=s["server_port"],
+            # 1) record the billing fact + run the real UC-05 apply FIRST.
+            #    Apply's snapshot upsert sets state_label='active' but clobbers plan_id /
+            #    active_until, so the duration UPDATE must run AFTER it (step 2).
+            fact_ref = f"grant:{internal_user_id}:{plan.plan_id}:{uuid.uuid4().hex[:12]}"
+            ext_id = f"grant-{uuid.uuid4().hex[:16]}"
+            corr = f"grant-{uuid.uuid4().hex[:8]}"
+            amount_kopecks = int(plan.price_rubles) * 100
+            await pool.execute(
+                """INSERT INTO billing_events_ledger
+                   (internal_fact_ref, billing_provider_key, external_event_id, event_type,
+                    event_effective_at, event_received_at, internal_user_id, checkout_attempt_id,
+                    amount_minor_units, currency_code, status, ingestion_correlation_id)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,'accepted',$10)""",
+                fact_ref, PROVIDER_KEY, ext_id, EVENT_TYPE, now, now,
+                internal_user_id, amount_kopecks, CURRENCY, corr,
             )
-            email = _email_from_internal(internal_user_id, transport_type=s["transport_type"])
-            ok = await pc.add_client(
-                user_uuid=_vless_uuid_for_transport(internal_user_id, s["transport_type"]),
-                email=email, expiry_ts=expiry_ts,
-                enable=True, limit_ip=(device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT),
-            )
-            await pc.aclose()
-            tag = "ok" if ok else "FAIL"
-            print(f"    server {s['server_id']} {s['label']} [{s['transport_type']}]: {tag}")
-            added += 1 if ok else 0
-            failed += 0 if ok else 1
-        print(f"  keys: {added} ok, {failed} failed across {len(servers)} servers")
+            print(f"  ledger fact inserted: ref={fact_ref} amount={amount_kopecks} kopecks status=accepted")
+            apply_pg = PostgresAtomicUC05SubscriptionApply(pool)
+            ar = await apply_pg.apply_by_internal_fact_ref(fact_ref)
+            print(f"  UC-05 apply: outcome={ar.operation_outcome} apply={ar.apply_outcome} idempotent={ar.idempotent_replay}")
 
-        # 4) verify
-        snap2 = await pool.fetchrow(
-            "SELECT state_label, plan_id, active_until_utc FROM subscription_snapshots WHERE internal_user_id=$1",
-            internal_user_id,
-        )
-        print(f"\n=== VERIFY ===  state={snap2['state_label']} plan={snap2['plan_id']} active_until={snap2['active_until_utc']}")
+            # 2) set plan + duration + devices AFTER apply (so apply's upsert doesn't clobber them)
+            result = await pool.execute(
+                """UPDATE subscription_snapshots
+                   SET state_label = 'active',
+                       plan_id = $2,
+                       device_count = $3,
+                       active_until_utc = $4,
+                       keys_deactivated_at = NULL,
+                       keys_deleted_at = NULL,
+                       updated_at = NOW()
+                   WHERE internal_user_id = $1""",
+                internal_user_id, str(plan.plan_id), device_count, new_until,
+            )
+            print(f"  snapshot UPDATE: {result}  active_until={new_until.isoformat()}")
+
+            # 3) re-provision the user's VLESS client on every active server
+            print("\n  provisioning keys on active servers...")
+            servers = await _load_server_configs(pool)
+            expiry_ts = _expiry_from_datetime(new_until)
+            added = failed = 0
+            for s in servers:
+                pc = PanelClient(
+                    panel_url=s["panel_url"], username=s["panel_username"], password=s["panel_password"],
+                    inbound_id=s["inbound_id"], server_id=s["server_id"], label=s["label"],
+                    transport_type=s["transport_type"], server_host=s["server_host"], server_port=s["server_port"],
+                )
+                email = _email_from_internal(internal_user_id, transport_type=s["transport_type"])
+                ok = await pc.add_client(
+                    user_uuid=_vless_uuid_for_transport(internal_user_id, s["transport_type"], info.get("vless_key_seed")),
+                    email=email, expiry_ts=expiry_ts,
+                    enable=True, limit_ip=(device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT),
+                )
+                await pc.aclose()
+                tag = "ok" if ok else "FAIL"
+                print(f"    server {s['server_id']} {s['label']} [{s['transport_type']}]: {tag}")
+                added += 1 if ok else 0
+                failed += 0 if ok else 1
+            print(f"  keys: {added} ok, {failed} failed across {len(servers)} servers")
+
+            # 4) verify
+            snap2 = await pool.fetchrow(
+                "SELECT state_label, plan_id, active_until_utc FROM subscription_snapshots WHERE internal_user_id=$1",
+                internal_user_id,
+            )
+            print(f"\n=== VERIFY ===  state={snap2['state_label']} plan={snap2['plan_id']} active_until={snap2['active_until_utc']}")
     finally:
         await pool.close()
 

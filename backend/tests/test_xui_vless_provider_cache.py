@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from unittest.mock import AsyncMock
 
 from app.issuance.vless_provider import (
     VlessProviderOutcome,
@@ -49,6 +50,7 @@ def _make_provider(
     """Provider whose panel probe is a counting fake. ``probe_outcome`` is a callable
     ``uid -> VlessProviderResult | None`` (None means "no active servers")."""
     p = XuiVlessProvider(pool=object())
+    p._key_state = AsyncMock(return_value={})
     counter = {"n": 0}
 
     async def fake_probe(uid: str):

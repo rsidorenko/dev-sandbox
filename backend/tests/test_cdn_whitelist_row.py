@@ -55,6 +55,7 @@ def _cdn_config() -> XuiServerConfig:
 
 def _provider_with_cdn() -> XuiVlessProvider:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     p._bare_xray_configs = (_cdn_config(),)
     return p
 
@@ -96,6 +97,7 @@ async def test_cdn_whitelist_link_emitted_with_extra_and_per_user_uuid() -> None
 
 async def test_cdn_whitelist_empty_when_no_bare_xray() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     p._bare_xray_configs = ()
     assert await p._bare_xray_servers("u1") == []
 
@@ -107,6 +109,7 @@ async def test_cdn_whitelist_lifecycle_add_dispatches_to_origin_inbound() -> Non
     """add → gRPC AlterInbound AddUser on the Origin `from-yandex-cdn` inbound:
     xhttp transport → empty flow, email `x-user-<uid>`, per-transport xhttp UUID."""
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     mock = AsyncMock()
     mock.server_config = _cdn_config()
     mock.server_id = 34
@@ -126,6 +129,7 @@ async def test_cdn_whitelist_lifecycle_add_dispatches_to_origin_inbound() -> Non
 
 async def test_cdn_whitelist_lifecycle_remove_dispatches() -> None:
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     mock = AsyncMock()
     mock.server_config = _cdn_config()
     mock.server_id = 34
@@ -143,6 +147,7 @@ async def test_cdn_whitelist_lifecycle_remove_dispatches() -> None:
 async def test_cdn_whitelist_lifecycle_swallows_failure() -> None:
     """A failing Origin gRPC op must not crash the bot (reconcile re-applies)."""
     p = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    p._key_state = AsyncMock(return_value={})
     bad = AsyncMock()
     bad.server_config = _cdn_config()
     bad.server_id = 34

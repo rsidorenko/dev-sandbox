@@ -2731,17 +2731,7 @@ async def _render_storefront_response(
                 else None
             )
             if id_rec is not None and grant is not None:
-                # Step 1: Revoke FIRST (while old UUID still exists in DB)
-                # so the provider can find and disable/delete old keys on panels.
-                await composition.vless_provider.revoke_user(internal_user_id=id_rec.internal_user_id)
-                # Step 2: Clear stored UUID so create_user generates a fresh random key
-                if pool is not None:
-                    await pool.execute(
-                        "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
-                        id_rec.internal_user_id,
-                    )
-                # Step 3: Create new keys with a fresh UUID
-                vless_result = await composition.vless_provider.create_user(
+                vless_result = await composition.vless_provider.reissue_user(
                     internal_user_id=id_rec.internal_user_id, **grant
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:

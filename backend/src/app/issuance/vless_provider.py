@@ -7,6 +7,7 @@ This stub returns fake configs for development and testing.
 from __future__ import annotations
 
 import base64
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -65,6 +66,9 @@ class VlessProviderPort(Protocol):
         expiry_days: int = 365,
         expires_at: datetime | None = None,
     ) -> VlessProviderResult: ...
+    async def reissue_user(
+        self, *, internal_user_id: str, device_count: int = 0, expires_at: datetime | None = None
+    ) -> VlessProviderResult: ...
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def activate_user(
@@ -101,6 +105,7 @@ class StubVlessProvider:
 
     def __init__(self) -> None:
         self._created_users: set[str] = set()
+        self._rotated_uuids: dict[str, str] = {}
 
     async def create_user(
         self,
@@ -113,6 +118,14 @@ class StubVlessProvider:
         del device_count, expiry_days, expires_at  # Параметры панели не нужны заглушке.
         self._created_users.add(internal_user_id)
         return self._build_config(internal_user_id)
+
+    async def reissue_user(
+        self, *, internal_user_id: str, device_count: int = 0, expires_at: datetime | None = None
+    ) -> VlessProviderResult:
+        self._rotated_uuids[internal_user_id] = str(uuid.uuid4())
+        return await self.create_user(
+            internal_user_id=internal_user_id, device_count=device_count, expires_at=expires_at
+        )
 
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult:
         if internal_user_id not in self._created_users:
@@ -138,6 +151,7 @@ class StubVlessProvider:
         import hashlib
 
         user_uuid = hashlib.sha256(internal_user_id.encode()).hexdigest()[:8] + "-stub-0000-0000-000000000000"
+        user_uuid = self._rotated_uuids.get(internal_user_id, user_uuid)
         servers = tuple(
             VlessServerConfig(
                 server_label=s["label"],

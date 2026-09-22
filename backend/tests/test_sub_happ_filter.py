@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from urllib.parse import unquote, urlsplit
 
 from app.issuance.vless_provider import VlessServerConfig
@@ -200,6 +201,7 @@ def _cloudru_config() -> XuiServerConfig:
 
 async def test_bare_xray_servers_tagged_happ_with_correct_link() -> None:
     provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]  # _bare_xray_servers doesn't touch the pool
+    provider._key_state = AsyncMock(return_value={})
     provider._bare_xray_configs = (_cloudru_config(),)
     uid = "u123456789"
 
@@ -220,6 +222,7 @@ async def test_bare_xray_servers_tagged_happ_with_correct_link() -> None:
 
 async def test_bare_xray_servers_empty_when_none_configured() -> None:
     provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    provider._key_state = AsyncMock(return_value={})
     provider._bare_xray_configs = ()
     assert await provider._bare_xray_servers("u1") == []
 
@@ -247,6 +250,7 @@ async def test_bare_xray_auto_selection_is_additional_link() -> None:
         auto_selection_country_flag="⚡",
     )
     provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    provider._key_state = AsyncMock(return_value={})
     provider._bare_xray_configs = (config,)
 
     manual, automatic = await provider._bare_xray_servers("u1")
@@ -307,6 +311,7 @@ async def test_cdn_auto_selection_preserves_template_and_manual_link() -> None:
         auto_selection_country_flag="📶",
     )
     provider = XuiVlessProvider(pool=None)  # type: ignore[arg-type]
+    provider._key_state = AsyncMock(return_value={})
     provider._bare_xray_configs = (config,)
 
     manual, automatic = await provider._bare_xray_servers("u1")

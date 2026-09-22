@@ -67,13 +67,9 @@ def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") 
     return f"{prefix}user-{internal_user_id[:16]}"
 
 
-def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str:
-    """Mirror of xui_vless_provider._vless_uuid_for_transport — distinct uuid per
-    (user, transport) so each inbound's client is unique (fixes v3 client_inbounds)."""
-    return str(uuid.uuid5(
-        uuid.NAMESPACE_DNS,
-        f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
-    ))
+def _vless_uuid_for_transport(internal_user_id: str, transport_type: str, key_seed: str | None = None) -> str:
+    from app.issuance.key_identity import vless_uuid_for_transport
+    return vless_uuid_for_transport(internal_user_id, transport_type, key_seed)
 
 
 def _expiry_from_datetime(dt: datetime | None) -> int:
@@ -302,16 +298,17 @@ async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
     Telegram flow since PR #320); the per-transport uuid is computed via
     _vless_uuid_for_transport at provisioning/verify time."""
     rows = await pool.fetch(
-        """SELECT i.internal_user_id,
+        """SELECT i.internal_user_id, i.vless_key_seed,
                   s.device_count, s.active_until_utc
            FROM user_identities i
            JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-           WHERE s.state_label = 'active'
+           WHERE s.state_label = 'active' AND NOT i.vless_rotation_pending
            ORDER BY i.internal_user_id"""
     )
     return [
         {
             "internal_user_id": r["internal_user_id"],
+            "vless_key_seed": r.get("vless_key_seed"),
             "device_count": r["device_count"] or 0,
             "active_until_utc": r["active_until_utc"],
         }
@@ -449,7 +446,7 @@ async def phase_rebuild(users: list[dict], panels: list[PanelClient],
             print(f"\n  Server {pc.server_id} ({pc.label}) inbound {pc.inbound_id} [{pc.transport_type}]:")
             for u in users:
                 uid = u["internal_user_id"]
-                uuid = _vless_uuid_for_transport(uid, pc.transport_type)
+                uuid = _vless_uuid_for_transport(uid, pc.transport_type, u.get("vless_key_seed"))
                 email = _email_from_internal(uid, transport_type=pc.transport_type)
                 expiry_ts = _expiry_from_datetime(u["active_until_utc"])
                 limit_ip = u["device_count"] if u["device_count"] > 0 else _TRIAL_DEVICE_LIMIT
@@ -504,7 +501,7 @@ async def phase_verify(users: list[dict], panels: list[PanelClient]) -> dict:
             email = _email_from_internal(uid, transport_type=pc.transport_type)
             # Expected uuid is DERIVED per (user, transport), not the stored
             # user_identities.vless_uuid (NULL since PR #320).
-            expected_uuid = _vless_uuid_for_transport(uid, pc.transport_type)
+            expected_uuid = _vless_uuid_for_transport(uid, pc.transport_type, u.get("vless_key_seed"))
             found_uuid = await pc.resolve_client_uuid(email=email)
             if found_uuid is None:
                 total_missing += 1
@@ -671,115 +668,116 @@ async def main() -> None:
 
     pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
     try:
-        # Always print stats
-        await phase_stats(pool)
-
-        if stats_only:
-            await pool.close()
-            return
-
-        # Extend expired users if requested
-        if extend_days > 0:
-            await phase_extend_expired(pool, days=extend_days, dry_run=dry_run)
-            # Print updated stats
+        from app.issuance.fleet_lock import vpn_fleet_lock
+        async with vpn_fleet_lock(pool):
+            # Always print stats
             await phase_stats(pool)
 
-        # Phase 1: Load data
-        print("\n--- Loading data from DB ---")
-        users = await _load_active_users(pool)
-        server_configs = await _load_server_configs(pool)
-        print(f"  Active users: {len(users)}")
-        print(f"  Active servers: {len(server_configs)}")
+            if stats_only:
+                return
 
-        if not users:
-            print("No active users found. Nothing to do.")
-            return
+            # Extend expired users if requested
+            if extend_days > 0:
+                await phase_extend_expired(pool, days=extend_days, dry_run=dry_run)
+                # Print updated stats
+                await phase_stats(pool)
 
-        if not server_configs:
-            print("No active servers found. Nothing to do.")
-            return
+            # Phase 1: Load data
+            print("\n--- Loading data from DB ---")
+            users = await _load_active_users(pool)
+            server_configs = await _load_server_configs(pool)
+            print(f"  Active users: {len(users)}")
+            print(f"  Active servers: {len(server_configs)}")
 
-        # Print user summary
-        for u in users[:5]:
-            print(f"  {_user_summary_line(u)}")
-        if len(users) > 5:
-            print(f"  ... and {len(users) - 5} more")
+            if not users:
+                print("No active users found. Nothing to do.")
+                return
 
-        # Print server summary
-        for s in server_configs:
-            print(f"  server={s['server_id']} {s['label']} {s['server_host']}:{s['server_port']} "
-                  f"inbound={s['inbound_id']} type={s['transport_type']}")
+            if not server_configs:
+                print("No active servers found. Nothing to do.")
+                return
 
-        # Create panel clients
-        panels: list[PanelClient] = []
-        for s in server_configs:
-            panels.append(PanelClient(
-                panel_url=s["panel_url"],
-                username=s["panel_username"],
-                password=s["panel_password"],
-                inbound_id=s["inbound_id"],
-                server_id=s["server_id"],
-                label=s["label"],
-                transport_type=s["transport_type"],
-                server_host=s["server_host"],
-                server_port=s["server_port"],
-            ))
+            # Print user summary
+            for u in users[:5]:
+                print(f"  {_user_summary_line(u)}")
+            if len(users) > 5:
+                print(f"  ... and {len(users) - 5} more")
 
-        # Login test
-        print("\n--- Testing panel logins ---")
-        for p in panels:
-            ok = await p._login()
-            status = "✅" if ok else "❌"
-            print(f"  {status} Server {p.server_id} ({p.label}): {p.base}")
+            # Print server summary
+            for s in server_configs:
+                print(f"  server={s['server_id']} {s['label']} {s['server_host']}:{s['server_port']} "
+                      f"inbound={s['inbound_id']} type={s['transport_type']}")
 
-        failed_logins = [p for p in panels if p._last_login_ts == 0.0]
-        if failed_logins:
-            print(f"\n⚠️  {len(failed_logins)} panels failed login. Aborting.")
+            # Create panel clients
+            panels: list[PanelClient] = []
+            for s in server_configs:
+                panels.append(PanelClient(
+                    panel_url=s["panel_url"],
+                    username=s["panel_username"],
+                    password=s["panel_password"],
+                    inbound_id=s["inbound_id"],
+                    server_id=s["server_id"],
+                    label=s["label"],
+                    transport_type=s["transport_type"],
+                    server_host=s["server_host"],
+                    server_port=s["server_port"],
+                ))
+
+            # Login test
+            print("\n--- Testing panel logins ---")
             for p in panels:
-                await p.aclose()
-            await pool.close()
-            sys.exit(1)
+                ok = await p._login()
+                status = "✅" if ok else "❌"
+                print(f"  {status} Server {p.server_id} ({p.label}): {p.base}")
 
-        # Verify mode
-        if verify_only:
-            result = await phase_verify(users, panels)
-            for p in panels:
-                await p.aclose()
-            await pool.close()
-            sys.exit(0 if result["missing"] == 0 else 1)
-
-        # Phase 2: Wipe
-        wipe_result = await phase_wipe(panels, dry_run=dry_run)
-
-        # Phase 3: Rebuild
-        rebuild_result = await phase_rebuild(users, panels, dry_run=dry_run)
-
-        # Phase 4: Verify (only if not dry run)
-        if not dry_run:
-            verify_result = await phase_verify(users, panels)
-            if verify_result["missing"] > 0:
-                print(f"\n⚠️  VERIFICATION FAILED: {verify_result['missing']} clients missing!")
+            failed_logins = [p for p in panels if p._last_login_ts == 0.0]
+            if failed_logins:
+                print(f"\n⚠️  {len(failed_logins)} panels failed login. Aborting.")
                 for p in panels:
                     await p.aclose()
                 await pool.close()
                 sys.exit(1)
 
-        # Final summary
-        print("\n" + "=" * 60)
-        if dry_run:
-            print("DRY RUN COMPLETE — no changes were made")
-        else:
-            print("REBUILD COMPLETE")
-        print(f"  Users: {len(users)}")
-        print(f"  Servers: {len(panels)}")
-        print(f"  Expected client entries: {len(users) * len(panels)}")
-        if not dry_run and "added" in rebuild_result:
-            print(f"  Added: {rebuild_result['added']}")
-            print(f"  Failed: {rebuild_result['failed']}")
-        print("=" * 60)
+            # Verify mode
+            if verify_only:
+                result = await phase_verify(users, panels)
+                for p in panels:
+                    await p.aclose()
+                await pool.close()
+                sys.exit(0 if result["missing"] == 0 else 1)
 
-        for p in panels:
-            await p.aclose()
+            # Phase 2: Wipe
+            wipe_result = await phase_wipe(panels, dry_run=dry_run)
+
+            # Phase 3: Rebuild
+            rebuild_result = await phase_rebuild(users, panels, dry_run=dry_run)
+
+            # Phase 4: Verify (only if not dry run)
+            if not dry_run:
+                verify_result = await phase_verify(users, panels)
+                if verify_result["missing"] > 0:
+                    print(f"\n⚠️  VERIFICATION FAILED: {verify_result['missing']} clients missing!")
+                    for p in panels:
+                        await p.aclose()
+                    await pool.close()
+                    sys.exit(1)
+
+            # Final summary
+            print("\n" + "=" * 60)
+            if dry_run:
+                print("DRY RUN COMPLETE — no changes were made")
+            else:
+                print("REBUILD COMPLETE")
+            print(f"  Users: {len(users)}")
+            print(f"  Servers: {len(panels)}")
+            print(f"  Expected client entries: {len(users) * len(panels)}")
+            if not dry_run and "added" in rebuild_result:
+                print(f"  Added: {rebuild_result['added']}")
+                print(f"  Failed: {rebuild_result['failed']}")
+            print("=" * 60)
+
+            for p in panels:
+                await p.aclose()
     finally:
         await pool.close()
 

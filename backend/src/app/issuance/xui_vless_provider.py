@@ -17,6 +17,8 @@ from urllib.parse import quote
 
 import asyncpg
 
+from app.issuance.fleet_lock import serialized_mutation
+from app.issuance.key_identity import vless_uuid_for_transport as _vless_uuid_for_transport
 from app.issuance.subscription_token import (
     ensure_subscription_token,
     generate_subscription_token,
@@ -72,25 +74,6 @@ async def _ensure_subscription_token(pool: asyncpg.Pool, internal_user_id: str) 
 def _user_uuid_from_internal(internal_user_id: str) -> str:
     """Deterministic UUID v5 derived from internal user ID (stable, not guessable)."""
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"vpn.bravada.internal.{internal_user_id}"))
-
-
-def _vless_uuid_for_transport(internal_user_id: str, transport_type: str) -> str:
-    """Deterministic VLESS uuid per (user, transport).
-
-    3x-ui v3 keys its ``clients`` table by uuid (one row per uuid). When the SAME
-    uuid is provisioned on several inbounds of one panel (1.0 tcp / 2.0 cdn / 3.0
-    xhttp), v3 regenerates ``client_inbounds`` mapping that uuid to only ~one
-    inbound -> xray serves the user on fewer inbounds than JSON promises ("8 vs 10
-    keys"). Giving each transport its own uuid makes every inbound's client a unique
-    uuid -> unique clients row -> correct per-inbound mapping. Stable (uuid5), no
-    DB storage needed.
-    """
-    return str(
-        uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            f"vpn.bravada.internal.{internal_user_id}.{transport_type}",
-        )
-    )
 
 
 def _vless_uuid_with_route(user_uuid: str, route: int) -> str:
@@ -334,6 +317,9 @@ class XuiVlessProvider(VlessProviderPort):
         self._bare_xray_clients: tuple[XrayApiClient, ...] | None = None
         self._plaintext_warning_logged = False
         self._user_locks: dict[str, asyncio.Lock] = {}
+        self._mutation_lock = asyncio.Lock()
+        self._mutation_owner = None
+        self._observed_seeds: dict[str, str | None] = {}
         self._config_cache: dict[str, tuple[float, VlessProviderResult, int]] = {}
         # Epoch is bumped on every invalidation so an in-flight (background) refresh
         # can detect that a mutation invalidated the entry and refuse to clobber it.
@@ -386,7 +372,7 @@ class XuiVlessProvider(VlessProviderPort):
             return []
         servers: list[VlessServerConfig] = []
         for c in self._bare_xray_configs:
-            user_uuid = _vless_uuid_for_transport(internal_user_id, c.transport_type)
+            user_uuid = await self._uuid_for_transport(internal_user_id, c.transport_type)
             servers.append(
                 VlessServerConfig(
                     server_label=c.label,
@@ -477,10 +463,12 @@ class XuiVlessProvider(VlessProviderPort):
             email = _email_from_internal(internal_user_id, transport_type=transport)
             try:
                 if action == "add":
-                    user_uuid = _vless_uuid_for_transport(internal_user_id, transport)
-                    await client.add_client(user_uuid=user_uuid, email=email)
+                    user_uuid = await self._uuid_for_transport(internal_user_id, transport)
+                    if not await client.add_client(user_uuid=user_uuid, email=email):
+                        failed += 1
                 else:
-                    await client.remove_client(email=email)
+                    if not await client.remove_client(email=email):
+                        failed += 1
             except Exception as exc:
                 failed += 1
                 _LOGGER.warning(
@@ -521,6 +509,99 @@ class XuiVlessProvider(VlessProviderPort):
                     await bx.aclose()
             self._bare_xray_clients = None
 
+    async def _key_state(self, internal_user_id: str):
+        row = await self._pool.fetchrow(
+            "SELECT vless_key_seed, vless_previous_key_seed, vless_rotation_pending"
+            " FROM user_identities WHERE internal_user_id=$1",
+            internal_user_id,
+        )
+        return dict(row) if row is not None else {}
+
+    async def _uuid_for_transport(self, internal_user_id: str, transport_type: str) -> str:
+        state = await self._key_state(internal_user_id)
+        return _vless_uuid_for_transport(internal_user_id, transport_type, state.get("vless_key_seed"))
+
+    async def _remove_rotation_clients(self, internal_user_id: str, state) -> bool:
+        clients = await self._get_clients()
+        bare_clients = await self._get_bare_xray_clients()
+        if not clients and not self._bare_xray_configs:
+            return False
+        if len(bare_clients) != len(self._bare_xray_configs):
+            return False
+
+        async def remove(client):
+            transport = client.server_config.transport_type
+            email = _email_from_internal(internal_user_id, transport_type=transport)
+            credentials = {
+                _vless_uuid_for_transport(internal_user_id, transport, state.get("vless_previous_key_seed")),
+                _vless_uuid_for_transport(internal_user_id, transport, state.get("vless_key_seed")),
+            }
+            actual = await client.resolve_client_uuid(email=email)
+            if actual:
+                credentials.add(actual)
+            for credential in credentials:
+                result = await client.delete_client(user_uuid=credential)
+                if result.outcome not in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND):
+                    return False
+            return True
+
+        try:
+            results = await _run_sequential_per_panel(clients, remove)
+            if not all(ok is True for _, ok in results):
+                return False
+            return await self._bare_xray_lifecycle(internal_user_id, "remove") == 0
+        except Exception:
+            _LOGGER.warning("rotation_revoke_failed user=%s", internal_user_id[:8])
+            return False
+
+    async def _resume_rotation(self, internal_user_id: str) -> VlessProviderResult:
+        from app.application.access_grant import access_grant
+
+        self._invalidate_config_cache(internal_user_id)
+        state = await self._key_state(internal_user_id)
+        if not await self._remove_rotation_clients(internal_user_id, state):
+            return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+        grant = await access_grant(pool=self._pool, internal_user_id=internal_user_id)
+        if grant is None:
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_rotation_pending=FALSE, vless_previous_key_seed=NULL"
+                " WHERE internal_user_id=$1",
+                internal_user_id,
+            )
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+        result = await self._create_user_unlocked(internal_user_id=internal_user_id, require_all=True, **grant)
+        if result.outcome == VlessProviderOutcome.SUCCESS:
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_rotation_pending=FALSE, vless_previous_key_seed=NULL"
+                " WHERE internal_user_id=$1",
+                internal_user_id,
+            )
+        return result
+
+    async def _resume_pending_rotations(self) -> None:
+        pending = await self._pool.fetch("SELECT internal_user_id FROM user_identities WHERE vless_rotation_pending")
+        for row in pending:
+            await self._resume_rotation(row["internal_user_id"])
+
+    @serialized_mutation
+    async def reissue_user(
+        self, *, internal_user_id: str, device_count: int = 0, expires_at: datetime | None = None
+    ) -> VlessProviderResult:
+        from app.application.access_grant import access_grant
+
+        if await access_grant(pool=self._pool, internal_user_id=internal_user_id) is None:
+            return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
+        async with self._user_lock(internal_user_id):
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_previous_key_seed=vless_key_seed,"
+                " vless_key_seed=$2, vless_rotation_pending=TRUE"
+                " WHERE internal_user_id=$1 AND NOT vless_rotation_pending",
+                internal_user_id,
+                str(uuid.uuid4()),
+            )
+            return await self._resume_rotation(internal_user_id)
+
+    @serialized_mutation
     async def create_user(
         self,
         *,
@@ -529,6 +610,8 @@ class XuiVlessProvider(VlessProviderPort):
         expiry_days: int = 365,
         expires_at: datetime | None = None,
     ) -> VlessProviderResult:
+        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+            return await self._resume_rotation(internal_user_id)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._create_user_unlocked(
@@ -545,6 +628,7 @@ class XuiVlessProvider(VlessProviderPort):
         device_count: int = 0,
         expiry_days: int = 365,
         expires_at: datetime | None = None,
+        require_all: bool = False,
     ) -> VlessProviderResult:
         expiry = int(expires_at.timestamp() * 1000) if expires_at is not None else _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
@@ -560,7 +644,7 @@ class XuiVlessProvider(VlessProviderPort):
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
             # Distinct uuid per transport -> each inbound's client is a unique uuid
             # (fixes the 3x-ui v3 client_inbounds under-mapping on multi-inbound panels).
-            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
+            user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             existing_uuid = await client.resolve_client_uuid(email=email)
             if existing_uuid is not None and existing_uuid != user_uuid:
                 # Stale uuid on this email (e.g. pre-migration single uuid) -> remove so
@@ -607,7 +691,11 @@ class XuiVlessProvider(VlessProviderPort):
         # lifecycle call below, create_user can't deliver keys via trial/payment/add-days.
         servers.extend(await self._bare_xray_servers(internal_user_id))
         # Live-provision the user on each bare_xray inbound (xray gRPC, no restart).
-        await self._bare_xray_lifecycle(internal_user_id, "add")
+        bare_failed = await self._bare_xray_lifecycle(internal_user_id, "add")
+        if require_all:
+            managed = await self._get_bare_xray_clients()
+            if len(successes) != len(clients) or bare_failed or len(managed) != len(self._bare_xray_configs):
+                return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
         if not servers:
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
         servers_tuple = tuple(servers)
@@ -635,6 +723,13 @@ class XuiVlessProvider(VlessProviderPort):
         probe. The probe itself and its result semantics are unchanged from before; only
         the cache timing around it differs.
         """
+        state = await self._key_state(internal_user_id)
+        seed = state.get("vless_key_seed")
+        if self._observed_seeds.get(internal_user_id) != seed:
+            self._invalidate_config_cache(internal_user_id)
+            self._observed_seeds[internal_user_id] = seed
+        if state.get("vless_rotation_pending"):
+            return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
         now = time.monotonic()
         cached = self._config_cache.get(internal_user_id)
         if cached is not None:
@@ -762,8 +857,20 @@ class XuiVlessProvider(VlessProviderPort):
             self._config_cache.clear()
         self._config_cache[internal_user_id] = (time.monotonic(), result, epoch_at_compute)
 
+    @serialized_mutation
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
+        state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_pending"):
+            self._invalidate_config_cache(internal_user_id)
+            if not await self._remove_rotation_clients(internal_user_id, state):
+                return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_rotation_pending=FALSE, vless_previous_key_seed=NULL"
+                " WHERE internal_user_id=$1",
+                internal_user_id,
+            )
+            return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._revoke_user_unlocked(internal_user_id=internal_user_id)
@@ -777,7 +884,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         async def _disable(client: XuiApiClient) -> XuiClientResult:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
-            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
+            user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
         any_disabled = False
@@ -792,10 +899,13 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
+    @serialized_mutation
     async def activate_user(
         self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
     ) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
+        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+            return await self._resume_rotation(internal_user_id)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._activate_user_unlocked(
@@ -815,7 +925,7 @@ class XuiVlessProvider(VlessProviderPort):
         # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
         async def _reactivate(client: XuiApiClient) -> XuiClientResult:
             email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
-            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
+            user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             await client.delete_client(user_uuid=user_uuid)
             return await client.add_client(
                 user_uuid=user_uuid,
@@ -849,8 +959,20 @@ class XuiVlessProvider(VlessProviderPort):
             )
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
+    @serialized_mutation
     async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Permanently delete VLESS user from all servers."""
+        state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_pending"):
+            self._invalidate_config_cache(internal_user_id)
+            if not await self._remove_rotation_clients(internal_user_id, state):
+                return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
+            await self._pool.execute(
+                "UPDATE user_identities SET vless_rotation_pending=FALSE, vless_previous_key_seed=NULL"
+                " WHERE internal_user_id=$1",
+                internal_user_id,
+            )
+            return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._delete_user_unlocked(internal_user_id=internal_user_id)
@@ -862,7 +984,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         async def _delete(client: XuiApiClient) -> XuiClientResult:
             # Per-transport uuid (matches what create_user/reconcile provision).
-            user_uuid = _vless_uuid_for_transport(internal_user_id, client.server_config.transport_type)
+            user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.delete_client(user_uuid=user_uuid)
 
         panel_failed = False
@@ -881,6 +1003,7 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.SUCCESS)
         return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
+    @serialized_mutation
     async def reconcile_all_users(self) -> tuple[int, int, int]:
         """Ensure every non-deleted user has a VLESS key on every active server.
 
@@ -899,12 +1022,13 @@ class XuiVlessProvider(VlessProviderPort):
         Returns ``(added, failed, total_users)`` counts.
         """
         self._clients_ts = 0.0  # Force server list refresh
+        await self._resume_pending_rotations()
         users = await self._pool.fetch(
             "SELECT i.internal_user_id, "
             "  s.state_label, s.device_count, s.active_until_utc "
             "FROM user_identities i "
             "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-            "WHERE s.state_label IN ('active', 'expired') "
+            "WHERE NOT i.vless_rotation_pending AND s.state_label IN ('active', 'expired') "
             "  AND s.keys_deleted_at IS NULL"
         )
         if not users:
@@ -955,7 +1079,7 @@ class XuiVlessProvider(VlessProviderPort):
 
                 # Client missing on this server — add it (enabled iff subscription active)
                 try:
-                    user_uuid = _vless_uuid_for_transport(uid, client.server_config.transport_type)
+                    user_uuid = await self._uuid_for_transport(uid, client.server_config.transport_type)
                     result = await client.add_client(
                         user_uuid=user_uuid,
                         email=email,
@@ -1000,6 +1124,7 @@ class XuiVlessProvider(VlessProviderPort):
         _LOGGER.info("reconcile_done added=%d failed=%d total=%d", added, failed, len(users))
         return added, failed, len(users)
 
+    @serialized_mutation
     async def reconcile_bare_xray(self) -> dict:
         """Standalone desired-state reconcile for every bare_xray inbound (live gRPC).
 
@@ -1032,11 +1157,12 @@ class XuiVlessProvider(VlessProviderPort):
             {"users": N, "added": A, "removed": R, "failed_inbounds": F,
              "inbounds": {<id/tag>: {present, desired, added, removed, status}}}
         """
+        await self._resume_pending_rotations()
         users = await self._pool.fetch(
             """SELECT i.internal_user_id
                FROM user_identities i
                JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-               WHERE s.keys_deleted_at IS NULL
+               WHERE NOT i.vless_rotation_pending AND s.keys_deleted_at IS NULL
                  AND s.state_label = 'active'
                  AND (
                    (s.trial_expires_at IS NOT NULL AND s.trial_expires_at > NOW())
@@ -1085,7 +1211,7 @@ class XuiVlessProvider(VlessProviderPort):
                 if email in present:
                     continue
                 try:
-                    if await client.add_client(user_uuid=_vless_uuid_for_transport(uid, transport), email=email):
+                    if await client.add_client(user_uuid=await self._uuid_for_transport(uid, transport), email=email):
                         added += 1
                 except Exception:
                     _LOGGER.warning("reconcile_bare_xray add_failed user=%s server=%s", uid[:8], client.server_id)

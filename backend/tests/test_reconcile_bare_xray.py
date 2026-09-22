@@ -10,6 +10,7 @@ method never reaches for a reload path (there is none here).
 from __future__ import annotations
 
 import types
+from unittest.mock import AsyncMock
 
 from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
 from app.issuance.xui_vless_provider import (
@@ -28,6 +29,8 @@ class _FakePool:
         self.last_fetch_sql = ""
 
     async def fetch(self, sql, *args):
+        if "WHERE vless_rotation_pending" in sql:
+            return []
         self.last_fetch_sql = sql
         return self._users
 
@@ -73,6 +76,7 @@ class _RaisingListClient(_FakeBareXrayClient):
 
 def _provider(pool, clients):
     p = XuiVlessProvider(pool=pool)
+    p._key_state = AsyncMock(return_value={})
 
     async def fake_get_bare_xray_clients():
         return clients
@@ -217,6 +221,8 @@ def test_probe_user_config_serves_bare_xray_with_no_xui_panels():
 
     p = XuiVlessProvider(pool=_FakePool([]))
 
+    p._key_state = AsyncMock(return_value={})
+
     async def fake_get_clients():
         return []  # 100% bare_xray fleet — no xui panels
 
@@ -259,6 +265,7 @@ def test_probe_user_config_none_only_when_no_servers_at_all():
     ONLY when there are zero xui panels AND zero bare_xray rows. An empty xui list with
     bare_xray rows present must NOT yield None (that was the 503-for-everyone bug)."""
     p = XuiVlessProvider(pool=_FakePool([]))
+    p._key_state = AsyncMock(return_value={})
 
     async def fake_get_clients():
         return []
@@ -273,6 +280,7 @@ def _bare_xray_only_provider():
     """Provider with zero xui panels but bare_xray rows configured — the 100% bare_xray
     fleet state. Returns (provider, lifecycle_calls) so a test can assert _bare_xray_lifecycle ran."""
     p = XuiVlessProvider(pool=_FakePool([]))
+    p._key_state = AsyncMock(return_value={})
 
     async def fake_get_clients():
         return []

@@ -21,7 +21,7 @@ def _request(row):
     pool.fetchrow.side_effect = fetchrow
     provider = AsyncMock()
     provider.revoke_user.return_value = VlessProviderResult(VlessProviderOutcome.SUCCESS)
-    provider.create_user.return_value = VlessProviderResult(
+    provider.reissue_user.return_value = VlessProviderResult(
         VlessProviderOutcome.SUCCESS, VlessUserConfig("new", "subscription", ())
     )
     provider.get_user_config.return_value = VlessProviderResult(VlessProviderOutcome.UNAVAILABLE)
@@ -77,7 +77,7 @@ async def test_reissue_preserves_exact_entitlement(trial):
     request, provider = _request(row)
     response = await handle_reissue_keys(request)
     assert response.status_code == 200
-    provider.create_user.assert_awaited_once_with(
+    provider.reissue_user.assert_awaited_once_with(
         internal_user_id="entitlement-test", device_count=9, expires_at=deadline
     )
 
@@ -93,6 +93,7 @@ async def test_real_provider_passes_exact_expiry_to_panel(monkeypatch):
         add_client=AsyncMock(return_value=XuiClientResult(XuiOutcome.UNAVAILABLE)),
     )
     provider = XuiVlessProvider(pool=AsyncMock())
+    provider._key_state = AsyncMock(return_value={})
     monkeypatch.setattr(provider, "_get_clients", AsyncMock(return_value=[client]))
     deadline = datetime.now(UTC) + timedelta(minutes=47)
     await provider.create_user(internal_user_id="exact-test", device_count=11, expires_at=deadline)
@@ -109,6 +110,7 @@ async def test_telegram_reissue_checks_entitlement(active):
 
     provider = StubVlessProvider()
     provider.create_user = AsyncMock(wraps=provider.create_user)
+    provider.reissue_user = AsyncMock(wraps=provider.reissue_user)
     provider.revoke_user = AsyncMock(wraps=provider.revoke_user)
     composition = build_slice1_composition(bot_username="testbot", vless_provider=provider)
     await composition.identity.create_if_absent(7801)
@@ -130,7 +132,7 @@ async def test_telegram_reissue_checks_entitlement(active):
         composition,
     )
     if active:
-        provider.create_user.assert_awaited_once_with(
+        provider.reissue_user.assert_awaited_once_with(
             internal_user_id=identity.internal_user_id, device_count=8, expires_at=deadline
         )
     else:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -235,34 +234,9 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
-        # Save old UUID for compensation if reissue fails
-        old_uuid_row = await pool.fetchrow(
-            "SELECT vless_uuid FROM user_identities WHERE internal_user_id = $1",
-            internal_user_id,
-        )
-        old_uuid = old_uuid_row["vless_uuid"] if old_uuid_row else None
-
-        # Step 1: Revoke FIRST (while old UUID still exists in DB)
-        # so the provider can find and disable/delete old keys on panels.
-        await provider.revoke_user(internal_user_id=internal_user_id)
-        # Step 2: Clear stored UUID so create_user generates a fresh random key
-        await pool.execute(
-            "UPDATE user_identities SET vless_uuid = NULL WHERE internal_user_id = $1",
-            internal_user_id,
-        )
-        # Step 3: Create new keys with a fresh UUID
-        result = await provider.create_user(internal_user_id=internal_user_id, **grant)
+        result = await provider.reissue_user(internal_user_id=internal_user_id, **grant)
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
-            # Compensation: restore old UUID so user isn't left keyless
-            if old_uuid is not None:
-                await pool.execute(
-                    "UPDATE user_identities SET vless_uuid = $1 WHERE internal_user_id = $2 AND vless_uuid IS NULL",
-                    old_uuid,
-                    internal_user_id,
-                )
-                with contextlib.suppress(Exception):
-                    await provider.create_user(internal_user_id=internal_user_id, **grant)
-            return _safe_json_error(500, "reissue_failed")
+            return _safe_json_error(503, "reissue_pending")
 
         keys = [
             {

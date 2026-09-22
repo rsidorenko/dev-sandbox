@@ -11,6 +11,7 @@ import contextlib
 import json
 import types
 from datetime import UTC, date, datetime
+from unittest.mock import AsyncMock
 
 from app.issuance import bare_xray_traffic as bxt
 from app.issuance.bare_xray_traffic import (
@@ -169,6 +170,7 @@ class _StatsFakeClient:
 
 def _provider_with_clients(clients):
     provider = XuiVlessProvider(pool=object())
+    provider._key_state = AsyncMock(return_value={})
 
     async def fake_clients():
         return tuple(clients)

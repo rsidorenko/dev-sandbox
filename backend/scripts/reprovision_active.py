@@ -48,67 +48,69 @@ async def run() -> None:
 
     pool = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=4)
     try:
-        users = await pool.fetch(
-            """SELECT i.internal_user_id, i.telegram_user_id,
-                      s.active_until_utc, s.device_count
-               FROM user_identities i
-               JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-               WHERE s.state_label = 'active'
-                 AND s.keys_deleted_at IS NULL
-               ORDER BY i.internal_user_id"""
-        )
-        servers = await _load_server_configs(pool)
-        print(f"active users={len(users)}  active servers={len(servers)}")
-        if not users or not servers:
-            print("nothing to do")
-            return
+        from app.issuance.fleet_lock import vpn_fleet_lock
+        async with vpn_fleet_lock(pool):
+            users = await pool.fetch(
+                """SELECT i.internal_user_id, i.telegram_user_id, i.vless_key_seed,
+                          s.active_until_utc, s.device_count
+                   FROM user_identities i
+                   JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
+                   WHERE s.state_label = 'active' AND NOT i.vless_rotation_pending
+                     AND s.keys_deleted_at IS NULL
+                   ORDER BY i.internal_user_id"""
+            )
+            servers = await _load_server_configs(pool)
+            print(f"active users={len(users)}  active servers={len(servers)}")
+            if not users or not servers:
+                print("nothing to do")
+                return
 
-        grand_ok = grand_fail = 0
-        fail_users = 0
-        for u in users:
-            uid = u["internal_user_id"]
-            exp_ts = _expiry_from_datetime(u["active_until_utc"])
-            dev = u["device_count"] or 0
-            limit_ip = dev if dev > 0 else _TRIAL_DEVICE_LIMIT
-            u_ok = u_fail = 0
-            for s in servers:
-                pc = PanelClient(
-                    panel_url=s["panel_url"],
-                    username=s["panel_username"],
-                    password=s["panel_password"],
-                    inbound_id=s["inbound_id"],
-                    server_id=s["server_id"],
-                    label=s["label"],
-                    transport_type=s["transport_type"],
-                    server_host=s["server_host"],
-                    server_port=s["server_port"],
-                )
-                email = _email_from_internal(uid, transport_type=s["transport_type"])
-                try:
-                    ok = await pc.add_client(
-                        user_uuid=_vless_uuid_for_transport(uid, s["transport_type"]),
-                        email=email,
-                        expiry_ts=exp_ts,
-                        enable=True,
-                        limit_ip=limit_ip,
+            grand_ok = grand_fail = 0
+            fail_users = 0
+            for u in users:
+                uid = u["internal_user_id"]
+                exp_ts = _expiry_from_datetime(u["active_until_utc"])
+                dev = u["device_count"] or 0
+                limit_ip = dev if dev > 0 else _TRIAL_DEVICE_LIMIT
+                u_ok = u_fail = 0
+                for s in servers:
+                    pc = PanelClient(
+                        panel_url=s["panel_url"],
+                        username=s["panel_username"],
+                        password=s["panel_password"],
+                        inbound_id=s["inbound_id"],
+                        server_id=s["server_id"],
+                        label=s["label"],
+                        transport_type=s["transport_type"],
+                        server_host=s["server_host"],
+                        server_port=s["server_port"],
                     )
-                except Exception as exc:
-                    print(f"    !! {uid} server {s['server_id']} {s['label']}: {exc}")
-                    ok = False
-                await pc.aclose()
-                if ok:
-                    u_ok += 1
-                else:
-                    u_fail += 1
-            grand_ok += u_ok
-            grand_fail += u_fail
-            if u_fail:
-                fail_users += 1
-                print(f"  {uid} (tg={u['telegram_user_id']}): {u_ok} ok, {u_fail} FAIL")
-        print(
-            f"\nDONE: {grand_ok} ok, {grand_fail} fail across {len(users)} users × {len(servers)} servers"
-            f"  ({fail_users} users had >=1 failure)"
-        )
+                    email = _email_from_internal(uid, transport_type=s["transport_type"])
+                    try:
+                        ok = await pc.add_client(
+                            user_uuid=_vless_uuid_for_transport(uid, s["transport_type"], u.get("vless_key_seed")),
+                            email=email,
+                            expiry_ts=exp_ts,
+                            enable=True,
+                            limit_ip=limit_ip,
+                        )
+                    except Exception as exc:
+                        print(f"    !! {uid} server {s['server_id']} {s['label']}: {exc}")
+                        ok = False
+                    await pc.aclose()
+                    if ok:
+                        u_ok += 1
+                    else:
+                        u_fail += 1
+                grand_ok += u_ok
+                grand_fail += u_fail
+                if u_fail:
+                    fail_users += 1
+                    print(f"  {uid} (tg={u['telegram_user_id']}): {u_ok} ok, {u_fail} FAIL")
+            print(
+                f"\nDONE: {grand_ok} ok, {grand_fail} fail across {len(users)} users × {len(servers)} servers"
+                f"  ({fail_users} users had >=1 failure)"
+            )
     finally:
         await pool.close()
 
