@@ -328,11 +328,13 @@ deploy:
   # alpine+apk вместо ubuntu+apt: зеркала Canonical рвут соединения с IP раннера
   # (apt виснет на CLOSE_WAIT по 20-35 мин), а dl-cdn.alpinelinux.org (Fastly) — другой CDN.
   image: alpine:3.20
-  needs: []
+  # Без needs задача ждёт все предыдущие стадии; каталог релиза общий для pipeline.
+  resource_group: production
   rules:
     # Авто-деплой на push в main ТОЛЬКО когда секреты заданы (иначе — упадёт и потратит минуты).
     - if: $CI_COMMIT_BRANCH == "main" && $SERVER_SSH_KEY && $SERVER_HOST && $SERVER_USER
-    - when: manual
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
       allow_failure: true
   variables:
     RUN_HARDENING: "false"
@@ -367,8 +369,7 @@ deploy:
       ssh "$SERVER_USER@$SERVER_HOST" 'bash /tmp/bravada_deploy_remote.sh && rm -f /tmp/bravada_deploy_remote.sh'
 
       echo "=== Verify healthz ==="
-      sleep 8
-      ssh "$SERVER_USER@$SERVER_HOST" 'curl -sf http://127.0.0.1:8000/healthz && echo " OK" || echo " FAILED"' || true
+      ssh "$SERVER_USER@$SERVER_HOST" 'bash /opt/bravada/scripts/ci/verify_health.sh'
 
       echo "=== Refresh Karing client binaries (public upstream, no GitHub account needed) ==="
       bash scripts/ci/fetch_karing_clients.sh "$SERVER_USER@$SERVER_HOST" || echo "Karing refresh skipped (non-fatal)"
