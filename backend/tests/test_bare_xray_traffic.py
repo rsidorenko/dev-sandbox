@@ -178,8 +178,8 @@ def _provider_with_clients(clients):
 
 
 def test_stats_hosts_dedupes_dual_inbound_host() -> None:
-    de_tcp = _StatsFakeClient(2, "85.208.87.57", "tcp")
-    de_xhttp = _StatsFakeClient(3, "85.208.87.57", "xhttp")
+    de_tcp = _StatsFakeClient(2, "158.160.188.35", "tcp")
+    de_xhttp = _StatsFakeClient(3, "158.160.188.35", "xhttp")
     fi_tcp = _StatsFakeClient(4, "85.208.85.117", "tcp")
     provider = _provider_with_clients([de_tcp, de_xhttp, fi_tcp])
 
@@ -187,7 +187,7 @@ def test_stats_hosts_dedupes_dual_inbound_host() -> None:
 
     assert len(hosts) == 2  # не 3: DE-хост один, несмотря на два инбаунда
     by_host = {client.server_config.server_host: (client, configs) for client, configs in hosts}
-    de_client, de_configs = by_host["85.208.87.57"]
+    de_client, de_configs = by_host["158.160.188.35"]
     assert de_client in (de_tcp, de_xhttp)
     assert {c.server_id for c in de_configs} == {2, 3}
     assert {c.server_id for c in by_host["85.208.85.117"][1]} == {4}
@@ -474,8 +474,8 @@ def _scheduler(pool, provider, repo):
 
 
 def test_tick_collects_and_applies() -> None:
-    configs = [_cfg(2, transport="tcp", host="85.208.87.57")]
-    hosts = [(_FakeStatsHostClient(2, "85.208.87.57", "tcp", {"user-1": {"up": 150, "down": 700}}), configs)]
+    configs = [_cfg(2, transport="tcp", host="158.160.188.35")]
+    hosts = [(_FakeStatsHostClient(2, "158.160.188.35", "tcp", {"user-1": {"up": 150, "down": 700}}), configs)]
     repo = _FakeRepo(state_map={2: {"user-1": {"up": 100, "down": 500}}})
     pool = _FakeTickPool()
     sched = _scheduler(pool, _FakeProvider(hosts), repo)

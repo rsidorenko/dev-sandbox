@@ -78,7 +78,7 @@ class StatsTarget(RoutingTarget):
 # там YT=158.160.82.113 (удалён 2026-08-26) и CDN-LT=158.160.40.11 (устарел) — здесь
 # только текущие хосты, проверенные по cert-монитору и памяти флота.
 TARGETS: list[StatsTarget] = [
-    StatsTarget("DE", "85.208.87.57"),  # cloud.ru, cascade-entry, egress Frankfurt
+    StatsTarget("DE", "158.160.188.35"),  # Yandex (migrated 2026-09-22), cascade-entry, egress Frankfurt
     StatsTarget("FI", "85.208.85.117"),  # cloud.ru, cascade-entry, egress Helsinki
     StatsTarget("LT", "45.91.52.204", key="D:/tmp/romtan_key.pem"),  # Delta, cascade-entry
     StatsTarget("US", "176.109.107.226", key="D:/TelegramBotVPN/.ssh/yandex-relay"),

@@ -13,7 +13,7 @@ the routing order (after geoip:private, before TikTok/foreign) on each cascade-e
 `domain:X` in xray matches X and all subdomains. Idempotent + backup + xray test +
 restart + verify. Reuses the merge pattern of manage_ru_egress.merge_domain_family_routing.
 
-Runs over SSH on the 4 bare_xray cascade-entries: DE 85.208.87.57 + FI 85.208.85.117
+Runs over SSH on the 4 bare_xray cascade-entries: DE 158.160.188.35 (Yandex, 2026-09-22) + FI 85.208.85.117
 (cloudru_key.pem), LT 158.160.80.40 (yandex_new_key), US 89.169.139.153 (yandex-relay) —
 all user romtan. All four are bare_xray now (US was converted from a 3x-ui panel 2026-07-27).
 
@@ -118,7 +118,7 @@ BARE_XRAY_ENTRIES = [
     # (RU bank/services -> direct RU egress, rest -> foreign relay). Labeled by egress country.
     # YouTube-only (158.160.82.113) and CDN-bypass (158.160.234.239) are NOT bank-routing targets.
     # All four are bare_xray now (US converted from x-ui on 2026-07-27).
-    CascadeEntry("DE cascade-entry (Frankfurt egress)", "85.208.87.57"),
+    CascadeEntry("DE cascade-entry (Frankfurt egress)", "158.160.188.35"),
     CascadeEntry("FI cascade-entry (Helsinki egress)", "85.208.85.117"),
     CascadeEntry("LT cascade-entry (Lithuania egress)", "158.160.80.40",
                  key="C:/Users/Roman/.ssh/yandex_new_key"),

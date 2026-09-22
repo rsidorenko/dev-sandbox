@@ -140,7 +140,7 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
     CertTarget(
         name="entry-de-camo",
         mode="ssh-file",
-        host="85.208.87.57",
+        host="158.160.188.35",
         cert_paths=(f"{_CERTBOT_LIVE}/cloudru.bravada-connect.online/fullchain.pem",),
     ),
     CertTarget(

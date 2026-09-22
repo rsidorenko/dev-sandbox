@@ -383,7 +383,7 @@ class RoutingTarget:
 TARGETS: list[RoutingTarget] = [
     RoutingTarget(
         "DE",
-        "85.208.87.57",  # cloud.ru, egress Frankfurt
+        "158.160.188.35",  # Yandex (migrated 2026-09-22 from cloud.ru 85.208.87.57), egress Frankfurt
         normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-19 — убрать
     ),
     RoutingTarget("FI", "85.208.85.117"),  # cloud.ru, egress Helsinki

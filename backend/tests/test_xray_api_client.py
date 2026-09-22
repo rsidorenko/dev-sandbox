@@ -241,7 +241,7 @@ def _bare_config(**overrides) -> XuiServerConfig:
         "label": "de",
         "country_code": "DE",
         "country_flag": "x",
-        "server_host": "85.208.87.57",
+        "server_host": "158.160.188.35",
         "server_port": 443,
         "ws_path": "/ws",
         "tls_sni": None,
