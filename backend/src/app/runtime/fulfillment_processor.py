@@ -663,7 +663,9 @@ async def process_fulfillment(
 
         # --- DB-only transaction: ingest + apply + snapshot (fast, no HTTP) ---
         async with pool.acquire() as conn, conn.transaction():
-            # Read existing snapshot BEFORE apply (apply overwrites it)
+            # Общая с балансовой оплатой блокировка защищает чтение и продление.
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", inp.internal_user_id)
+            # Читаем подписку до UC-05, который обновляет её базовое состояние.
             existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(
                 conn,
                 inp.internal_user_id,
@@ -673,10 +675,12 @@ async def process_fulfillment(
             ingest_result = await atomic_ingest.ingest_in_connection(conn, ingest_input)
             apply = PostgresAtomicUC05SubscriptionApply(pool)
             apply_result = await apply.apply_in_connection(conn, ingest_result.record.internal_fact_ref)
-            if apply_result.operation_outcome in (
-                OperationOutcomeCategory.SUCCESS,
-                OperationOutcomeCategory.IDEMPOTENT_NOOP,
-            ):
+            is_new_active = (
+                apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
+                and not apply_result.idempotent_replay
+                and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
+            )
+            if is_new_active:
                 # Extend from current active_until if subscription is still active
                 _LOGGER.info(
                     "fulfillment extend check user=%s existing=%s paid_at=%s",
@@ -709,11 +713,6 @@ async def process_fulfillment(
                         device_count=inp.device_count,
                     ),
                 )
-            is_new_active = (
-                apply_result.operation_outcome is OperationOutcomeCategory.SUCCESS
-                and not apply_result.idempotent_replay
-                and apply_result.apply_outcome is BillingSubscriptionApplyOutcome.ACTIVE_APPLIED
-            )
             if is_new_active:
                 should_notify = notify_activation is not None
                 should_process_referral = True
