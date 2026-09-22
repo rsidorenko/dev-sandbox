@@ -145,6 +145,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "098_drop_user_emails.sql",
         "099_vless_key_rotation.sql",
         "100_balance_access_jobs.sql",
+        "101_vpn_server_observations.sql",
     ]
 
 

@@ -422,6 +422,10 @@ class _FakeTickPool:
     def __init__(self, *, locked: bool = True) -> None:
         self.locked = locked
         self.unlocked: list[int] = []
+        self.observations: list = []
+
+    async def executemany(self, sql, values):
+        self.observations.extend(values)
 
     def acquire(self):
         @contextlib.asynccontextmanager
@@ -570,3 +574,30 @@ def test_parse_query_stats_via_client_module_json() -> None:
     )
     parsed = parse_query_stats_response(raw)
     assert diff_deltas(parsed, {"user-1": {"up": 100, "down": 500}}) == {"user-1": {"up": 50, "down": 200}}
+
+
+def test_empty_stats_records_success_and_observation_failure_does_not_stop_collection():
+    configs = [_cfg(2, transport="tcp", host="test-host")]
+    hosts = [(_FakeStatsHostClient(2, "test-host", "tcp", {}), configs)]
+    pool = _FakeTickPool()
+    repo = _FakeRepo()
+    _run(_scheduler(pool, _FakeProvider(hosts), repo)._run_tick())
+    assert pool.observations == [(2, "success")]
+
+    async def fail(*args):
+        raise RuntimeError("Недоступна таблица мониторинга")
+
+    pool.executemany = fail
+    _run(_scheduler(pool, _FakeProvider(hosts), repo)._run_tick())
+    assert len(repo.batches) == 2
+    assert len(pool.unlocked) == 2
+
+
+def test_stats_error_is_persisted_without_breaking_other_hosts():
+    hosts = [
+        (_FakeStatsHostClient(2, "test-host", "tcp", None), [_cfg(2, transport="tcp")]),
+        (_FakeStatsHostClient(3, "other-host", "tcp", {}), [_cfg(3, transport="tcp")]),
+    ]
+    pool = _FakeTickPool()
+    _run(_scheduler(pool, _FakeProvider(hosts), _FakeRepo())._run_tick())
+    assert pool.observations == [(2, "error"), (3, "success")]

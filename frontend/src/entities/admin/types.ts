@@ -629,3 +629,14 @@ export interface AdminUserDetail {
     subscription_actions: { action: string; days: number; provisioning: string | null; created_at: string }[];
   };
 }
+
+export interface AdminServersResponse {
+  observed_at: string; source: string; stale_after_seconds: number;
+  servers: {
+    id: number; label: string; country_code: string; server_host: string; server_port: number;
+    transport_type: string; provider_kind: string; client_surface: string; is_active: boolean;
+    health: "healthy" | "error" | "stale" | "unknown";
+    checked_at: string | null; last_success_at: string | null; traffic_collected_at: string | null;
+    traffic_bytes: number; traffic_keys: number;
+  }[];
+}

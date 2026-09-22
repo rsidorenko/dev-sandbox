@@ -76,6 +76,22 @@ class TrafficStatsScheduler:
             finally:
                 await conn.execute("SELECT pg_advisory_unlock($1)", _ADVISED_LOCK_ID)
 
+    async def _record_observation(self, configs, *, success: bool) -> None:
+        """Мониторинг не должен блокировать основной сбор при ошибке БД."""
+        try:
+            await asyncio.wait_for(
+                self._pool.executemany(
+                    "INSERT INTO vpn_server_observations(server_id,status,checked_at,last_success_at) "
+                    "VALUES($1,$2,NOW(),CASE WHEN $2='success' THEN NOW() END) "
+                    "ON CONFLICT(server_id) DO UPDATE SET status=EXCLUDED.status,checked_at=EXCLUDED.checked_at, "
+                    "last_success_at=COALESCE(EXCLUDED.last_success_at,vpn_server_observations.last_success_at)",
+                    [(cfg.server_id, "success" if success else "error") for cfg in configs],
+                ),
+                timeout=5,
+            )
+        except Exception:
+            _LOGGER.warning("traffic_stats_observation_write_failed")
+
     async def _collect_and_apply(self) -> None:
         hosts = await self._provider.bare_xray_stats_hosts()
         if not hosts:
@@ -86,11 +102,14 @@ class TrafficStatsScheduler:
                 current = await asyncio.wait_for(client.query_stats(), timeout=_HOST_QUERY_TIMEOUT_SECONDS)
             except Exception as exc:
                 _LOGGER.warning("traffic_stats query error server=%s: %r", client.server_id, exc)
+                await self._record_observation(configs, success=False)
                 continue
             if current is None:
                 # Транспортный сбой или StatsService ещё не включён на хосте.
                 _LOGGER.warning("traffic_stats query failed server=%s — host skipped", client.server_id)
+                await self._record_observation(configs, success=False)
                 continue
+            await self._record_observation(configs, success=True)
             try:
                 state: dict[str, dict[str, int]] = {}
                 for cfg in configs:

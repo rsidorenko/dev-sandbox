@@ -12,6 +12,7 @@ const groups = [
     ["/admin/plans", "Тарифы"],
     ["/admin/broadcast", "Рассылка"],
   ] },
+  { label: "Сервис", links: [["/admin/servers", "Серверы"]] },
   { label: "Аналитика", links: [["/admin/stats", "Статистика"]] },
 ];
 

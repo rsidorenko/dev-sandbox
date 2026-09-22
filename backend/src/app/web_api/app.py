@@ -38,6 +38,7 @@ from app.web_api.admin_promocodes import (
     handle_admin_list_promocodes,
     handle_admin_update_promocode,
 )
+from app.web_api.admin_servers import handle_admin_servers
 from app.web_api.admin_stats import handle_admin_stats
 from app.web_api.admin_users import (
     handle_admin_add_days,
@@ -230,6 +231,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Admin panel (feature-flagged via WEB_ADMIN_ENABLE; auth via admin_session cookie)
         Route("/api/v1/admin/auth/login", handle_admin_login, methods=["POST"]),
         Route("/api/v1/admin/auth/logout", handle_admin_logout, methods=["POST"]),
+        Route("/api/v1/admin/servers", handle_admin_servers, methods=["GET"]),
         Route("/api/v1/admin/users", handle_admin_list_users, methods=["GET"]),
         Route("/api/v1/admin/users/{internal_user_id}", handle_admin_get_user, methods=["GET"]),
         Route("/api/v1/admin/users/{internal_user_id}/internal", handle_admin_set_internal, methods=["POST"]),
