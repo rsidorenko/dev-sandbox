@@ -26,6 +26,11 @@ from app.web_api.admin_broadcast import (
     handle_admin_broadcast_status,
     handle_admin_broadcast_test,
 )
+from app.web_api.admin_incidents import (
+    handle_admin_incident_create,
+    handle_admin_incident_update,
+    handle_admin_incidents,
+)
 from app.web_api.admin_payments import handle_admin_payments
 from app.web_api.admin_plans import (
     handle_admin_list_plans,
@@ -232,6 +237,9 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Admin panel (feature-flagged via WEB_ADMIN_ENABLE; auth via admin_session cookie)
         Route("/api/v1/admin/auth/login", handle_admin_login, methods=["POST"]),
         Route("/api/v1/admin/auth/logout", handle_admin_logout, methods=["POST"]),
+        Route("/api/v1/admin/incidents", handle_admin_incidents, methods=["GET"]),
+        Route("/api/v1/admin/incidents", handle_admin_incident_create, methods=["POST"]),
+        Route("/api/v1/admin/incidents/{incident_id}", handle_admin_incident_update, methods=["POST"]),
         Route("/api/v1/admin/payments", handle_admin_payments, methods=["GET"]),
         Route("/api/v1/admin/servers", handle_admin_servers, methods=["GET"]),
         Route("/api/v1/admin/users", handle_admin_list_users, methods=["GET"]),

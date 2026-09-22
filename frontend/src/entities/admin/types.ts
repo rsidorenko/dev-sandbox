@@ -650,3 +650,11 @@ export interface AdminPaymentsResponse {
     attention_reason: string | null;
   }[];
 }
+
+export interface AdminAttentionIssue { key: string; kind: string; title: string; internal_user_id: string | null; severity: string; }
+export interface AdminIncidentsResponse {
+  observed_at: string; total: number; issues: AdminAttentionIssue[];
+  incidents: { id: string; source_key: string | null; title: string; status: string; version: number; created_at: string; updated_at: string; created_by: string }[];
+  events: { id: number; incident_id: string; actor: string; action: string; note: string; created_at: string }[];
+  audit: { id: string; created_at: string; actor: string; internal_user_id: string | null; action: string; detail: string }[];
+}
