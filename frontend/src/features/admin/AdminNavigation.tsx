@@ -8,6 +8,7 @@ import { adminNavActive, adminNavIdle } from "./ui";
 const groups = [
   { label: "Работа с клиентами", links: [
     ["/admin/users", "Пользователи"],
+    ["/admin/payments", "Платежи"],
     ["/admin/promocodes", "Промокоды"],
     ["/admin/plans", "Тарифы"],
     ["/admin/broadcast", "Рассылка"],

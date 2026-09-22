@@ -640,3 +640,13 @@ export interface AdminServersResponse {
     traffic_bytes: number; traffic_keys: number;
   }[];
 }
+
+export interface AdminPaymentsResponse {
+  observed_at: string; days: number; page: number; limit: number; total: number;
+  payments: { row_id: string; occurred_at: string; internal_user_id: string | null; telegram_user_id: number | null;
+    provider: string; payment_kind: string; amount_minor_units: number | null; currency_code: string | null;
+    payment_status: string; reference: string; apply_status: string; access_status: string;
+    access_attempts: number | null; access_created_at: string | null; access_next_attempt_at: string | null;
+    attention_reason: string | null;
+  }[];
+}
