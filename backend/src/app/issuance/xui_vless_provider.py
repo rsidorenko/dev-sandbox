@@ -1036,6 +1036,7 @@ class XuiVlessProvider(VlessProviderPort):
         Returns ``(added, failed, total_users)`` counts.
         """
         self._clients_ts = 0.0  # Force server list refresh
+        # Совпадение email недостаточно: после рестарта возможны старые UUID/flow.
         await self._resume_pending_rotations()
         users = await self._pool.fetch(
             "SELECT i.internal_user_id, "
@@ -1206,7 +1207,8 @@ class XuiVlessProvider(VlessProviderPort):
             key = f"{client.server_id}/{tag}" if tag else str(client.server_id)
             desired = {_email_from_internal(uid, transport_type=transport) for uid in user_ids}
             try:
-                present = set(await client.list_user_emails())
+                accounts = await client.list_user_accounts()
+                present = set(accounts)
             except Exception:
                 _LOGGER.warning("reconcile_bare_xray list_failed server=%s tag=%s", client.server_id, tag)
                 failed_inbounds += 1
@@ -1220,25 +1222,42 @@ class XuiVlessProvider(VlessProviderPort):
                 continue
 
             added = removed = 0
+            mutation_failed = False
             for uid in user_ids:
                 email = _email_from_internal(uid, transport_type=transport)
-                if email in present:
-                    continue
                 try:
-                    if await client.add_client(user_uuid=await self._uuid_for_transport(uid, transport), email=email):
+                    expected_uuid = await self._uuid_for_transport(uid, transport)
+                    expected_flow = REALITY_TCP_FLOW if transport == "tcp" else ""
+                    if accounts.get(email) == (expected_uuid, expected_flow):
+                        continue
+                    if email in present:
+                        if not await client.remove_client(email=email):
+                            mutation_failed = True
+                            continue
+                        removed += 1
+                    if await client.add_client(user_uuid=expected_uuid, email=email):
                         added += 1
+                    else:
+                        mutation_failed = True
                 except Exception:
-                    _LOGGER.warning("reconcile_bare_xray add_failed user=%s server=%s", uid[:8], client.server_id)
+                    mutation_failed = True
+                    _LOGGER.warning("reconcile_bare_xray update_failed user=%s server=%s", uid[:8], client.server_id)
             for orphan in present - desired:
-                with contextlib.suppress(Exception):
+                try:
                     if await client.remove_client(email=orphan):
                         removed += 1
+                    else:
+                        mutation_failed = True
+                except Exception:
+                    mutation_failed = True
+            if mutation_failed:
+                failed_inbounds += 1
             summary[key] = {
                 "present": len(present),
                 "desired": len(desired),
                 "added": added,
                 "removed": removed,
-                "status": "ok",
+                "status": "mutation_failed" if mutation_failed else "ok",
             }
             total_added += added
             total_removed += removed

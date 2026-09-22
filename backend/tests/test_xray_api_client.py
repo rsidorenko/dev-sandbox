@@ -293,3 +293,66 @@ def test_run_grpcurl_uses_bounded_wait_constants(monkeypatch) -> None:
     client = xac.XrayApiClient(_bare_config(), ssh_user="romtan", ssh_key="k")
     client._connect = lambda: _StuckSSH()  # type: ignore[method-assign]
     assert client._run_grpcurl("QueryStats", "{}", service="xray.app.stats.command.StatsService") == (False, "")
+
+
+def test_list_accounts_decodes_snapshot_and_empty_inbound():
+    import asyncio
+    from unittest.mock import Mock
+
+    from app.issuance.xray_api_client import XrayApiClient
+
+    client = XrayApiClient(_bare_config(), ssh_user="test", ssh_key="test")
+    raw = encode_vless_account(id="current-uuid", flow=REALITY_TCP_FLOW)
+    client._run_grpcurl = Mock(
+        return_value=(
+            True,
+            json.dumps(
+                {
+                    "users": [
+                        {
+                            "email": "user-1",
+                            "account": {"type": _VLESS_ACCOUNT_TYPE, "value": base64.b64encode(raw).decode()},
+                        }
+                    ]
+                }
+            ),
+        )
+    )
+    assert asyncio.run(client.list_user_accounts()) == {"user-1": ("current-uuid", REALITY_TCP_FLOW)}
+    client._run_grpcurl.return_value = (True, "{}")
+    assert asyncio.run(client.list_user_accounts()) == {}
+
+
+def test_list_accounts_rejects_incomplete_snapshot():
+    import asyncio
+    from unittest.mock import Mock
+
+    import pytest
+
+    from app.issuance.xray_api_client import XrayApiClient
+
+    client = XrayApiClient(_bare_config(), ssh_user="test", ssh_key="test")
+    invalid = [
+        None,
+        [],
+        {"users": None},
+        {"users": [None]},
+        {"users": [{}]},
+        {"users": [{"email": "x", "account": {"type": "unknown", "value": ""}}]},
+        {"users": [{"email": "x", "account": {"type": _VLESS_ACCOUNT_TYPE, "value": "!!!"}}]},
+    ]
+    for response in [(False, "{}"), (True, ""), (True, "not-json")] + [(True, json.dumps(x)) for x in invalid]:
+        client._run_grpcurl = Mock(return_value=response)
+        with pytest.raises(RuntimeError):
+            asyncio.run(client.list_user_accounts())
+
+
+def test_account_decoder_rejects_truncation_and_preserves_unknown_fields():
+    import pytest
+
+    from app.issuance.xray_api_client import decode_vless_account
+
+    assert decode_vless_account(b"\x0a\x02id\x20\x01\x3a\x00") == ("id", "")
+    for raw in (b"", b"\x0a\x05id", b"\x80", b"\x08\x01", b"\x0a\x01\xff", b"\x00", b"\x80" * 11):
+        with pytest.raises(ValueError):
+            decode_vless_account(raw)

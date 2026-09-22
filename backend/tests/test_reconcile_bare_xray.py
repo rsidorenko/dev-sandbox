@@ -55,6 +55,17 @@ class _FakeBareXrayClient:
         self.added: list[tuple[str, str]] = []
         self.removed: list[str] = []
 
+    async def list_user_accounts(self):
+        transport = self.server_config.transport_type
+        prefix = "user-" if transport == "tcp" else "x-user-"
+        return {
+            email: (
+                _vless_uuid_for_transport(email.removeprefix(prefix), transport),
+                "xtls-rprx-vision" if transport == "tcp" else "",
+            )
+            for email in self._present
+        }
+
     async def list_user_emails(self):
         return list(self._present)
 
@@ -70,7 +81,7 @@ class _FakeBareXrayClient:
 
 
 class _RaisingListClient(_FakeBareXrayClient):
-    async def list_user_emails(self):
+    async def list_user_accounts(self):
         raise RuntimeError("grpcurl blew up")
 
 
@@ -360,3 +371,84 @@ def test_delete_user_reports_error_when_bare_xray_remove_failed():
     result = _run(provider.delete_user(internal_user_id="u5"))
 
     assert result.outcome == VlessProviderOutcome.ERROR
+
+
+def test_reconcile_repairs_rotated_uuid_restored_by_restart():
+    client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["user-u1"])
+    client.list_user_accounts = AsyncMock(return_value={"user-u1": ("old-uuid", "xtls-rprx-vision")})
+    p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+    p._uuid_for_transport = AsyncMock(return_value="rotated-uuid")
+
+    result = _run(p.reconcile_bare_xray())
+
+    assert client.removed == ["user-u1"]
+    assert client.added == [("user-u1", "rotated-uuid")]
+    assert result["failed_inbounds"] == 0
+
+
+def test_reconcile_repairs_flow_and_reports_remove_failure():
+    for transport, email, wrong_flow in [("tcp", "user-u1", ""), ("xhttp", "x-user-u1", "xtls-rprx-vision")]:
+        client = _FakeBareXrayClient(server_id=2, tag="test", transport=transport, present=[email])
+        client.list_user_accounts = AsyncMock(
+            return_value={email: (_vless_uuid_for_transport("u1", transport), wrong_flow)}
+        )
+        p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+        assert _run(p.reconcile_bare_xray())["added"] == 1
+        assert client.removed == [email]
+        client.remove_client = AsyncMock(return_value=False)
+        client.added.clear()
+        result = _run(p.reconcile_bare_xray())
+        assert result["failed_inbounds"] == 1
+        assert result["inbounds"]["2/test"]["status"] == "mutation_failed"
+        assert client.added == []
+
+
+def test_reconcile_retries_after_replacement_add_failure():
+    client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["user-u1"])
+
+    async def accounts():
+        return dict.fromkeys(client._present, ("old", "xtls-rprx-vision"))
+
+    client.list_user_accounts = accounts
+    p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+    original_add = client.add_client
+    client.add_client = AsyncMock(return_value=False)
+    assert _run(p.reconcile_bare_xray())["failed_inbounds"] == 1
+    assert client._present == set()
+    client.add_client = original_add
+    assert _run(p.reconcile_bare_xray())["added"] == 1
+    assert client.added == [("user-u1", _vless_uuid_for_transport("u1", "tcp"))]
+
+
+def test_malformed_account_in_snapshot_prevents_all_mutations():
+    import base64
+    import json
+    from unittest.mock import Mock
+
+    from app.issuance.xray_api_client import XrayApiClient, encode_vless_account
+
+    client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["user-u1", "orphan"])
+    client._config = client.server_config
+    client._run_grpcurl = Mock(
+        return_value=(
+            True,
+            json.dumps(
+                {
+                    "users": [
+                        {
+                            "email": "user-u1",
+                            "account": {
+                                "type": "xray.proxy.vless.Account",
+                                "value": base64.b64encode(encode_vless_account(id="old")).decode(),
+                            },
+                        },
+                        {"email": "orphan", "account": {"type": "xray.proxy.vless.Account", "value": "broken"}},
+                    ]
+                }
+            ),
+        )
+    )
+    client.list_user_accounts = types.MethodType(XrayApiClient.list_user_accounts, client)
+    p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
+    assert _run(p.reconcile_bare_xray())["failed_inbounds"] == 1
+    assert client.added == client.removed == []

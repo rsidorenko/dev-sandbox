@@ -80,6 +80,49 @@ def encode_vless_account(*, id: str, flow: str = "", encryption: str = "none") -
     return _enc_string(1, id) + _enc_string(2, flow) + _enc_string(3, encryption)
 
 
+def decode_vless_account(raw: bytes) -> tuple[str, str]:
+    """Строго извлекает UUID и flow, пропуская остальные protobuf-поля."""
+    pos = 0
+    fields: dict[int, str] = {}
+
+    def read_varint() -> int:
+        nonlocal pos
+        value = 0
+        for shift in range(0, 70, 7):
+            if pos >= len(raw):
+                raise ValueError("Truncated account")
+            byte = raw[pos]
+            pos += 1
+            value |= (byte & 127) << shift
+            if not byte & 128:
+                return value
+        raise ValueError("Invalid varint")
+
+    while pos < len(raw):
+        tag = read_varint()
+        field, wire = tag >> 3, tag & 7
+        if field == 0 or (field in (1, 2) and wire != 2):
+            raise ValueError("Invalid account field")
+        if wire == 0:
+            read_varint()
+            continue
+        if wire == 2:
+            size = read_varint()
+        elif wire in (1, 5):
+            size = 8 if wire == 1 else 4
+        else:
+            raise ValueError("Unsupported account wire type")
+        end = pos + size
+        if end > len(raw):
+            raise ValueError("Truncated account field")
+        if field in (1, 2):
+            fields[field] = raw[pos:end].decode("utf-8")
+        pos = end
+    if not fields.get(1):
+        raise ValueError("Missing account id")
+    return fields[1], fields.get(2, "")
+
+
 def encode_typed_message(type_url: str, value: bytes) -> bytes:
     """xray.common.serial.TypedMessage { string type=1; bytes value=2 }."""
     return _enc_string(1, type_url) + _enc_bytes(2, value)
@@ -315,6 +358,29 @@ class XrayApiClient:
         payload = alter_remove_payload(tag=self._config.xray_inbound_tag, email=email)
         ok, _ = await self._mutating_rpc(payload)
         return ok
+
+    async def list_user_accounts(self) -> dict[str, tuple[str, str]]:
+        """Возвращает полный снимок VLESS; ошибка не означает пустой inbound."""
+        payload = get_inbound_users_payload(tag=self._config.xray_inbound_tag)
+        ok, out = await asyncio.to_thread(self._run_grpcurl, "GetInboundUsers", payload)
+        if not ok:
+            raise RuntimeError("Cannot list inbound accounts")
+        try:
+            data = json.loads(out)
+            if not isinstance(data, dict) or not isinstance(data.get("users", []), list):
+                raise ValueError("Invalid users response")
+            accounts: dict[str, tuple[str, str]] = {}
+            for user in data.get("users", []):
+                email, account = user["email"], user["account"]
+                if not isinstance(email, str) or not email or email in accounts:
+                    raise ValueError("Invalid or duplicate email")
+                if account["type"] != _VLESS_ACCOUNT_TYPE:
+                    raise ValueError("Unexpected account type")
+                raw = base64.b64decode(account["value"], validate=True)
+                accounts[email] = decode_vless_account(raw)
+            return accounts
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RuntimeError("Invalid inbound accounts response") from exc
 
     async def list_user_emails(self) -> list[str]:
         """Current user emails on this inbound (for reconcile / orphan detection)."""
