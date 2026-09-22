@@ -514,9 +514,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
 
 
 async def handle_create_balance_payment(request: Request) -> JSONResponse:
-    """Pay for a subscription from the referral balance. Thin adapter over the shared
-    ``balance_payment_service`` (3-layer idempotency, audit-in-tx, atomic VLESS
-    compensation, commission credit + referrer notify)."""
+    """Оплата балансом: атомарное списание и сохраняемое задание выдачи доступа."""
     auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
@@ -556,8 +554,7 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
 
 
 async def handle_create_add_device_balance_payment(request: Request) -> JSONResponse:
-    """Pay to add devices from the referral balance. Thin adapter over the shared
-    ``balance_payment_service`` (no renewal, no VLESS, no commission — parity with bot)."""
+    """Покупка устройств без продления: списание и задание обновления лимита."""
     auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
         return auth_result
@@ -588,6 +585,7 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
         new_device_count=new_device_count,
         correlation_id=(request.headers.get("X-Idempotency-Key", "") or "").strip() or None,
         description_prefix="web add device",
+        vless_provider=getattr(request.app.state, "vless_provider", None),
     )
     return _balance_result_to_response(result)
 
@@ -606,10 +604,10 @@ _BALANCE_ERROR_CODES: dict[BalancePaymentStatus, tuple[int, str]] = {
 
 def _balance_result_to_response(result: BalancePaymentResult) -> JSONResponse:
     """Map the shared service result to the web JSON response."""
-    if result.status is BalancePaymentStatus.COMPLETED:
+    if result.status in (BalancePaymentStatus.COMPLETED, BalancePaymentStatus.PROVISIONING):
         body: dict[str, Any] = {
             "ok": True,
-            "status": "completed",
+            "status": result.status.value,
             "device_count": result.device_count,
             "amount_rubles": result.amount_kopecks // 100,
             "amount_kopecks": result.amount_kopecks,
@@ -620,7 +618,9 @@ def _balance_result_to_response(result: BalancePaymentResult) -> JSONResponse:
             body["plan_name"] = plan_display_name_safe(result.plan_id)
         if result.active_until_utc:
             body["active_until"] = result.active_until_utc.date().isoformat()
-        return JSONResponse(body)
+        if result.status is BalancePaymentStatus.PROVISIONING:
+            body["message"] = "Оплата принята. Доступ настраивается автоматически. Повторно платить не нужно."
+        return JSONResponse(body, status_code=202 if result.status is BalancePaymentStatus.PROVISIONING else 200)
     if result.status is BalancePaymentStatus.ALREADY_COMPLETED:
         return JSONResponse(
             {

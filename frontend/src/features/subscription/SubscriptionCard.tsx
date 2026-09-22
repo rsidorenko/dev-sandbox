@@ -66,6 +66,7 @@ export function SubscriptionCard({
   const [selectedDevices, setSelectedDevices] = useState(deviceMin);
   const [actionLoading, setActionLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
+  const [deviceNotice, setDeviceNotice] = useState("");
   // One idempotency key per mount for the add-device-via-balance button.
   // Lazy-init so crypto.randomUUID() runs ONCE, not on every render.
   const addDeviceIdempotencyRef = useRef<string | null>(null);
@@ -134,7 +135,9 @@ export function SubscriptionCard({
         }
         return;
       }
-      // Only `completed` / `already_completed` arrive as {ok:true, data:{status:...}}.
+      setDeviceNotice(res.data.status === "provisioning"
+        ? "Оплата принята. Лимит устройств обновится автоматически. Повторно платить не нужно."
+        : "");
       await onRefresh();
       setShowChangeDevices(false);
     } finally {
@@ -152,6 +155,7 @@ export function SubscriptionCard({
 
   return (
     <>
+      {deviceNotice && <p role="status" className="mt-4 text-sm text-brand-700 dark:text-brand-300">{deviceNotice}</p>}
       {/* Subscription */}
       <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">

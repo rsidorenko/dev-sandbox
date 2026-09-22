@@ -1,15 +1,12 @@
-"""Periodic background scheduler that syncs VLESS users across all active VPN servers.
-
-Ensures every non-deleted user (active subscriber + expired-in-grace) has VLESS
-keys on every active 3x-ui panel. Only adds missing clients — never modifies or
-deletes existing ones. Runs hourly, safe to overlap or run concurrently.
-"""
+"""Часовая сверка серверов и отдельный цикл восстановления оплаченного доступа."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from typing import TYPE_CHECKING
+
+from app.application.balance_access_jobs import recover_access_jobs
 
 if TYPE_CHECKING:
     from app.issuance.xui_vless_provider import XuiVlessProvider
@@ -27,14 +24,29 @@ class ServerSyncScheduler:
     destructive, idempotent, exception-safe.
     """
 
-    def __init__(self, *, vless_provider: XuiVlessProvider) -> None:
+    def __init__(self, *, vless_provider: XuiVlessProvider, pool=None) -> None:
         self._provider = vless_provider
+        self._pool = pool
         self._running = False
 
     async def run(self) -> None:
-        """Main loop: run sync every hour until stopped."""
+        """Запускаем независимые циклы сверки серверов и обработки заданий оплаты."""
         self._running = True
         _LOGGER.info("server_sync_scheduler_started")
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(self._sync_loop())
+            if self._pool is not None:
+                tasks.create_task(self._access_loop())
+
+    async def _access_loop(self) -> None:
+        while self._running:
+            try:
+                await recover_access_jobs(self._pool, self._provider)
+            except Exception:
+                _LOGGER.exception("balance_access_worker_error")
+            await self._sleep(30)
+
+    async def _sync_loop(self) -> None:
         while self._running:
             try:
                 added, failed, total = await self._provider.reconcile_all_users()

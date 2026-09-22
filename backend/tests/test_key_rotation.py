@@ -275,3 +275,41 @@ async def test_two_provider_instances_serialize_rotation_in_postgres():
         await pool.execute("DELETE FROM subscription_snapshots WHERE internal_user_id=$1", uid)
         await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", uid)
         await pool.close()
+
+
+async def test_paid_sync_uses_current_limit_and_deadline():
+    pool, panel = KeyPool(), Panel()
+    result = await provider_for(pool, (panel,)).sync_user_access(internal_user_id="rotation-test")
+    assert result.outcome == VlessProviderOutcome.SUCCESS
+    assert panel.last_limit == 9
+    assert panel.last_expiry == int(pool.deadline.timestamp() * 1000)
+
+
+async def test_paid_sync_keeps_partial_failure_pending():
+    pool, first, second = KeyPool(), Panel(), Panel(transport="ws")
+    second.add_ok = False
+    provider = provider_for(pool, (first, second))
+    assert (
+        await provider.sync_user_access(internal_user_id="rotation-test")
+    ).outcome == VlessProviderOutcome.UNAVAILABLE
+    second.add_ok = True
+    assert (await provider.sync_user_access(internal_user_id="rotation-test")).outcome == VlessProviderOutcome.SUCCESS
+
+
+async def test_paid_sync_does_not_activate_expired_subscription():
+    pool, panel = KeyPool(), Panel()
+    pool.deadline = datetime.now(UTC) - timedelta(seconds=1)
+    result = await provider_for(pool, (panel,)).sync_user_access(internal_user_id="rotation-test")
+    assert result.outcome == VlessProviderOutcome.NOT_FOUND
+    assert panel.last_expiry is None
+
+
+async def test_paid_sync_resumes_rotation_before_creating_new_keys():
+    pool, panel = KeyPool(), Panel()
+    old = set(panel.credentials)
+    pool.state.update(vless_key_seed="new-generation", vless_rotation_pending=True)
+    panel.remove_ok = False
+    result = await provider_for(pool, (panel,)).sync_user_access(internal_user_id="rotation-test")
+    assert result.outcome == VlessProviderOutcome.UNAVAILABLE
+    assert panel.credentials == old
+    assert pool.state["vless_rotation_pending"]

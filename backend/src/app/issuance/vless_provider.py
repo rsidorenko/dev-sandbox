@@ -58,6 +58,7 @@ _SERVER_REGISTRY: tuple[dict[str, str], ...] = (
 
 
 class VlessProviderPort(Protocol):
+    async def sync_user_access(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def create_user(
         self,
         *,
@@ -118,6 +119,9 @@ class StubVlessProvider:
         del device_count, expiry_days, expires_at  # Параметры панели не нужны заглушке.
         self._created_users.add(internal_user_id)
         return self._build_config(internal_user_id)
+
+    async def sync_user_access(self, *, internal_user_id: str) -> VlessProviderResult:
+        return await self.create_user(internal_user_id=internal_user_id)
 
     async def reissue_user(
         self, *, internal_user_id: str, device_count: int = 0, expires_at: datetime | None = None

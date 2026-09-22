@@ -21,19 +21,10 @@ export interface AddDevicesResponse {
   payment_id?: string;
 }
 
-/**
- * Pay from the referral balance (web equivalent of the bot's balance-payment).
- *
- * Only `completed` / `already_completed` arrive here as data.status (HTTP 200, ok:true).
- * Recoverable failure codes — `insufficient_balance`, `payment_in_progress`,
- * `vless_creation_failed`, `balance_payment_failed`, `no_active_subscription`,
- * `device_count_not_higher` — arrive via the apiFetch error channel as `result.error`
- * (backend `safe_json_error` → HTTP 4xx/5xx, `{ok:false, error:<code>}`), NOT as
- * data.status. Frontend handlers must inspect `result.error` in the `!ok` branch.
- */
+/** Принятая оплата может ждать автоматической выдачи доступа (HTTP 202). */
 export interface BalancePaymentResponse {
   ok: boolean;
-  status: "completed" | "already_completed";
+  status: "completed" | "already_completed" | "provisioning";
   plan_id?: string;
   plan_name?: string;
   device_count?: number;

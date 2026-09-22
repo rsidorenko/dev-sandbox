@@ -602,6 +602,20 @@ class XuiVlessProvider(VlessProviderPort):
             return await self._resume_rotation(internal_user_id)
 
     @serialized_mutation
+    async def sync_user_access(self, *, internal_user_id: str) -> VlessProviderResult:
+        """Повтор выдачи использует актуальное право, а не параметры старого платежа."""
+        from app.application.access_grant import access_grant
+
+        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+            return await self._resume_rotation(internal_user_id)
+        grant = await access_grant(pool=self._pool, internal_user_id=internal_user_id)
+        if grant is None:
+            return VlessProviderResult(VlessProviderOutcome.NOT_FOUND)
+        self._invalidate_config_cache(internal_user_id)
+        async with self._user_lock(internal_user_id):
+            return await self._create_user_unlocked(internal_user_id=internal_user_id, require_all=True, **grant)
+
+    @serialized_mutation
     async def create_user(
         self,
         *,

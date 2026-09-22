@@ -1,30 +1,20 @@
-"""Balance-payment service — single source of truth for paying from the referral
-balance, shared by the web API and (Phase 3 PR-2) the Telegram bot.
-
-Form = web-shape: 3-layer idempotency (``X-Idempotency-Key``/correlation_id baked
-into the audit-row ``description`` → UNIQUE dedup; ``pg_try_advisory_xact_lock`` for
-multi-worker concurrency), audit-row written FIRST inside the debit transaction
-(no orphan on crash — closes M6), atomic 4-step VLESS-failure compensation, and
-referral-commission credit + best-effort referrer notify (closes M5 for both
-transports once the bot adopts the service).
-
-Callers are thin adapters mapping :class:`BalancePaymentResult` to their transport
-(JSON response for web, ``(text, keyboard)`` for the bot).
-"""
+"""Оплата балансом: атомарные списание, подписка, комиссия и сохраняемая выдача."""
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 import asyncpg
 
+from app.application.access_grant import access_grant
+from app.application.balance_access_jobs import enqueue_access_in_connection, fulfill_access_job
+from app.application.balance_commissions import credit_commissions_in_connection
 from app.application.bootstrap import Slice1Composition
 from app.application.interfaces import SubscriptionSnapshot
 from app.application.plan_pricing import get_plan_pricing, resolve_effective_charge
@@ -37,10 +27,8 @@ from app.domain.referral import (
     resolve_reward_policy,
 )
 from app.domain.subscription_timing import compute_renewal_active_until
-from app.issuance.vless_provider import VlessProviderOutcome
 from app.persistence.postgres_referral import (
     PostgresReferralBalanceRepository,
-    PostgresReferralRelationshipRepository,
     PostgresReferralTransactionRepository,
 )
 from app.persistence.postgres_subscription_snapshot import PostgresSubscriptionSnapshotReader
@@ -60,6 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class BalancePaymentStatus(StrEnum):
     COMPLETED = "completed"
+    PROVISIONING = "provisioning"
     ALREADY_COMPLETED = "already_completed"
     INSUFFICIENT = "insufficient_balance"
     NO_ACTIVE = "no_active_subscription"
@@ -82,6 +71,7 @@ class BalancePaymentResult:
     amount_kopecks: int = 0
     balance_after_kopecks: int = 0
     credited_commissions: tuple[CreditedCommission, ...] = field(default_factory=tuple)
+    replayed: bool = False
 
 
 # Control-flow exceptions raised inside a transaction so the atomic audit-insert
@@ -172,9 +162,14 @@ async def pay_plan_from_balance(
             active_until_normalization=active_until_normalization,
         )
 
-    # Погашение — только при свежем COMPLETED (не ALREADY_COMPLETED = реплей) и только
+    # Погашение — при новой принятой оплате, включая ожидание выдачи, и только
     # если промокод выиграл best-of (иначе глобальная скидка зря расходовала бы код). Best-effort.
-    if result.status is BalancePaymentStatus.COMPLETED and active_promo is not None and promo_won:
+    if (
+        result.status in (BalancePaymentStatus.COMPLETED, BalancePaymentStatus.PROVISIONING)
+        and not result.replayed
+        and active_promo is not None
+        and promo_won
+    ):
         await _redeem_balance_promo(
             pool=pool,
             composition=composition,
@@ -199,16 +194,10 @@ async def _pay_plan_pg(
     notifier: FulfillmentActivationTelegramNotifier | None,
     active_until_normalization: str,
 ) -> BalancePaymentResult:
-    pre_payment_snap: SubscriptionSnapshot | None = None
-    with contextlib.suppress(Exception):
-        pre_payment_snap = await PostgresSubscriptionSnapshotReader(pool).get_for_user(internal_user_id)
-
     now = datetime.now(UTC)
     idempotency_key = f"{description_prefix}: {plan_id} x {device_count} devices [{correlation_id}]"
-    description = f"Оплата подписки · {plan_id}"
-    active_until: datetime | None = None
-    balance_after: int = 0
-
+    credited = ()
+    replayed = False
     try:
         async with pool.acquire() as conn, conn.transaction():
             locked = await conn.fetchval("SELECT pg_try_advisory_xact_lock(hashtext($1))", internal_user_id)
@@ -216,7 +205,6 @@ async def _pay_plan_pg(
                 return BalancePaymentResult(
                     BalancePaymentStatus.IN_PROGRESS, internal_user_id, correlation_id, plan_id, device_count
                 )
-
             inserted = (
                 await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
                     conn,
@@ -227,46 +215,47 @@ async def _pay_plan_pg(
                         transaction_type="subscription_payment",
                         related_user_id=None,
                         related_plan_id=plan_id,
-                        description=description,
+                        description=f"Оплата подписки · {plan_id}",
                         idempotency_key=idempotency_key,
                         created_at=now,
                     ),
                 )
             )
+            existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(conn, internal_user_id)
             if not inserted:
-                existing = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(conn, internal_user_id)
-                bal = await PostgresReferralBalanceRepository.get_balance_in_connection(conn, internal_user_id)
-                return BalancePaymentResult(
-                    BalancePaymentStatus.ALREADY_COMPLETED,
-                    internal_user_id,
-                    correlation_id,
-                    plan_id=plan_id,
-                    device_count=device_count,
-                    active_until_utc=existing.active_until_utc if existing else None,
-                    amount_kopecks=0,
-                    balance_after_kopecks=bal.balance_kopecks if bal else 0,
+                replayed = True
+                balance = await PostgresReferralBalanceRepository.get_balance_in_connection(conn, internal_user_id)
+                balance_after = balance.balance_kopecks if balance else 0
+                active_until = existing.active_until_utc if existing else None
+            else:
+                debit = await PostgresReferralBalanceRepository.debit_in_connection(
+                    conn, internal_user_id, total_kopecks
                 )
-
-            debit = await PostgresReferralBalanceRepository.debit_in_connection(conn, internal_user_id, total_kopecks)
-            if debit is None:
-                raise _InsufficientBalance()
-
-            existing_snap = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(conn, internal_user_id)
-            base_date = now
-            if existing_snap and existing_snap.active_until_utc and existing_snap.active_until_utc > now:
-                base_date = existing_snap.active_until_utc
-            active_until = compute_renewal_active_until(base_date, plan.duration_days, active_until_normalization)
-            await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
-                conn,
-                SubscriptionSnapshot(
-                    internal_user_id=internal_user_id,
-                    state_label="active",
-                    active_until_utc=active_until,
-                    plan_id=plan_id,
-                    device_count=device_count,
-                ),
-            )
-            balance_after = debit.balance_kopecks
+                if debit is None:
+                    raise _InsufficientBalance()
+                base_date = max(now, existing.active_until_utc) if existing and existing.active_until_utc else now
+                active_until = compute_renewal_active_until(base_date, plan.duration_days, active_until_normalization)
+                await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(
+                    conn,
+                    SubscriptionSnapshot(
+                        internal_user_id=internal_user_id,
+                        state_label="active",
+                        active_until_utc=active_until,
+                        plan_id=plan_id,
+                        device_count=device_count,
+                    ),
+                )
+                # Оплаченная подписка снова разрешает выдачу; сама выдача подтверждается заданием.
+                await conn.execute(
+                    "UPDATE subscription_snapshots SET keys_deleted_at=NULL, keys_deactivated_at=NULL"
+                    " WHERE internal_user_id=$1",
+                    internal_user_id,
+                )
+                credited = await credit_commissions_in_connection(
+                    conn, internal_user_id, plan_id, total_kopecks, correlation_id, prefix="bal"
+                )
+                await enqueue_access_in_connection(conn, internal_user_id, idempotency_key)
+                balance_after = debit.balance_kopecks
     except _InsufficientBalance:
         return BalancePaymentResult(
             BalancePaymentStatus.INSUFFICIENT,
@@ -281,69 +270,55 @@ async def _pay_plan_pg(
             BalancePaymentStatus.INTERNAL_ERROR, internal_user_id, correlation_id, plan_id, device_count
         )
 
-    # VLESS (outside tx — network IO). Branch on keys lifecycle; atomic compensation on failure.
-    if vless_provider is not None:
-        vless_failed = await _ensure_vless_keys_atomic(
+    if not replayed:
+        if credited and notifier is not None:
+            with contextlib.suppress(Exception):
+                await _notify_referrers_of_commission_best_effort(
+                    pool=pool, notifier=notifier, credited=list(credited), correlation_id=correlation_id
+                )
+        legacy_bonus = await award_referral_bonus_month_best_effort(
             pool=pool,
             vless_provider=vless_provider,
-            internal_user_id=internal_user_id,
-            device_count=device_count,
-            pre_payment_snap=pre_payment_snap,
-            total_kopecks=total_kopecks,
+            payer_internal_user_id=internal_user_id,
             plan_id=plan_id,
-            idempotency_key=idempotency_key,
             correlation_id=correlation_id,
         )
-        if vless_failed:
-            return BalancePaymentResult(
-                BalancePaymentStatus.VLESS_FAILED, internal_user_id, correlation_id, plan_id, device_count
-            )
-
-    credited = await _credit_commissions_best_effort(
-        pool, internal_user_id, plan_id, total_kopecks, correlation_id, prefix="bal"
-    )
-    if credited and notifier is not None:
-        with contextlib.suppress(Exception):
-            await _notify_referrers_of_commission_best_effort(
-                pool=pool, notifier=notifier, credited=list(credited), correlation_id=correlation_id
-            )
-
-    legacy_bonus = await award_referral_bonus_month_best_effort(
-        pool=pool,
-        vless_provider=vless_provider,
-        payer_internal_user_id=internal_user_id,
-        plan_id=plan_id,
-        correlation_id=correlation_id,
-    )
-    invitee_bonus = await award_referral_invitee_bonus_best_effort(
-        pool=pool,
-        vless_provider=vless_provider,
-        payer_internal_user_id=internal_user_id,
-        plan_id=plan_id,
-        correlation_id=correlation_id,
-    )
-    if notifier is not None:
-        if legacy_bonus is not None:
-            await _notify_referrer_of_bonus_best_effort(
-                notifier=notifier, bonus=legacy_bonus, correlation_id=correlation_id
-            )
+        invitee_bonus = await award_referral_invitee_bonus_best_effort(
+            pool=pool,
+            vless_provider=vless_provider,
+            payer_internal_user_id=internal_user_id,
+            plan_id=plan_id,
+            correlation_id=correlation_id,
+        )
+        if notifier is not None:
+            if legacy_bonus is not None:
+                await _notify_referrer_of_bonus_best_effort(
+                    notifier=notifier, bonus=legacy_bonus, correlation_id=correlation_id
+                )
+            if invitee_bonus is not None:
+                await _notify_invitee_of_bonus_best_effort(
+                    notifier=notifier, bonus=invitee_bonus, correlation_id=correlation_id
+                )
         if invitee_bonus is not None:
-            await _notify_invitee_of_bonus_best_effort(
-                notifier=notifier, bonus=invitee_bonus, correlation_id=correlation_id
-            )
-    if invitee_bonus is not None:
-        active_until = invitee_bonus.new_active_until
+            active_until = invitee_bonus.new_active_until
 
+    job_status = await fulfill_access_job(pool, vless_provider, internal_user_id, idempotency_key)
+    status = BalancePaymentStatus.ALREADY_COMPLETED if replayed else BalancePaymentStatus.COMPLETED
+    if job_status == "pending":
+        status = BalancePaymentStatus.PROVISIONING
+    elif job_status == "superseded":
+        status = BalancePaymentStatus.NO_ACTIVE
     return BalancePaymentResult(
-        BalancePaymentStatus.COMPLETED,
+        status,
         internal_user_id,
         correlation_id,
         plan_id=plan_id,
         device_count=device_count,
         active_until_utc=active_until,
-        amount_kopecks=total_kopecks,
+        amount_kopecks=0 if replayed else total_kopecks,
         balance_after_kopecks=balance_after,
         credited_commissions=credited,
+        replayed=replayed,
     )
 
 
@@ -446,6 +421,7 @@ async def add_device_from_balance(
     description_prefix: str = "add device",
     device_count_min: int = DEFAULT_DEVICE_LIMIT,
     device_count_max: int = 20,
+    vless_provider: Any | None = None,
 ) -> BalancePaymentResult:
     if not (device_count_min <= new_device_count <= device_count_max):
         return BalancePaymentResult(
@@ -456,13 +432,22 @@ async def add_device_from_balance(
         )
     cid = correlation_id or f"add-dev-{uuid.uuid4()}"
     if pool is not None:
-        return await _add_device_pg(
+        result = await _add_device_pg(
             pool=pool,
             internal_user_id=internal_user_id,
             new_device_count=new_device_count,
             correlation_id=cid,
             description_prefix=description_prefix,
         )
+        if result.status in (BalancePaymentStatus.COMPLETED, BalancePaymentStatus.ALREADY_COMPLETED):
+            job_status = await fulfill_access_job(
+                pool, vless_provider, internal_user_id, f"{description_prefix} → {new_device_count} [{cid}]"
+            )
+            if job_status == "pending":
+                return replace(result, status=BalancePaymentStatus.PROVISIONING)
+            if job_status == "superseded":
+                return replace(result, status=BalancePaymentStatus.NO_ACTIVE)
+        return result
     return await _add_device_inmemory(
         composition=composition,
         internal_user_id=internal_user_id,
@@ -517,7 +502,7 @@ async def _add_device_pg(
                 )
 
             snap = await PostgresSubscriptionSnapshotReader.get_for_user_in_connection(conn, internal_user_id)
-            if snap is None or snap.state_label != "active":
+            if snap is None or await access_grant(pool=conn, internal_user_id=internal_user_id) is None:
                 raise _NoActive()
             current = snap.device_count or DEFAULT_DEVICE_LIMIT
             if new_device_count <= current:
@@ -595,6 +580,7 @@ async def _add_device_pg(
                     device_count=new_device_count,
                 ),
             )
+            await enqueue_access_in_connection(conn, internal_user_id, idempotency_key)
             balance_after = debit.balance_kopecks
     except _NoActive:
         return BalancePaymentResult(BalancePaymentStatus.NO_ACTIVE, internal_user_id, correlation_id)
@@ -814,167 +800,6 @@ async def _redeem_balance_promo(
         discount_kopecks=active_promo.price.discount_kopecks,
         payment_ref=payment_ref,
     )
-
-
-async def _ensure_vless_keys_atomic(
-    *,
-    pool: asyncpg.Pool,
-    vless_provider: Any,
-    internal_user_id: str,
-    device_count: int,
-    pre_payment_snap: SubscriptionSnapshot | None,
-    total_kopecks: int,
-    plan_id: str,
-    idempotency_key: str,
-    correlation_id: str,
-) -> bool:
-    """Branch create/activate by keys lifecycle; on failure run atomic 4-step
-    compensation. Returns True if VLESS FAILED (caller maps to VLESS_FAILED)."""
-    key_snap = None
-    with contextlib.suppress(Exception):
-        key_snap = await pool.fetchrow(
-            "SELECT keys_deactivated_at, keys_deleted_at FROM subscription_snapshots WHERE internal_user_id=$1",
-            internal_user_id,
-        )
-    keys_deleted = bool(key_snap and key_snap["keys_deleted_at"] is not None)
-    keys_deactivated = bool(key_snap and key_snap["keys_deactivated_at"] is not None)
-
-    vless_ok = False
-    for attempt in range(3):
-        try:
-            if keys_deleted or not keys_deactivated:
-                result = await vless_provider.create_user(internal_user_id=internal_user_id, device_count=device_count)
-            else:
-                result = await vless_provider.activate_user(
-                    internal_user_id=internal_user_id, device_count=device_count
-                )
-            if result.outcome != VlessProviderOutcome.SUCCESS:
-                raise RuntimeError("VPN-провайдер не подтвердил выдачу доступа")
-            vless_ok = True
-            break
-        except Exception:
-            _LOGGER.warning("balance vless retry user=%s attempt=%d/3", internal_user_id, attempt + 1)
-            await asyncio.sleep(2.0)
-    if vless_ok:
-        with contextlib.suppress(Exception):
-            await pool.execute(
-                "UPDATE subscription_snapshots SET keys_deactivated_at=NULL, keys_deleted_at=NULL,"
-                " updated_at=NOW() WHERE internal_user_id=$1",
-                internal_user_id,
-            )
-        return False
-
-    _LOGGER.error("balance vless FAILED after retries — refunding user=%s", internal_user_id)
-    try:
-        async with pool.acquire() as conn, conn.transaction():
-            await PostgresReferralBalanceRepository.credit_in_connection(conn, internal_user_id, total_kopecks)
-            if pre_payment_snap is not None:
-                await PostgresSubscriptionSnapshotReader.upsert_state_in_connection(conn, pre_payment_snap)
-            else:
-                await conn.execute(
-                    "UPDATE subscription_snapshots SET state_label='inactive',"
-                    " active_until_utc=NULL, updated_at=NOW() WHERE internal_user_id=$1",
-                    internal_user_id,
-                )
-            await conn.execute(
-                "DELETE FROM referral_transactions WHERE internal_user_id=$1 AND idempotency_key=$2",
-                internal_user_id,
-                idempotency_key,
-            )
-            await conn.execute(
-                "INSERT INTO referral_transactions"
-                " (transaction_id, internal_user_id, amount_kopecks, transaction_type,"
-                " related_user_id, related_plan_id, description, idempotency_key, created_at)"
-                " VALUES ($1, $2, $3, 'subscription_payment', NULL, $4, $5, $6, now())",
-                f"ref-{uuid.uuid4()}",
-                internal_user_id,
-                total_kopecks,
-                plan_id,
-                f"Возврат · {plan_id}",
-                f"refund:vless-failed:{correlation_id}",
-            )
-    except Exception:
-        _LOGGER.error(
-            "balance compensation tx FAILED user=%s cid=%s — debit left in place,"
-            " replay will return already_completed; manual reconcile needed",
-            internal_user_id,
-            correlation_id,
-            exc_info=True,
-        )
-    return True
-
-
-async def _credit_commissions_best_effort(
-    pool: asyncpg.Pool,
-    payer_internal_user_id: str,
-    plan_id: str,
-    payment_amount_kopecks: int,
-    correlation_id: str,
-    *,
-    prefix: str,
-) -> tuple[CreditedCommission, ...]:
-    """Credit L1/L2 referral commissions for a balance payment (postgres). Returns the
-    commissions that were actually credited, so the caller can best-effort notify."""
-    credited: list[CreditedCommission] = []
-    try:
-        async with pool.acquire() as conn, conn.transaction():
-            referrers = await PostgresReferralRelationshipRepository.find_referrers_in_connection(
-                conn, payer_internal_user_id
-            )
-            if not referrers:
-                return ()
-            direct, indirect = resolve_direct_and_indirect_referrers(referrers)
-            reward_policy = resolve_reward_policy(referrers)
-            commissions = build_commissions_for_payment(
-                payer_user_id=payer_internal_user_id,
-                direct_referrer_user_id=direct,
-                indirect_referrer_user_id=indirect,
-                plan_id=plan_id,
-                payment_amount_kopecks=payment_amount_kopecks,
-                reward_policy=reward_policy,
-            )
-            now = datetime.now(UTC)
-            for comm in commissions:
-                idempotency_key = (
-                    f"{prefix}:l{comm.level}:{comm.payer_user_id}:{comm.plan_id}:"
-                    f"{payment_amount_kopecks}:{correlation_id}"
-                )
-                inserted = (
-                    await PostgresReferralTransactionRepository.append_transaction_if_idempotency_absent_in_connection(
-                        conn,
-                        ReferralTransactionRecord(
-                            transaction_id=f"ref-{uuid.uuid4()}",
-                            internal_user_id=comm.referrer_user_id,
-                            amount_kopecks=comm.amount_kopecks,
-                            transaction_type="referral_credit",
-                            related_user_id=comm.payer_user_id,
-                            related_plan_id=comm.plan_id,
-                            description=f"Реферальное начисление · уровень {comm.level}",
-                            idempotency_key=idempotency_key,
-                            created_at=now,
-                        ),
-                    )
-                )
-                if inserted:
-                    await PostgresReferralBalanceRepository.credit_in_connection(
-                        conn, comm.referrer_user_id, comm.amount_kopecks
-                    )
-                    credited.append(
-                        CreditedCommission(
-                            referrer_internal_user_id=comm.referrer_user_id,
-                            amount_kopecks=comm.amount_kopecks,
-                            level=comm.level,
-                        )
-                    )
-    except Exception:
-        _LOGGER.warning(
-            "balance commission credit failed payer=%s cid=%s — referrer may lose commission",
-            payer_internal_user_id,
-            correlation_id,
-            exc_info=True,
-        )
-        return ()
-    return tuple(credited)
 
 
 async def _credit_commissions_inmemory(

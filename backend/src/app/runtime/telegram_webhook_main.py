@@ -378,7 +378,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
             vp = runtime._composition.vless_provider if runtime._composition else None
             if isinstance(vp, XuiVlessProvider):
-                sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                sync_scheduler = ServerSyncScheduler(vless_provider=vp, pool=runtime_pg_pool)
                 sync_task = asyncio.create_task(sync_scheduler.run())
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)
@@ -508,7 +508,7 @@ def build_slice1_telegram_webhook_asgi_application_from_env(
 
             vp = runtime._composition.vless_provider if runtime._composition else None
             if isinstance(vp, XuiVlessProvider):
-                sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                sync_scheduler = ServerSyncScheduler(vless_provider=vp, pool=runtime_pg_pool or web_api_pool)
                 sync_task = asyncio.create_task(sync_scheduler.run())
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)

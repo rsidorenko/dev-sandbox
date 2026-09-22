@@ -77,6 +77,7 @@ function PaymentForm() {
   const balanceIdempotencyKey = balanceIdempotencyRef.current;
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceResult, setBalanceResult] = useState<{
+    provisioning?: boolean;
     active_until?: string;
     balance_rubles_remaining?: number;
   } | null>(null);
@@ -238,9 +239,10 @@ function PaymentForm() {
       }
       return;
     }
-    // Only `completed` / `already_completed` arrive as {ok:true, data:{status:...}}.
+    // HTTP 202 тоже подтверждает принятую оплату; доступ может ещё настраиваться.
     const data = result.data;
     setBalanceResult({
+      provisioning: data.status === "provisioning",
       active_until: data.active_until,
       balance_rubles_remaining: data.balance_rubles_remaining,
     });
@@ -449,7 +451,9 @@ function PaymentForm() {
           {balanceResult && (
             <Alert variant="info" className="mt-4">
               <p className="text-sm font-medium text-brand-900 dark:text-brand-200">
-                ✅ Подписка оплачена с реферального баланса!
+                {balanceResult.provisioning
+                  ? "Оплата принята. Доступ настраивается автоматически. Повторно платить не нужно."
+                  : "✅ Подписка оплачена с реферального баланса!"}
               </p>
               {balanceResult.active_until && (
                 <p className="mt-1 text-sm text-brand-900 dark:text-brand-200">

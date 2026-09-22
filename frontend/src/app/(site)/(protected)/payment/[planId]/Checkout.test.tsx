@@ -196,6 +196,21 @@ describe("Checkout (payment/[planId])", () => {
     ).toBeInTheDocument();
   });
 
+  it("показывает принятую оплату и блокирует повторную покупку при настройке доступа", async () => {
+    auth.profile = { referral: { balance_rubles: 1000, code: "X", referrals_count: 0 } };
+    paymentApi.payWithBalance.mockResolvedValue({
+      ok: true, data: { status: "provisioning", balance_rubles_remaining: 751 },
+    });
+    const user = userEvent.setup();
+    render(<PaymentPage />);
+    await user.click(screen.getByRole("button", { name: /Оплатить с баланса/ }));
+    expect(await screen.findByText(/Повторно платить не нужно/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Оплатить с баланса/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Перейти к оплате/ })).toBeDisabled();
+    expect(paymentApi.payWithBalance).toHaveBeenCalledTimes(1);
+    expect(paymentApi.create).not.toHaveBeenCalled();
+  });
+
   it("redirects to payment_url on a successful create", async () => {
     paymentApi.create.mockResolvedValue({
       ok: true,

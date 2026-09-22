@@ -2010,6 +2010,10 @@ async def _map_balance_payment_result(
     from app.application.balance_payment_service import BalancePaymentStatus
 
     s = result.status
+    if s is BalancePaymentStatus.PROVISIONING:
+        return "Оплата принята. Доступ настраивается автоматически. Повторно платить не нужно.", back_only_keyboard(
+            CB_MAIN_MENU
+        )
     if s is BalancePaymentStatus.COMPLETED or s is BalancePaymentStatus.ALREADY_COMPLETED:
         active_until_str = result.active_until_utc.date().isoformat() if result.active_until_utc else None
         return text_balance_payment_success(active_until_str), await _main_menu_keyboard(composition, uid)
@@ -2111,8 +2115,13 @@ async def _process_add_device_balance(
         internal_user_id=internal_user_id,
         new_device_count=new_count,
         description_prefix="add device",
+        vless_provider=composition.vless_provider,
     )
     s = result.status
+    if s is BalancePaymentStatus.PROVISIONING:
+        return "Оплата принята. Доступ настраивается автоматически. Повторно платить не нужно.", back_only_keyboard(
+            CB_MAIN_MENU
+        )
     if s is BalancePaymentStatus.COMPLETED or s is BalancePaymentStatus.ALREADY_COMPLETED:
         return text_add_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
     if s is BalancePaymentStatus.INSUFFICIENT:
