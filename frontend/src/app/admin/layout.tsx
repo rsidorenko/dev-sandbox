@@ -67,7 +67,7 @@ function AdminGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isLogin && !loading && !authenticated) {
-      const next = encodeURIComponent(pathname);
+      const next = encodeURIComponent(pathname + window.location.search);
       router.replace(`/admin/login?next=${next}`);
     }
   }, [isLogin, loading, authenticated, pathname, router]);

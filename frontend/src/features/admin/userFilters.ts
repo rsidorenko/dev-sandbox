@@ -21,7 +21,7 @@ export const FACET_TITLES: Record<FacetName, string> = {
 export const FACET_VALUES: Record<FacetName, { key: string; label: string }[]> = {
   status: [
     { key: "active", label: "Активные" },
-    { key: "expired", label: "Истёкшие" },
+    { key: "expired", label: "Неактивные / истёкшие" },
     { key: "cancelled", label: "Cancelled" },
     { key: "none", label: "Без подписки" },
   ],

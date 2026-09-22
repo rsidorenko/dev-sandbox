@@ -3,6 +3,7 @@
 
 import type {
   AdminAddDaysResponse,
+  AdminUserDetail,
   AdminGlobalDiscount,
   AdminGlobalDiscountPayload,
   AdminPlanPrice,
@@ -73,13 +74,13 @@ export const adminApi = {
   logout() {
     return adminFetch<{ ok: true }>("/api/v1/admin/auth/logout", { method: "POST" });
   },
-  listUsers(params: { limit?: number; offset?: number; search?: string } = {}) {
+  getUser(id: string) {
+    return adminFetch<AdminUserDetail>(`/api/v1/admin/users/${encodeURIComponent(id)}`);
+  },
+  listUsers(params: Record<string, string | number> = {}) {
     const q = new URLSearchParams();
-    if (params.limit) q.set("limit", String(params.limit));
-    if (params.offset) q.set("offset", String(params.offset));
-    if (params.search) q.set("search", params.search);
-    const qs = q.toString();
-    return adminFetch<AdminUsersResponse>(`/api/v1/admin/users${qs ? `?${qs}` : ""}`);
+    Object.entries(params).forEach(([key, value]) => { if (value !== "") q.set(key, String(value)); });
+    return adminFetch<AdminUsersResponse>(`/api/v1/admin/users?${q.toString()}`);
   },
   listPromocodes() {
     return adminFetch<AdminPromocodesResponse>("/api/v1/admin/promocodes");

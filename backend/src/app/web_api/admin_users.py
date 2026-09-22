@@ -18,8 +18,10 @@ from app.application.admin_test_user_reset import (
     reset_test_user,
 )
 from app.application.subscription_grant import grant_subscription_days
+from app.domain.access_entitlement import entitlement_deadline
 from app.domain.status_view import remaining_days
 from app.web_api.admin_auth import _admin_actor, _with_admin_auth, _with_admin_csrf
+from app.web_api.admin_user_read_model import list_users, user_diagnostics
 from app.web_api.helpers import safe_json_error
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,34 +36,9 @@ _ADD_DAYS_MAX = 3650
 # Полные SQL-строки как неявная конкатенация литералов (без '+' и интерполяции) —
 # как в postgres_referral; в fetch передаётся по имени, поэтому S608 не срабатывает.
 
-_LIST_SEARCH = (
-    "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
-    "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
-    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
-    "(i.telegram_user_id < 0) AS is_web "
-    "FROM user_identities i "
-    "LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-    "LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id "
-    "WHERE CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%' "
-    "ORDER BY i.telegram_user_id DESC LIMIT $2 OFFSET $3"
-)
-
-_LIST_NO_SEARCH = (
-    "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
-    "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
-    "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
-    "(i.telegram_user_id < 0) AS is_web "
-    "FROM user_identities i "
-    "LEFT JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-    "LEFT JOIN referral_balances rb ON rb.internal_user_id = i.internal_user_id "
-    "ORDER BY i.telegram_user_id DESC LIMIT $1 OFFSET $2"
-)
-
-_COUNT_SEARCH = "SELECT COUNT(*) FROM user_identities i WHERE CAST(i.telegram_user_id AS TEXT) LIKE $1 || '%'"
-
 _GET_BY_ID = (
     "SELECT i.internal_user_id, i.telegram_user_id, i.is_internal, COALESCE(i.trial_used, FALSE) AS trial_used, "
-    "s.state_label, s.active_until_utc, s.plan_id, s.device_count, "
+    "s.state_label, s.active_until_utc, s.trial_expires_at, s.keys_deleted_at, s.plan_id, s.device_count, "
     "COALESCE(rb.balance_kopecks, 0) AS balance_kopecks, "
     "(i.telegram_user_id < 0) AS is_web "
     "FROM user_identities i "
@@ -72,7 +49,8 @@ _GET_BY_ID = (
 
 
 def _row_to_user(row: asyncpg.Record) -> dict:
-    active_until = row["active_until_utc"]
+    deadline = entitlement_deadline(row, now=datetime.now(UTC))
+    active_until = deadline or row["active_until_utc"] or row.get("trial_expires_at")
     return {
         "internal_user_id": row["internal_user_id"],
         "telegram_user_id": row["telegram_user_id"],
@@ -80,9 +58,7 @@ def _row_to_user(row: asyncpg.Record) -> dict:
         "trial_used": bool(row["trial_used"]),
         "is_internal": bool(row["is_internal"]),
         "subscription_state": row["state_label"],
-        "is_active": bool(
-            row["state_label"] == "active" and active_until is not None and active_until > datetime.now(UTC)
-        ),
+        "is_active": deadline is not None,
         "active_until": active_until.isoformat() if active_until else None,
         "remaining_days": remaining_days(active_until) if active_until else None,
         "plan_id": row["plan_id"],
@@ -145,14 +121,7 @@ async def handle_admin_set_internal(request: Request) -> JSONResponse:
 async def handle_admin_list_users(request: Request) -> JSONResponse:
     pool: asyncpg.Pool = request.app.state.pool
     limit, offset = _parse_limit_offset(request)
-    search = (request.query_params.get("search") or "").strip()
-
-    if search:
-        rows = await pool.fetch(_LIST_SEARCH, search, limit, offset)
-        total = await pool.fetchval(_COUNT_SEARCH, search)
-    else:
-        rows = await pool.fetch(_LIST_NO_SEARCH, limit, offset)
-        total = await pool.fetchval("SELECT COUNT(*) FROM user_identities i")
+    rows, total, facets = await list_users(pool, request.query_params, limit, offset)
 
     return JSONResponse(
         {
@@ -161,6 +130,8 @@ async def handle_admin_list_users(request: Request) -> JSONResponse:
             "limit": limit,
             "offset": offset,
             "total": int(total or 0),
+            "facets": facets,
+            "observed_at": datetime.now(UTC).isoformat(),
         }
     )
 
@@ -210,6 +181,7 @@ async def handle_admin_get_user(request: Request) -> JSONResponse:
                 for r in redemptions
             ],
             "traffic": traffic,
+            "diagnostics": await user_diagnostics(pool, internal_user_id),
         }
     )
 

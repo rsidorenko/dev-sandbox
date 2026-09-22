@@ -1,370 +1,121 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { adminApi } from "@/features/admin/api";
-import { AddDaysModal } from "@/features/admin/AddDaysModal";
-import { StatusLegend } from "@/features/admin/StatusLegend";
-import { InternalAccountModal, ResetTestAccountModal } from "@/features/admin/TestAccountModals";
-import {
-  FACET_NAMES,
-  FACET_TITLES,
-  computeFacets,
-  emptyFilters,
-  facetValueLabel,
-  filterUsers,
-  hasFilters,
-  type FacetName,
-  type Filters,
-} from "@/features/admin/userFilters";
-import {
-  adminBtnSecondary,
-  adminInput,
-  adminMono,
-  adminNum,
-  adminRow,
-  adminTable,
-  adminTd,
-  adminTh,
-  adminTableWrap,
-} from "@/features/admin/ui";
-import type { AdminUser } from "@/entities/admin/types";
-import { Alert } from "@/shared/ui/Alert";
+import { adminDate } from "@/features/admin/display";
+import { FACET_NAMES, FACET_TITLES, facetValueLabel } from "@/features/admin/userFilters";
+import { adminBtnSecondary, adminInput, adminRow, adminTable, adminTableWrap, adminTd, adminTh } from "@/features/admin/ui";
+import type { AdminUsersResponse } from "@/entities/admin/types";
 
-const LOAD_LIMIT = 1000; // грузим всех один раз; фильтр/поиск/фасеты — мгновенно на клиенте
+const PAGE_SIZE = 50;
+const columns = { plan: "Тариф", expiry: "Срок (МСК)", balance: "Баланс", devices: "Устройства", type: "Тип" };
+type Column = keyof typeof columns;
+const allowed = ["search", "status", "plan", "balance", "trial", "devices", "kind", "sort", "page"];
 
 export default function AdminUsersPage() {
-  const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
-  const [total, setTotal] = useState(0);
+  return <Suspense fallback={<p>Загрузка…</p>}><Users /></Suspense>;
+}
+
+function Users() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const query = params.toString();
+  const [data, setData] = useState<AdminUsersResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [search, setSearch] = useState("");
-  const [collapsedFacets, setCollapsedFacets] = useState<Set<FacetName>>(new Set());
-  const [addDaysUser, setAddDaysUser] = useState<AdminUser | null>(null);
-  const [internalUser, setInternalUser] = useState<AdminUser | null>(null);
-  const [resetUser, setResetUser] = useState<AdminUser | null>(null);
-  const [actionMessage, setActionMessage] = useState("");
-
+  const [search, setSearch] = useState(params.get("search") ?? "");
+  const [visibleColumns, setVisibleColumns] = useState<Column[]>(Object.keys(columns) as Column[]);
+  const [message, setMessage] = useState("");
+  const requestId = useRef(0);
+  const page = Math.max(1, Math.min(100000, Math.floor(Number(params.get("page"))) || 1));
+  const change = (key: string, value: string) => {
+    const next = new URLSearchParams(query);
+    if (value) next.set(key, value); else next.delete(key);
+    if (key !== "page") next.delete("page");
+    router.push(`/admin/users?${next}`);
+  };
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const r = await adminApi.listUsers({ limit: LOAD_LIMIT });
-    if (r.ok) {
-      setAllUsers(r.data.users);
-      setTotal(r.data.total);
-    } else if (r.error === "unauthorized") {
-      window.location.href = `/admin/login?next=${encodeURIComponent("/admin/users")}`;
-    } else {
-      setError("Не удалось загрузить пользователей.");
+    const id = ++requestId.current;
+    setLoading(true); setError("");
+    const next = new URLSearchParams(query);
+    const filters = Object.fromEntries(allowed.filter(key => key !== "page").map(key => [key, next.get(key) ?? ""]));
+    const r = await adminApi.listUsers({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+    if (id !== requestId.current) return;
+    if (!r.ok && r.error === "unauthorized") {
+      window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      return;
     }
+    if (r.ok) setData(r.data); else { setData(null); setError("Не удалось загрузить пользователей. Повторите запрос."); }
     setLoading(false);
-  }, []);
-
+  }, [query, page]);
+  useEffect(() => { const counter = requestId; void load(); return () => { counter.current++; }; }, [load]);
+  useEffect(() => { setSearch(params.get("search") ?? ""); }, [params]);
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Поиск + фильтры — на клиенте по полной загрузке.
-  const searched = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allUsers;
-    return allUsers.filter((u) => String(u.telegram_user_id).includes(q));
-  }, [allUsers, search]);
-
-  const facets = useMemo(() => computeFacets(searched, filters), [searched, filters]);
-  const visible = useMemo(() => filterUsers(searched, filters), [searched, filters]);
-
-  const toggleFilter = (facet: FacetName, key: string) => {
-    setFilters((prev) => {
-      const nextSet = new Set(prev[facet]);
-      if (nextSet.has(key)) nextSet.delete(key);
-      else nextSet.add(key);
-      return { ...prev, [facet]: nextSet };
-    });
+    try {
+      const saved = JSON.parse(localStorage.getItem("admin-user-columns") ?? "null");
+      if (Array.isArray(saved)) setVisibleColumns(saved.filter((key): key is Column => key in columns));
+    } catch { /* Повреждённые настройки не мешают работе. */ }
+  }, []);
+  const toggleColumn = (key: Column) => {
+    const next = visibleColumns.includes(key) ? visibleColumns.filter(v => v !== key) : [...visibleColumns, key];
+    setVisibleColumns(next);
+    try { localStorage.setItem("admin-user-columns", JSON.stringify(next)); } catch { /* Настройка действует до обновления. */ }
   };
-
-  const toggleFacetCollapse = (facet: FacetName) => {
-    setCollapsedFacets((prev) => {
-      const nextSet = new Set(prev);
-      if (nextSet.has(facet)) nextSet.delete(facet);
-      else nextSet.add(facet);
-      return nextSet;
-    });
+  const restore = () => {
+    try {
+      const saved = new URLSearchParams(localStorage.getItem("admin-user-filter") ?? "");
+      const safe = new URLSearchParams();
+      allowed.forEach(key => { const value = saved.get(key); if (value) safe.set(key, value); });
+      router.push(`/admin/users?${safe}`);
+      setMessage("Сохранённый фильтр применён.");
+    } catch { setMessage("Не удалось прочитать сохранённый фильтр."); }
   };
-
-  const resetAll = () => {
-    setFilters(emptyFilters());
-    setSearch("");
-  };
-
-  const anyFilterActive = hasFilters(filters) || Boolean(search);
-
-  return (
-    <div className="flex flex-col gap-6 lg:flex-row">
-      {/* Панель фильтров */}
-      <aside className="lg:w-64 lg:shrink-0">
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Фильтры</span>
-            {anyFilterActive && (
-              <button type="button" onClick={resetAll} className="text-xs font-medium text-brand-600 hover:text-brand-700">
-                Сбросить всё
-              </button>
-            )}
-          </div>
-          <div className="max-h-[70vh] overflow-y-auto">
-            {FACET_NAMES.map((facet) => {
-              const opts = facets[facet];
-              const collapsed = collapsedFacets.has(facet);
-              return (
-                <div key={facet} className="border-b border-gray-100 last:border-0 dark:border-zinc-700/60">
-                  <button
-                    type="button"
-                    onClick={() => toggleFacetCollapse(facet)}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-zinc-700/40"
-                  >
-                    <span className="text-gray-400 dark:text-gray-500">{collapsed ? "▶" : "▼"}</span>
-                    <span>{FACET_TITLES[facet]}</span>
-                    {filters[facet].size > 0 && (
-                      <span className="rounded bg-brand-100 px-1.5 text-[10px] font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
-                        {filters[facet].size}
-                      </span>
-                    )}
-                  </button>
-                  {!collapsed && (
-                    <div className="px-4 pb-2">
-                      {opts.length === 0 ? (
-                        <div className="py-1 text-xs text-gray-400">Нет значений</div>
-                      ) : (
-                        opts.map((o) => {
-                          const checked = filters[facet].has(o.key);
-                          return (
-                            <label
-                              key={o.key}
-                              className="flex cursor-pointer items-center gap-2 py-1 text-sm text-gray-700 dark:text-gray-300"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleFilter(facet, o.key)}
-                                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-zinc-500 dark:bg-zinc-700"
-                              />
-                              <span className={checked ? "font-medium text-gray-900 dark:text-gray-100" : ""}>{o.label}</span>
-                              <span className={`${adminNum} ml-auto text-xs text-gray-400 dark:text-gray-500`}>{o.count}</span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </aside>
-
-      {/* Список */}
-      <div className="min-w-0 flex-1">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Пользователи</h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {loading
-                ? "Загрузка…"
-                : `Показано ${visible.length} из ${total}${total > LOAD_LIMIT ? ` (первые ${LOAD_LIMIT})` : ""}`}
-            </p>
-          </div>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="поиск: telegram id"
-            className={`${adminInput} w-full sm:w-72`}
-          />
-        </div>
-
-        {error && <Alert className="mb-4">{error}</Alert>}
-        {actionMessage && <Alert variant="info" className="mb-4">{actionMessage}</Alert>}
-
-        <StatusLegend />
-
-        {anyFilterActive && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-gray-400">Активные:</span>
-            {FACET_NAMES.flatMap((facet) =>
-              Array.from(filters[facet]).map((key) => (
-                <button
-                  key={`${facet}-${key}`}
-                  type="button"
-                  onClick={() => toggleFilter(facet, key)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
-                >
-                  <span className="text-gray-400 dark:text-gray-500">{FACET_TITLES[facet]}:</span>
-                  {facetValueLabel(facet, key)}
-                  <span className="text-gray-400 dark:text-gray-500">×</span>
-                </button>
-              )),
-            )}
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-700 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
-              >
-                <span className="text-gray-400 dark:text-gray-500">поиск:</span>
-                {search}
-                <span className="text-gray-400 dark:text-gray-500">×</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className={adminTableWrap}>
-          <table className={adminTable}>
-            <thead>
-              <tr>
-                <th className={`${adminTh} w-36`}>Telegram ID</th>
-                <th className={adminTh}>Email</th>
-                <th className={`${adminTh} w-28`}>Статус</th>
-                <th className={`${adminTh} w-20`}>Тариф</th>
-                <th className={`${adminTh} w-28`}>До</th>
-                <th className={`${adminTh} w-28 text-right`}>Баланс</th>
-                <th className={`${adminTh} w-16 text-center`}>Триал</th>
-                <th className={`${adminTh} w-24 text-center`}>Тип</th>
-                <th className={`${adminTh} w-52 text-right`}>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
-                    Загрузка…
-                  </td>
-                </tr>
-              ) : visible.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
-                    {anyFilterActive ? "Под фльтр ничего не подходит" : "Нет пользователей"}
-                  </td>
-                </tr>
-              ) : (
-                visible.map((u) => (
-                  <UserRow
-                    key={u.internal_user_id}
-                    u={u}
-                    onAddDays={() => setAddDaysUser(u)}
-                    onToggleInternal={() => setInternalUser(u)}
-                    onReset={() => setResetUser(u)}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {addDaysUser && (
-          <AddDaysModal user={addDaysUser} onClose={() => setAddDaysUser(null)} onSaved={() => void load()} />
-        )}
-        {internalUser && (
-          <InternalAccountModal
-            user={internalUser}
-            onClose={() => setInternalUser(null)}
-            onSaved={() => {
-              setActionMessage(internalUser.is_internal ? "Тестовая метка снята." : "Аккаунт помечен тестовым.");
-              setInternalUser(null);
-              void load();
-            }}
-          />
-        )}
-        {resetUser && (
-          <ResetTestAccountModal
-            user={resetUser}
-            onClose={() => setResetUser(null)}
-            onReset={(result) => {
-              setActionMessage(
-                `Тестовый аккаунт ${result.telegram_user_id} сброшен. Теперь отправьте боту /start.`,
-              );
-              setResetUser(null);
-              void load();
-            }}
-          />
-        )}
-      </div>
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><h1 className="text-2xl font-bold">Пользователи</h1><p className="mt-1 text-sm text-gray-500">{loading ? "Загрузка…" : `Найдено: ${data?.total ?? 0}`} · поиск по всей базе</p></div>
+      <button className={adminBtnSecondary} onClick={() => void load()} disabled={loading}>Обновить</button>
     </div>
-  );
-}
-
-function UserRow({
-  u,
-  onAddDays,
-  onToggleInternal,
-  onReset,
-}: {
-  u: AdminUser;
-  onAddDays: () => void;
-  onToggleInternal: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <tr className={adminRow}>
-      <td className={`${adminTd} ${adminMono} text-xs text-gray-600 dark:text-gray-400`}>{u.telegram_user_id}</td>
-      <td className={`${adminTd} text-xs`}>{u.is_web ? "веб" : "TG"}</td>
-      <td className={adminTd}>
-        <StateBadge state={u.subscription_state} isActive={u.is_active} />
-      </td>
-      <td className={`${adminTd} ${adminNum}`}>{u.plan_id ?? "—"}</td>
-      <td className={`${adminTd} ${adminNum}`}>
-        {u.remaining_days != null ? `${u.remaining_days} дн.` : u.active_until ?? "—"}
-      </td>
-      <td className={`${adminTd} ${adminNum} text-right`}>{u.balance_rubles.toFixed(2)} ₽</td>
-      <td className={`${adminTd} text-center text-gray-500`}>{u.trial_used ? "исп." : "—"}</td>
-      <td className={`${adminTd} text-center`}>
-        <span
-          className={u.is_internal
-            ? "inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-            : "text-xs text-gray-400"}
-        >
-          {u.is_internal ? "Тестовый" : "Обычный"}
-        </span>
-      </td>
-      <td className={`${adminTd} text-right`}>
-        <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-          <button
-            type="button"
-            title="Грант дней подписки (продлить или создать)"
-            onClick={onAddDays}
-            className="text-sm font-semibold text-brand-600 transition hover:text-brand-700"
-          >
-            + Дни
-          </button>
-          <button
-            type="button"
-            onClick={onToggleInternal}
-            className="text-xs font-medium text-gray-500 transition hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            {u.is_internal ? "Снять метку" : "Сделать тестовым"}
-          </button>
-          {u.is_internal && (
-            <button
-              type="button"
-              onClick={onReset}
-              className="text-xs font-semibold text-red-600 transition hover:text-red-700 dark:text-red-400"
-            >
-              Сбросить
-            </button>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function StateBadge({ state, isActive }: { state: string | null; isActive: boolean }) {
-  const label = isActive ? "active" : state ?? "—";
-  const color = isActive
-    ? "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400"
-    : "bg-gray-100 text-gray-600 dark:bg-zinc-700 dark:text-gray-300";
-  return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${color}`}>{label}</span>
-  );
+    <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); change("search", search.trim()); }}>
+      <input aria-label="Поиск пользователей" className={`${adminInput} min-w-0 flex-1`} value={search} onChange={event => setSearch(event.target.value)} placeholder="Telegram ID или внутренний ID" />
+      <button className={adminBtnSecondary}>Найти</button>
+    </form>
+    <div className="flex flex-wrap items-start gap-2">
+      {FACET_NAMES.map(name => <details key={name} className="rounded-lg border border-gray-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
+        <summary className="cursor-pointer text-sm">{FACET_TITLES[name]}{params.get(name) ? " •" : ""}</summary>
+        <div className="mt-2 space-y-1">{Array.from(new Set([...(data?.facets?.[name] ?? []).map(v => v.key), ...(params.get(name)?.split(",") ?? [])])).map(key => {
+          const selected = params.get(name)?.split(",") ?? [];
+          const count = data?.facets?.[name]?.find(v => v.key === key)?.count ?? 0;
+          return <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(key)} onChange={() => change(name, (selected.includes(key) ? selected.filter(v => v !== key) : [...selected, key]).join(","))} />{facetValueLabel(name, key)} <span className="text-gray-400">{count}</span></label>;
+        })}</div>
+      </details>)}
+      <select aria-label="Тип аккаунта" className={adminInput} value={params.get("kind") ?? ""} onChange={e => change("kind", e.target.value)}><option value="">Все аккаунты</option><option value="regular">Обычные</option><option value="internal">Тестовые</option></select>
+      <select aria-label="Сортировка" className={adminInput} value={params.get("sort") ?? "id"} onChange={e => change("sort", e.target.value)}><option value="id">По Telegram ID ↓</option><option value="expiry">По сроку ↑</option><option value="balance">По балансу ↓</option></select>
+      <details className="rounded-lg border p-2"><summary className="cursor-pointer text-sm">Колонки</summary>{Object.entries(columns).map(([key, label]) => <label key={key} className="flex gap-2 text-sm"><input type="checkbox" checked={visibleColumns.includes(key as Column)} onChange={() => toggleColumn(key as Column)} />{label}</label>)}</details>
+    </div>
+    <div className="flex flex-wrap gap-2 text-sm">
+      <button className={adminBtnSecondary} onClick={() => { try { localStorage.setItem("admin-user-filter", query); setMessage("Фильтр сохранён в этом браузере."); } catch { setMessage("Браузер не разрешил сохранить фильтр."); } }}>Сохранить фильтр</button>
+      <button className={adminBtnSecondary} onClick={restore}>Мой фильтр</button>
+      <Link className={adminBtnSecondary} href="/admin/users">Сбросить</Link>
+      {message && <span role="status" className="self-center text-gray-500">{message}</span>}
+    </div>
+    {error && <p role="alert" className="text-red-600">{error}</p>}
+    <div className={`${adminTableWrap} max-h-[65vh]`} aria-busy={loading}>
+      <table className={adminTable}>
+        <thead className="sticky top-0 z-10"><tr><th className={adminTh}>Пользователь</th><th className={adminTh}>Доступ</th>{visibleColumns.map(key => <th key={key} className={adminTh}>{columns[key]}</th>)}</tr></thead>
+        <tbody>{!loading && data?.users.map(user => <tr key={user.internal_user_id} className={adminRow}>
+          <td className={adminTd}><Link className="font-mono font-semibold text-brand-600 underline" href={`/admin/users/${encodeURIComponent(user.internal_user_id)}`}>{user.telegram_user_id}</Link><p className="text-xs text-gray-400">{user.is_web ? "Веб-аккаунт" : "Telegram"}</p></td>
+          <td className={adminTd}>{user.is_active ? "Активен" : user.subscription_state === "cancelled" ? "Отменён" : user.subscription_state ? "Неактивен" : "Нет подписки"}</td>
+          {visibleColumns.map(key => <td key={key} className={`${adminTd} tabular-nums`}>{({ plan: user.plan_id ?? "—", expiry: user.active_until ? `${adminDate(user.active_until)} (${user.remaining_days ?? 0} дн.)` : "—", balance: `${user.balance_rubles.toFixed(2)} ₽`, devices: user.device_count ?? "—", type: user.is_internal ? "Тестовый" : "Обычный" })[key]}</td>)}
+        </tr>)}</tbody>
+      </table>
+      {loading && <p className="p-8 text-center">Загрузка…</p>}
+      {!loading && data?.users.length === 0 && <p className="p-8 text-center text-gray-500">По выбранным условиям пользователей нет.</p>}
+    </div>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <p className="text-gray-500">Источник: БД · получено {adminDate(data?.observed_at)} МСК</p>
+      <div className="flex items-center gap-3"><button className={adminBtnSecondary} disabled={loading || page <= 1} onClick={() => change("page", String(page - 1))}>Назад</button><span>Страница {page} / {Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE))}</span><button className={adminBtnSecondary} disabled={loading || page * PAGE_SIZE >= (data?.total ?? 0)} onClick={() => change("page", String(page + 1))}>Далее</button></div>
+    </div>
+  </div>;
 }

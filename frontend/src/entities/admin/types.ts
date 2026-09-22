@@ -16,6 +16,8 @@ export interface AdminUser {
 }
 
 export interface AdminUsersResponse {
+  facets: Record<string, { key: string; count: number }[]>;
+  observed_at: string;
   users: AdminUser[];
   limit: number;
   offset: number;
@@ -614,4 +616,16 @@ export interface BroadcastSendResponse {
   total_recipients: number;
   explicit_unresolved?: string[];
   bonus_warnings?: string[]; // non-blocking подсказки админу (audience/TTL промокода)
+}
+
+export interface AdminUserDetail {
+  user: AdminUser;
+  promo_redemptions: { code: string; discounted_rubles: number; created_at: string | null }[];
+  traffic: { monthly_total_bytes: number; per_server: { server_id: number; uplink_bytes: number; downlink_bytes: number }[] } | null;
+  diagnostics: {
+    observed_at: string; source: string; rotation_pending: boolean; pending_access_jobs: number; live_access: string;
+    access_jobs: { status: string; attempts: number; created_at: string; updated_at: string; next_attempt_at: string }[];
+    connection_checks: { connected: boolean; detected_server_label: string; latency_ms: number | null; throughput_kbps: number | null; platform: string; created_at: string }[];
+    subscription_actions: { action: string; days: number; provisioning: string | null; created_at: string }[];
+  };
 }
