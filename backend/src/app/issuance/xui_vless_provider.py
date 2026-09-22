@@ -522,18 +522,31 @@ class XuiVlessProvider(VlessProviderPort):
             self._bare_xray_clients = None
 
     async def create_user(
-        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+        self,
+        *,
+        internal_user_id: str,
+        device_count: int = 0,
+        expiry_days: int = 365,
+        expires_at: datetime | None = None,
     ) -> VlessProviderResult:
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
             return await self._create_user_unlocked(
-                internal_user_id=internal_user_id, device_count=device_count, expiry_days=expiry_days
+                internal_user_id=internal_user_id,
+                device_count=device_count,
+                expiry_days=expiry_days,
+                expires_at=expires_at,
             )
 
     async def _create_user_unlocked(
-        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+        self,
+        *,
+        internal_user_id: str,
+        device_count: int = 0,
+        expiry_days: int = 365,
+        expires_at: datetime | None = None,
     ) -> VlessProviderResult:
-        expiry = _expiry_timestamp(days=expiry_days)
+        expiry = int(expires_at.timestamp() * 1000) if expires_at is not None else _expiry_timestamp(days=expiry_days)
         limit_ip = device_count if device_count > 0 else _TRIAL_DEVICE_LIMIT
 
         clients = await self._get_clients()

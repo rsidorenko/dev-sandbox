@@ -18,6 +18,7 @@ from urllib.parse import quote
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, Response
 
+from app.domain.access_entitlement import entitlement_active as _entitlement_active
 from app.issuance.vless_provider import VlessProviderOutcome, VlessServerConfig
 from app.persistence.postgres_traffic_stats import PostgresTrafficStatsRepository
 from app.web_api.subscription_happ_routing import build_routing_header_value
@@ -137,25 +138,6 @@ async def handle_subscription(request: Request) -> PlainTextResponse | Response:
         # the body stays the plain link list, so the server picker is untouched.
         response.headers["routing"] = build_routing_header_value()
     return response
-
-
-def _entitlement_active(row, *, now: datetime) -> bool:
-    """Whether a ``user_identities`` ⋈ ``subscription_snapshots`` row should be served
-    keys right now: ``state_label='active'``, keys not yet purged, and the trial OR a
-    paid subscription is currently within its window.
-
-    Entitled if EITHER ``trial_expires_at`` OR ``active_until_utc`` is in the future —
-    we do NOT branch on ``plan_id``. The admin-panel add-days grant extends
-    ``active_until_utc`` of an existing user while preserving their ``plan_id`` (NULL for
-    an ex-trial user), so a plan_id-based "trial vs paid" split would block a granted
-    user whose old ``trial_expires_at`` has passed. Mirrors
-    ``XuiVlessProvider.reconcile_bare_xray``'s desired-set, so /sub/ and reconcile agree.
-    """
-    if row.get("state_label") != "active" or row.get("keys_deleted_at") is not None:
-        return False
-    trial_ok = row.get("trial_expires_at") is not None and row["trial_expires_at"] > now
-    sub_ok = row.get("active_until_utc") is not None and row["active_until_utc"] > now
-    return trial_ok or sub_ok
 
 
 def _profile_meta_headers(

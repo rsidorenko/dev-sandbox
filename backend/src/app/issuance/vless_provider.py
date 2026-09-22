@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
@@ -57,7 +58,12 @@ _SERVER_REGISTRY: tuple[dict[str, str], ...] = (
 
 class VlessProviderPort(Protocol):
     async def create_user(
-        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+        self,
+        *,
+        internal_user_id: str,
+        device_count: int = 0,
+        expiry_days: int = 365,
+        expires_at: datetime | None = None,
     ) -> VlessProviderResult: ...
     async def get_user_config(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult: ...
@@ -97,9 +103,14 @@ class StubVlessProvider:
         self._created_users: set[str] = set()
 
     async def create_user(
-        self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
+        self,
+        *,
+        internal_user_id: str,
+        device_count: int = 0,
+        expiry_days: int = 365,
+        expires_at: datetime | None = None,
     ) -> VlessProviderResult:
-        del device_count, expiry_days  # stub ignores panel provisioning params
+        del device_count, expiry_days, expires_at  # Параметры панели не нужны заглушке.
         self._created_users.add(internal_user_id)
         return self._build_config(internal_user_id)
 

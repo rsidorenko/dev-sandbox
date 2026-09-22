@@ -10,6 +10,7 @@ import asyncpg
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.application.access_grant import access_grant
 from app.domain.status_view import remaining_days
 from app.web_api.channel_subscription import require_channel_subscription
 from app.web_api.middleware import require_auth
@@ -178,12 +179,13 @@ async def handle_get_keys(request: Request) -> JSONResponse:
         if identity is None:
             return _safe_json_error(404, "identity_not_found")
 
+        grant = await access_grant(pool=pool, internal_user_id=identity["internal_user_id"])
+        if grant is None:
+            return _safe_json_error(403, "no_active_subscription")
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
         result = await provider.get_user_config(internal_user_id=identity["internal_user_id"])
-        if result.outcome != VlessProviderOutcome.SUCCESS:
-            result = await provider.create_user(internal_user_id=identity["internal_user_id"])
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
             return JSONResponse({"ok": True, "keys": [], "subscription_url": None})
 
@@ -227,6 +229,9 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
             return _safe_json_error(404, "identity_not_found")
 
         internal_user_id = identity["internal_user_id"]
+        grant = await access_grant(pool=pool, internal_user_id=identity["internal_user_id"])
+        if grant is None:
+            return _safe_json_error(403, "no_active_subscription")
         provider = request.app.state.vless_provider
         from app.issuance.vless_provider import VlessProviderOutcome
 
@@ -246,7 +251,7 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
             internal_user_id,
         )
         # Step 3: Create new keys with a fresh UUID
-        result = await provider.create_user(internal_user_id=internal_user_id)
+        result = await provider.create_user(internal_user_id=internal_user_id, **grant)
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
             # Compensation: restore old UUID so user isn't left keyless
             if old_uuid is not None:
@@ -256,7 +261,7 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
                     internal_user_id,
                 )
                 with contextlib.suppress(Exception):
-                    await provider.create_user(internal_user_id=internal_user_id)
+                    await provider.create_user(internal_user_id=internal_user_id, **grant)
             return _safe_json_error(500, "reissue_failed")
 
         keys = [
