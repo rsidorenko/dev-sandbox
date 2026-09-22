@@ -61,11 +61,15 @@ function MobileScrollHint() {
 }
 
 export function QualitySection({
+  title = "Качество и данные",
+  description = "Достоверность срезов · недельные когорты триалов · качество VPN по проверкам /check",
   dataHealth,
   trialCohorts,
   vpnQuality,
   notificationHoldout,
 }: {
+  title?: string;
+  description?: string;
   dataHealth?: AdminDataHealth;
   trialCohorts: AdminTrialCohort[];
   vpnQuality?: AdminVpnQuality;
@@ -77,9 +81,9 @@ export function QualitySection({
       className="mt-6 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
     >
       <div className="border-b border-gray-200 px-4 py-4 dark:border-zinc-700 sm:px-5">
-        <QualityHeading title="Качество и данные" help={QUALITY_HELP.root} level={2} />
+        <QualityHeading title={title} help={QUALITY_HELP.root} level={2} />
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-          Достоверность срезов · недельные когорты триалов · качество VPN по проверкам /check
+          {description}
         </p>
       </div>
 

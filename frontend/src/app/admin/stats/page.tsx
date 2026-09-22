@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import {
   Area,
   AreaChart,
@@ -12,6 +12,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ANALYTICS_SECTIONS, readAnalyticsLocation } from "@/features/admin/analyticsLocation";
+import { adminDate } from "@/features/admin/display";
 import { adminApi } from "@/features/admin/api";
 import { MetricHelp } from "@/features/admin/MetricHelp";
 import { QualitySection } from "@/features/admin/QualitySection";
@@ -93,17 +96,17 @@ function useIsDark(): boolean {
 function formatBucket(value: unknown, bucket: "hour" | "day" | "month"): string {
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  if (bucket === "hour") return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  if (bucket === "month") return d.toLocaleDateString("ru-RU", { month: "short", year: "2-digit" });
-  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  if (bucket === "hour") return d.toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
+  if (bucket === "month") return d.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", month: "short", year: "2-digit" });
+  return d.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit" });
 }
 
 function formatBucketFull(value: unknown, bucket: "hour" | "day" | "month"): string {
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  if (bucket === "hour") return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  if (bucket === "month") return d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
-  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
+  if (bucket === "hour") return d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  if (bucket === "month") return d.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", month: "long", year: "numeric" });
+  return d.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "long", year: "numeric" });
 }
 
 function formatRubles(n: number): string {
@@ -182,9 +185,9 @@ function shiftCalendarDate(value: string, days: number): string {
 
 function formatCalendarDate(value: string): string {
   const [year, month, day] = value.split("-").map(Number);
-  const dateValue = new Date(year, month - 1, day);
+  const dateValue = new Date(Date.UTC(year, month - 1, day));
   if (Number.isNaN(dateValue.getTime())) return value;
-  return dateValue.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
+  return dateValue.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "long", year: "numeric" });
 }
 
 function formatGb(n: number): string {
@@ -235,11 +238,28 @@ function KpiCard({ label, value, sub, help }: { label: string; value: string; su
 }
 
 export default function AdminStatsPage() {
-  const [period, setPeriod] = useState<AdminStatsPeriod>("7d");
-  const [customOpen, setCustomOpen] = useState(false);
+  return <Suspense fallback={<p>Загрузка…</p>}><Analytics /></Suspense>;
+}
+
+function Analytics() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const location = readAnalyticsLocation(params, todayInMoscow());
+  const { period, section } = location;
+  const from = location.customRange?.dateFrom;
+  const to = location.customRange?.dateTo;
+  const appliedCustomRange = useMemo(() => from && to ? { dateFrom: from, dateTo: to } : null, [from, to]);
+  const navigate = (updates: Record<string, string>) => {
+    const next = new URLSearchParams(params.toString());
+    Object.entries(updates).forEach(([key, value]) => { if (value) next.set(key, value); else next.delete(key); });
+    router.push(`/admin/stats?${next}`);
+  };
+  const sequence = useRef(0);
+  const [observedAt, setObservedAt] = useState<string | null>(null);
+  const [customOpen, setCustomOpen] = useState(period === "custom");
   const [customFrom, setCustomFrom] = useState(() => shiftCalendarDate(todayInMoscow(), -6));
   const [customTo, setCustomTo] = useState(todayInMoscow);
-  const [appliedCustomRange, setAppliedCustomRange] = useState<{ dateFrom: string; dateTo: string } | null>(null);
+  useEffect(() => { if (from && to) { setCustomFrom(from); setCustomTo(to); } setCustomOpen(period === "custom"); setRangeError(""); }, [from, to, period]);
   const [rangeError, setRangeError] = useState("");
   const [data, setData] = useState<AdminStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -255,13 +275,17 @@ export default function AdminStatsPage() {
     p: AdminStatsPeriod,
     customRange?: { dateFrom: string; dateTo: string },
   ) => {
+    const id = ++sequence.current;
     setLoading(true);
+    setData(null);
     setError("");
     const r = await adminApi.stats(p, "Europe/Moscow", customRange);
+    if (id !== sequence.current) return;
     if (r.ok) {
       setData(r.data);
+      setObservedAt(new Date().toISOString());
     } else if (r.error === "unauthorized") {
-      window.location.href = `/admin/login?next=${encodeURIComponent("/admin/stats")}`;
+      window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       return;
     } else {
       setError("Не удалось загрузить статистику.");
@@ -270,15 +294,17 @@ export default function AdminStatsPage() {
   }, []);
 
   useEffect(() => {
+    const counter = sequence;
     if (period !== "custom" || appliedCustomRange) {
       void load(period, appliedCustomRange ?? undefined);
     }
+    return () => { counter.current++; };
   }, [period, appliedCustomRange, load]);
 
   const selectPreset = (nextPeriod: Exclude<AdminStatsPeriod, "custom">) => {
     setCustomOpen(false);
     setRangeError("");
-    setPeriod(nextPeriod);
+    navigate({ period: nextPeriod, from: "", to: "" });
   };
 
   const applyCustomRange = (event: React.FormEvent<HTMLFormElement>) => {
@@ -300,8 +326,7 @@ export default function AdminStatsPage() {
       return;
     }
     setRangeError("");
-    setAppliedCustomRange({ dateFrom: customFrom, dateTo: customTo });
-    setPeriod("custom");
+    navigate({ period: "custom", from: customFrom, to: customTo });
   };
 
   const dark = useIsDark();
@@ -370,9 +395,10 @@ export default function AdminStatsPage() {
       setSpendCampaign(result.data.spend.campaign_key);
       setSpendAmount("");
       setSpendMessage(result.data.spend.changed ? "Расход сохранён." : "Расход уже был таким — изменений нет.");
-      await load(period, appliedCustomRange ?? undefined);
+      const latest = readAnalyticsLocation(new URLSearchParams(window.location.search), todayInMoscow());
+      await load(latest.period, latest.customRange ?? undefined);
     } else if (result.error === "unauthorized") {
-      window.location.href = `/admin/login?next=${encodeURIComponent("/admin/stats")}`;
+      window.location.href = `/admin/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       return;
     } else if (result.error === "csrf_validation_failed") {
       setSpendError("Сессия устарела. Обновите страницу и повторите.");
@@ -392,7 +418,7 @@ export default function AdminStatsPage() {
       <div className="mb-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Статистика</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Аналитика</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {data
                 ? `Период: ${formatCalendarDate(data.period.date_from)} — ${formatCalendarDate(data.period.date_to)}`
@@ -454,6 +480,8 @@ export default function AdminStatsPage() {
         )}
       </div>
 
+      <nav aria-label="Разделы аналитики" className="mb-4 flex flex-wrap gap-2">{Object.entries(ANALYTICS_SECTIONS).map(([key, label]) => <button key={key} type="button" aria-pressed={section === key} className={section === key ? adminBtnPrimary : adminBtnSecondary} onClick={() => navigate({ section: key })}>{label}</button>)}</nav>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-500"><span>Источник: аналитические журналы · получено {adminDate(observedAt)} МСК</span><button className={adminBtnSecondary} disabled={loading} onClick={() => void load(period, appliedCustomRange ?? undefined)}>Обновить</button></div>
       {error && <Alert className="mb-4">{error}</Alert>}
 
       <aside className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-xs leading-relaxed text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200">
@@ -470,8 +498,9 @@ export default function AdminStatsPage() {
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
           <span className="ml-3 text-sm">Загрузка…</span>
         </div>
-      ) : (
+      ) : data ? (
         <>
+          {section === "sales" && <>
           {/* KPI */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard label="Выручка" value={formatRubles(kpi?.revenue_rubles ?? 0)} sub={`${kpi?.payments_count ?? 0} платежей`} help={HELP.revenue} />
@@ -539,6 +568,8 @@ export default function AdminStatsPage() {
             </ChartCard>
           </div>
 
+          </>}
+          {section === "product" && <>
           {/* Регистрации + триалы */}
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <ChartCard title="Новые пользователи" help={HELP.newUsers} isEmpty={newUsersData.length === 0}>
@@ -818,12 +849,10 @@ export default function AdminStatsPage() {
             )}
           </section>
 
-          <QualitySection
-            dataHealth={dataHealth}
-            trialCohorts={trialCohorts}
-            vpnQuality={vpnQuality}
-            notificationHoldout={data?.notification_holdout}
-          />
+          <QualitySection title="Удержание и уведомления" description="Недельные когорты и эффект уведомлений" trialCohorts={trialCohorts} notificationHoldout={data?.notification_holdout} />
+          </>}
+          {section === "vpn" && <QualitySection title="Качество VPN и данных" description="Сохранённые проверки подключения и достоверность аналитики" dataHealth={dataHealth} trialCohorts={[]} vpnQuality={vpnQuality} />}
+          {section === "ads" && <>
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-4 dark:border-zinc-700 sm:flex-row sm:items-start sm:justify-between sm:px-5">
@@ -1050,6 +1079,8 @@ export default function AdminStatsPage() {
             )}
           </section>
 
+          </>}
+          {section === "vpn" && <>
           {/* Трафик bare_xray: серия всегда дневная (stat_date — DATE в MSK),
               независимо от period.bucket остальных графиков */}
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -1123,6 +1154,8 @@ export default function AdminStatsPage() {
             </ChartCard>
           </div>
 
+          </>}
+          {section === "sales" && <>
           {/* Активные подписки по тарифам */}
           <div className="mt-6">
             <ChartCard title="Активные подписки по тарифам" hint="сейчас" help={HELP.activePlans} isEmpty={byPlan.length === 0}>
@@ -1147,6 +1180,7 @@ export default function AdminStatsPage() {
             </ChartCard>
           </div>
 
+          </>}
           <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
             Выручка — принятые платёжные факты в ledger. Помеченные внутренние аккаунты,
             кампания nakrut и операторские гранты исключены. Конверсия — первая внешняя оплата подписки в RUB
@@ -1157,7 +1191,7 @@ export default function AdminStatsPage() {
             подтверждение подключения основано на ответе пользователя.
           </p>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
