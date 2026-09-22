@@ -37,6 +37,7 @@ from app.domain.referral import (
     resolve_reward_policy,
 )
 from app.domain.subscription_timing import compute_renewal_active_until
+from app.issuance.vless_provider import VlessProviderOutcome
 from app.persistence.postgres_referral import (
     PostgresReferralBalanceRepository,
     PostgresReferralRelationshipRepository,
@@ -842,9 +843,13 @@ async def _ensure_vless_keys_atomic(
     for attempt in range(3):
         try:
             if keys_deleted or not keys_deactivated:
-                await vless_provider.create_user(internal_user_id=internal_user_id, device_count=device_count)
+                result = await vless_provider.create_user(internal_user_id=internal_user_id, device_count=device_count)
             else:
-                await vless_provider.activate_user(internal_user_id=internal_user_id, device_count=device_count)
+                result = await vless_provider.activate_user(
+                    internal_user_id=internal_user_id, device_count=device_count
+                )
+            if result.outcome != VlessProviderOutcome.SUCCESS:
+                raise RuntimeError("VPN-провайдер не подтвердил выдачу доступа")
             vless_ok = True
             break
         except Exception:
