@@ -519,14 +519,13 @@ async def _add_device_pg(
                 raise _NotHigher()
             cost_kopecks = cost_rubles * 100
 
-            # Промокод: discounted debit. resolve_active_promo читает promo_* на отдельном
-            # соединении из pool — безопасно внутри транзакции (другие таблицы, только чтение;
-            # advisory lock сериализует per-user операции, рассинхрона current здесь быть не может).
+            # Читаем промокод на соединении транзакции: дополнительный acquire
+            # при заполненном пуле привёл бы к взаимному ожиданию запросов.
             from app.application.promo_service import resolve_active_promo
 
-            applied_repo, code_repo, redemption_repo, _snap = _balance_promo_repos(pool, None)
+            applied_repo, code_repo, redemption_repo, _snap = _balance_promo_repos(pool, None, connection=conn)
             active_promo_add = await resolve_active_promo(
-                pool=pool,
+                pool=conn,
                 promo_applied_repo=applied_repo,
                 promo_code_repo=code_repo,
                 promo_redemption_repo=redemption_repo,
@@ -710,7 +709,9 @@ async def _add_device_inmemory(
 # ── Shared helpers ───────────────────────────────────────────────────────────
 
 
-def _balance_promo_repos(pool: asyncpg.Pool | None, composition: Slice1Composition | None) -> tuple[Any, Any, Any, Any]:
+def _balance_promo_repos(
+    pool: asyncpg.Pool | None, composition: Slice1Composition | None, *, connection: asyncpg.Connection | None = None
+) -> tuple[Any, Any, Any, Any]:
     """Репозитории промокодов для баланс-пути: (applied, code, redemption, snapshots).
 
     На postgres инстанциируем из pool (web-обработчик передаёт composition=None), на
@@ -725,9 +726,9 @@ def _balance_promo_repos(pool: asyncpg.Pool | None, composition: Slice1Compositi
         )
 
         return (
-            PostgresPromoAppliedRepository(pool),
-            PostgresPromoCodeRepository(pool),
-            PostgresPromoRedemptionRepository(pool),
+            PostgresPromoAppliedRepository(pool, connection=connection),
+            PostgresPromoCodeRepository(pool, connection=connection),
+            PostgresPromoRedemptionRepository(pool, connection=connection),
             None,
         )
     assert composition is not None  # invariant: pool is None ⇒ composition задан (бот/тесты)

@@ -71,7 +71,7 @@ class ActivePromo:
 
 async def compute_is_new_user(
     *,
-    pool: asyncpg.Pool | None,
+    pool: asyncpg.Pool | asyncpg.Connection | None,
     snapshots: SubscriptionSnapshotReader | None,
     internal_user_id: str,
 ) -> bool:
@@ -102,7 +102,7 @@ async def compute_is_new_user(
 
 async def resolve_active_promo(
     *,
-    pool: asyncpg.Pool | None,
+    pool: asyncpg.Pool | asyncpg.Connection | None,
     promo_applied_repo: PromoAppliedRepository,
     promo_code_repo: PromoCodeRepository,
     promo_redemption_repo: PromoRedemptionRepository,

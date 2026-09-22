@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -54,12 +55,23 @@ def _encode_discounts_by_plan(value: dict[str, int] | None) -> str | None:
     return json.dumps(value, ensure_ascii=False, sort_keys=True) if value else None
 
 
+@asynccontextmanager
+async def _connection_scope(pool: asyncpg.Pool, connection: asyncpg.Connection | None):
+    """Переданным соединением владеет вызывающая транзакция."""
+    if connection is not None:
+        yield connection
+    else:
+        async with pool.acquire() as acquired:
+            yield acquired
+
+
 class PostgresPromoCodeRepository:
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, *, connection: asyncpg.Connection | None = None) -> None:
         self._pool = pool
+        self._connection = connection
 
     async def get(self, code: str) -> PromoCode | None:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             row = await conn.fetchrow(
                 f"SELECT {_PROMO_SELECT_COLUMNS} FROM promo_codes WHERE code = $1",  # noqa: S608
                 code,
@@ -70,7 +82,7 @@ class PostgresPromoCodeRepository:
         # per-tariff промокод хранит скидки в discounts_by_plan, а discount_value = NULL
         # (CHECK >0 не пустит 0; в домене discount_value=0, в БД пишем NULL).
         discount_value_db = None if promo.discounts_by_plan else promo.discount_value
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             try:
                 row = await conn.fetchrow(
                     "INSERT INTO promo_codes "  # noqa: S608
@@ -118,19 +130,19 @@ class PostgresPromoCodeRepository:
             + ", ".join(assignments)
             + f" WHERE code = $1 RETURNING {_PROMO_SELECT_COLUMNS}"
         )
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             row = await conn.fetchrow(sql, *params)
         return None if row is None else record_from_row(row)
 
     async def delete(self, code: str) -> bool:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             result = await conn.execute("DELETE FROM promo_codes WHERE code = $1", code)
         return "DELETE 1" in result
 
     async def list_codes(
         self, *, limit: int = 100, offset: int = 0, include_inactive: bool = True
     ) -> tuple[PromoCode, ...]:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             if include_inactive:
                 rows = await conn.fetch(
                     f"SELECT {_PROMO_SELECT_COLUMNS} "  # noqa: S608
@@ -164,11 +176,12 @@ class PostgresPromoCodeRepository:
 
 
 class PostgresPromoRedemptionRepository:
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, *, connection: asyncpg.Connection | None = None) -> None:
         self._pool = pool
+        self._connection = connection
 
     async def list_by_user(self, internal_user_id: str, limit: int = 20) -> tuple[PromoRedemptionRecord, ...]:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             rows = await conn.fetch(
                 "SELECT redemption_id, code, internal_user_id, idempotency_key, "
                 "base_rubles, discounted_rubles, discount_kopecks, payment_ref, created_at "
@@ -181,7 +194,7 @@ class PostgresPromoRedemptionRepository:
 
     async def count_for_user(self, code: str, internal_user_id: str) -> int:
         """Сколько раз пользователь уже погашал этот код (применение/оплата/бейдж)."""
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             return await self.count_for_user_in_connection(conn, code, internal_user_id)
 
     @staticmethod
@@ -222,11 +235,12 @@ class PostgresPromoRedemptionRepository:
 
 
 class PostgresPromoAppliedRepository:
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, *, connection: asyncpg.Connection | None = None) -> None:
         self._pool = pool
+        self._connection = connection
 
     async def get(self, internal_user_id: str) -> PromoAppliedRecord | None:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             row = await conn.fetchrow(
                 "SELECT internal_user_id, code, applied_at, expires_at FROM promo_applied WHERE internal_user_id = $1",
                 internal_user_id,
@@ -234,7 +248,7 @@ class PostgresPromoAppliedRepository:
         return None if row is None else _applied_from_row(row)
 
     async def upsert(self, internal_user_id: str, code: str, expires_at: datetime) -> PromoAppliedRecord:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             row = await conn.fetchrow(
                 "INSERT INTO promo_applied (internal_user_id, code, applied_at, expires_at) "
                 "VALUES ($1, $2, now(), $3) "
@@ -249,7 +263,7 @@ class PostgresPromoAppliedRepository:
         return _applied_from_row(row)
 
     async def clear(self, internal_user_id: str) -> None:
-        async with self._pool.acquire() as conn:
+        async with _connection_scope(self._pool, self._connection) as conn:
             await conn.execute(
                 "DELETE FROM promo_applied WHERE internal_user_id = $1",
                 internal_user_id,

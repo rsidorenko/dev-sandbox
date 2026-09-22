@@ -353,3 +353,53 @@ async def test_http_handler_accepts_pending_and_replay_resumes_without_charge(ac
         assert resumed.status_code == 200 and resumed.json()["status"] == "already_completed"
     assert await pool.fetchval("SELECT balance_kopecks FROM referral_balances WHERE internal_user_id=$1", uid) == 75100
     assert await pool.fetchval("SELECT count(*) FROM referral_transactions WHERE internal_user_id=$1", uid) == 1
+
+
+@pytest.mark.parametrize("with_promo", [False, True])
+async def test_device_purchase_uses_held_connection_for_promo(account, with_promo):
+    from app.application.balance_payment_service import add_device_from_balance
+    from app.domain.promo import PromoAudience, PromoCode, PromoDiscountKind
+    from app.persistence.postgres_promo import PostgresPromoAppliedRepository, PostgresPromoCodeRepository
+
+    pool, uid, _deadline = account
+    code = uuid.uuid4().hex.upper()
+    now = datetime.now(UTC)
+    if with_promo:
+        await PostgresPromoCodeRepository(pool).create(
+            PromoCode(
+                code=code,
+                audience=PromoAudience.ALL_USERS,
+                discount_kind=PromoDiscountKind.PERCENT,
+                discount_value=50,
+                max_redemptions=None,
+                redemptions_count=0,
+                expires_at=None,
+                is_active=True,
+                note=None,
+                created_at=now,
+                updated_at=now,
+                created_by=None,
+                max_redemptions_per_user=1,
+            )
+        )
+        await PostgresPromoAppliedRepository(pool).upsert(uid, code, now + timedelta(days=1))
+    single = await asyncpg.create_pool(os.environ["DATABASE_URL"], min_size=1, max_size=1)
+    try:
+        async with asyncio.timeout(2):
+            result = await add_device_from_balance(
+                pool=single,
+                composition=None,
+                internal_user_id=uid,
+                new_device_count=6,
+                correlation_id="single-connection",
+                vless_provider=StubVlessProvider(),
+            )
+        assert result.status == BalancePaymentStatus.COMPLETED
+        assert result.amount_kopecks == (4000 if with_promo else 8000)
+        if with_promo:
+            assert await pool.fetchval("SELECT redemptions_count FROM promo_codes WHERE code=$1", code) == 1
+    finally:
+        await single.close()
+        await pool.execute("DELETE FROM promo_applied WHERE internal_user_id=$1", uid)
+        await pool.execute("DELETE FROM promo_redemptions WHERE internal_user_id=$1", uid)
+        await pool.execute("DELETE FROM promo_codes WHERE code=$1", code)
