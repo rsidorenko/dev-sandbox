@@ -9,14 +9,17 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("custom_url", [False, True])
 @pytest.mark.parametrize(("failures", "expected_code", "expected_calls"), [(0, 0, 1), (2, 0, 3), (20, 1, 12)])
-def test_healthcheck_retries_and_fails_closed(tmp_path, failures, expected_code, expected_calls):
+def test_healthcheck_retries_and_fails_closed(tmp_path, failures, expected_code, expected_calls, custom_url):
+    expected_url = "http://localhost:12345/healthz" if custom_url else "http://127.0.0.1/healthz"
     curl = tmp_path / "curl"
     curl.write_text(
         '#!/bin/bash\nn=0\n[ ! -f "$AUDIT_CALLS" ] || n=$(cat "$AUDIT_CALLS")\n'
         'n=$((n+1))\necho "$n" > "$AUDIT_CALLS"\n'
         '[[ "$*" == *"--max-time 5"* ]] || exit 99\n'
-        '[[ "$*" == *"http://localhost:12345/healthz"* ]] || exit 99\n'
+        f'[[ "$*" == *"{expected_url}"* ]] || exit 99\n'
+        '[[ "$*" == *"Host: bravada-connect.ru"* ]] || exit 99\n'
         f'[ "$n" -gt {failures} ]\n'
     )
     curl.chmod(0o755)
@@ -25,7 +28,7 @@ def test_healthcheck_retries_and_fails_closed(tmp_path, failures, expected_code,
     sleep.chmod(0o755)
     calls = tmp_path / "calls"
     result = subprocess.run(
-        ["bash", str(ROOT / "scripts/ci/verify_health.sh"), "http://localhost:12345/healthz"],
+        ["bash", str(ROOT / "scripts/ci/verify_health.sh"), *([expected_url] if custom_url else [])],
         env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "AUDIT_CALLS": str(calls)},
         capture_output=True,
         text=True,
