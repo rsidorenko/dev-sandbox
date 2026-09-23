@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { VpnQuality } from "@/features/admin/VpnQuality";
 import { useAdminRead } from "@/features/admin/useAdminRead";
 import { adminDate } from "@/features/admin/display";
 import { adminBtnSecondary, adminInput, adminRow, adminTable, adminTableWrap, adminTd, adminTh } from "@/features/admin/ui";
@@ -16,6 +17,7 @@ export default function AdminServersPage() {
   const hosts = [...new Set(servers.map(s => s.server_host))];
   return <div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Серверы и подключения</h1><p className="mt-1 text-sm text-gray-500">{hosts.length} входных хостов · {servers.length} подключений</p></div><button className={adminBtnSecondary} onClick={() => void refresh()} disabled={loading}>Обновить</button></div>
+    <VpnQuality />
     <p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">Проверяется получение статистики Xray. Успех опроса не гарантирует работу VPN из сети пользователя; ошибка опроса не доказывает падение сервера. TCP/XHTTP — разные подключения одного хоста.</p>
     <div className="flex flex-wrap items-center gap-4"><input aria-label="Поиск серверов" className={adminInput} value={search} onChange={e => setSearch(e.target.value)} placeholder="Страна, хост, транспорт" /><label className="flex gap-2 text-sm"><input type="checkbox" checked={attention} onChange={e => setAttention(e.target.checked)} />Требует внимания</label><label className="flex gap-2 text-sm"><input type="checkbox" checked={includeInactive} onChange={e => setIncludeInactive(e.target.checked)} />Показать отключённые</label></div>
     {error && <p role="alert" className="text-red-600">{error}</p>}

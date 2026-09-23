@@ -54,6 +54,7 @@ from app.web_api.admin_users import (
     handle_admin_reset_test_account,
     handle_admin_set_internal,
 )
+from app.web_api.admin_vpn_quality import handle_admin_vpn_quality
 from app.web_api.connection_check import (
     handle_check_feedback,
     handle_check_ping,
@@ -244,6 +245,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/admin/incidents/{incident_id}", handle_admin_incident_update, methods=["POST"]),
         Route("/api/v1/admin/payments", handle_admin_payments, methods=["GET"]),
         Route("/api/v1/admin/servers", handle_admin_servers, methods=["GET"]),
+        Route("/api/v1/admin/vpn-quality", handle_admin_vpn_quality, methods=["GET"]),
         Route("/api/v1/admin/users", handle_admin_list_users, methods=["GET"]),
         Route("/api/v1/admin/users/{internal_user_id}", handle_admin_get_user, methods=["GET"]),
         Route("/api/v1/admin/users/{internal_user_id}/internal", handle_admin_set_internal, methods=["POST"]),

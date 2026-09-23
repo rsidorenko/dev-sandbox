@@ -1,0 +1,9 @@
+[Unit]
+Description=Ограниченные HTTPS-проверки VPN
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec bravada-backend-1 python -m app.observability.vpn_quality --location entry-de
+TimeoutStartSec=240

@@ -147,6 +147,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "100_balance_access_jobs.sql",
         "101_vpn_server_observations.sql",
         "102_admin_incidents.sql",
+        "103_vpn_quality.sql",
     ]
 
 
