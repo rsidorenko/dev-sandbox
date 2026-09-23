@@ -136,7 +136,7 @@ export function ResetTestAccountModal({
         <h2 className="text-xl font-bold text-red-700 dark:text-red-400">Сбросить тестовый аккаунт</h2>
         <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-300">
           Будут удалены триал, подписка, ключи на всех VPN-серверах, собственная платежная и
-          реферальная история, email, промокоды, трафик и события воронки. Начисления другим
+          реферальная история, промокоды, трафик и события воронки. Начисления другим
           пользователям сохраняются. Не запускайте одновременно оплату или бот.
         </div>
         <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">

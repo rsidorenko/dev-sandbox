@@ -3190,7 +3190,7 @@ async def handle_slice1_telegram_update_to_rendered_message(
     *,
     correlation_id: str | None = None,
 ) -> RenderedMessagePackage:
-    # Check for email linking text input (email address or verification code)
+    # Команда пользователя сбрасывает накопленный текстовый ввод (свой тариф / промокод).
     uid = _extract_private_telegram_user_id(update)
     if uid is not None:
         message = update.get("message")

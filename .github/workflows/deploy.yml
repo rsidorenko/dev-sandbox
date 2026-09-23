@@ -259,8 +259,6 @@ jobs:
               echo "--- Truncating all user data tables ---"
               docker compose -f docker-compose.prod.yml exec -T postgres psql -U vpnbot -d vpnbot -c \
                 "TRUNCATE TABLE
-                  email_verification_codes,
-                  user_emails,
                   referral_transactions,
                   referral_balances,
                   referral_relationships,
