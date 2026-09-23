@@ -92,9 +92,11 @@ def _verify_yookassa_source(request: Request) -> JSONResponse | None:
     if ip is not None and _is_yookassa_ip(ip):
         return None  # verified YooKassa source
     if has_forwarded:
-        _LOGGER.warning("yookassa webhook: source IP %s not in YooKassa ranges — rejected", ip)
+        # PD-audit: сам IP в лог не пишется (не персональные данные не собираем) —
+        # диапазонная проверка в памяти остаётся, решение reject/proceed то же.
+        _LOGGER.warning("yookassa webhook: source not in YooKassa ranges — rejected")
         return _safe_json_error(401, "invalid_source")
-    _LOGGER.warning("yookassa webhook: no forwarded client IP (%s) — relying on API re-fetch", ip)
+    _LOGGER.warning("yookassa webhook: no forwarded client IP — relying on API re-fetch")
     return None
 
 
