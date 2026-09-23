@@ -221,6 +221,7 @@ async def dispatch_slice1_transport(
             input=bootstrap_input,
             referral_code=ref_code,
             telegram_ads_campaign=ads_campaign,
+            start_action=start_action,
         ):
             result = await composition.bootstrap.handle(bootstrap_input)
             if (
@@ -245,7 +246,7 @@ async def dispatch_slice1_transport(
                     new_user_id=result.internal_user_id,
                     referral_code=ref_code,
                 )
-            return map_bootstrap_identity_to_transport(result)
+            return map_bootstrap_identity_to_transport(result, start_action=start_action)
         case NormalizedSlice1Status(input=status_input):
             allowed = await composition.command_rate_limiter.allow(
                 telegram_user_id=envelope.telegram_user_id,

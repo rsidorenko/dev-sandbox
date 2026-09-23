@@ -286,12 +286,14 @@ from app.bot_transport.storefront_ui import (
     text_trial_connect_fastpath,
     text_trial_feedback_thanks,
     text_trial_nonpayment_feedback_prompt,
+    text_trial_offer,
     text_trial_subscribe_required,
     text_trial_subscribe_still_missing,
     text_welcome,
     trial_connect_fastpath_keyboard,
     trial_feedback_thanks_keyboard,
     trial_nonpayment_feedback_keyboard,
+    trial_offer_keyboard,
     tv_did_work_keyboard,
     tv_problem_keyboard,
     tv_step_1_keyboard,
@@ -2523,8 +2525,13 @@ async def _render_storefront_response(
     elif code == "identity_ready":
         # Show trial offer for new users who haven't used trial yet
         trial_available = await _is_trial_available(composition, uid)
-        text = text_welcome(trial_available=trial_available)
-        keyboard = welcome_keyboard(trial_available=trial_available)
+        if transport.next_action_hint == "start_trial" and trial_available:
+            # Deeplink с сайта («/start trial»): сразу экран предложения триала
+            # вместо обычного welcome — меньше шагов до активации.
+            text, keyboard = text_trial_offer(), trial_offer_keyboard()
+        else:
+            text = text_welcome(trial_available=trial_available)
+            keyboard = welcome_keyboard(trial_available=trial_available)
 
     elif code == CB_TRIAL:
         text, keyboard = await _handle_trial_activation(composition, uid)

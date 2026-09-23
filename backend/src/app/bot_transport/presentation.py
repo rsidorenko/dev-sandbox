@@ -10,6 +10,7 @@ from app.application.telegram_access_resend import (
     TelegramAccessResendOutcome,
     TelegramAccessResendResult,
 )
+from app.bot_transport.normalized import TRIAL_START_ACTION
 from app.security.errors import UserSafeErrorCode
 from app.shared.types import OperationOutcomeCategory, SafeUserStatusCategory
 
@@ -140,7 +141,11 @@ def _status_code_for_safe_category(status: SafeUserStatusCategory) -> str:
     return TransportStatusCode.INACTIVE_OR_NOT_ELIGIBLE.value
 
 
-def map_bootstrap_identity_to_transport(result: BootstrapIdentityResult) -> TransportSafeResponse:
+def map_bootstrap_identity_to_transport(
+    result: BootstrapIdentityResult,
+    *,
+    start_action: str | None = None,
+) -> TransportSafeResponse:
     """Отображает результат UC-01 в безопасный транспортный ответ; повтор использует коды успеха, но может подавить исходящую отправку."""
     cid = result.correlation_id
     if result.outcome is OperationOutcomeCategory.SUCCESS:
@@ -148,7 +153,8 @@ def map_bootstrap_identity_to_transport(result: BootstrapIdentityResult) -> Tran
             category=TransportResponseCategory.SUCCESS,
             code=TransportBootstrapCode.IDENTITY_READY.value,
             correlation_id=cid,
-            next_action_hint=None,
+            # Deeplink /start trial с сайта: рендер сразу открывает экран триала.
+            next_action_hint="start_trial" if start_action == TRIAL_START_ACTION else None,
             replay_suppresses_outbound=result.idempotent_replay,
             uc01_idempotency_key=result.uc01_idempotency_key,
         )

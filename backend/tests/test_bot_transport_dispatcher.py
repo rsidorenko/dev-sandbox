@@ -111,6 +111,28 @@ def test_dispatch_duplicate_start_idempotent_same_success_no_extra_audit() -> No
     _run(main())
 
 
+def test_dispatch_start_trial_deeplink_sets_next_action_hint() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        r = await dispatch_slice1_transport(_env(cid=cid, text="/start trial"), c)
+        assert r.category is TransportResponseCategory.SUCCESS
+        assert r.code == TransportBootstrapCode.IDENTITY_READY.value
+        assert r.next_action_hint == "start_trial"
+
+    _run(main())
+
+
+def test_dispatch_start_without_param_has_no_next_action_hint() -> None:
+    async def main() -> None:
+        c = build_slice1_composition()
+        cid = new_correlation_id()
+        r = await dispatch_slice1_transport(_env(cid=cid, text="/start"), c)
+        assert r.next_action_hint is None
+
+    _run(main())
+
+
 def test_dispatch_status_bootstrapped_rejected_as_unknown() -> None:
     async def main() -> None:
         c = build_slice1_composition()

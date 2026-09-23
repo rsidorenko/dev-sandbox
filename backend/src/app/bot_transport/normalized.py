@@ -20,6 +20,9 @@ from app.shared.correlation import require_correlation_id
 _MAX_LINE_LEN = 512
 _MAX_COMMAND_TOKEN_LEN = 64
 _REF_START_RE = __import__("re").compile(r"^ref_([a-z0-9]{4,32})$", __import__("re").IGNORECASE)
+# Deeplink с сайта («Открыть бота и получить 3 дня бесплатно»): /start trial —
+# сразу показать экран предложения триала вместо обычного welcome.
+TRIAL_START_ACTION = "trial"
 
 _SLICE1_BOOTSTRAP_COMMANDS: frozenset[str] = frozenset({"/start"})
 
@@ -53,6 +56,9 @@ class NormalizedSlice1Bootstrap:
     input: BootstrapIdentityInput
     referral_code: str | None = None
     telegram_ads_campaign: str | None = None
+    # Канонический start-action (сейчас только "trial"): exact-match параметра
+    # /start после strip+lower; мульти-токены и прочие значения не совпадают.
+    start_action: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +232,11 @@ def parse_slice1_transport(envelope: TransportIncomingEnvelope) -> NormalizedSli
             ),
             referral_code=ref_code,
             telegram_ads_campaign=parse_telegram_ads_campaign(start_param),
+            start_action=(
+                TRIAL_START_ACTION
+                if start_param is not None and start_param.strip().lower() == TRIAL_START_ACTION
+                else None
+            ),
         )
 
     return NormalizedSlice1Rejected(reason=NormalizationRejectReason.UNKNOWN_COMMAND)

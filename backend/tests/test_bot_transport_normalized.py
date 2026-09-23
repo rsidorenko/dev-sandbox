@@ -56,6 +56,41 @@ def test_start_with_bot_suffix_normalized() -> None:
     assert r.input.telegram_user_id == 99
 
 
+def test_start_param_trial_sets_start_action() -> None:
+    r = parse_slice1_transport(_env(cmd="/start trial", update_id=101))
+    assert isinstance(r, NormalizedSlice1Bootstrap)
+    assert r.start_action == "trial"
+    assert r.referral_code is None
+    assert r.telegram_ads_campaign is None
+
+
+def test_start_param_trial_case_insensitive() -> None:
+    r = parse_slice1_transport(_env(cmd="/start   TRIAL ", update_id=102))
+    assert isinstance(r, NormalizedSlice1Bootstrap)
+    assert r.start_action == "trial"
+
+
+def test_start_param_ref_code_no_start_action() -> None:
+    r = parse_slice1_transport(_env(cmd="/start ref_abc123", update_id=103))
+    assert isinstance(r, NormalizedSlice1Bootstrap)
+    assert r.start_action is None
+    assert r.referral_code == "abc123"
+
+
+def test_start_param_ads_campaign_no_start_action() -> None:
+    r = parse_slice1_transport(_env(cmd="/start tgads_summer", update_id=104))
+    assert isinstance(r, NormalizedSlice1Bootstrap)
+    assert r.start_action is None
+
+
+def test_start_param_multi_token_not_trial() -> None:
+    # Telegram start-параметры не содержат пробелов; мульти-токен не должен
+    # считаться каноническим action'ом.
+    r = parse_slice1_transport(_env(cmd="/start trial foo", update_id=105))
+    assert isinstance(r, NormalizedSlice1Bootstrap)
+    assert r.start_action is None
+
+
 def test_status_rejected_as_unknown() -> None:
     r = parse_slice1_transport(
         TransportIncomingEnvelope(
