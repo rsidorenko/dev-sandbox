@@ -80,7 +80,6 @@ from app.web_api.payment import (
 )
 from app.web_api.plans import handle_list_plans
 from app.web_api.profile import (
-    handle_activate_trial,
     handle_cancel_subscription,
     handle_change_plan,
     handle_get_keys,
@@ -181,8 +180,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         Route("/api/v1/user/subscription/renew", _with_auth(handle_renew_subscription), methods=["POST"]),
         Route("/api/v1/user/subscription/change-plan", _with_auth(handle_change_plan), methods=["POST"]),
         Route("/api/v1/user/subscription/cancel", _with_auth(handle_cancel_subscription), methods=["POST"]),
-        # Trial
-        Route("/api/v1/user/trial/activate", _with_auth(handle_activate_trial), methods=["POST"]),
+        # Триал выдаётся только в Telegram-боте: web-endpoint /api/v1/user/trial/activate
+        # удалён (отсутствие роута фиксирует guard-тест).
         # Promocode (web session) — display/apply/clear the 24h-pinned promo. Discount
         # math stays in promo_service; these are input/display surface (Фаза 4).
         Route("/api/v1/user/promocode", _with_auth(handle_get_promocode), methods=["GET"]),

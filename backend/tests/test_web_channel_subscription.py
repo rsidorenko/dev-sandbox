@@ -59,24 +59,3 @@ def test_web_gate_rejects_unsubscribed_unknown_and_web_only_accounts() -> None:
         assert result.status_code == 403
         assert result.body and CHANNEL_SUBSCRIPTION_REQUIRED_ERROR.encode() in result.body
         assert gate.calls == expected_calls
-
-
-def test_web_trial_does_not_touch_database_until_subscription_is_confirmed(monkeypatch) -> None:
-    """Профильный endpoint проверяет канал до атомарного claim пробного периода."""
-
-    class _PoolMustNotBeUsed:
-        async def fetchrow(self, *args, **kwargs):  # pragma: no cover - вызов означает регрессию
-            raise AssertionError("trial claim must not reach the database")
-
-    async def _auth(_request: Request) -> dict[str, int]:
-        return {"telegram_user_id": 42}
-
-    monkeypatch.setattr("app.web_api.profile.require_auth", _auth)
-    request = _request(required=True, checker=_FakeGate(False))
-    request.app.state.pool = _PoolMustNotBeUsed()
-
-    from app.web_api.profile import handle_activate_trial
-
-    result = _run(handle_activate_trial(request))
-    assert result.status_code == 403
-    assert CHANNEL_SUBSCRIPTION_REQUIRED_ERROR.encode() in result.body
