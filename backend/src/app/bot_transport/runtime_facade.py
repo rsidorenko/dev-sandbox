@@ -1435,6 +1435,38 @@ async def _handle_broadcast_days_claim(
     return text, main_menu_keyboard()
 
 
+async def _render_broadcast_promo_checkout(
+    composition: Slice1Composition, internal_user_id: str, promo: Any
+) -> tuple[str, dict[str, Any]]:
+    """После бонуса сразу предлагаем оплату тарифа с явной ценой и числом устройств."""
+    from app.domain.devices import MAX_DEVICE_COUNT
+    from app.domain.plans import calculate_total_price
+
+    snapshot = await composition.snapshots.get_for_user(internal_user_id)
+    device_count = (
+        max(DEVICES_DEFAULT, min(MAX_DEVICE_COUNT, snapshot.device_count or DEVICES_DEFAULT))
+        if snapshot
+        else DEVICES_DEFAULT
+    )
+    pricing = get_plan_pricing(_get_pool_from_composition(composition))
+    plans = tuple(
+        replace(plan, price_rubles=calculate_total_price(plan, device_count))
+        for plan in await pricing.get_fixed_plans()
+    )
+    text = (
+        f"✅ Промокод {promo.code} применён!\n\n"
+        f"{promo_offer_preview(promo)}\n\n"
+        f"Устройств: {device_count}. Выберите тариф — сразу подготовим ссылку на оплату.\n"
+        "На кнопках указана итоговая цена с учётом доступных скидок."
+    )
+    return text, buy_vpn_keyboard(
+        plan_options_from_plans(plans),
+        promo=promo,
+        global_discount=await pricing.get_global_discount(),
+        payment_device_count=device_count,
+    )
+
+
 async def _handle_broadcast_promo_claim(
     composition: Slice1Composition,
     uid: int | None,
@@ -1494,15 +1526,15 @@ async def _handle_broadcast_promo_claim(
     code = str(row["code"])
     now = datetime.now(UTC)
 
-    # Pre-check «уже применён»: экономит audience-чек/запросы и даёт дружеложелательный
-    # отклик на повторный клик (apply идемпотентен, но так дешевле).
+    # Повторный клик сохраняет TTL намерения, но заново проверяет применимость скидки.
     existing = await composition.promo_applied_repo.get(id_rec.internal_user_id)
     if existing is not None and not existing.is_expired(now) and existing.code == code:
-        promo = await composition.promo_code_repo.get(code)
-        offer = promo_offer_preview(promo) if promo is not None else ""
-        return text_promo_applied(code, offer_text=offer), main_menu_keyboard()
+        active = await _active_applied_promo(composition, uid)
+        if active is None:
+            return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
+        return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, active[0])
 
-    status, resolved_code, promo = await _apply_promo_to_user(composition, id_rec.internal_user_id, code, now=now)
+    status, _, promo = await _apply_promo_to_user(composition, id_rec.internal_user_id, code, now=now)
     if status in ("not_found", "inactive", "invalid"):
         return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
     if status == "already_used":
@@ -1511,10 +1543,7 @@ async def _handle_broadcast_promo_claim(
     if status == "ineligible":
         return text_promo_ineligible(), back_only_keyboard(CB_MAIN_MENU)
     # ok
-    return (
-        text_promo_applied(resolved_code, offer_text=promo_offer_preview(promo)),
-        main_menu_keyboard(),
-    )
+    return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, promo)
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────

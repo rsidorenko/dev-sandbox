@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pytest
 
 from app.application.bootstrap import build_slice1_composition
+from app.application.interfaces import SubscriptionSnapshot
+from app.application.plan_pricing import PlanPricingProvider
 from app.application.telegram_command_rate_limit import InMemoryTelegramCommandRateLimiter
 from app.bot_transport.runtime_facade import (
     _broadcast_bonus_unavailable_text,
@@ -31,6 +36,16 @@ from app.shared.test_helpers import run_async as _run
 
 _JOB_ID = "11111111-2222-3333-4444-555555555555"
 _CODE = "SUMMER25"
+
+
+@pytest.fixture(autouse=True)
+def pricing_without_postgres(monkeypatch):
+    provider = PlanPricingProvider(None)
+    monkeypatch.setattr("app.bot_transport.runtime_facade.get_plan_pricing", lambda pool: provider)
+
+
+def _buttons(keyboard):
+    return [button for row in keyboard["inline_keyboard"] for button in row]
 
 
 def _start_update(*, uid: int = 42, update_id: int = 1) -> dict:
@@ -202,6 +217,7 @@ def test_promo_claim_precheck_already_applied(monkeypatch) -> None:
     async def main() -> None:
         c = build_slice1_composition()
         iid = await _register(c, uid=42)
+        await c.promo_code_repo.create(_make_promo())
         # Засеваем active applied-запись с тем же code, что и в claim-реестре.
         assert isinstance(c.promo_applied_repo, InMemoryPromoAppliedRepository)
         c.promo_applied_repo._applied[iid] = PromoAppliedRecord(  # type: ignore[attr-defined]
@@ -218,6 +234,7 @@ def test_promo_claim_precheck_already_applied(monkeypatch) -> None:
     assert "применён" in text
     # pre-check сработал → apply-ядро НЕ вызывалось
     assert apply_calls == []
+    assert any(b.get("callback_data") == "do_pay:1m:5" for b in _buttons(_kb))
 
 
 def test_promo_claim_apply_success(monkeypatch) -> None:
@@ -240,7 +257,10 @@ def test_promo_claim_apply_success(monkeypatch) -> None:
     text, _kb = _run(main())
     assert "✅ Промокод SUMMER25 применён!" in text
     assert "Скидка: 15% от стоимости." in text
-    assert "24 часа" in text
+    assert "Устройств: 5" in text
+    button = next(b for b in _buttons(_kb) if b.get("callback_data") == "do_pay:1m:5")
+    assert "212 ₽ вместо 249" in button["text"]
+    assert any(b.get("callback_data") == "buy_vpn" for b in _buttons(_kb))
 
 
 def test_promo_claim_not_found_treated_as_not_found(monkeypatch) -> None:
@@ -354,3 +374,89 @@ def test_callback_bc_promo_routes_through_pipeline_to_handler() -> None:
         return pkg.message_text
 
     assert _run(main()) == _broadcast_bonus_unavailable_text()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"is_active": False},
+        {"expires_at": datetime(2020, 1, 1, tzinfo=UTC)},
+        {"max_redemptions": 1, "redemptions_count": 1},
+        {"audience": PromoAudience.EXISTING_USERS},
+    ],
+)
+def test_repeated_claim_revalidates_promo_without_extending_ttl(changes):
+    async def main():
+        c = build_slice1_composition()
+        iid = await _register(c)
+        await c.promo_code_repo.create(_make_promo())
+        c.identity._pool = _PromoClaimPool(claim_row={"code": _CODE})
+        await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+        before = await c.promo_applied_repo.get(iid)
+        await c.promo_code_repo.update(_CODE, changes)
+        if changes.get("redemptions_count"):
+            await c.promo_code_repo.increment_redemptions(_CODE, 1)
+        text, keyboard = await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+        assert "больше неактивен" in text
+        assert not any(b.get("callback_data", "").startswith("do_pay:") for b in _buttons(keyboard))
+        assert await c.promo_applied_repo.get(iid) == before
+
+    _run(main())
+
+
+@pytest.mark.parametrize("global_wins", [False, True])
+def test_claim_to_payment_pipeline_preserves_devices_price_and_promo(monkeypatch, global_wins):
+    from app.domain.pricing import GlobalDiscount
+
+    async def loader():
+        return {"1m": 300}, GlobalDiscount(True, PromoDiscountKind.PERCENT, 50) if global_wins else None
+
+    pricing = PlanPricingProvider(None, loader=loader)
+    monkeypatch.setattr("app.bot_transport.runtime_facade.get_plan_pricing", lambda pool: pricing)
+    payments = []
+
+    class FakeYooKassa:
+        async def create_payment(self, **kwargs):
+            payments.append(kwargs)
+            return SimpleNamespace(
+                payment_id="test-broadcast-payment", confirmation_url="https://payments.example/confirm"
+            )
+
+    monkeypatch.setattr("app.yookassa.client.YooKassaClient.from_env", lambda: FakeYooKassa())
+
+    async def main():
+        c = build_slice1_composition()
+        iid = await _register(c)
+        await c.snapshots.upsert_state(SubscriptionSnapshot(iid, "active", device_count=7, plan_id="1m"))
+        await c.promo_code_repo.create(dataclasses.replace(_make_promo(), discounts_by_plan={"1m": 25}))
+        c.identity._pool = _PromoClaimPool(claim_row={"code": _CODE})
+
+        async def click(data, update_id):
+            return await handle_slice1_telegram_update_to_rendered_message(
+                {"update_id": update_id, "callback_query": {"id": str(update_id), "from": {"id": 42}, "data": data}},
+                c,
+                correlation_id=new_correlation_id(),
+            )
+
+        claimed = await click(f"bc_promo:{_JOB_ID}", 2)
+        assert "Устройств: 7" in claimed.message_text
+        applied = await c.promo_applied_repo.get(iid)
+        repeated = await click(f"bc_promo:{_JOB_ID}", 3)
+        assert repeated.reply_markup == claimed.reply_markup
+        assert await c.promo_applied_repo.get(iid) == applied
+        assert payments == []
+        button = next(b for b in _buttons(claimed.reply_markup) if b.get("callback_data") == "do_pay:1m:7")
+        # 300 + 2 × 80 = 460; скидка 25% либо глобальные 50%.
+        expected = 230 if global_wins else 345
+        assert f"{expected} ₽ вместо 460" in button["text"]
+        result = await click(button["callback_data"], 4)
+        assert any(b.get("url") == "https://payments.example/confirm" for b in _buttons(result.reply_markup))
+        assert len(payments) == 1
+        payment = payments[0]
+        assert (payment["plan_id"], payment["device_count"], payment["amount_rubles"]) == ("1m", 7, expected)
+        assert payment["metadata"]["base_amount_kopecks"] == "46000"
+        assert payment["metadata"]["discount_kopecks"] == str((460 - expected) * 100)
+        assert payment["metadata"].get("promo_code") == (None if global_wins else _CODE)
+        assert await c.promo_redemption_repo.count_for_user(_CODE, iid) == 0
+
+    _run(main())

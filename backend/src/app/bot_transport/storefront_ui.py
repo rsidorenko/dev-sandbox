@@ -208,20 +208,25 @@ def buy_vpn_keyboard(
     *,
     promo: PromoCode | None = None,
     global_discount: GlobalDiscount | None = None,
+    payment_device_count: int | None = None,
 ) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     for p in plans:
         base = p.price_rubles
+        icon = "💳" if payment_device_count is not None else _PLAN_EMOJI.get(p.plan_id, "📦")
         # Скидка для этого тарифа — best-of(промокод, глобальная). Per-tariff промокод
         # даёт 0 на тарифе вне map → тогда (и при отсутствии промокода) решает глобальная.
         discounted = effective_plan_price(base, plan_id=p.plan_id, promo=promo, global_discount=global_discount)
         if discounted.discounted_rubles < base:
-            label = (
-                f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {discounted.discounted_rubles} ₽ вместо {base}"
-            )
+            label = f"{icon} {p.display_name} — {discounted.discounted_rubles} ₽ вместо {base}"
         else:
-            label = f"{_PLAN_EMOJI.get(p.plan_id, '📦')} {p.display_name} — {base} ₽"
-        rows.append([{"text": label, "callback_data": f"{CB_PLAN}{p.plan_id}"}])
+            label = f"{icon} {p.display_name} — {base} ₽"
+        callback = f"{CB_PLAN}{p.plan_id}"
+        if payment_device_count is not None:
+            callback = f"{CB_DO_PAY}{p.plan_id}:{payment_device_count}"
+        rows.append([{"text": label, "callback_data": callback}])
+    if payment_device_count is not None:
+        rows.append([{"text": "⚙️ Устройства и другие способы оплаты", "callback_data": CB_BUY_VPN}])
     rows.append([{"text": "📦 Свой тариф", "callback_data": CB_CUSTOM_DAYS}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
