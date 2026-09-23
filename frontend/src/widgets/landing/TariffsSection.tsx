@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { siteConfig } from "@/shared/config/site";
+import { botTrialUrl, siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
 import { savingsPctForPlan } from "@/entities/tariff/savings";
 import { Reveal } from "@/shared/ui/Reveal";
@@ -266,9 +266,14 @@ function TariffCard({
           🛡 Гарантия возврата {siteConfig.refundDays} дней
         </div>
         <div className="mt-1 text-center text-xs">
-          <Link href="/trial" className="text-brand-600 hover:underline dark:text-brand-400">
+          <a
+            href={botTrialUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-brand-600 hover:underline dark:text-brand-400"
+          >
             или попробуйте {siteConfig.trialDays} дня бесплатно
-          </Link>
+          </a>
         </div>
 
         <UpsellHint currentId={tariff.id} targetPrice={upsellPrice} />

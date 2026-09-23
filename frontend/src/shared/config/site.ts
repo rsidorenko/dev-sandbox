@@ -173,3 +173,9 @@ export const siteConfig = {
 };
 
 export type Tariff = (typeof siteConfig.tariffs)[number];
+
+/** Telegram-бот сервиса: единая точка для всех внешних ссылок на бота. */
+export const telegramBotUrl = `https://t.me/${siteConfig.botUsername}`;
+
+/** Deeplink триала: сайт не выдаёт пробный период — только бот (/start trial). */
+export const botTrialUrl = `${telegramBotUrl}?start=trial`;

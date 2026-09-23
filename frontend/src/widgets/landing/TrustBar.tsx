@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { siteConfig } from "@/shared/config/site";
+import { botTrialUrl, siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
 
 /**
  * Полоса доверия под hero. НЕ «мёртвый текст»: каждый пункт — действие/ссылка.
- *   • пробный период → /trial
+ *   • пробный период → бот t.me/<bot>?start=trial (триал выдаёт только бот)
  *   • возврат        → /refund (условия)
  *   • оплата         → #tariffs (к блоку тарифов)
  *   • поддержка      → Telegram
@@ -26,14 +26,16 @@ export function TrustBar() {
       <div className="mx-auto max-w-6xl px-4">
         <ul className="flex flex-wrap items-center justify-center gap-1.5 py-2.5 sm:gap-2">
           <li>
-            <Link
-              href="/trial"
+            <a
+              href={botTrialUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={() => reachGoal("trustbar_trial")}
               className={`${ITEM} bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-900/40`}
             >
               <GiftIcon />
               {siteConfig.trialDays} дня бесплатно
-            </Link>
+            </a>
           </li>
           <li>
             <Link href="/refund" className={`${ITEM} ${ITEM_NEUTRAL}`}>

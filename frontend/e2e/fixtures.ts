@@ -71,13 +71,11 @@ export function makeProfile(opts: {
 type ProfileKind = "auth" | "unauth" | "bad_token" | "trial_used" | "active_sub";
 type PaymentKind = "payment_url" | "payment_unavailable" | "unauthorized";
 type LinkRequestKind = "ok" | "disposable" | "rate_limited" | "not_configured";
-type TrialKind = "ok" | "already_used" | "already_subscribed" | "unauthorized";
 
 export type MockOptions = {
   profile?: ProfileKind;
   paymentCreate?: PaymentKind;
   linkRequest?: LinkRequestKind;
-  trialActivate?: TrialKind;
 };
 
 function respondProfile(route: Route, kind: ProfileKind) {
@@ -159,45 +157,6 @@ function respondLinkRequest(route: Route, kind: LinkRequestKind) {
   return route.fulfill({ status: 200, json: { ok: true, sent: true } });
 }
 
-function respondTrial(route: Route, kind: TrialKind) {
-  if (kind === "unauthorized") {
-    return route.fulfill({
-      status: 401,
-      json: { ok: false, error: "unauthorized" },
-    });
-  }
-  if (kind === "already_used") {
-    return route.fulfill({
-      status: 200,
-      json: { ok: false, error: "trial_already_used" },
-    });
-  }
-  if (kind === "already_subscribed") {
-    return route.fulfill({
-      status: 200,
-      json: { ok: false, error: "already_subscribed" },
-    });
-  }
-  return route.fulfill({
-    status: 200,
-    json: {
-      ok: true,
-      trial: { started_at: "2026-07-12T00:00:00Z", expires_at: "2026-07-15T00:00:00Z" },
-      keys: {
-        subscription_url: "https://bravada-connect.ru/sub/token123",
-        servers: [
-          {
-            label: "Нидерланды",
-            country_code: "NL",
-            country_flag: "🇳🇱",
-            vless_link: "vless://uuid@example.com:443?security=reality",
-          },
-        ],
-      },
-    },
-  });
-}
-
 /** Зарегистрировать перехват API с заданными ответами. */
 export async function mockApi(page: Page, opts: MockOptions = {}) {
   await page.route("**/api/v1/**", async (route) => {
@@ -212,9 +171,6 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
     }
     if (url.includes("/api/v1/auth/link/request") && method === "POST") {
       return respondLinkRequest(route, opts.linkRequest ?? "ok");
-    }
-    if (url.includes("/api/v1/user/trial/activate") && method === "POST") {
-      return respondTrial(route, opts.trialActivate ?? "ok");
     }
     // Безопасная заглушка для всего прочего.
     return route.fulfill({ status: 200, json: { ok: true } });

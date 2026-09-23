@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { siteConfig } from "@/shared/config/site";
+import { botTrialUrl, siteConfig } from "@/shared/config/site";
 import { reachGoal } from "@/shared/lib/analytics";
 import { AuroraBackground } from "@/widgets/landing/AuroraBackground";
 import { Reveal } from "@/shared/ui/Reveal";
@@ -15,16 +14,18 @@ export function CtaSection() {
           Попробуйте Bravada бесплатно
         </h2>
         <p className="mt-4 text-brand-200">
-          Подключение занимает несколько минут. {siteConfig.trialDays} дня бесплатно, без привязки карты.
+          Подключение занимает несколько минут. {siteConfig.trialDays} дня бесплатно в Telegram-боте, без привязки карты.
         </p>
         <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-          <Link
-            href="/trial"
+          <a
+            href={botTrialUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={() => reachGoal("trial_click")}
             className="rounded-xl bg-white px-8 py-4 text-sm font-bold text-brand-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-50"
           >
             Попробовать бесплатно
-          </Link>
+          </a>
           <a
             href="#tariffs"
             onClick={() => reachGoal("choose_plan")}

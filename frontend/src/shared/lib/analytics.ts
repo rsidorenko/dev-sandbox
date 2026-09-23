@@ -7,7 +7,7 @@
  * включении обязательны consent-баннер и раскрытие в политике.
  * Запись сессий (webvisor) не возвращать ни при каких настройках.
  *
- * Цели (когда включена): choose_plan, trial_click, trial_activated,
+ * Цели (когда включена): choose_plan, trial_click (уход в бота за триалом),
  * start_checkout, referral_open, auth_gate_email, auth_gate_bot, purchase.
  */
 

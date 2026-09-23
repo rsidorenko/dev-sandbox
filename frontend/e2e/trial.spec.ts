@@ -1,29 +1,34 @@
 import { expect, test } from "@playwright/test";
-import { loginByLink, mockApi } from "./fixtures";
+import { mockApi } from "./fixtures";
 
-test.describe("Trial activation (/trial)", () => {
-  test("unauthenticated visitor is redirected to /login", async ({ page }) => {
+test.describe("Trial stub (/trial)", () => {
+  test("anonymous visitor sees the bot-only stub without redirect to /login", async ({ page }) => {
     await mockApi(page, { profile: "unauth" });
     await page.goto("/trial");
-    await expect(page).toHaveURL(/\/login\?next=\/trial$/);
+    await expect(page).toHaveURL(/\/trial$/);
+    await expect(page.getByText("Пробный период выдаётся в Telegram-боте")).toBeVisible();
   });
 
-  test("successful activation shows the success state", async ({ page }) => {
-    await mockApi(page, { profile: "auth", trialActivate: "ok" });
-    await loginByLink(page, "/trial");
-    await expect(page.getByText(/Готово!/)).toBeVisible();
-    await expect(page.getByText(/3 дня начнутся после первого подключения/)).toBeVisible();
+  test("primary button points to the bot deeplink", async ({ page }) => {
+    await mockApi(page, { profile: "unauth" });
+    await page.goto("/trial");
+    const botButton = page.getByRole("link", { name: /Открыть бота и получить 3 дня бесплатно/ });
+    await expect(botButton).toBeVisible();
+    await expect(botButton).toHaveAttribute(
+      "href",
+      /^https:\/\/t\.me\/bravadavpn_bot\?start=trial$/,
+    );
   });
 
-  test("already-used trial shows the 'used' state via precheck", async ({ page }) => {
-    await mockApi(page, { profile: "trial_used" });
-    await loginByLink(page, "/trial");
-    await expect(page.getByText("Пробный период уже использован")).toBeVisible();
-  });
-
-  test("active subscription shows the 'already subscribed' state", async ({ page }) => {
-    await mockApi(page, { profile: "active_sub" });
-    await loginByLink(page, "/trial");
-    await expect(page.getByText("У вас уже есть активная подписка")).toBeVisible();
+  test("no activation request is sent — page is static", async ({ page }) => {
+    await mockApi(page, { profile: "auth" });
+    let activateCalls = 0;
+    await page.route("**/api/v1/user/trial/activate", (route) => {
+      activateCalls += 1;
+      return route.fulfill({ status: 404, json: { ok: false } });
+    });
+    await page.goto("/trial");
+    await expect(page.getByText("Пробный период выдаётся в Telegram-боте")).toBeVisible();
+    expect(activateCalls).toBe(0);
   });
 });

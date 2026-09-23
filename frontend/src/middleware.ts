@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Пользовательские маршруты (/dashboard, /payment, /trial) больше не гвардятся
-// middleware: сессия — токен подписки в памяти клиента (link-auth), куки
+// Пользовательские маршруты (/dashboard, /payment; /trial — публичная
+// статичная страница) больше не гвардятся middleware: сессия — токен подписки
+// в памяти клиента (link-auth), куки
 // session больше нет. Защиту делает клиентский AuthProvider (редирект на
 // /login), оплата валидируется на бэкенде по Bearer. Осталась только админка —
 // отдельная httpOnly-кука admin_session.

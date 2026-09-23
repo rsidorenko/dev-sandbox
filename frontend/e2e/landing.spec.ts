@@ -36,11 +36,14 @@ test.describe("Landing", () => {
     await expect(page).toHaveURL(/\/payment\/365d$/);
   });
 
-  test("'3 дня бесплатно' link points to /trial", async ({ page }) => {
+  test("'3 дня бесплатно' link points to the Telegram bot deeplink", async ({ page }) => {
     await page.goto("/");
     const trialLink = page
       .getByRole("link", { name: /3 дня бесплатно/ })
       .first();
-    await expect(trialLink).toHaveAttribute("href", "/trial");
+    await expect(trialLink).toHaveAttribute(
+      "href",
+      /^https:\/\/t\.me\/bravadavpn_bot\?start=trial$/,
+    );
   });
 });
