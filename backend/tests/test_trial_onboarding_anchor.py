@@ -104,6 +104,8 @@ async def test_route_survives_first_traffic_and_legacy_stays_unknown():
         assert anomalies["trials_without_setup"] == 0
         assert anomalies["onboarding_start_unknown"] == 0
         await pool.execute("UPDATE subscription_snapshots SET trial_provisioned_at=NULL WHERE internal_user_id=$1", uid)
+        await pool.execute(migration)
+        await pool.execute(migration)
         await repo.upsert_state(await repo.get_for_user(uid))
         assert (
             await pool.fetchval(
