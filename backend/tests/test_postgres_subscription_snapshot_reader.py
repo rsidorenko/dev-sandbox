@@ -73,7 +73,9 @@ def test_postgres_subscription_snapshot_returns_row_contract_shape(pg_url: str) 
                 )
             reader = PostgresSubscriptionSnapshotReader(pool)
             got = await reader.get_for_user(internal_user_id)
-            assert got == SubscriptionSnapshot(internal_user_id=internal_user_id, state_label=state_label)
+            assert got == SubscriptionSnapshot(
+                device_count=5, internal_user_id=internal_user_id, state_label=state_label
+            )
             assert got.active_until_utc is None
         finally:
             await pool.close()
@@ -97,6 +99,7 @@ def test_postgres_put_if_absent_inserts_and_skips_existing_state(pg_url: str) ->
                 SubscriptionSnapshot(internal_user_id=internal_user_id, state_label="inactive"),
             )
             assert await adapter.get_for_user(internal_user_id) == SubscriptionSnapshot(
+                device_count=5,
                 internal_user_id=internal_user_id,
                 state_label="inactive",
             )
@@ -114,7 +117,9 @@ def test_postgres_put_if_absent_inserts_and_skips_existing_state(pg_url: str) ->
                 SubscriptionSnapshot(internal_user_id=internal_user_id, state_label="inactive"),
             )
             got = await adapter.get_for_user(internal_user_id)
-            assert got == SubscriptionSnapshot(internal_user_id=internal_user_id, state_label="needs_review")
+            assert got == SubscriptionSnapshot(
+                device_count=5, internal_user_id=internal_user_id, state_label="needs_review"
+            )
         finally:
             await pool.close()
 
@@ -135,11 +140,13 @@ def test_postgres_upsert_state_updates_or_inserts(pg_url: str) -> None:
             adapter = PostgresSubscriptionSnapshotReader(pool)
             await adapter.upsert_state(SubscriptionSnapshot(internal_user_id=internal_user_id, state_label="inactive"))
             assert await adapter.get_for_user(internal_user_id) == SubscriptionSnapshot(
+                device_count=5,
                 internal_user_id=internal_user_id,
                 state_label="inactive",
             )
             await adapter.upsert_state(SubscriptionSnapshot(internal_user_id=internal_user_id, state_label="active"))
             assert await adapter.get_for_user(internal_user_id) == SubscriptionSnapshot(
+                device_count=5,
                 internal_user_id=internal_user_id,
                 state_label="active",
             )
@@ -171,6 +178,7 @@ def test_postgres_upsert_state_persists_active_until_timestamp(pg_url: str) -> N
             )
             got = await adapter.get_for_user(internal_user_id)
             assert got == SubscriptionSnapshot(
+                device_count=5,
                 internal_user_id=internal_user_id,
                 state_label="active",
                 active_until_utc=active_until,

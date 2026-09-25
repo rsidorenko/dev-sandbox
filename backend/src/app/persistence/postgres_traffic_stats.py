@@ -87,7 +87,8 @@ class PostgresTrafficStatsRepository:
                     rows = await conn.fetch(
                         """
                         UPDATE subscription_snapshots s
-                        SET trial_first_traffic_at = NOW(),
+                        SET trial_provisioned_at = COALESCE(s.trial_provisioned_at, s.trial_started_at),
+                            trial_first_traffic_at = NOW(),
                             trial_started_at = NOW(),
                             trial_expires_at = NOW() + make_interval(days => COALESCE((
                                 SELECT CASE WHEN ea.variant = '7d' THEN 7 ELSE $2 END

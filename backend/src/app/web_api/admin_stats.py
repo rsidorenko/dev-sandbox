@@ -309,6 +309,8 @@ FROM period_events
 _FUNNEL_DIAGNOSTICS_V2 = """
 WITH trials AS (
     SELECT s.internal_user_id, s.trial_started_at,
+           COALESCE(s.trial_provisioned_at, s.trial_started_at) AS onboarding_at,
+           s.trial_provisioned_at IS NULL AS onboarding_unknown,
            (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
     FROM subscription_snapshots s
     JOIN analytics_eligible_user_ids e USING (internal_user_id)
@@ -350,7 +352,7 @@ WITH trials AS (
     LEFT JOIN funnel_interactions f
       ON f.internal_user_id = tr.internal_user_id
      AND f.connection_route <> ''
-     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at >= tr.onboarding_at
      AND f.occurred_at < $2
     GROUP BY tr.internal_user_id
 ), cohort AS (
@@ -569,6 +571,8 @@ LIMIT 20
 _DATA_HEALTH_CHAIN_ANOMALIES = """
 WITH trials AS (
     SELECT s.internal_user_id, s.trial_started_at,
+           COALESCE(s.trial_provisioned_at, s.trial_started_at) AS onboarding_at,
+           s.trial_provisioned_at IS NULL AS onboarding_unknown,
            (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
     FROM subscription_snapshots s
     JOIN analytics_eligible_user_ids e USING (internal_user_id)
@@ -605,11 +609,11 @@ WITH trials AS (
     FROM trials tr
     LEFT JOIN funnel_interactions f
       ON f.internal_user_id = tr.internal_user_id
-     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at >= tr.onboarding_at
      AND f.occurred_at < $2
     GROUP BY tr.internal_user_id
 ), cohort AS (
-    SELECT tr.internal_user_id, tr.trial_date,
+    SELECT tr.internal_user_id, tr.trial_date, tr.onboarding_unknown,
            tf.first_traffic_date, tf.first_meaningful_date,
            i.setup_at, i.has_route
     FROM trials tr
@@ -617,6 +621,7 @@ WITH trials AS (
     LEFT JOIN interactions i USING (internal_user_id)
 )
 SELECT count(*)::int AS trials,
+       count(*) FILTER (WHERE onboarding_unknown)::int AS onboarding_start_unknown,
        count(*) FILTER (WHERE first_meaningful_date IS NOT NULL AND NOT COALESCE(has_route, false))::int
            AS meaningful_without_route,
        count(*) FILTER (
@@ -632,6 +637,8 @@ FROM cohort
 _TRIAL_COHORTS = """
 WITH trials AS (
     SELECT s.internal_user_id, s.trial_started_at,
+           COALESCE(s.trial_provisioned_at, s.trial_started_at) AS onboarding_at,
+           s.trial_provisioned_at IS NULL AS onboarding_unknown,
            date_trunc('week', s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS cohort_week,
            (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date AS trial_date
     FROM subscription_snapshots s
@@ -670,7 +677,7 @@ WITH trials AS (
     JOIN funnel_interactions f
       ON f.internal_user_id = tr.internal_user_id
      AND f.event_name = 'checkout_opened'
-     AND f.occurred_at >= tr.trial_started_at
+     AND f.occurred_at >= tr.onboarding_at
      AND f.occurred_at < $2
     GROUP BY tr.internal_user_id
 ), paid AS (
@@ -839,6 +846,7 @@ WITH attributed AS (
     SELECT a.campaign_key, a.internal_user_id, a.attributed_at,
            CASE WHEN s.trial_started_at >= a.attributed_at AND s.trial_started_at < $2
                 THEN s.trial_started_at END AS trial_started_at,
+           GREATEST(a.attributed_at, COALESCE(s.trial_provisioned_at, s.trial_started_at)) AS onboarding_at,
            p.first_paid_at, p.second_paid_at
     FROM attributed a
     LEFT JOIN subscription_snapshots s USING (internal_user_id)
@@ -865,32 +873,32 @@ WITH attributed AS (
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'setup_started'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS setup_started,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS setup_started,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'platform_selected'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_selected,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_selected,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'connection_confirmed'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS connection_confirmed,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS connection_confirmed,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'connection_problem'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS connection_problem,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS connection_problem,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'checkout_opened'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS checkout_opened,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS checkout_opened,
            EXISTS (SELECT 1 FROM funnel_events e
                    WHERE e.internal_user_id = c.internal_user_id
                      AND c.trial_started_at IS NOT NULL
                      AND e.event_name = 'payment_created'
-                     AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS payment_created,
+                     AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS payment_created,
            EXISTS (SELECT 1 FROM bare_xray_traffic_daily t
                    WHERE c.trial_started_at IS NOT NULL
                      AND t.email IN ('user-' || left(c.internal_user_id, 16),
@@ -908,19 +916,19 @@ WITH attributed AS (
                AS meaningful_vpn_traffic,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'ios' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_ios,
+                   AND e.platform = 'ios' AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_ios,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'android' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_android,
+                   AND e.platform = 'android' AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_android,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'mac' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_mac,
+                   AND e.platform = 'mac' AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_mac,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'win' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_win,
+                   AND e.platform = 'win' AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_win,
            EXISTS (SELECT 1 FROM funnel_events e WHERE e.internal_user_id = c.internal_user_id
                    AND c.trial_started_at IS NOT NULL AND e.event_name = 'platform_selected'
-                   AND e.platform = 'tv' AND e.occurred_at >= c.trial_started_at AND e.occurred_at < $2) AS platform_tv
+                   AND e.platform = 'tv' AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS platform_tv
     FROM cohort_with_revenue c
 ), spend AS (
     SELECT campaign_key, sum(amount_kopecks)::bigint AS spend_kopecks
@@ -1436,6 +1444,7 @@ async def _data_health(
             "meaningful_without_route": int(anomaly_row["meaningful_without_route"] or 0),
             "traffic_before_setup": int(anomaly_row["traffic_before_setup"] or 0),
             "trials_without_setup": int(anomaly_row["trials_without_setup"] or 0),
+            "onboarding_start_unknown": int(anomaly_row["onboarding_start_unknown"] or 0),
         },
     }
 

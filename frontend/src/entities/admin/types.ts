@@ -305,6 +305,7 @@ export interface AdminDataHealth {
     meaningful_without_route: number;
     traffic_before_setup: number;
     trials_without_setup: number;
+    onboarding_start_unknown?: number;
   };
 }
 

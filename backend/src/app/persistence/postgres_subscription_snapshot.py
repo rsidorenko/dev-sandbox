@@ -59,13 +59,16 @@ class PostgresSubscriptionSnapshotReader:
             raise PersistenceDependencyError(InternalErrorCategory.PERSISTENCE_TRANSIENT) from exc
 
     _UPSERT_STATE = """
-        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count, trial_started_at, trial_expires_at)
-        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5), $6::timestamptz, $7::timestamptz)
+        INSERT INTO subscription_snapshots (internal_user_id, state_label, active_until_utc, plan_id, device_count, trial_started_at, trial_expires_at, trial_provisioned_at)
+        VALUES ($1::text, $2::text, $3::timestamptz, $4::text, COALESCE($5, 5), $6::timestamptz, $7::timestamptz, $6::timestamptz)
         ON CONFLICT (internal_user_id) DO UPDATE
         SET state_label = EXCLUDED.state_label,
             active_until_utc = EXCLUDED.active_until_utc,
             plan_id = EXCLUDED.plan_id,
             device_count = COALESCE(EXCLUDED.device_count, subscription_snapshots.device_count),
+            trial_provisioned_at = COALESCE(subscription_snapshots.trial_provisioned_at,
+                CASE WHEN subscription_snapshots.trial_first_traffic_at IS NULL
+                     THEN COALESCE(subscription_snapshots.trial_started_at, EXCLUDED.trial_started_at) END),
             trial_started_at = COALESCE(EXCLUDED.trial_started_at, subscription_snapshots.trial_started_at),
             trial_expires_at = COALESCE(EXCLUDED.trial_expires_at, subscription_snapshots.trial_expires_at),
             updated_at = now()

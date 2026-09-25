@@ -151,6 +151,7 @@ export function QualitySection({
                 <div className="mt-1 whitespace-normal break-words tabular-nums text-gray-600 [overflow-wrap:anywhere] dark:text-gray-400">
                   {[
                     ["без шага подключения", dataHealth.chain_anomalies.trials_without_setup],
+                    ["неизвестно время выдачи триала (исторические данные)", dataHealth.chain_anomalies.onboarding_start_unknown ?? 0],
                     ["значимый трафик без маршрута", dataHealth.chain_anomalies.meaningful_without_route],
                     ["трафик раньше шага подключения", dataHealth.chain_anomalies.traffic_before_setup],
                   ]

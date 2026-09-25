@@ -231,7 +231,7 @@ class NotificationScheduler:
                           SELECT e.platform FROM funnel_interactions e
                           WHERE e.internal_user_id = s.internal_user_id
                             AND e.event_name = 'platform_selected'
-                            AND e.occurred_at >= s.trial_started_at
+                            AND e.occurred_at >= COALESCE(s.trial_provisioned_at, s.trial_started_at)
                           ORDER BY e.occurred_at DESC LIMIT 1
                       ), '') AS platform
                FROM subscription_snapshots s
@@ -284,7 +284,7 @@ class NotificationScheduler:
                    FROM funnel_interactions e
                    WHERE e.internal_user_id = s.internal_user_id
                      AND e.event_name IN ('checkout_opened', 'payment_created')
-                     AND e.occurred_at >= s.trial_started_at
+                     AND e.occurred_at >= COALESCE(s.trial_provisioned_at, s.trial_started_at)
                    ORDER BY e.occurred_at DESC
                    LIMIT 1
                ) checkout ON TRUE
@@ -484,7 +484,7 @@ class NotificationScheduler:
                           SELECT e.platform FROM funnel_interactions e
                           WHERE e.internal_user_id = s.internal_user_id
                             AND e.event_name = 'platform_selected'
-                            AND e.occurred_at >= s.trial_started_at
+                            AND e.occurred_at >= COALESCE(s.trial_provisioned_at, s.trial_started_at)
                           ORDER BY e.occurred_at DESC LIMIT 1
                       ), '') AS platform
                FROM subscription_snapshots s
@@ -538,7 +538,7 @@ class NotificationScheduler:
                           SELECT e.platform FROM funnel_interactions e
                           WHERE e.internal_user_id = s.internal_user_id
                             AND e.event_name = 'platform_selected'
-                            AND e.occurred_at >= s.trial_started_at
+                            AND e.occurred_at >= COALESCE(s.trial_provisioned_at, s.trial_started_at)
                           ORDER BY e.occurred_at DESC LIMIT 1
                       ), '') AS platform
                FROM subscription_snapshots s
