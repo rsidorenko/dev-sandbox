@@ -17,6 +17,7 @@ import { ANALYTICS_SECTIONS, readAnalyticsLocation } from "@/features/admin/anal
 import { adminDate } from "@/features/admin/display";
 import { adminApi } from "@/features/admin/api";
 import { MetricHelp } from "@/features/admin/MetricHelp";
+import { AdSnapshots } from "@/features/admin/AdSnapshots";
 import { QualitySection } from "@/features/admin/QualitySection";
 import { adminBtnPrimary, adminBtnSecondary, adminNum } from "@/features/admin/ui";
 import type {
@@ -853,6 +854,7 @@ function Analytics() {
           </>}
           {section === "vpn" && <QualitySection title="Качество VPN и данных" description="Сохранённые проверки подключения и достоверность аналитики" dataHealth={dataHealth} trialCohorts={[]} vpnQuality={vpnQuality} />}
           {section === "ads" && <>
+          <AdSnapshots />
 
           <section className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-4 dark:border-zinc-700 sm:flex-row sm:items-start sm:justify-between sm:px-5">

@@ -1,0 +1,368 @@
+{
+  "source_ref": "telegram-ads-screenshots-61c63552",
+  "observed_date": null,
+  "usd_per_ton": "1.34",
+  "notes": "Накопительный срез 20 объявлений. Получен 25.09.2026; дата съёмки и часовой пояс дат кабинета не подтверждены. Курс покупки TON подтверждён пользователем, включение комиссий неизвестно. Действия Telegram Ads не равны оплатам. Рублёвый курс неизвестен.",
+  "sources": [
+    {
+      "name": "1-Фото-1.jpg",
+      "sha256": "8d407b394c83b5785a6dea1ba90cf969f9fd1d97de05d74360c3b48ed32b9829"
+    },
+    {
+      "name": "2-Фото-2.jpg",
+      "sha256": "80c5240c8bd97af5dfdfaa7f88c4d294a4f60cc4493104c7c6b17e8c66b88902"
+    },
+    {
+      "name": "3-Фото-3.jpg",
+      "sha256": "56bdab45c4f9125ac6afae52d19dd69b295a9b5ebdc06d225e6bbab95f02da4b"
+    },
+    {
+      "name": "4-Фото-4.jpg",
+      "sha256": "fd765b80c2e2ea65315cd13e076c078910a48c679baa117a89a1169dc164d31a"
+    }
+  ],
+  "placements": [
+    {
+      "title": "@smartvotebot",
+      "views": 24000,
+      "clicks": 180,
+      "actions": 23,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "12.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 bot",
+      "status": "Stopped",
+      "displayed_date": "19 Sep 26 01:24",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@steamvk",
+      "views": 1334,
+      "clicks": 1,
+      "actions": 1,
+      "cpm_ton": "0.75",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "15 Sep 26 22:28",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@skidkimt",
+      "views": 1335,
+      "clicks": 2,
+      "actions": 1,
+      "cpm_ton": "0.75",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "15 Sep 26 22:27",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@agilefluent",
+      "views": 0,
+      "clicks": 0,
+      "actions": 0,
+      "cpm_ton": "0.90",
+      "spent_ton_lines": [
+        "0.00"
+      ],
+      "budget_ton_lines": [
+        "1.00"
+      ],
+      "target": "1 channel",
+      "status": "On Hold",
+      "displayed_date": "15 Sep 26 22:24",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@pereezd_relocation",
+      "views": 1180,
+      "clicks": 2,
+      "actions": 0,
+      "cpm_ton": "0.85",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "15 Sep 26 22:20",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@prv_adv",
+      "views": 37,
+      "clicks": 0,
+      "actions": 0,
+      "cpm_ton": "1.00",
+      "spent_ton_lines": [
+        "0.04"
+      ],
+      "budget_ton_lines": [
+        "0.96"
+      ],
+      "target": "1 channel",
+      "status": "On Hold",
+      "displayed_date": "15 Sep 26 22:16",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@pda_4",
+      "views": 1113,
+      "clicks": 4,
+      "actions": 3,
+      "cpm_ton": "0.90",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "15 Sep 26 22:14",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@mobilereviewcom",
+      "views": 1178,
+      "clicks": 4,
+      "actions": 2,
+      "cpm_ton": "0.85",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "15 Sep 26 22:11",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@androidinsider_ru",
+      "views": 641,
+      "clicks": 2,
+      "actions": 0,
+      "cpm_ton": "0.95",
+      "spent_ton_lines": [
+        "0.60",
+        "0.00"
+      ],
+      "budget_ton_lines": [
+        "6.40",
+        "1.00"
+      ],
+      "target": "1 channel",
+      "status": "On Hold",
+      "displayed_date": "15 Sep 26 22:09",
+      "note": "Две денежные строки: назначение компонентов требует уточнения."
+    },
+    {
+      "title": "@ttiktok_downloader_bot",
+      "views": 2002,
+      "clicks": 54,
+      "actions": 2,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 bot",
+      "status": "Stopped",
+      "displayed_date": "10 Sep 26 23:20",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "@Premium_droid",
+      "views": 8001,
+      "clicks": 29,
+      "actions": 13,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "4.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "10 Sep 26 23:18",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "premium_apk_3",
+      "views": 1863,
+      "clicks": 7,
+      "actions": 2,
+      "cpm_ton": "0.55",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "10 Sep 26 23:15",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "retiktok_bot",
+      "views": 14000,
+      "clicks": 211,
+      "actions": 27,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "7.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 bot",
+      "status": "Stopped",
+      "displayed_date": "9 Sep 26 00:01",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "BotYouTubeDownloadBot",
+      "views": 2001,
+      "clicks": 35,
+      "actions": 1,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 bot",
+      "status": "Stopped",
+      "displayed_date": "8 Sep 26 23:57",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "instsavbot",
+      "views": 2000,
+      "clicks": 41,
+      "actions": 2,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 bot",
+      "status": "Stopped",
+      "displayed_date": "8 Sep 26 23:56",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "SharaAPK",
+      "views": 1832,
+      "clicks": 4,
+      "actions": 2,
+      "cpm_ton": "0.55",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "8 Sep 26 23:52",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "androidac",
+      "views": 2001,
+      "clicks": 9,
+      "actions": 1,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "8 Sep 26 23:50",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "programmy_apk",
+      "views": 1222,
+      "clicks": 8,
+      "actions": 4,
+      "cpm_ton": "0.85",
+      "spent_ton_lines": [
+        "1.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "1 channel",
+      "status": "Stopped",
+      "displayed_date": "8 Sep 26 23:45",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "APK GEEK",
+      "views": 53756,
+      "clicks": 191,
+      "actions": 96,
+      "cpm_ton": "0.50",
+      "spent_ton_lines": [
+        "28.71"
+      ],
+      "budget_ton_lines": [
+        "1.57"
+      ],
+      "target": "1 channel",
+      "status": "Active",
+      "displayed_date": "5 Sep 26 20:14",
+      "note": "start-ссылка обрезана на скриншоте."
+    },
+    {
+      "title": "bravada-ad",
+      "views": 17474,
+      "clicks": 380,
+      "actions": 28,
+      "cpm_ton": "0.65",
+      "spent_ton_lines": [
+        "15.00"
+      ],
+      "budget_ton_lines": [
+        "0.00"
+      ],
+      "target": "8 bots",
+      "status": "Stopped",
+      "displayed_date": "2 Sep 26 17:55",
+      "note": "Ссылка без start-метки: t.me/BravadaVPN_bot"
+    }
+  ]
+}

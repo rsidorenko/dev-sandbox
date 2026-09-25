@@ -17,6 +17,7 @@ from app.application.trial_channel_gate import (
     channel_username_from_env,
     trial_channel_gate_enabled_from_env,
 )
+from app.web_api.admin_ad_snapshots import handle_admin_get_ad_snapshot, handle_admin_import_ad_snapshot
 from app.web_api.admin_ad_spend import handle_admin_set_telegram_ads_spend
 from app.web_api.admin_auth import handle_admin_login, handle_admin_logout
 from app.web_api.admin_broadcast import (
@@ -272,6 +273,8 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Агрегированный дашборд статистики (auth в обработчике; GET — без CSRF).
         Route("/api/v1/admin/stats", handle_admin_stats, methods=["GET"]),
         # Ручной дневной расход рекламы: auth + CSRF внутри обработчика.
+        Route("/api/v1/admin/telegram-ads/snapshots", handle_admin_get_ad_snapshot, methods=["GET"]),
+        Route("/api/v1/admin/telegram-ads/snapshots", handle_admin_import_ad_snapshot, methods=["POST"]),
         Route("/api/v1/admin/telegram-ads/spend", handle_admin_set_telegram_ads_spend, methods=["PUT"]),
         # Рассылка (auth + CSRF в обработчике). estimate/send/test — мутации под CSRF.
         Route("/api/v1/admin/broadcast/estimate", handle_admin_broadcast_estimate, methods=["POST"]),
