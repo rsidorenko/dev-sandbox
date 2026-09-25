@@ -851,11 +851,13 @@ WITH attributed AS (
     FROM base b
 ), cohort_with_revenue AS (
     SELECT c.*,
-           CASE WHEN c.acquired THEN COALESCE((
-               SELECT sum(p.amount_kopecks) FROM external_payments p
-               WHERE p.internal_user_id = c.internal_user_id
-                 AND p.occurred_at >= c.first_paid_at
-           ), 0)::bigint ELSE 0::bigint END AS revenue_kopecks
+           c.first_paid_at >= c.attributed_at AS first_purchase,
+           COALESCE((SELECT sum(p.amount_kopecks) FROM external_payments p
+                     WHERE p.internal_user_id = c.internal_user_id
+                       AND p.occurred_at >= c.attributed_at), 0)::bigint AS revenue_kopecks,
+           (SELECT count(*) FROM payment_ranked p
+            WHERE p.internal_user_id = c.internal_user_id
+              AND p.occurred_at >= c.attributed_at AND p.payment_number > 1) AS repeat_payments
     FROM cohort c
 ), cohort_with_signals AS (
     SELECT c.*,
@@ -953,7 +955,11 @@ SELECT k.campaign_key,
            WHERE c.deadline <= $2 AND c.acquired AND c.second_paid_at IS NOT NULL
        ) AS second_payment_users,
        count(c.internal_user_id) FILTER (WHERE c.acquired) AS acquired_users,
+       count(c.internal_user_id) FILTER (WHERE c.first_purchase) AS first_purchase_users,
+       count(c.internal_user_id) FILTER (WHERE c.revenue_kopecks > 0) AS paying_users,
+       COALESCE(sum(c.repeat_payments), 0)::bigint AS repeat_payments,
        COALESCE(sum(c.revenue_kopecks), 0)::bigint AS revenue_kopecks,
+       max(s.spend_kopecks) IS NOT NULL AS spend_recorded,
        COALESCE(max(s.spend_kopecks), 0)::bigint AS spend_kopecks
 FROM campaign_keys k
 LEFT JOIN cohort_with_signals c ON c.campaign_key = k.campaign_key
@@ -982,7 +988,11 @@ SELECT campaign_stats.*,
        sum(platform_mac_users) OVER ()::bigint AS total_platform_mac_users,
        sum(platform_win_users) OVER ()::bigint AS total_platform_win_users,
        sum(platform_tv_users) OVER ()::bigint AS total_platform_tv_users,
-       sum(acquired_users) OVER ()::bigint AS total_acquired_users
+       sum(acquired_users) OVER ()::bigint AS total_acquired_users,
+       sum(first_purchase_users) OVER ()::bigint AS total_first_purchase_users,
+       sum(paying_users) OVER ()::bigint AS total_paying_users,
+       sum(repeat_payments) OVER ()::bigint AS total_repeat_payments,
+       count(*) FILTER (WHERE NOT spend_recorded) OVER ()::int AS total_missing_spend_campaigns
 FROM campaign_stats
 ORDER BY spend_kopecks DESC, attributed_users DESC, campaign_key
 LIMIT 200
@@ -1037,6 +1047,8 @@ async def _telegram_ads_campaigns(
         mature = int(row["mature_trials"])
         first_payment = int(row["first_payment_users"])
         acquired = int(row["acquired_users"])
+        first_buyers = int(row["first_purchase_users"])
+        spend_recorded = bool(row["spend_recorded"])
         spend_kopecks = int(row["spend_kopecks"])
         revenue_kopecks = int(row["revenue_kopecks"])
         result.append(
@@ -1057,11 +1069,17 @@ async def _telegram_ads_campaigns(
                 "first_payment_users": first_payment,
                 "second_payment_users": int(row["second_payment_users"]),
                 "acquired_users": acquired,
-                "spend_rubles": round(spend_kopecks / 100, 2),
+                "first_purchase_users": first_buyers,
+                "paying_users": int(row["paying_users"]),
+                "repeat_payments": int(row["repeat_payments"]),
+                "spend_recorded": spend_recorded,
+                "spend_rubles": round(spend_kopecks / 100, 2) if spend_recorded else None,
                 "revenue_rubles": round(revenue_kopecks / 100, 2),
-                "cost_per_attributed_user_rubles": (round(spend_kopecks / 100 / attributed, 2) if attributed else None),
-                "cost_per_trial_rubles": round(spend_kopecks / 100 / trials, 2) if trials else None,
-                "cac_rubles": round(spend_kopecks / 100 / acquired, 2) if acquired else None,
+                "cost_per_attributed_user_rubles": (
+                    round(spend_kopecks / 100 / attributed, 2) if attributed and spend_recorded else None
+                ),
+                "cost_per_trial_rubles": round(spend_kopecks / 100 / trials, 2) if trials and spend_recorded else None,
+                "cac_rubles": round(spend_kopecks / 100 / first_buyers, 2) if first_buyers and spend_recorded else None,
                 "roas": round(revenue_kopecks / spend_kopecks, 4) if spend_kopecks else None,
                 "trial_activation_rate": round(trials / attributed, 4) if attributed else None,
                 "trial_to_first_payment_rate": round(first_payment / mature, 4) if mature else None,
@@ -1087,6 +1105,10 @@ async def _telegram_ads_campaigns(
                     "attributed_users": int(rows[0]["total_attributed_users"]),
                     "trials_started": int(rows[0]["total_trials_started"]),
                     "acquired_users": int(rows[0]["total_acquired_users"]),
+                    "first_purchase_users": int(rows[0]["total_first_purchase_users"]),
+                    "paying_users": int(rows[0]["total_paying_users"]),
+                    "repeat_payments": int(rows[0]["total_repeat_payments"]),
+                    "missing_spend_campaigns": int(rows[0]["total_missing_spend_campaigns"]),
                 }
             ]
         )
@@ -1130,21 +1152,29 @@ def _telegram_ads_funnel(totals: Mapping[str, object] | None) -> dict:
 
 
 def _telegram_ads_economics(campaigns: list[dict]) -> dict:
-    spend_rubles = round(sum(float(row["spend_rubles"]) for row in campaigns), 2)
+    spend_rubles = round(sum(float(row["spend_rubles"] or 0) for row in campaigns), 2)
     revenue_rubles = round(sum(float(row["revenue_rubles"]) for row in campaigns), 2)
     attributed = sum(int(row["attributed_users"]) for row in campaigns)
     trials = sum(int(row["trials_started"]) for row in campaigns)
     acquired = sum(int(row["acquired_users"]) for row in campaigns)
+    first_buyers = sum(int(row["first_purchase_users"]) for row in campaigns)
+    missing = sum(int(row.get("missing_spend_campaigns", row["spend_rubles"] is None)) for row in campaigns)
+    complete = bool(campaigns) and missing == 0
     return {
-        "spend_rubles": spend_rubles,
+        "spend_rubles": spend_rubles if campaigns and (spend_rubles or complete) else None,
+        "spend_complete": complete,
+        "missing_spend_campaigns": missing,
         "revenue_rubles": revenue_rubles,
         "attributed_users": attributed,
         "trials_started": trials,
         "acquired_users": acquired,
-        "cost_per_attributed_user_rubles": round(spend_rubles / attributed, 2) if attributed else None,
-        "cost_per_trial_rubles": round(spend_rubles / trials, 2) if trials else None,
-        "cac_rubles": round(spend_rubles / acquired, 2) if acquired else None,
-        "roas": round(revenue_rubles / spend_rubles, 4) if spend_rubles else None,
+        "first_purchase_users": first_buyers,
+        "paying_users": sum(int(row["paying_users"]) for row in campaigns),
+        "repeat_payments": sum(int(row["repeat_payments"]) for row in campaigns),
+        "cost_per_attributed_user_rubles": round(spend_rubles / attributed, 2) if attributed and complete else None,
+        "cost_per_trial_rubles": round(spend_rubles / trials, 2) if trials and complete else None,
+        "cac_rubles": round(spend_rubles / first_buyers, 2) if first_buyers and complete else None,
+        "roas": round(revenue_rubles / spend_rubles, 4) if spend_rubles and complete else None,
     }
 
 

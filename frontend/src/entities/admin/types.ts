@@ -389,7 +389,10 @@ export interface AdminTelegramAdsCampaign {
   second_payment_users: number;
   /** Клиенты с глобально первой оплатой в 10-дневном окне после триала. */
   acquired_users: number;
-  spend_rubles: number;
+  first_purchase_users: number;
+  paying_users: number;
+  repeat_payments: number;
+  spend_rubles: number | null;
   revenue_rubles: number;
   cost_per_attributed_user_rubles: number | null;
   cost_per_trial_rubles: number | null;
@@ -399,6 +402,7 @@ export interface AdminTelegramAdsCampaign {
   trial_activation_rate: number | null;
   trial_to_first_payment_rate: number | null;
   platform_users: AdminTelegramAdsPlatformUsers;
+  spend_recorded: boolean;
 }
 
 export interface AdminTelegramAdsPlatformUsers {
@@ -429,7 +433,10 @@ export interface AdminTelegramAdsFunnel {
 }
 
 export interface AdminTelegramAdsEconomics {
-  spend_rubles: number;
+  first_purchase_users: number;
+  paying_users: number;
+  repeat_payments: number;
+  spend_rubles: number | null;
   revenue_rubles: number;
   attributed_users: number;
   trials_started: number;
@@ -438,6 +445,8 @@ export interface AdminTelegramAdsEconomics {
   cost_per_trial_rubles: number | null;
   cac_rubles: number | null;
   roas: number | null;
+  spend_complete: boolean;
+  missing_spend_campaigns: number;
 }
 
 export interface AdminTelegramAdsSpend {

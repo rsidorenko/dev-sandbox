@@ -299,6 +299,10 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "first_payment_users": 1,
             "second_payment_users": 1,
             "acquired_users": 1,
+            "first_purchase_users": 1,
+            "paying_users": 1,
+            "repeat_payments": 1,
+            "spend_recorded": True,
             "spend_rubles": 1000.0,
             "revenue_rubles": 338.0,
             "cost_per_attributed_user_rubles": 500.0,
@@ -326,6 +330,10 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "first_payment_users": 0,
             "second_payment_users": 0,
             "acquired_users": 0,
+            "first_purchase_users": 0,
+            "paying_users": 0,
+            "repeat_payments": 0,
+            "spend_recorded": True,
             "spend_rubles": 500.0,
             "revenue_rubles": 0.0,
             "cost_per_attributed_user_rubles": None,
@@ -353,10 +361,14 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
             "first_payment_users": 0,
             "second_payment_users": 0,
             "acquired_users": 0,
-            "spend_rubles": 0.0,
-            "revenue_rubles": 0.0,
-            "cost_per_attributed_user_rubles": 0.0,
-            "cost_per_trial_rubles": 0.0,
+            "first_purchase_users": 0,
+            "paying_users": 1,
+            "repeat_payments": 1,
+            "spend_recorded": False,
+            "spend_rubles": None,
+            "revenue_rubles": 169.0,
+            "cost_per_attributed_user_rubles": None,
+            "cost_per_trial_rubles": None,
             "cac_rubles": None,
             "roas": None,
             "trial_activation_rate": round(2 / 3, 4),
@@ -366,14 +378,19 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
     ]
     assert report["economics"] == {
         "spend_rubles": 1500.0,
-        "revenue_rubles": 338.0,
+        "spend_complete": False,
+        "missing_spend_campaigns": 1,
+        "revenue_rubles": 507.0,
         "attributed_users": 5,
         "trials_started": 4,
         "acquired_users": 1,
-        "cost_per_attributed_user_rubles": 300.0,
-        "cost_per_trial_rubles": 375.0,
-        "cac_rubles": 1500.0,
-        "roas": round(338 / 1500, 4),
+        "first_purchase_users": 1,
+        "paying_users": 2,
+        "repeat_payments": 2,
+        "cost_per_attributed_user_rubles": None,
+        "cost_per_trial_rubles": None,
+        "cac_rubles": None,
+        "roas": None,
     }
     assert report["funnel"] == {
         "attributed_users": 5,
@@ -393,3 +410,29 @@ async def test_postgres_first_touch_and_campaign_funnel(pool):
         "acquired_users": 1,
         "platform_users": {"ios": 1, "android": 1, "mac": 0, "win": 0, "tv": 0},
     }
+
+
+async def test_direct_late_and_repeat_buyers_are_distinct(pool):
+    now = datetime.now(UTC)
+    touch = now - timedelta(days=20)
+    campaign = "test_tgads_direct"
+    direct = await add_user(pool, "direct", 20, touch, campaign)
+    await add_payment(pool, direct, f"{_PREFIX}direct", touch + timedelta(hours=1))
+    late = await add_user(pool, "late", 21, touch, campaign)
+    await add_trial(pool, late, touch + timedelta(hours=1))
+    await add_payment(pool, late, f"{_PREFIX}late", touch + timedelta(days=15))
+    old = await add_user(pool, "old", 22, touch, campaign)
+    await add_payment(pool, old, f"{_PREFIX}old-first", touch - timedelta(days=1))
+    await add_payment(pool, old, f"{_PREFIX}old-repeat", touch)
+    await add_payment(pool, direct, f"{_PREFIX}at-end", now)
+    start = now - timedelta(days=30)
+    report = await _telegram_ads_campaigns(pool, start, now, start.date(), now.date())
+    row = next(r for r in report["campaigns"] if r["campaign_key"] == campaign)
+    assert row["revenue_rubles"] == 507.0
+    assert row["first_purchase_users"] == 2
+    assert row["paying_users"] == 3
+    assert row["repeat_payments"] == 1
+    assert row["acquired_users"] == 0
+    assert row["first_payment_users"] == 0
+    assert row["spend_rubles"] is None
+    assert row["cac_rubles"] is None

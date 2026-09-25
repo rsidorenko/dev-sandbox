@@ -56,11 +56,11 @@ const HELP = {
   feedback: "Закрытые ответы пользователей о проблемах подключения и причинах неоплаты. Следите прежде всего за повторяющимися причинами, а не за единичными ответами.",
   experiments: "Runtime-статус отвечает, идёт ли тест сейчас. Результаты ниже включают исторические назначения. Сравнивать варианты стоит только по зрелым экспозициям с одинаковым 10-дневным окном.",
   telegramAds: "First-touch отчёт по меткам ads_* и tgads_*. Расходы вводятся вручную; без расхода CAC и ROAS кампании неинформативны.",
-  adsFunnel: "Путь рекламного пользователя от атрибуции до оплаты. Ищите самый большой последовательный провал, но учитывайте, что часть событий собирается с дневной точностью.",
+  adsFunnel: "Независимые сигналы рекламной когорты: шаги могут пропускаться, доли считаются от атрибуций. Финальная стадия — первая оплата в 10 дней после триала; прямые и поздние покупки отражены отдельно в экономике.",
   spend: "Сумма вручную внесённых расходов Telegram Ads за период.",
-  acquired: "Новые клиенты: первая в жизни внешняя оплата не позднее 10 дней после старта триала.",
+  acquired: "Первая в жизни внешняя оплата после рекламной атрибуции, включая покупки без триала. Когорта — атрибуции выбранного периода, оплаты до конца периода.",
   cac: "Расход / число новых клиентов. Масштабирование имеет смысл, когда CAC заметно ниже ожидаемой маржи/LTV клиента.",
-  adRevenue: "Все принятые платежи атрибутированных рекламных пользователей за период, включая продления.",
+  adRevenue: "Все принятые внешние RUB-платежи после атрибуции до конца периода, включая продления. Когорта ограничена датой атрибуции в выбранном периоде.",
   roas: "Рекламная выручка / расход. 1× означает возврат рекламного бюджета по выручке без учёта серверов, комиссий и налогов.",
   costPerTrial: "Расход / активированные триалы. Дешёвый триал полезен только если сохраняются значимый трафик и оплаты.",
   trafficChart: "Дневной VPN-трафик up+down. Сопоставляйте тренд с активными подписками и проверками подключения.",
@@ -379,7 +379,7 @@ function Analytics() {
     { label: "Подтвердили работу", value: telegramFunnel.connection_confirmed_users },
     { label: "Checkout", value: telegramFunnel.checkout_opened_users },
     { label: "Счёт создан", value: telegramFunnel.payment_created_users },
-    { label: "Оплата", value: telegramFunnel.acquired_users },
+    { label: "Триал → оплата ≤10 дней", value: telegramFunnel.acquired_users },
   ] : [];
 
   const saveSpend = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -913,28 +913,33 @@ function Analytics() {
               {spendMessage && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{spendMessage}</p>}
             </form>
             <div className="grid gap-3 border-b border-gray-200 p-4 dark:border-zinc-700 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-6">
-              <KpiCard label="Расход" value={formatRubles(economics?.spend_rubles ?? 0)} sub="за выбранный период" help={HELP.spend} />
-              <KpiCard label="Клиенты" value={(economics?.acquired_users ?? 0).toLocaleString("ru-RU")} sub="первая оплата ≤ 10 дней" help={HELP.acquired} />
+              <KpiCard label="Расход" value={formatRublesNullable(economics?.spend_rubles ?? null)} sub="внесённый дневной расход ₽" help={HELP.spend} />
+              <KpiCard label="Клиенты" value={(economics?.first_purchase_users ?? 0).toLocaleString("ru-RU")} sub="первая оплата после рекламы" help={HELP.acquired} />
               <KpiCard label="CAC" value={formatRublesNullable(economics?.cac_rubles ?? null)} sub="расход / клиенты" help={HELP.cac} />
               <KpiCard label="Рекламная выручка" value={formatRubles(economics?.revenue_rubles ?? 0)} sub="с продлениями" help={HELP.adRevenue} />
               <KpiCard label="ROAS" value={formatRoas(economics?.roas ?? null)} sub="выручка / расход" help={HELP.roas} />
               <KpiCard label="Цена триала" value={formatRublesNullable(economics?.cost_per_trial_rubles ?? null)} sub="расход / триалы" help={HELP.costPerTrial} />
             </div>
+            <p className="px-5 pt-4 text-sm text-gray-500">
+              Когорта: рекламная атрибуция в выбранном периоде; оплаты после неё до конца периода.
+              Платящих: {economics?.paying_users ?? 0}, повторных платежей: {economics?.repeat_payments ?? 0}.
+              {!economics?.spend_complete && ` Расходы в ₽ неполны (кампаний без дневных записей: ${economics?.missing_spend_campaigns ?? 0}); общие CAC и ROAS не рассчитаны.`}
+            </p>
             {telegramFunnel && (
               <div className="border-b border-gray-200 p-4 dark:border-zinc-700 sm:p-5">
                 <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                   <HeadingWithHelp title="Воронка рекламного трафика" help={HELP.adsFunnel} level={3} />
                   <span className="text-xs text-gray-400 dark:text-gray-500">
-                    уникальные пользователи · конверсия относительно предыдущего шага
+                    уникальные пользователи · доля от атрибуций; шаги могут пропускаться
                   </span>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-8">
-                  {funnelSteps.map((step, index) => (
+                  {funnelSteps.map((step) => (
                     <div key={step.label} className="relative rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
                       <div className="text-xs text-gray-500 dark:text-gray-400">{step.label}</div>
                       <div className={`mt-1 text-xl font-semibold text-gray-900 dark:text-gray-100 ${adminNum}`}>{step.value}</div>
                       <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                        {index === 0 ? `${formatStepRate(step.value, telegramFunnel.attributed_users)} от атрибуций` : `${formatStepRate(step.value, funnelSteps[index - 1].value)} к предыдущему`}
+                        {`${formatStepRate(step.value, telegramFunnel.attributed_users)} от атрибуций`}
                       </div>
                     </div>
                   ))}
@@ -992,13 +997,15 @@ function Analytics() {
                         </div>
                         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
                           {[
-                            ["Расход", formatRubles(campaign.spend_rubles)],
+                            ["Расход", formatRublesNullable(campaign.spend_rubles)],
                             ["CAC", formatRublesNullable(campaign.cac_rubles)],
                             ["Пользователи", campaign.attributed_users],
                             ["Триалы", `${campaign.trials_started} (${Math.round((campaign.trial_activation_rate ?? 0) * 1000) / 10}%)`],
                             ["Значимый трафик", campaign.meaningful_vpn_traffic_users],
                             ["Checkout / счета", `${campaign.checkout_opened_users} / ${campaign.payment_created_users}`],
-                            ["Клиенты", campaign.acquired_users],
+                            ["Новые покупатели", campaign.first_purchase_users],
+                            ["Платящие / повторы", `${campaign.paying_users} / ${campaign.repeat_payments}`],
+                            ["Выручка", formatRubles(campaign.revenue_rubles)],
                             ["Триал → оплата", paidRate],
                             ["Зрелые / ждут", `${campaign.mature_trials} / ${campaign.pending_trials}`],
                             ["Вторая оплата", campaign.second_payment_users],
@@ -1023,7 +1030,7 @@ function Analytics() {
                       {[
                         "Кампания", "Расход", "Пользователи", "Цена польз.", "Триалы", "Цена триала",
                         "Открыли подключение", "Выбрали платформу", "Платформы", "Первый VPN-трафик", "Значимый трафик",
-                        "Подтвердили работу", "Сообщили о проблеме", "Checkout", "Счета", "Клиенты", "CAC",
+                        "Подтвердили работу", "Сообщили о проблеме", "Checkout", "Счета", "Новые покупатели", "Платящие / повторы", "CAC",
                         "Выручка", "ROAS", "Зрелая 1-я оплата", "2-я оплата", "Триал → оплата",
                       ].map((label) => <th key={label} className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}
                     </tr>
@@ -1037,7 +1044,7 @@ function Analytics() {
                           <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">
                             {campaign.campaign_key}
                           </td>
-                          <td className={`px-4 py-3 ${adminNum}`}>{formatRubles(campaign.spend_rubles)}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{formatRublesNullable(campaign.spend_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.attributed_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{formatRublesNullable(campaign.cost_per_attributed_user_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>
@@ -1056,7 +1063,8 @@ function Analytics() {
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.connection_problem_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.checkout_opened_users}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{campaign.payment_created_users}</td>
-                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{campaign.acquired_users}</td>
+                          <td className={`px-4 py-3 font-medium ${adminNum}`}>{campaign.first_purchase_users}</td>
+                          <td className={`px-4 py-3 ${adminNum}`}>{campaign.paying_users} / {campaign.repeat_payments}</td>
                           <td className={`px-4 py-3 font-medium ${adminNum}`}>{formatRublesNullable(campaign.cac_rubles)}</td>
                           <td className={`px-4 py-3 ${adminNum}`}>{formatRubles(campaign.revenue_rubles)}</td>
                           <td className={`px-4 py-3 font-medium ${adminNum}`}>{formatRoas(campaign.roas)}</td>

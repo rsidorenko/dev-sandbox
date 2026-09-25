@@ -68,39 +68,33 @@ def test_parse_spend_date_rejects_invalid_boundaries():
 
 
 def test_economics_summary_preserves_zero_denominators():
-    summary = _telegram_ads_economics(
-        [
-            {
-                "spend_rubles": 1500.0,
-                "revenue_rubles": 338.0,
-                "attributed_users": 2,
-                "trials_started": 2,
-                "acquired_users": 1,
-            }
-        ]
-    )
-    assert summary == {
+    campaign = {
         "spend_rubles": 1500.0,
         "revenue_rubles": 338.0,
         "attributed_users": 2,
         "trials_started": 2,
         "acquired_users": 1,
-        "cost_per_attributed_user_rubles": 750.0,
-        "cost_per_trial_rubles": 750.0,
-        "cac_rubles": 1500.0,
-        "roas": round(338 / 1500, 4),
+        "first_purchase_users": 2,
+        "paying_users": 2,
+        "repeat_payments": 0,
     }
-    assert _telegram_ads_economics([]) == {
-        "spend_rubles": 0,
-        "revenue_rubles": 0,
-        "attributed_users": 0,
-        "trials_started": 0,
-        "acquired_users": 0,
-        "cost_per_attributed_user_rubles": None,
-        "cost_per_trial_rubles": None,
-        "cac_rubles": None,
-        "roas": None,
-    }
+    summary = _telegram_ads_economics([campaign])
+    assert summary["cac_rubles"] == 750.0
+    assert summary["roas"] == round(338 / 1500, 4)
+    assert summary["spend_complete"] is True
+    assert _telegram_ads_economics([])["spend_rubles"] is None
+    unknown = dict(campaign, spend_rubles=None)
+    summary = _telegram_ads_economics([unknown])
+    assert summary["spend_rubles"] is None
+    assert summary["cac_rubles"] is None
+    assert summary["cost_per_trial_rubles"] is None
+    assert summary["roas"] is None
+    assert summary["missing_spend_campaigns"] == 1
+    partial = _telegram_ads_economics([campaign, unknown])
+    assert partial["spend_rubles"] == 1500.0
+    assert partial["spend_complete"] is False
+    assert partial["cac_rubles"] is None
+    assert partial["roas"] is None
 
 
 def test_telegram_ads_funnel_preserves_all_zero_metrics():
