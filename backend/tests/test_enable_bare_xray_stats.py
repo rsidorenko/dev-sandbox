@@ -200,7 +200,7 @@ def test_targets_unique_names_and_current_hosts() -> None:
     # (158.160.82.113) удалён 2026-08-26 — сюда намеренно НЕ копировался.
     assert hosts["YT"] == "93.77.165.48"
     assert hosts["DE"] == "158.160.188.35"
-    assert hosts["FI"] == "85.208.85.117"
+    assert hosts["FI"] == "82.202.136.240"
     assert hosts["LT"] == "45.91.52.204"
     assert hosts["US"] == "176.109.107.226"
     assert hosts["CDN-LT"] == "89.169.178.45"

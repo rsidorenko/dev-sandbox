@@ -386,7 +386,7 @@ TARGETS: list[RoutingTarget] = [
         "158.160.188.35",  # Yandex (migrated 2026-09-22 from cloud.ru 85.208.87.57), egress Frankfurt
         normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-19 — убрать
     ),
-    RoutingTarget("FI", "85.208.85.117"),  # cloud.ru, egress Helsinki
+    RoutingTarget("FI", "82.202.136.240"),  # cloud.ru (rebuild 2026-09-26 from 85.208.85.117), egress Helsinki
     RoutingTarget(
         "LT",
         "45.91.52.204",  # Delta Ltd, IP swapped 2026-08-23 (Ozon/QRator blocked 45.91.55.234 as LT hosting), egress Lithuania
