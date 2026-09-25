@@ -1064,6 +1064,7 @@ def _is_storefront_renderable(code: str, *, is_callback: bool) -> bool:
                 (
                     CB_BROADCAST_DAYS,
                     CB_BROADCAST_PROMO,
+                    "bp:",
                     CB_PLAN,
                     CB_DEVICES,
                     CB_CONFIRM_PAY,
@@ -1436,7 +1437,7 @@ async def _handle_broadcast_days_claim(
 
 
 async def _render_broadcast_promo_checkout(
-    composition: Slice1Composition, internal_user_id: str, promo: Any
+    composition: Slice1Composition, internal_user_id: str, promo: Any, job_id: str
 ) -> tuple[str, dict[str, Any]]:
     """После бонуса сразу предлагаем оплату тарифа с явной ценой и числом устройств."""
     from app.domain.devices import MAX_DEVICE_COUNT
@@ -1459,12 +1460,28 @@ async def _render_broadcast_promo_checkout(
         f"Устройств: {device_count}. Выберите тариф — сразу подготовим ссылку на оплату.\n"
         "На кнопках указана итоговая цена с учётом доступных скидок."
     )
-    return text, buy_vpn_keyboard(
+    keyboard = buy_vpn_keyboard(
         plan_options_from_plans(plans),
         promo=promo,
         global_discount=await pricing.get_global_discount(),
         payment_device_count=device_count,
     )
+
+    from app.application.broadcast_funnel import payment_callback, record_bonus_event
+
+    for row in keyboard["inline_keyboard"]:
+        for button in row:
+            callback = button.get("callback_data", "")
+            if callback.startswith(CB_DO_PAY):
+                plan_id, devices = callback[len(CB_DO_PAY) :].rsplit(":", 1)
+                button["callback_data"] = payment_callback(job_id, plan_id, int(devices))
+    await record_bonus_event(
+        _get_pool_from_composition(composition),
+        job_id=job_id,
+        internal_user_id=internal_user_id,
+        stage="bonus_claimed",
+    )
+    return text, keyboard
 
 
 async def _handle_broadcast_promo_claim(
@@ -1532,7 +1549,7 @@ async def _handle_broadcast_promo_claim(
         active = await _active_applied_promo(composition, uid)
         if active is None:
             return text_promo_not_found(), back_only_keyboard(CB_MAIN_MENU)
-        return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, active[0])
+        return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, active[0], job_id)
 
     status, _, promo = await _apply_promo_to_user(composition, id_rec.internal_user_id, code, now=now)
     if status in ("not_found", "inactive", "invalid"):
@@ -1543,7 +1560,7 @@ async def _handle_broadcast_promo_claim(
     if status == "ineligible":
         return text_promo_ineligible(), back_only_keyboard(CB_MAIN_MENU)
     # ok
-    return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, promo)
+    return await _render_broadcast_promo_checkout(composition, id_rec.internal_user_id, promo, job_id)
 
 
 # ─── Storefront data helpers ─────────────────────────────────────────
@@ -1751,6 +1768,7 @@ async def _process_yookassa_payment(
     *,
     plan_id: str,
     device_count: int,
+    broadcast_job_id: str | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     import logging
     import os
@@ -1781,6 +1799,32 @@ async def _process_yookassa_payment(
     # R-08: tg-id наружу не отправляем — вебхук исполняет по internal_user_id.
     # Для TG-аккаунтов fallback f"u{uid}" совпадает с прежним derive вебхука.
     payment_metadata["internal_user_id"] = internal_user_id or f"u{uid}"
+    if broadcast_job_id is not None:
+        from app.application.broadcast_funnel import checkout_dedup_key, record_bonus_event
+
+        pool = _get_pool_from_composition(composition)
+        if pool is None or internal_user_id is None:
+            return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_BUY_VPN)
+        eligible = await pool.fetchrow(
+            "SELECT code FROM broadcast_promo_claims WHERE job_id=$1 AND telegram_user_id=$2 AND expires_at > NOW()",
+            broadcast_job_id,
+            uid,
+        )
+        if eligible is None:
+            return _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_BUY_VPN)
+        await record_bonus_event(
+            pool, job_id=broadcast_job_id, internal_user_id=internal_user_id, stage="plan_selected"
+        )
+        await record_interaction(
+            pool,
+            event_name="checkout_opened",
+            surface="telegram",
+            dedup_key=checkout_dedup_key(broadcast_job_id, internal_user_id, plan_id, device_count),
+            telegram_user_id=uid,
+            plan_id=plan_id,
+            device_count=device_count,
+            payment_method="card",
+        )
     promo = None
     promo_code = None
     if internal_user_id is not None:
@@ -1842,6 +1886,15 @@ async def _process_yookassa_payment(
         device_count=device_count,
         payment_method="card",
     )
+
+    if broadcast_job_id is not None and internal_user_id is not None:
+        await record_bonus_event(
+            _get_pool_from_composition(composition),
+            job_id=broadcast_job_id,
+            internal_user_id=internal_user_id,
+            stage="payment_created",
+            payment_id=result.payment_id,
+        )
 
     display_name = plan_display_name(plan_id)
     if discount_kopecks > 0 and resolved.price.winner == WINNER_GLOBAL:
@@ -3023,6 +3076,22 @@ async def _render_storefront_response(
             plan_id = rest
             device_count = DEVICES_DEFAULT
         text, keyboard = await _render_purchase_summary(composition, uid, plan_id, device_count)
+
+    elif code.startswith("bp:"):
+        from app.application.broadcast_funnel import parse_payment_callback
+
+        context = parse_payment_callback(code)
+        if context is None:
+            text, keyboard = _broadcast_bonus_unavailable_text(), back_only_keyboard(CB_BUY_VPN)
+        else:
+            job_id, plan_id, device_count = context
+            text, keyboard = await _process_yookassa_payment(
+                composition,
+                uid,
+                plan_id=plan_id,
+                device_count=device_count,
+                broadcast_job_id=job_id,
+            )
 
     elif code.startswith(CB_DO_PAY):
         rest = code[len(CB_DO_PAY) :]

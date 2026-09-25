@@ -1,5 +1,7 @@
 "use client";
 
+import { BroadcastFunnel } from "@/features/admin/BroadcastFunnel";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { adminApi } from "@/features/admin/api";
 import {
@@ -1017,6 +1019,7 @@ export default function AdminBroadcastPage() {
           </table>
         </div>
       </section>
+      <BroadcastFunnel />
     </div>
   );
 }

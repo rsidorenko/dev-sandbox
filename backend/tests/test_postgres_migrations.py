@@ -150,6 +150,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "103_vpn_quality.sql",
         "104_telegram_ads_snapshots.sql",
         "105_trial_provisioned_at.sql",
+        "106_broadcast_bonus_funnel.sql",
     ]
 
 

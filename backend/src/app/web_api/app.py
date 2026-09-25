@@ -27,6 +27,7 @@ from app.web_api.admin_broadcast import (
     handle_admin_broadcast_status,
     handle_admin_broadcast_test,
 )
+from app.web_api.admin_broadcast_funnel import handle_admin_broadcast_funnel
 from app.web_api.admin_incidents import (
     handle_admin_incident_create,
     handle_admin_incident_update,
@@ -273,6 +274,7 @@ def build_web_api_app(*, pool: asyncpg.Pool) -> Starlette:
         # Агрегированный дашборд статистики (auth в обработчике; GET — без CSRF).
         Route("/api/v1/admin/stats", handle_admin_stats, methods=["GET"]),
         # Ручной дневной расход рекламы: auth + CSRF внутри обработчика.
+        Route("/api/v1/admin/broadcast-funnel", handle_admin_broadcast_funnel, methods=["GET"]),
         Route("/api/v1/admin/telegram-ads/snapshots", handle_admin_get_ad_snapshot, methods=["GET"]),
         Route("/api/v1/admin/telegram-ads/snapshots", handle_admin_import_ad_snapshot, methods=["POST"]),
         Route("/api/v1/admin/telegram-ads/spend", handle_admin_set_telegram_ads_spend, methods=["PUT"]),

@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.application.bootstrap import build_slice1_composition
+from app.application.broadcast_funnel import payment_callback
 from app.application.interfaces import SubscriptionSnapshot
 from app.application.plan_pricing import PlanPricingProvider
 from app.application.telegram_command_rate_limit import InMemoryTelegramCommandRateLimiter
@@ -97,6 +98,12 @@ class _PromoClaimPool:
     def __init__(self, *, claim_row: dict | None = None) -> None:
         self.claim_row = claim_row
         self.claim_attempts = 0
+        self.bonus_events = []
+
+    async def execute(self, sql, *args):
+        if "broadcast_bonus_funnel" in sql:
+            self.bonus_events.append(args)
+        return "INSERT 0 1"
 
     async def fetchrow(self, sql: str, *args):
         if "broadcast_promo_claims" in sql:
@@ -234,7 +241,7 @@ def test_promo_claim_precheck_already_applied(monkeypatch) -> None:
     assert "применён" in text
     # pre-check сработал → apply-ядро НЕ вызывалось
     assert apply_calls == []
-    assert any(b.get("callback_data") == "do_pay:1m:5" for b in _buttons(_kb))
+    assert any(b.get("callback_data") == payment_callback(_JOB_ID, "1m", 5) for b in _buttons(_kb))
 
 
 def test_promo_claim_apply_success(monkeypatch) -> None:
@@ -258,7 +265,7 @@ def test_promo_claim_apply_success(monkeypatch) -> None:
     assert "✅ Промокод SUMMER25 применён!" in text
     assert "Скидка: 15% от стоимости." in text
     assert "Устройств: 5" in text
-    button = next(b for b in _buttons(_kb) if b.get("callback_data") == "do_pay:1m:5")
+    button = next(b for b in _buttons(_kb) if b.get("callback_data") == payment_callback(_JOB_ID, "1m", 5))
     assert "212 ₽ вместо 249" in button["text"]
     assert any(b.get("callback_data") == "buy_vpn" for b in _buttons(_kb))
 
@@ -398,7 +405,7 @@ def test_repeated_claim_revalidates_promo_without_extending_ttl(changes):
             await c.promo_code_repo.increment_redemptions(_CODE, 1)
         text, keyboard = await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
         assert "больше неактивен" in text
-        assert not any(b.get("callback_data", "").startswith("do_pay:") for b in _buttons(keyboard))
+        assert not any(b.get("callback_data", "").startswith(("do_pay:", "bp:")) for b in _buttons(keyboard))
         assert await c.promo_applied_repo.get(iid) == before
 
     _run(main())
@@ -445,7 +452,9 @@ def test_claim_to_payment_pipeline_preserves_devices_price_and_promo(monkeypatch
         assert repeated.reply_markup == claimed.reply_markup
         assert await c.promo_applied_repo.get(iid) == applied
         assert payments == []
-        button = next(b for b in _buttons(claimed.reply_markup) if b.get("callback_data") == "do_pay:1m:7")
+        button = next(
+            b for b in _buttons(claimed.reply_markup) if b.get("callback_data") == payment_callback(_JOB_ID, "1m", 7)
+        )
         # 300 + 2 × 80 = 460; скидка 25% либо глобальные 50%.
         expected = 230 if global_wins else 345
         assert f"{expected} ₽ вместо 460" in button["text"]
@@ -458,5 +467,16 @@ def test_claim_to_payment_pipeline_preserves_devices_price_and_promo(monkeypatch
         assert payment["metadata"]["discount_kopecks"] == str((460 - expected) * 100)
         assert payment["metadata"].get("promo_code") == (None if global_wins else _CODE)
         assert await c.promo_redemption_repo.count_for_user(_CODE, iid) == 0
+        events = c.identity._pool.bonus_events
+        assert [event[2] for event in events] == ["bonus_claimed", "bonus_claimed", "plan_selected", "payment_created"]
+        assert events[-1][4] == "test-broadcast-payment"
+        # Обычная покупка не наследует последнюю рассылку.
+        await click("do_pay:1m:7", 5)
+        assert len(events) == 4
+        # После истечения TTL/отсутствия получателя повторная бонусная кнопка не создаёт счёт.
+        c.identity._pool.claim_row = None
+        await click(button["callback_data"], 6)
+        assert len(payments) == 2
+        assert len(events) == 4
 
     _run(main())
