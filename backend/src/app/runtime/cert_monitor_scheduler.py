@@ -146,7 +146,7 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
     CertTarget(
         name="entry-fi-camo",
         mode="ssh-file",
-        host="82.202.136.240",
+        host="176.108.255.249",
         cert_paths=(f"{_CERTBOT_LIVE}/clr.mediagenering.online/fullchain.pem",),
     ),
     CertTarget(

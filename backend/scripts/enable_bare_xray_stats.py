@@ -77,7 +77,9 @@ class StatsTarget(RoutingTarget):
 # только текущие хосты, проверенные по cert-монитору и памяти флота.
 TARGETS: list[StatsTarget] = [
     StatsTarget("DE", "158.160.188.35"),  # Yandex (migrated 2026-09-22), cascade-entry, egress Frankfurt
-    StatsTarget("FI", "82.202.136.240"),  # cloud.ru (rebuild 2026-09-26), cascade-entry, egress Helsinki
+    StatsTarget(
+        "FI", "176.108.255.249"
+    ),  # cloud.ru (subnet swap 2026-09-26: 82.202.x DPI), cascade-entry, egress Helsinki
     StatsTarget("LT", "45.91.52.204", key="D:/tmp/romtan_key.pem"),  # Delta, cascade-entry
     StatsTarget("US", "176.109.107.226", key="D:/TelegramBotVPN/.ssh/yandex-relay"),
     StatsTarget(
