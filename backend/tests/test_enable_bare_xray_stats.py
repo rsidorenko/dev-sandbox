@@ -205,12 +205,13 @@ def test_targets_unique_names_and_current_hosts() -> None:
     assert hosts["US"] == "176.109.107.226"
     assert hosts["CDN-LT"] == "89.169.178.45"
     assert hosts["CDN-DE"] == "93.77.160.88"
+    assert hosts["CDN-SL"] == "176.108.240.28"  # Selectel-нога id=35 (2026-09-27)
     assert "158.160.82.113" not in hosts.values()
 
 
 def test_targets_cdn_legs_are_explicit_only() -> None:
     explicit = {t.name for t in TARGETS if t.explicit_only}
-    assert explicit == {"CDN-LT", "CDN-DE"}
+    assert explicit == {"CDN-LT", "CDN-DE", "CDN-SL"}
     # у каждого таргета задан путь к ключу и конфиг по каноническому пути
     for t in TARGETS:
         assert t.key, f"{t.name} without ssh key"

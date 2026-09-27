@@ -97,6 +97,14 @@ TARGETS: list[StatsTarget] = [
         key="D:/tmp/cdn_de_new/key.pem",
         explicit_only=True,
     ),
+    StatsTarget(
+        # Selectel CDN (CDNVideo) origin — «LTE Финляндия» (vpn_servers id=35), egress
+        # Helsinki. Default cloudru-ключ проверен paramiko 2026-09-28. explicit_only —
+        # как все CDN-ноги: только по явному --entry CDN-SL.
+        "CDN-SL",
+        "176.108.240.28",
+        explicit_only=True,
+    ),
 ]
 
 
