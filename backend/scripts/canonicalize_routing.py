@@ -460,13 +460,19 @@ TARGETS: list[RoutingTarget] = [
     ),
     RoutingTarget(
         "YT",
-        "158.160.82.113",  # Yandex, YouTube-ad-free, egress Albania
-        key="C:/Users/Roman/.ssh/yt_new_key.pem",
+        # Yandex, YouTube-ad-free, egress Albania. Migrated 2026-08-26 to 93.77.165.48
+        # (old 158.160.82.113 dead); yt_mig key = OpenSSH format, paramiko-friendly
+        # (the old yt_new_key.pem RSA-PEM is NOT parsed by paramiko 5.x).
+        "93.77.165.48",
+        key="D:/tmp/yt_mig/new_key.pem",
     ),
     RoutingTarget(
         "CDN-LT",
-        "158.160.40.11",  # CDN-bypass origin, egress Lithuania-exit
-        key="D:/tmp/lt_origin_key",
+        # CDN-bypass origin (89.169.178.45 since 2026-08-29; old 158.160.40.11 dead),
+        # egress Lithuania-exit. ⚠️ SSH :22 filtered from the operator box (443 is open) —
+        # direct runs time out, jump via LT/main like CDN-DE. Key = mig_lt2 (untested here).
+        "89.169.178.45",
+        key="D:/tmp/mig_lt2/new_key.pem",
     ),
     RoutingTarget(
         "CDN-DE",
