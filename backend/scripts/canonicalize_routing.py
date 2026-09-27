@@ -17,6 +17,7 @@ Canonical order:
     [api]                                  # only if an api inbound exists
     geoip:private -> direct
     FOREIGN -> egress :  supercell, tiktok, ggsel, griffiny
+    <target extra_egress_domains/ips>      # per-target override, e.g. Telegram on cloud.ru boxes
     RU     -> direct :  banks, vk, yandex, ru_services, max, max_ipcheck
     <target extra_direct_domains>          # per-target override, e.g. LT YouTube
     regexp:.*\\.ru$           -> direct
@@ -26,9 +27,11 @@ Canonical order:
 
 Per-target knobs (RoutingTarget): `extra_direct_domains` appends one extra
 ->direct rule just before the catch-alls (LT routes YouTube via its own RU leg —
-faster for RU users than the Vilnius egress), `normalize_log` forces
-log={loglevel: warning, access: none} (access logging is a temporary debug
-artifact, not a fleet default).
+faster for RU users than the Vilnius egress); `extra_egress_domains` /
+`extra_egress_ips` append ->egress rules after the FOREIGN families (cloud.ru
+boxes cannot reach Telegram directly — TG rides the foreign relay there, see
+TG_EGRESS_DOMAINS); `normalize_log` forces log={loglevel: warning, access:
+none} (access logging is a temporary debug artifact, not a fleet default).
 
 `domain:X` in xray matches X and all subdomains, so `domain:vk.com` covers login/id/oauth/
 api/static/m.vk.com (the whole auth path). BANK_DOMAINS is owned by cascade_apply_banks
@@ -40,8 +43,8 @@ A geoip.dat pre-flight check warns + aborts if the box lacks geodata (canonical 
 geoip:private / geoip:ru — a pass-through server freshly converted will not have it). Then
 Проверка staged-конфига -> atomic replace -> restart -> verify; rollback под тем же lock.
 
-Targets (7 RU split-routing servers, verified 2026-08-10): 4 cascade-entries DE/FI/LT/US,
-the YouTube-ad-free entry YT, and the two CDN-bypass origins CDN-LT / CDN-DE. All bare_xray.
+Targets (8 RU split-routing servers): 4 cascade-entries DE/FI/LT/US, the YouTube-ad-free
+entry YT, and the three CDN-bypass origins CDN-LT / CDN-DE / CDN-SL (Selectel). All bare_xray.
 
 Usage:
     python -m scripts.canonicalize_routing               # apply on all targets
@@ -210,6 +213,34 @@ YT_DIRECT_DOMAINS: list[str] = [
 
 YANDEX_DOMAINS: list[str] = ["domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"]
 
+# Telegram -> foreign egress on cloud.ru boxes ONLY (FI entry + CDN-SL origin). cloud.ru blocks
+# TG:443 from its own IP space, so the RU leg cannot reach Telegram — without these rules TG
+# falls through geoip:ru-unmatched into the egress default anyway, but the explicit rules keep it
+# deterministic and survive canonical rebuilds. NOT a fleet family: on non-cloud.ru entries
+# Telegram rides the default egress and needs no rule. Domain list + the official TG CIDR ranges
+# (DCs are in NL/SE — geoip:ru never matches them, the ip-rule is what actually steers the apps).
+TG_EGRESS_DOMAINS: list[str] = [
+    "domain:telegram.org",
+    "domain:t.me",
+    "domain:telegram.me",
+    "domain:tg.dev",
+    "domain:tdesktop.com",
+    "domain:telegra.ph",
+    "domain:telesco.pe",
+    "domain:cdn-telegram.org",
+    "domain:telegram-cdn.com",
+    "domain:corefw.org",
+]
+TG_EGRESS_IPS: list[str] = [
+    "149.154.160.0/20",
+    "91.108.4.0/22",
+    "91.108.8.0/21",
+    "91.108.16.0/21",
+    "91.108.56.0/22",
+    "91.105.192.0/23",
+    "95.161.64.0/20",
+]
+
 # Russian services on non-.ru TLDs (the .ru ones are already caught by regexp/geoip below);
 # listing them makes egress deterministic regardless of DNS.
 RU_SERVICES_DOMAINS: list[str] = [
@@ -302,18 +333,25 @@ def build_canonical_rules(
     has_api: bool,
     trailing_rules: list[dict] | None = None,
     extra_direct_domains: list[str] | None = None,
+    extra_egress_domains: list[str] | None = None,
+    extra_egress_ips: list[str] | None = None,
 ) -> list[dict]:
     """Pure builder: returns the canonical routing.rules list for one server.
 
     Deterministic from the module constants + the per-server egress_tag / has_api / trailing
-    inbound-tagged rules / optional per-target extra ->direct domains. Does not touch the
-    filesystem or the network.
+    inbound-tagged rules / optional per-target extra ->direct and ->egress domains. Does not
+    touch the filesystem or the network.
     """
     rules: list[dict] = []
     if has_api:
         rules.append({"type": "field", "inboundTag": ["api"], "outboundTag": "api"})
     rules.append({"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"})
     rules.extend({"type": "field", "domain": list(fam), "outboundTag": egress_tag} for fam in _FOREIGN_FAMILIES)
+    if extra_egress_domains:
+        # right after the FOREIGN families: same leg, per-target scope (cloud.ru TG)
+        rules.append({"type": "field", "domain": list(extra_egress_domains), "outboundTag": egress_tag})
+    if extra_egress_ips:
+        rules.append({"type": "field", "ip": list(extra_egress_ips), "outboundTag": egress_tag})
     rules.extend({"type": "field", "domain": list(fam), "outboundTag": "direct"} for fam in _RU_FAMILIES)
     rules.append({"type": "field", "domain": ["regexp:.*\\.ru$"], "outboundTag": "direct"})
     rules.append({"type": "field", "domain": ["domain:ru", "domain:su", "domain:xn--p1ai"], "outboundTag": "direct"})
@@ -326,13 +364,19 @@ def build_canonical_rules(
     return rules
 
 
-def rebuild_config_routing(config: dict, extra_direct_domains: list[str] | None = None) -> dict:
+def rebuild_config_routing(
+    config: dict,
+    extra_direct_domains: list[str] | None = None,
+    extra_egress_domains: list[str] | None = None,
+    extra_egress_ips: list[str] | None = None,
+) -> dict:
     """Return a deep copy of `config` with routing.rules rebuilt to canonical order.
 
     Auto-detects from the live config: foreign egress tag, whether an `api` inbound exists,
     and any inbound-tagged rules to preserve (e.g. per-inbound foreign defaults / splits).
     `extra_direct_domains` appends one per-target ->direct rule before the catch-alls
-    (e.g. LT YouTube override). Does not mutate the input.
+    (e.g. LT YouTube override); `extra_egress_domains`/`extra_egress_ips` append per-target
+    ->egress rules after the FOREIGN families (e.g. cloud.ru Telegram). Does not mutate the input.
     """
     cfg = copy.deepcopy(config)
     egress_tag = detect_egress_tag(cfg)
@@ -341,7 +385,12 @@ def rebuild_config_routing(config: dict, extra_direct_domains: list[str] | None 
         r for r in cfg.get("routing", {}).get("rules", []) if r.get("inboundTag") and r.get("inboundTag") != ["api"]
     ]
     cfg.setdefault("routing", {})["rules"] = build_canonical_rules(
-        egress_tag=egress_tag, has_api=has_api, trailing_rules=trailing, extra_direct_domains=extra_direct_domains
+        egress_tag=egress_tag,
+        has_api=has_api,
+        trailing_rules=trailing,
+        extra_direct_domains=extra_direct_domains,
+        extra_egress_domains=extra_egress_domains,
+        extra_egress_ips=extra_egress_ips,
     )
     cfg["routing"]["domainStrategy"] = "IPIfNonMatch"
     return cfg
@@ -377,6 +426,8 @@ class RoutingTarget:
     config: str = CONFIG_PATH
     # per-target knobs, see module docstring
     extra_direct_domains: list[str] | None = None
+    extra_egress_domains: list[str] | None = None
+    extra_egress_ips: list[str] | None = None
     normalize_log: bool = False
 
 
@@ -387,8 +438,14 @@ TARGETS: list[RoutingTarget] = [
         normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-19 — убрать
     ),
     RoutingTarget(
-        "FI", "176.108.244.24"
-    ),  # cloud.ru (zone swap 2026-09-26: 82.202.x/176.108.255.x DPI-mangled), egress Helsinki
+        # cloud.ru (zone swap 2026-09-26: 82.202.x/176.108.255.x DPI-mangled), egress Helsinki.
+        # TG -> egress: правила жили в live-конфиге после rebuild 2026-09-26 — без ручки
+        # канонический прогон их бы стёр (cloud.ru не достукивается до TG:443).
+        "FI",
+        "176.108.244.24",
+        extra_egress_domains=TG_EGRESS_DOMAINS,
+        extra_egress_ips=TG_EGRESS_IPS,
+    ),
     RoutingTarget(
         "LT",
         "45.91.52.204",  # Delta Ltd, IP swapped 2026-08-23 (Ozon/QRator blocked 45.91.55.234 as LT hosting), egress Lithuania
@@ -417,6 +474,20 @@ TARGETS: list[RoutingTarget] = [
         # SSH only from LT/main (SG allowlist) -> run via LT jump (D:/tmp/cdn_de_new/jump.py pattern).
         "93.77.160.88",
         key="D:/tmp/cdn_de_new/key.pem",
+    ),
+    RoutingTarget(
+        # Selectel CDN (CDNVideo) origin — whitelist-нога «LTE Финляндия» (vpn_servers id=35),
+        # мигрирована 2026-09-27 с MTS CDN (89.169.90.0/24 заблэкхолена Tele2/Билайн).
+        # Client -> cdn.techno-channel.ru (edge 151.236.119.94/.157) -> nginx :443 -> xray :8003,
+        # egress Helsinki-exit. ⚠️ edge синтетически отвечает 204 на ЛЮБОЙ OPTIONS (не
+        # отключается настройками) => клиентский uplink этой ноги = POST (link_template id=35,
+        # uplinkHTTPMethod=POST), padding-заголовок X-Pad (НЕ X-Cache). canonicalize правит
+        # только routing: inbound xhttpSettings и link_template не трогает.
+        # SSH: romtan + default cloudru key (бот-ключ лежит в authorized_keys). TG -> egress как на FI.
+        "CDN-SL",
+        "176.108.240.28",
+        extra_egress_domains=TG_EGRESS_DOMAINS,
+        extra_egress_ips=TG_EGRESS_IPS,
     ),
 ]
 
@@ -472,7 +543,12 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
             return False
 
         def _rebuilt() -> dict:
-            out = rebuild_config_routing(config, extra_direct_domains=target.extra_direct_domains)
+            out = rebuild_config_routing(
+                config,
+                extra_direct_domains=target.extra_direct_domains,
+                extra_egress_domains=target.extra_egress_domains,
+                extra_egress_ips=target.extra_egress_ips,
+            )
             if target.normalize_log:
                 loglevel = (out.get("log") or {}).get("loglevel", "warning")
                 out["log"] = {"loglevel": loglevel, "access": "none"}
@@ -480,12 +556,12 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
 
         try:
             rebuilt = _rebuilt()
+            egress = detect_egress_tag(config)
         except ValueError as exc:
             print(f"[{target.name}] cannot canonicalize: {exc}", file=sys.stderr)
             return False
 
         if dry_run:
-            egress = detect_egress_tag(config)
             has_api = any(ib.get("tag") == "api" for ib in config.get("inbounds", []))
             same = (
                 config.get("routing", {}).get("rules") == rebuilt["routing"]["rules"]
@@ -526,6 +602,8 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
         vk = _rule_with("domain:vk.com")
         mx = _rule_with("domain:max.ru")
         yt = _rule_with("domain:googlevideo.com")
+        tg = _rule_with("domain:telegram.org")
+        tg_ip = next((r for r in rules if "149.154.160.0/20" in (r.get("ip") or [])), {})
         vk_ok = (
             active.strip() == "active"
             and vk.get("outboundTag") == "direct"
@@ -533,13 +611,16 @@ def apply_to_target(target: RoutingTarget, *, dry_run: bool) -> bool:
         )
         max_ok = mx.get("outboundTag") == "direct" and "domain:okcdn.ru" in (mx.get("domain") or [])
         yt_ok = (not target.extra_direct_domains) or yt.get("outboundTag") == "direct"
+        tg_ok = (not target.extra_egress_domains) or (
+            tg.get("outboundTag") == egress and tg_ip.get("outboundTag") == egress
+        )
         log_ok = (not target.normalize_log) or rebuilt.get("log", {}).get("access") == "none"
-        ok = vk_ok and max_ok and yt_ok and log_ok
+        ok = vk_ok and max_ok and yt_ok and tg_ok and log_ok
         print(
             f"[{target.name}] {'OK' if ok else 'VERIFY-WARN'}: xray={active.strip()} "
             f"rules={len(rules)} persisted={persisted} "
             f"VK->direct dom={len(vk.get('domain') or [])} "
-            f"MAX->direct={max_ok} extra_direct={yt_ok} log=none:{log_ok}"
+            f"MAX->direct={max_ok} extra_direct={yt_ok} TG->egress={tg_ok} log=none:{log_ok}"
         )
         return ok
     finally:

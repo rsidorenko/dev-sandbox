@@ -19,6 +19,8 @@ from scripts.canonicalize_routing import (
     MAX_IPCHECK_DOMAINS,
     RU_SERVICES_DOMAINS,
     SUPERCELL_DOMAINS,
+    TG_EGRESS_DOMAINS,
+    TG_EGRESS_IPS,
     TIKTOK_DOMAINS,
     VK_DOMAINS,
     YANDEX_DOMAINS,
@@ -75,6 +77,8 @@ def test_bank_domains_match_repo_authority():
         (MAX_IPCHECK_DOMAINS, 6, "domain:api.ipify.org"),
         (YANDEX_DOMAINS, 3, "domain:yandex.com"),
         (RU_SERVICES_DOMAINS, 30, "domain:ozon.com"),
+        (TG_EGRESS_DOMAINS, 10, "domain:telegram.org"),
+        (TG_EGRESS_DOMAINS, 10, "domain:t.me"),
     ],
 )
 def test_family_nonempty_with_marker(fam, min_count, marker):
@@ -82,6 +86,14 @@ def test_family_nonempty_with_marker(fam, min_count, marker):
     assert all(d.startswith("domain:") for d in fam)
     assert marker in fam
     assert len(fam) == len(set(fam))  # no dupes within a family
+
+
+def test_tg_egress_ips_are_cidrs():
+    """TG DC ranges (NL/SE) — geoip:ru never matches them, the ip-rule steers the apps."""
+    assert len(TG_EGRESS_IPS) >= 7
+    assert all("/" in ip for ip in TG_EGRESS_IPS)
+    assert "149.154.160.0/20" in TG_EGRESS_IPS and "91.108.4.0/22" in TG_EGRESS_IPS
+    assert len(TG_EGRESS_IPS) == len(set(TG_EGRESS_IPS))
 
 
 def test_no_domain_appears_in_two_families():
@@ -97,6 +109,7 @@ def test_no_domain_appears_in_two_families():
         + MAX_IPCHECK_DOMAINS
         + YANDEX_DOMAINS
         + RU_SERVICES_DOMAINS
+        + TG_EGRESS_DOMAINS
     )
     assert len(all_domains) == len(set(all_domains))
 
@@ -173,6 +186,51 @@ def test_rebuild_passthrough_extra_direct_domains():
     # without the knob the YouTube override must NOT appear anywhere
     plain = rebuild_config_routing(_cfg("to-exit", has_api=True))
     assert not any("domain:googlevideo.com" in (r.get("domain") or []) for r in plain["routing"]["rules"])
+
+
+def test_extra_egress_rules_land_after_foreign_families():
+    """cloud.ru TG: domain + ip rules ride the egress leg, placed right after FOREIGN families."""
+    rules = build_canonical_rules(
+        egress_tag="to-exit",
+        has_api=False,
+        extra_egress_domains=TG_EGRESS_DOMAINS,
+        extra_egress_ips=TG_EGRESS_IPS,
+    )
+    assert rules[5] == {"type": "field", "domain": list(TG_EGRESS_DOMAINS), "outboundTag": "to-exit"}
+    assert rules[6] == {"type": "field", "ip": list(TG_EGRESS_IPS), "outboundTag": "to-exit"}
+    # and the first RU ->direct family still follows them
+    assert rules[7]["outboundTag"] == "direct"
+
+
+def test_rebuild_passthrough_extra_egress():
+    out = rebuild_config_routing(
+        _cfg("to-exit", has_api=True),
+        extra_egress_domains=TG_EGRESS_DOMAINS,
+        extra_egress_ips=TG_EGRESS_IPS,
+    )
+    tg = next(r for r in out["routing"]["rules"] if "domain:telegram.org" in (r.get("domain") or []))
+    tg_ip = next(r for r in out["routing"]["rules"] if "149.154.160.0/20" in (r.get("ip") or []))
+    assert tg["outboundTag"] == "to-exit" and tg_ip["outboundTag"] == "to-exit"
+    # without the knobs Telegram must NOT appear anywhere (not a fleet family)
+    plain = rebuild_config_routing(_cfg("to-exit", has_api=True))
+    assert not any("domain:telegram.org" in (r.get("domain") or []) for r in plain["routing"]["rules"])
+
+
+def test_targets_registry_selectel_and_tg_knobs():
+    """Registry sanity (no network, no filesystem): CDN-SL present with the Selectel origin;
+    cloud.ru boxes FI + CDN-SL carry the TG->egress knobs; names unique."""
+    from scripts.canonicalize_routing import DEFAULT_SSH_KEY, TARGETS
+
+    names = [t.name for t in TARGETS]
+    assert len(names) == len(set(names))
+    assert "CDN-SL" in names and "FI" in names
+    sl = next(t for t in TARGETS if t.name == "CDN-SL")
+    fi = next(t for t in TARGETS if t.name == "FI")
+    assert sl.host == "176.108.240.28"  # Selectel CDN origin (vpn_servers id=35)
+    assert sl.key == DEFAULT_SSH_KEY and sl.user == "romtan"
+    for t in (fi, sl):
+        assert t.extra_egress_domains is TG_EGRESS_DOMAINS
+        assert t.extra_egress_ips is TG_EGRESS_IPS
 
 
 def test_build_is_idempotent_and_pure():
