@@ -26,6 +26,7 @@ from app.bot_transport.storefront_ui import (
     CB_PLAN,
     CB_PROMOCODE,
     CB_REFERRAL,
+    CB_REISSUE_KEYS,
     CB_ROUTER,
     CB_SETTINGS,
     CB_TRIAL,
@@ -392,6 +393,7 @@ def test_subscription_screens_back_returns_to_my_subscription() -> None:
     keys_buttons = [b.get("callback_data") for row in my_keys_menu_keyboard(())["inline_keyboard"] for b in row]
     settings_buttons = [b.get("callback_data") for row in settings_keyboard(True)["inline_keyboard"] for b in row]
     assert keys_buttons[-1] == CB_MY_SUB
+    assert CB_REISSUE_KEYS in keys_buttons
     assert settings_buttons[-1] == CB_MY_SUB
 
 

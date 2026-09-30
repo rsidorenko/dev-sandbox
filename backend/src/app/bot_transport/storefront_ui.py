@@ -613,6 +613,7 @@ def my_keys_menu_keyboard(servers: tuple[VlessServerConfig, ...]) -> dict[str, A
             server_row = []
     if server_row:
         rows.append(server_row)
+    rows.append([{"text": "🔄 Перевыпустить ключи", "callback_data": CB_REISSUE_KEYS}])
     # Назад ведёт в «Моя подписку» (контекстный возврат: единственный путь сюда — из подменю).
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MY_SUB}])
     return _inline_kb(rows)
