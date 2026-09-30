@@ -16,26 +16,18 @@ export class LoginPage {
   }
 
   linkInput(): Locator {
-    return this.page.getByLabel(/Ссылка или токен/i);
+    return this.page.getByLabel(/^Ссылка подписки$/i);
   }
 
   loginButton(): Locator {
-    return this.page.getByRole("button", { name: "Войти", exact: true });
-  }
-
-  emailTabButton(): Locator {
-    return this.page.getByRole("button", { name: "Получить на почту" });
-  }
-
-  emailInput(): Locator {
-    return this.page.getByLabel(/^Email$/);
+    return this.page.getByRole("button", { name: "Продолжить", exact: true });
   }
 
   sendLinkButton(): Locator {
-    return this.page.getByRole("button", { name: "Получить ссылку" });
+    return this.page.getByRole("button", { name: "Получить ссылку подписки" });
   }
 
   sentHint(): Locator {
-    return this.page.getByText("Проверьте почту");
+    return this.page.getByLabel("Ваша ссылка");
   }
 }

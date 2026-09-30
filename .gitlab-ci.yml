@@ -148,7 +148,7 @@ backend:postgres-smoke:
       tests/test_run_postgres_mvp_smoke.py
       tests/test_run_slice1_retention_dry_run.py
       --junitxml="$REPORT_DIR/backend-smoke-helper-regression.xml"
-    - python -m pytest -q tests/test_key_rotation.py tests/test_balance_recovery.py tests/test_web_api_payment_balance.py tests/test_fulfillment_replay_postgres.py
+    - PENDING_LINK_TEST_DSN="$DATABASE_URL" python -m pytest -q tests/test_key_rotation.py tests/test_balance_recovery.py tests/test_web_api_payment_balance.py tests/test_fulfillment_replay_postgres.py tests/test_pending_web_links.py
     - >-
       set -o pipefail;
       python scripts/validate_release_candidate.py 2>&1

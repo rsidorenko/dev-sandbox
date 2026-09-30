@@ -3,23 +3,22 @@ import { mockApi } from "./fixtures";
 import { CheckoutPage } from "./pom/CheckoutPage";
 
 test.describe("Checkout (/payment/[planId])", () => {
-  test("unauthenticated visitor sees the AuthGate (email link request)", async ({ page }) => {
+  test("вход по ссылке перед оплатой", async ({ page }) => {
     await mockApi(page, { profile: "unauth", linkRequest: "ok" });
     const checkout = new CheckoutPage(page);
     await checkout.gotoDirect("1m");
-    await expect(checkout.gateEmailInput()).toBeVisible();
+    await expect(checkout.gateLinkInput()).toBeVisible();
     await expect(checkout.gateSubmitButton()).toBeVisible();
     await expect(checkout.botGateLink()).toHaveAttribute(
       "href",
-      /^https:\/\/t\.me\/.+bot\?start=1m$/,
+      /^https:\/\/t\.me\/.+bot$/,
     );
   });
 
-  test("AuthGate sends the link request and shows the sent state", async ({ page }) => {
+  test("форма выдаёт ссылку на экране", async ({ page }) => {
     await mockApi(page, { profile: "unauth", linkRequest: "ok" });
     const checkout = new CheckoutPage(page);
     await checkout.gotoDirect("1m");
-    await checkout.gateEmailInput().fill("user@example.com");
     await checkout.gateSubmitButton().click();
     await expect(checkout.gateSentHint()).toBeVisible();
   });
@@ -51,6 +50,8 @@ test.describe("Checkout (/payment/[planId])", () => {
     );
     const checkout = new CheckoutPage(page);
     await checkout.goto("1m");
+    await expect(checkout.payButton()).toBeDisabled();
+    await page.getByRole("checkbox").check();
     await checkout.payButton().click();
     await expect(page).toHaveURL("https://pay.example/order/123");
   });
@@ -59,6 +60,8 @@ test.describe("Checkout (/payment/[planId])", () => {
     await mockApi(page, { profile: "auth", paymentCreate: "payment_unavailable" });
     const checkout = new CheckoutPage(page);
     await checkout.goto("1m");
+    await expect(checkout.payButton()).toBeDisabled();
+    await page.getByRole("checkbox").check();
     await checkout.payButton().click();
     await expect(page.getByText("Оплата временно недоступна")).toBeVisible();
   });

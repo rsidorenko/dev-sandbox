@@ -70,7 +70,7 @@ export function makeProfile(opts: {
 
 type ProfileKind = "auth" | "unauth" | "bad_token" | "trial_used" | "active_sub";
 type PaymentKind = "payment_url" | "payment_unavailable" | "unauthorized";
-type LinkRequestKind = "ok" | "disposable" | "rate_limited" | "not_configured";
+type LinkRequestKind = "ok" | "rate_limited";
 
 export type MockOptions = {
   profile?: ProfileKind;
@@ -136,25 +136,13 @@ function respondPaymentCreate(route: Route, kind: PaymentKind) {
 }
 
 function respondLinkRequest(route: Route, kind: LinkRequestKind) {
-  if (kind === "disposable") {
-    return route.fulfill({
-      status: 422,
-      json: { ok: false, error: "disposable_email" },
-    });
-  }
   if (kind === "rate_limited") {
     return route.fulfill({
       status: 429,
       json: { ok: false, error: "rate_limited" },
     });
   }
-  if (kind === "not_configured") {
-    return route.fulfill({
-      status: 503,
-      json: { ok: false, error: "email_not_configured" },
-    });
-  }
-  return route.fulfill({ status: 200, json: { ok: true, sent: true } });
+  return route.fulfill({ status: 200, json: { ok: true, subscription_url: `https://bravada-connect.ru/sub/${E2E_TOKEN}`, expires_at: "2026-10-02T12:00:00Z" } });
 }
 
 /** Зарегистрировать перехват API с заданными ответами. */
@@ -163,6 +151,13 @@ export async function mockApi(page: Page, opts: MockOptions = {}) {
     const url = route.request().url();
     const method = route.request().method();
 
+    if (url.includes("/api/v1/plans") && method === "GET") {
+      return route.fulfill({json:{ok:true,plans:[
+        ["1d",1,12],["7d",7,99],["14d",14,169],["1m",30,249],
+        ["3m",90,699],["6m",180,1259],["365d",365,2199]
+      ].map(([plan_id,duration_days,base_rubles])=>({plan_id,duration_days,base_rubles})),
+      global_discount:null,custom_day_price_rubles:15,extra_device_price_rubles:80,devices:{base:5,max:20}}});
+    }
     if (url.includes("/api/v1/user/profile") && method === "GET") {
       return respondProfile(route, opts.profile ?? "unauth");
     }

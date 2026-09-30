@@ -341,15 +341,42 @@ async def test_http_handler_accepts_pending_and_replay_resumes_without_charge(ac
         base_url="http://test",
         headers={"Authorization": f"Bearer {token}", "X-Idempotency-Key": "http-pending"},
     ) as client:
-        first = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
+        first = await client.post(
+            "/api/v1/payment/balance",
+            json={
+                "plan_id": "1m",
+                "device_count": 5,
+                "offer_accepted": True,
+                "offer_version": "2026-09-30",
+                "expected_amount_kopecks": 24900,
+            },
+        )
         assert first.status_code == 202 and first.json()["ok"] is True
         assert first.json()["status"] == "provisioning"
         assert "Повторно платить не нужно" in first.json()["message"]
-        repeat = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
+        repeat = await client.post(
+            "/api/v1/payment/balance",
+            json={
+                "plan_id": "1m",
+                "device_count": 5,
+                "offer_accepted": True,
+                "offer_version": "2026-09-30",
+                "expected_amount_kopecks": 24900,
+            },
+        )
         assert repeat.status_code == 202 and repeat.json()["amount_kopecks"] == 0
         app.state.vless_provider = StubVlessProvider()
         await pool.execute("UPDATE balance_access_jobs SET next_attempt_at=NOW() WHERE internal_user_id=$1", uid)
-        resumed = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5})
+        resumed = await client.post(
+            "/api/v1/payment/balance",
+            json={
+                "plan_id": "1m",
+                "device_count": 5,
+                "offer_accepted": True,
+                "offer_version": "2026-09-30",
+                "expected_amount_kopecks": 24900,
+            },
+        )
         assert resumed.status_code == 200 and resumed.json()["status"] == "already_completed"
     assert await pool.fetchval("SELECT balance_kopecks FROM referral_balances WHERE internal_user_id=$1", uid) == 75100
     assert await pool.fetchval("SELECT count(*) FROM referral_transactions WHERE internal_user_id=$1", uid) == 1

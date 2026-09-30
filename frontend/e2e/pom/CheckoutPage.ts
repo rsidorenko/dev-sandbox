@@ -50,16 +50,16 @@ export class CheckoutPage {
     return this.page.getByRole("button", { name: /Оплатить криптовалютой/ });
   }
 
-  gateEmailInput(): Locator {
-    return this.page.getByPlaceholder("email@example.com");
+  gateLinkInput(): Locator {
+    return this.page.getByLabel("Ссылка подписки", { exact: true });
   }
 
   gateSubmitButton(): Locator {
-    return this.page.getByRole("button", { name: "Получить ссылку" });
+    return this.page.getByRole("button", { name: "Получить ссылку подписки" });
   }
 
   gateSentHint(): Locator {
-    return this.page.getByText("Проверьте почту");
+    return this.page.getByLabel("Ваша ссылка");
   }
 
   botGateLink(): Locator {

@@ -18,7 +18,7 @@ test.describe("Auth (link-auth)", () => {
     await login.goto("/dashboard");
     await login.linkInput().fill(LoginPage.validLink());
     await login.loginButton().click();
-    await expect(page.getByText(/недействительна или отозвана/)).toBeVisible();
+    await expect(page.getByText(/недействительна, отозвана/)).toBeVisible();
     await expect(page).toHaveURL(/\/login/);
   });
 
@@ -42,24 +42,20 @@ test.describe("Auth (link-auth)", () => {
     await expect(page.getByText("Ссылка недействительна")).toBeVisible();
   });
 
-  test("email link request: success state", async ({ page }) => {
+  test("выдача ссылки на экране", async ({ page }) => {
     await mockApi(page, { profile: "unauth", linkRequest: "ok" });
     const login = new LoginPage(page);
     await login.goto("/");
-    await login.emailTabButton().click();
-    await login.emailInput().fill("user@example.com");
     await login.sendLinkButton().click();
     await expect(login.sentHint()).toBeVisible();
   });
 
-  test("email link request: disposable shows an explanatory alert", async ({ page }) => {
-    await mockApi(page, { profile: "unauth", linkRequest: "disposable" });
+  test("ограничение частоты выдачи ссылки", async ({ page }) => {
+    await mockApi(page, { profile: "unauth", linkRequest: "rate_limited" });
     const login = new LoginPage(page);
     await login.goto("/");
-    await login.emailTabButton().click();
-    await login.emailInput().fill("user@temp.mail");
     await login.sendLinkButton().click();
-    await expect(page.getByText(/временной почтой/)).toBeVisible();
+    await expect(page.getByText(/Слишком много запросов/)).toBeVisible();
   });
 
   test("/dashboard without a session redirects to /login (client-side)", async ({
