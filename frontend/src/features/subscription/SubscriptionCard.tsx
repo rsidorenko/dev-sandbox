@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CatalogUnavailable, usePlans } from "@/features/plans/PlansProvider";
 import { subscriptionApi } from "@/entities/subscription/api";
 import { paymentApi } from "@/entities/payment/api";
 import { calcExtraDeviceCost, getTariffInfo } from "@/entities/payment/calc";
@@ -49,6 +50,7 @@ export function SubscriptionCard({
   onRenew,
 }: Props) {
   const router = useRouter();
+  const { catalog } = usePlans();
   const isActive = sub?.state === "active";
   // Prefer the server-computed remaining_days (shared with the bot -> identical
   // 'days left' on web and Telegram). Fall back to local daysLeft for safety.
@@ -64,6 +66,7 @@ export function SubscriptionCard({
   // selectable floor is the current device count (min 5).
   const deviceMin = Math.max(5, sub?.device_count || 5);
   const [selectedDevices, setSelectedDevices] = useState(deviceMin);
+  const [offerAccepted, setOfferAccepted] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [deviceError, setDeviceError] = useState("");
   const [deviceNotice, setDeviceNotice] = useState("");
@@ -77,9 +80,9 @@ export function SubscriptionCard({
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
   const addDeviceIdempotencyKey = addDeviceIdempotencyRef.current;
-  const tariffInfo = sub?.plan_id ? getTariffInfo(normalizePlanId(sub.plan_id)) : null;
+  const tariffInfo = sub?.plan_id ? getTariffInfo(normalizePlanId(sub.plan_id), catalog) : null;
   const addDeviceExtra = Math.max(0, selectedDevices - deviceMin);
-  const addDeviceCost = tariffInfo ? calcExtraDeviceCost(tariffInfo.durationDays, addDeviceExtra) : 0;
+  const addDeviceCost = tariffInfo ? calcExtraDeviceCost(tariffInfo.durationDays, addDeviceExtra, catalog!.extra_device_price_rubles) : 0;
   const balanceRubles = referral?.balance_rubles ?? 0;
   const canAddWithBalance = referral != null && addDeviceCost > 0 && balanceRubles >= addDeviceCost;
 
@@ -89,10 +92,11 @@ export function SubscriptionCard({
   };
 
   const handleChangeDevices = async () => {
+    if (!offerAccepted || !catalog) return;
     setDeviceError("");
     setActionLoading(true);
     try {
-      const res = await paymentApi.addDevices(selectedDevices);
+      const res = await paymentApi.addDevices(selectedDevices, "card", offerAccepted);
       if (!res.ok) {
         // Map backend error codes to specific messages (parity with handleAddDevicesWithBalance).
         if (res.error === "no_active_subscription") {
@@ -115,10 +119,11 @@ export function SubscriptionCard({
   };
 
   const handleAddDevicesWithBalance = async () => {
+    if (!offerAccepted || !catalog) return;
     setDeviceError("");
     setActionLoading(true);
     try {
-      const res = await paymentApi.addDevicesWithBalance(selectedDevices, addDeviceIdempotencyKey);
+      const res = await paymentApi.addDevicesWithBalance(selectedDevices, addDeviceIdempotencyKey, addDeviceCost * 100, offerAccepted);
       if (!res.ok) {
         // Backend returns these as HTTP 4xx/5xx with {ok:false, error:<code>} — map each.
         if (res.error === "insufficient_balance") {
@@ -333,14 +338,15 @@ export function SubscriptionCard({
               </button>
             </div>
 
-            {showChangePlan && (
+            {showChangePlan && !catalog && <CatalogUnavailable />}
+            {showChangePlan && catalog && (
               <div className="rounded-xl border border-gray-200 p-4 pt-5 dark:border-zinc-600">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
                   Выберите тариф:
                 </p>
                 <div className="flex flex-wrap gap-x-3 gap-y-6 pt-3">
                   {PLANS.map((p) => {
-                    const sp = savingsPctForPlan(p.id);
+                    const sp = savingsPctForPlan(p.id, catalog);
                     const isSelected = selectedPlan === p.id;
                     return (
                       <button
@@ -370,11 +376,11 @@ export function SubscriptionCard({
                 </div>
                 {/* Сводка по выбранному тарифу: цена, ₽/день, выгода */}
                 <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                  {planName(selectedPlan)} · {priceForPlan(selectedPlan)} ₽
-                  <span className="text-gray-400"> · ≈ {perDayRub(selectedPlan)} ₽/день</span>
-                  {savingsPctForPlan(selectedPlan) > 0 && (
+                  {planName(selectedPlan)} · {priceForPlan(selectedPlan, catalog)} ₽
+                  <span className="text-gray-400"> · ≈ {perDayRub(selectedPlan, catalog)} ₽/день</span>
+                  {savingsPctForPlan(selectedPlan, catalog) > 0 && (
                     <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">
-                      · выгода −{savingsPctForPlan(selectedPlan)}%
+                      · выгода −{savingsPctForPlan(selectedPlan, catalog)}%
                     </span>
                   )}
                 </p>
@@ -420,6 +426,10 @@ export function SubscriptionCard({
                   <span>15</span>
                   <span>20</span>
                 </div>
+                <label className="mt-3 flex gap-2 text-sm"><input type="checkbox" checked={offerAccepted} onChange={e => setOfferAccepted(e.target.checked)} />
+                  <span>Принимаю <Link href="/offer" target="_blank" className="underline">оферту</Link> и стоимость добавления устройств.</span>
+                </label>
+                <p className="mt-2 text-xs"><Link href="/privacy" target="_blank" className="underline">Политика обработки данных</Link></p>
                 {deviceError && (
                   <p className="mt-2 text-sm text-red-500">{deviceError}</p>
                 )}
@@ -427,7 +437,7 @@ export function SubscriptionCard({
                   {canAddWithBalance && (
                     <button
                       onClick={handleAddDevicesWithBalance}
-                      disabled={actionLoading}
+                      disabled={actionLoading || !catalog || !offerAccepted}
                       className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
                     >
                       {actionLoading ? "Обработка..." : `С баланса ${addDeviceCost} ₽`}
@@ -435,7 +445,7 @@ export function SubscriptionCard({
                   )}
                   <button
                     onClick={handleChangeDevices}
-                    disabled={actionLoading}
+                    disabled={actionLoading || !catalog || !offerAccepted}
                     className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
                   >
                     Перейти к оплате

@@ -1,57 +1,20 @@
-/**
- * Чистая логика расчёта стоимости оформления подписки.
- * Извлечена из app/(protected)/payment/[planId]/page.tsx ради unit-тестов.
- */
-import { siteConfig } from "@/shared/config/site";
 import { planName } from "@/entities/tariff/helpers";
-
-/** Цена каждого дополнительного устройства в пересчёте на месяц (₽). */
-export const EXTRA_DEVICE_PRICE = 80;
-/** Базовое (включённое в тариф) количество устройств. */
+import type { PlansCatalogResponse } from "@/entities/plans/types";
 export const DEFAULT_DEVICES = 5;
-/** Стоимость одного дня для «своего тарифа» (₽). */
-export const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
-
-export interface TariffInfo {
-  label: string;
-  durationDays: number;
-  basePrice: number;
+export interface TariffInfo { label: string; durationDays: number; basePrice: number; }
+/** Округление до ближайшего чётного, как round() в расчёте сервера. */
+export function roundRubles(value: number): number {
+  const floor = Math.floor(value); return value - floor === 0.5 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(value);
 }
-
-/**
- * Стоимость доп. устройств: extraDevices × цена одного устройства за весь
- * период тарифа (EXTRA_DEVICE_PRICE пропорционально дням), округлённо до рублей.
- */
-export function calcExtraDeviceCost(
-  durationDays: number,
-  extraDevices: number,
-): number {
-  return extraDevices * Math.round((EXTRA_DEVICE_PRICE / 30) * durationDays);
+export function calcExtraDeviceCost(durationDays: number, extraDevices: number, monthlyPrice: number): number {
+  return extraDevices * roundRubles((monthlyPrice / 30) * durationDays);
 }
-
-/**
- * Параметры тарифа по id:
- * — фиксированный (1d/7d/…/365d) — из siteConfig.tariffs;
- * — custom:N — N дней × CUSTOM_PRICE_PER_DAY, подпись через planName();
- * — иначе null (тариф не найден).
- */
-export function getTariffInfo(planId: string): TariffInfo | null {
-  const tariff = siteConfig.tariffs.find((t) => t.id === planId);
-  if (tariff) {
-    return {
-      label: tariff.label,
-      durationDays: tariff.durationDays,
-      basePrice: tariff.price,
-    };
-  }
+export function getTariffInfo(planId: string, catalog?: PlansCatalogResponse | null): TariffInfo | null {
+  if (!catalog) return null;
+  const tariff = catalog.plans.find(t => t.plan_id === planId);
+  if (tariff) return { label: planName(planId), durationDays: tariff.duration_days, basePrice: tariff.base_rubles };
   const match = planId.match(/^custom:(\d+)$/);
-  if (match) {
-    const days = parseInt(match[1], 10);
-    return {
-      label: planName(planId),
-      durationDays: days,
-      basePrice: days * CUSTOM_PRICE_PER_DAY,
-    };
-  }
-  return null;
+  if (!match) return null;
+  const days = Number(match[1]);
+  return days >= 1 && days <= 365 ? { label: planName(planId), durationDays: days, basePrice: days * catalog.custom_day_price_rubles } : null;
 }

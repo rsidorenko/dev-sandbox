@@ -1,36 +1,15 @@
-/**
- * Расчёт «выгоды» тарифов — единый для лендинга и личного кабинета.
- *
- * Эталон — самый дорогой в пересчёте на день тариф (1 день).
- * Источник цен: siteConfig.tariffs (id совпадают с PLANS в ./helpers.ts).
- */
-import { siteConfig } from "@/shared/config/site";
-import type { Tariff } from "@/shared/config/site";
-
-const DAY1_PRICE = siteConfig.tariffs[0]?.price ?? 12;
-
-/** Найти конфиг тарифа по id (1d, 7d, …, 365d). */
-export function getTariff(id: string): Tariff | undefined {
-  return siteConfig.tariffs.find((t) => t.id === id);
+import type { PlansCatalogResponse } from "@/entities/plans/types";
+import { globalDiscountRubles } from "@/features/plans/effectivePrice";
+export function getTariff(id: string, catalog?: PlansCatalogResponse | null) { return catalog?.plans.find(p => p.plan_id === id); }
+export function priceForPlan(id: string, catalog?: PlansCatalogResponse | null): number {
+  const p = getTariff(id, catalog); return p && catalog ? globalDiscountRubles(catalog.global_discount, id, p.base_rubles) : 0;
 }
-
-/** Цена тарифа в рублях (0, если id неизвестен). */
-export function priceForPlan(id: string): number {
-  return getTariff(id)?.price ?? 0;
+export function perDayRub(id: string, catalog?: PlansCatalogResponse | null): number {
+  const p = getTariff(id, catalog); return p ? Math.round(priceForPlan(id, catalog) / p.duration_days) : 0;
 }
-
-/** Стоимость одного дня для тарифа (₽), с округлением. */
-export function perDayRub(id: string): number {
-  const t = getTariff(id);
-  if (!t || t.durationDays <= 0) return 0;
-  return Math.round(t.price / t.durationDays);
-}
-
-/** Процент выгоды относительно однодневного тарифа (≥10, иначе 0 — не показываем). */
-export function savingsPctForPlan(id: string): number {
-  const t = getTariff(id);
-  if (!t || t.durationDays <= 0) return 0;
-  const perDay = t.price / t.durationDays;
-  const pct = Math.round((1 - perDay / DAY1_PRICE) * 100);
+export function savingsPctForPlan(id: string, catalog?: PlansCatalogResponse | null): number {
+  const p = getTariff(id, catalog); const daily = priceForPlan("1d", catalog);
+  if (!p || daily <= 0) return 0;
+  const pct = Math.round((1 - priceForPlan(id, catalog) / p.duration_days / daily) * 100);
   return pct >= 10 ? pct : 0;
 }

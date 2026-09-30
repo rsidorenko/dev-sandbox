@@ -7,13 +7,13 @@ import { reachGoal } from "@/shared/lib/analytics";
 import { savingsPctForPlan } from "@/entities/tariff/savings";
 import { Reveal } from "@/shared/ui/Reveal";
 import { usePromocode } from "@/features/promocode/usePromocode";
-import { usePlans } from "@/features/plans/PlansProvider";
+import { usePlans, CatalogUnavailable } from "@/features/plans/PlansProvider";
 import { effectivePlanPrice } from "@/features/plans/effectivePrice";
 import type { AppliedPromo } from "@/features/promocode/api";
 
 type Tariff = (typeof siteConfig.tariffs)[number];
 
-const CUSTOM_PRICE_PER_DAY = siteConfig.customPricePerDay;
+
 const DEFAULT_DEVICES = 5;
 const MIN_CUSTOM_DAYS = 1;
 const MAX_CUSTOM_DAYS = 365;
@@ -27,9 +27,11 @@ export function TariffsSection() {
   const [customDays, setCustomDays] = useState(30);
   const { applied } = usePromocode();
   // Runtime-цены (админ-оверрайды) + глобальная скидка; пока не загружены — siteConfig.
-  const { prices, globalDiscount } = usePlans();
+  const { prices, globalDiscount, catalog } = usePlans();
+  if (!catalog) return <section id="tariffs"><CatalogUnavailable /></section>;
+  const CUSTOM_PRICE_PER_DAY = catalog.custom_day_price_rubles;
 
-  const priceFor = (t: Tariff): number => prices[t.id] ?? t.price;
+  const priceFor = (t: Tariff): number => prices[t.id];
   const activeTariff = tariffs.find((t) => t.id === selected);
   const primaryTariffs = tariffs.filter((t) => PRIMARY_TARIFF_IDS.has(t.id));
   const otherTariffs = tariffs.filter((t) => !PRIMARY_TARIFF_IDS.has(t.id));
@@ -50,7 +52,7 @@ export function TariffsSection() {
         <Reveal className="mt-10 flex justify-center">
           <div className="inline-flex max-w-full flex-wrap justify-center gap-2 rounded-2xl bg-white p-2 pt-4 shadow-sm dark:bg-zinc-800 dark:shadow-none">
             {primaryTariffs.map((t) => {
-              const sp = savingsPctForPlan(t.id);
+              const sp = savingsPctForPlan(t.id, catalog);
               const isBest = t.id === "365d";
               return (
                 <button
@@ -179,7 +181,8 @@ function TariffCard({
   runtimePrice: number;
   upsellPrice: number | null;
 }) {
-  const sp = savingsPctForPlan(tariff.id);
+  const { catalog } = usePlans();
+  const sp = savingsPctForPlan(tariff.id, catalog);
   const isBest = tariff.id === "365d";
   // База — runtime-цена (админ-оверрайд или дефолт); итог — best-of(промо, акция).
   const eff = effectivePlanPrice({
@@ -189,7 +192,7 @@ function TariffCard({
     globalDiscount,
   });
   const hasDiscount = eff.discounted < runtimePrice;
-  const perDay = `≈ ${Math.max(1, Math.round(runtimePrice / tariff.durationDays))} ₽/день`;
+  const perDay = `≈ ${Math.max(1, Math.round(eff.discounted / (catalog?.plans.find(p => p.plan_id === tariff.id)?.duration_days ?? tariff.durationDays)))} ₽/день`;
   return (
     <div className="mx-auto mt-8 max-w-md">
       <div className="relative rounded-2xl bg-white p-8 shadow-sm dark:bg-zinc-800 dark:shadow-none">
@@ -243,7 +246,7 @@ function TariffCard({
             <Check /> Защита трафика в публичных сетях
           </li>
           <li className="flex items-center gap-2">
-            <Check /> До {DEFAULT_DEVICES} устройств
+            <Check /> До {catalog?.devices.base ?? DEFAULT_DEVICES} устройств
           </li>
           <li className="flex items-center gap-2">
             <Check /> Техническая поддержка в Telegram
@@ -276,7 +279,7 @@ function TariffCard({
           </a>
         </div>
 
-        <UpsellHint currentId={tariff.id} targetPrice={upsellPrice} />
+        <UpsellHint currentId={tariff.id} targetPrice={upsellPrice === null ? null : effectivePlanPrice({ base: upsellPrice, planId: "3m", applied, globalDiscount }).discounted} />
       </div>
     </div>
   );
@@ -289,6 +292,9 @@ function CustomCard({
   days: number;
   onDaysChange: (d: number) => void;
 }) {
+  const { catalog } = usePlans();
+  if (!catalog) return <CatalogUnavailable />;
+  const CUSTOM_PRICE_PER_DAY = catalog.custom_day_price_rubles;
   const price = days * CUSTOM_PRICE_PER_DAY;
   const clamped = Math.max(MIN_CUSTOM_DAYS, Math.min(MAX_CUSTOM_DAYS, days));
 

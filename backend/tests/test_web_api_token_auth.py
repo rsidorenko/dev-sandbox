@@ -46,6 +46,8 @@ class _TokenAuthFakePool:
         if "WHERE subscription_token = $1" in sql:
             self.token_lookups += 1
             return self.token_row
+        if "FROM pending_web_links" in sql:
+            return None
         if "FROM user_identities i" in sql:
             return self.profile_row
         raise AssertionError(f"unexpected fetchrow: {sql}")

@@ -46,16 +46,16 @@ describe("LoginForm (вход по ссылке)", () => {
   it("shows a validation error for an empty input", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: "Войти" }));
-    expect(await screen.findByText("Вставьте ссылку или токен")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Продолжить" }));
+    expect(userApi.profile).not.toHaveBeenCalled();
   });
 
   it("rejects text that is not a Bravada link/token without calling the API", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Ссылка или токен/i), "hello world");
-    await user.click(screen.getByRole("button", { name: "Войти" }));
-    expect(await screen.findByText(/не похоже на ссылку/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^Ссылка подписки$/i), "hello world");
+    await user.click(screen.getByRole("button", { name: "Продолжить" }));
+    expect(await screen.findByText(/Вставьте полную ссылку/i)).toBeInTheDocument();
     expect(userApi.profile).not.toHaveBeenCalled();
     expect(getToken()).toBeNull();
   });
@@ -64,8 +64,8 @@ describe("LoginForm (вход по ссылке)", () => {
     userApi.profile.mockResolvedValue({ ok: true, data: { user: {}, subscription: null } });
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Ссылка или токен/i), SUB_LINK);
-    await user.click(screen.getByRole("button", { name: "Войти" }));
+    await user.type(screen.getByLabelText(/^Ссылка подписки$/i), SUB_LINK);
+    await user.click(screen.getByRole("button", { name: "Продолжить" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
     expect(getToken()).toBe(TOKEN);
   });
@@ -75,10 +75,10 @@ describe("LoginForm (вход по ссылке)", () => {
     const user = userEvent.setup();
     render(<LoginForm />);
     await user.type(
-      screen.getByLabelText(/Ссылка или токен/i),
+      screen.getByLabelText(/^Ссылка подписки$/i),
       `https://bravada-connect.ru/auth/${TOKEN}?next=/trial`,
     );
-    await user.click(screen.getByRole("button", { name: "Войти" }));
+    await user.click(screen.getByRole("button", { name: "Продолжить" }));
     await waitFor(() => expect(push).toHaveBeenCalled());
     expect(getToken()).toBe(TOKEN);
   });
@@ -87,45 +87,25 @@ describe("LoginForm (вход по ссылке)", () => {
     userApi.profile.mockResolvedValue({ ok: false, error: "unauthorized" });
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.type(screen.getByLabelText(/Ссылка или токен/i), SUB_LINK);
-    await user.click(screen.getByRole("button", { name: "Войти" }));
-    expect(await screen.findByText(/недействительна или отозвана/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^Ссылка подписки$/i), SUB_LINK);
+    await user.click(screen.getByRole("button", { name: "Продолжить" }));
+    expect(await screen.findByText(/недействительна, отозвана/i)).toBeInTheDocument();
     expect(getToken()).toBeNull();
     expect(push).not.toHaveBeenCalled();
   });
 });
 
-describe("LoginForm (заявка ссылки на почту)", () => {
-  it("shows a validation error for an empty email", async () => {
+describe("Получение ссылки на экране", () => {
+  it("показывает ссылку без email и копирует её", async () => {
+    authApi.requestLink.mockResolvedValue({ok:true,data:{ok:true,subscription_url:SUB_LINK,expires_at:"2026-10-02T12:00:00Z"}});
     const user = userEvent.setup();
     render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
-    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
-    expect(await screen.findByText("Введите email")).toBeInTheDocument();
-  });
-
-  it("sends the request with next and shows the 'check your email' state", async () => {
-    authApi.requestLink.mockResolvedValue({ ok: true, data: { ok: true, sent: true } });
-    const user = userEvent.setup();
-    render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
-    await user.type(screen.getByLabelText(/^Email$/i), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
-    expect(await screen.findByText("Проверьте почту")).toBeInTheDocument();
-    expect(authApi.requestLink).toHaveBeenCalledWith(
-      "user@example.com",
-      undefined,
-      "/dashboard",
-    );
-  });
-
-  it("shows the disposable-email error", async () => {
-    authApi.requestLink.mockResolvedValue({ ok: false, error: "disposable_email" });
-    const user = userEvent.setup();
-    render(<LoginForm />);
-    await user.click(screen.getByRole("button", { name: "Получить на почту" }));
-    await user.type(screen.getByLabelText(/^Email$/i), "user@temp.mail");
-    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
-    expect(await screen.findByText(/временной почтой/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Получить ссылку подписки"}));
+    expect(await screen.findByLabelText("Ваша ссылка")).toHaveValue(SUB_LINK);
+    expect(getToken()).toBeNull();
+    await user.click(screen.getByRole("button",{name:"Скопировать ссылку"}));
+    expect(await navigator.clipboard.readText()).toBe(SUB_LINK);
+    expect(authApi.requestLink).toHaveBeenCalledWith(undefined);
   });
 });

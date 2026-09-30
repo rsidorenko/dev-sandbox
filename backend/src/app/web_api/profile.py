@@ -46,6 +46,13 @@ async def _handle_get_profile_inner(request: Request) -> JSONResponse:
     if isinstance(auth_result, JSONResponse):
         return auth_result
 
+    if auth_result.get("auth_method") == "pending_link":
+        return JSONResponse({"ok": True, "user": {
+            "telegram_user_id": auth_result["telegram_user_id"], "email": None,
+            "internal_user_id": auth_result["internal_user_id"], "pending": True,
+            "expires_at": auth_result["expires_at"]},
+            "subscription": None, "keys": None, "referral": None}, headers={"Cache-Control": "no-store"})
+
     telegram_user_id = auth_result.get("telegram_user_id")
     email = auth_result.get("email")
     if telegram_user_id is None:

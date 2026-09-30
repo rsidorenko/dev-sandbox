@@ -25,6 +25,8 @@ from app.domain.devices import DEFAULT_DEVICE_LIMIT, extra_device_cost
 from app.domain.plans import calculate_total_price
 from app.web_api.helpers import safe_json_error, truthy
 from app.web_api.middleware import require_auth
+from app.web_api.legal import OFFER_VERSION, validate_offer, validate_price
+from app.persistence.pending_web_links import LinkExpiredError, begin_attempt, attach_payment
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +72,8 @@ async def _cryptobot_create(
     description: str,
     context: dict[str, object],
     return_url: str,
+    expires_in: int | None = None,
+    client=None,
 ) -> tuple[str, str] | None:
     """Create a CryptoBot fiat-RUB invoice for *amount_rubles*, carrying *context* in the
     invoice payload. Returns ``(invoice_id, pay_url)`` or ``None`` when the client is not
@@ -80,11 +84,13 @@ async def _cryptobot_create(
     from app.cryptobot.client import CryptoBotClient
     from app.cryptobot.payload import encode_payment_context
 
-    client = CryptoBotClient.from_env()
+    client = client or CryptoBotClient.from_env()
     if client is None:
         _LOGGER.error("cryptobot client not configured")
         return None
     ttl = int(os.environ.get("CRYPTOBOT_INVOICE_TTL_SECONDS", "3600"))
+    if expires_in is not None:
+        ttl = max(1, min(ttl, expires_in))
     try:
         result = await client.create_invoice(
             amount_rubles=amount_rubles,
@@ -113,7 +119,13 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     except Exception:
         return safe_json_error(400, "invalid_request")
 
-    plan_id = data.get("plan_id", "").strip()
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request")
+    offer_error = validate_offer(data)
+    if offer_error is not None:
+        return offer_error
+    pending = auth_result.get("auth_method") == "pending_link"
+    plan_id = str(data.get("plan_id", "")).strip()
     device_count_raw = data.get("device_count", 5)
     try:
         device_count = int(device_count_raw)
@@ -129,6 +141,8 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     if plan is None:
         return safe_json_error(400, "invalid_plan_id")
 
+    if device_count < DEFAULT_DEVICE_LIMIT or device_count > 20:
+        return safe_json_error(400, "invalid_device_count")
     total_rubles = calculate_total_price(plan, device_count)
     total_kopecks = total_rubles * 100
 
@@ -152,13 +166,14 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     # accounts carry a NON-POSITIVE telegram_user_id and an internal_user_id of
     # "web_<hash>" (NOT f"u{telegram_user_id}"); the webhook must apply the
     # subscription to that exact identity, so we carry it in the payment context.
-    identity = await pool.fetchrow(
-        "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1",
-        telegram_user_id,
-    )
-    if identity is None:
-        return safe_json_error(404, "identity_not_found")
-    internal_user_id = identity["internal_user_id"]
+    if pending:
+        internal_user_id = auth_result["internal_user_id"]
+    else:
+        identity = await pool.fetchrow(
+            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1", telegram_user_id)
+        if identity is None:
+            return safe_json_error(404, "identity_not_found")
+        internal_user_id = identity["internal_user_id"]
 
     from app.application.promo_service import resolve_active_promo
     from app.persistence.postgres_promo import (
@@ -167,16 +182,18 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         PostgresPromoRedemptionRepository,
     )
 
-    active_promo = await resolve_active_promo(
-        pool=pool,
-        promo_applied_repo=PostgresPromoAppliedRepository(pool),
-        promo_code_repo=PostgresPromoCodeRepository(pool),
-        promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
-        snapshots=None,
-        internal_user_id=internal_user_id,
-        base_rubles=total_rubles,
-        plan_id=plan_id,
-    )
+    active_promo = None
+    if not pending:
+        active_promo = await resolve_active_promo(
+            pool=pool,
+            promo_applied_repo=PostgresPromoAppliedRepository(pool),
+            promo_code_repo=PostgresPromoCodeRepository(pool),
+            promo_redemption_repo=PostgresPromoRedemptionRepository(pool),
+            snapshots=None,
+            internal_user_id=internal_user_id,
+            base_rubles=total_rubles,
+            plan_id=plan_id,
+        )
     # Best-of(промокод, глобальная скидка) на одной базе. promo_code попадает в
     # metadata ТОЛЬКО когда выиграл промокод — иначе вебхук не погасит код зря.
     global_discount = await pricing.get_global_discount()
@@ -188,6 +205,29 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     )
     charge_rubles = resolved.charge_rubles
     charge_kopecks = resolved.charge_kopecks
+
+    price_error = validate_price(data, charge_kopecks)
+    if price_error is not None:
+        return price_error
+    from app.yookassa.client import YooKassaClient
+    from app.cryptobot.client import CryptoBotClient
+    client = CryptoBotClient.from_env() if payment_method == "crypto" else YooKassaClient.from_env()
+    if client is None:
+        return safe_json_error(503, "payment_provider_not_configured")
+    attempt_id = None
+    pending_ttl = None
+    if pending:
+        from datetime import UTC, datetime
+        try:
+            attempt_id, expires_at = await begin_attempt(pool, internal_user_id,
+                "cryptobot" if payment_method == "crypto" else "yookassa", charge_kopecks)
+        except LinkExpiredError:
+            return safe_json_error(410, "link_expired")
+        pending_ttl = max(1, int((expires_at - datetime.now(UTC)).total_seconds()))
+    else:
+        await pool.execute(
+            "INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)",
+            internal_user_id, OFFER_VERSION, plan_id, charge_kopecks)
 
     if payment_method == "crypto":
         # CryptoBot carries the FULL context in its payload string (no client-side
@@ -208,25 +248,32 @@ async def handle_create_payment(request: Request) -> JSONResponse:
                 global_discount=global_discount,
             )
         )
+        if attempt_id:
+            context["pending_web_attempt"] = attempt_id
         created = await _cryptobot_create(
             amount_rubles=charge_rubles,
             description=f"Bravada VPN - {plan_display_name_safe(plan_id)}",
             context=context,
             return_url=return_url,
+            expires_in=pending_ttl,
+            client=client,
         )
         if created is None:
             return safe_json_error(502, "payment_creation_failed")
         invoice_id, pay_url = created
-        await record_interaction(
-            request.app.state.pool,
-            event_name="payment_created",
-            surface="web",
-            dedup_key=f"cryptobot:{invoice_id}",
-            internal_user_id=internal_user_id,
-            plan_id=plan_id,
-            device_count=device_count,
-            payment_method="crypto",
-        )
+        if attempt_id:
+            await attach_payment(pool, attempt_id, invoice_id)
+        if not pending:
+            await record_interaction(
+                request.app.state.pool,
+                event_name="payment_created",
+                surface="web",
+                dedup_key=f"cryptobot:{invoice_id}",
+                internal_user_id=internal_user_id,
+                plan_id=plan_id,
+                device_count=device_count,
+                payment_method="crypto",
+            )
         return JSONResponse(
             {
                 "ok": True,
@@ -244,11 +291,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
 
     from app.security.checkout_reference import create_signed_checkout_reference
     from app.yookassa.client import YooKassaClient
-
-    client = YooKassaClient.from_env()
-    if client is None:
-        _LOGGER.error("yookassa client not configured")
-        return safe_json_error(503, "payment_provider_not_configured")
 
     checkout_secret = (
         os.environ.get("CHECKOUT_REFERENCE_SECRET") or os.environ.get("TELEGRAM_CHECKOUT_REFERENCE_SECRET", "").strip()
@@ -277,6 +319,8 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         payment_metadata["client_reference_id"] = signed.reference_id
         payment_metadata["client_reference_proof"] = signed.reference_proof
 
+    if attempt_id:
+        payment_metadata["pending_web_attempt"] = attempt_id
     try:
         result = await client.create_payment(
             amount_rubles=charge_rubles,
@@ -285,21 +329,25 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             return_url=return_url,
             description=f"Bravada VPN — {plan_display_name_safe(plan_id)}",
             metadata=payment_metadata,
+            **({"idempotency_key": attempt_id} if attempt_id else {}),
         )
     except Exception:
         _LOGGER.exception("yookassa create_payment failed")
         return safe_json_error(502, "payment_creation_failed")
 
-    await record_interaction(
-        request.app.state.pool,
-        event_name="payment_created",
-        surface="web",
-        dedup_key=f"yookassa:{result.payment_id}",
-        internal_user_id=internal_user_id,
-        plan_id=plan_id,
-        device_count=device_count,
-        payment_method="card",
-    )
+    if attempt_id:
+        await attach_payment(pool, attempt_id, result.payment_id)
+    if not pending:
+        await record_interaction(
+            request.app.state.pool,
+            event_name="payment_created",
+            surface="web",
+            dedup_key=f"yookassa:{result.payment_id}",
+            internal_user_id=internal_user_id,
+            plan_id=plan_id,
+            device_count=device_count,
+            payment_method="card",
+        )
     return JSONResponse(
         {
             "ok": True,
@@ -314,6 +362,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             "payment_id": result.payment_id,
         }
     )
+
 
 
 async def handle_get_payment_status(request: Request) -> JSONResponse:
@@ -377,6 +426,12 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         data = await request.json()
     except Exception:
         return safe_json_error(400, "invalid_request")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request")
+    offer_error = validate_offer(data)
+    if offer_error is not None:
+        return offer_error
+
     try:
         new_device_count = int(data.get("device_count", 0))
     except (ValueError, TypeError):
@@ -436,6 +491,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else cost_rubles
     expected_amount_kopecks = active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
+    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", internal_user_id, OFFER_VERSION, "add_device:" + plan_id, expected_amount_kopecks)
     add_device_meta: dict[str, str] = {
         "kind": "add_device",
         "internal_user_id": internal_user_id,
@@ -525,6 +581,12 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
         data = await request.json()
     except Exception:
         return safe_json_error(400, "invalid_request")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request")
+    offer_error = validate_offer(data)
+    if offer_error is not None:
+        return offer_error
+
     plan_id = str(data.get("plan_id", "")).strip()
     try:
         device_count = int(data.get("device_count", DEFAULT_DEVICE_LIMIT))
@@ -539,7 +601,11 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
     if identity is None:
         return safe_json_error(404, "identity_not_found")
 
+    if type(data.get("expected_amount_kopecks")) is not int:
+        return safe_json_error(400, "expected_amount_required")
+    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", identity["internal_user_id"], OFFER_VERSION, plan_id, data["expected_amount_kopecks"])
     result = await pay_plan_from_balance(
+        expected_amount_kopecks=data["expected_amount_kopecks"],
         pool=pool,
         composition=None,
         internal_user_id=identity["internal_user_id"],
@@ -565,6 +631,12 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
         data = await request.json()
     except Exception:
         return safe_json_error(400, "invalid_request")
+    if not isinstance(data, dict):
+        return safe_json_error(400, "invalid_request")
+    offer_error = validate_offer(data)
+    if offer_error is not None:
+        return offer_error
+
     try:
         new_device_count = int(data.get("device_count", 0))
     except (ValueError, TypeError):
@@ -578,6 +650,7 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
     if identity is None:
         return safe_json_error(404, "identity_not_found")
 
+    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", identity["internal_user_id"], OFFER_VERSION, "add_device", 0)
     result = await add_device_from_balance(
         pool=pool,
         composition=None,
@@ -591,6 +664,7 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
 
 
 _BALANCE_ERROR_CODES: dict[BalancePaymentStatus, tuple[int, str]] = {
+    BalancePaymentStatus.PRICE_CHANGED: (409, "price_changed"),
     BalancePaymentStatus.INSUFFICIENT: (402, "insufficient_balance"),
     BalancePaymentStatus.NO_ACTIVE: (409, "no_active_subscription"),
     BalancePaymentStatus.NOT_HIGHER: (400, "device_count_not_higher"),

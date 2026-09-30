@@ -1,6 +1,8 @@
 export interface UserProfile {
   user: {
     telegram_user_id: number;
+    pending?: boolean;
+    expires_at?: string;
     // link-auth: у токен-сессий почты нет; поле остаётся для legacy-JWT перехода.
     email: string | null;
     internal_user_id: string;

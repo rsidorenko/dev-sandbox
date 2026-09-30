@@ -4,16 +4,15 @@ import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { paymentApi, type PaymentMethod } from "@/entities/payment/api";
-import { authApi } from "@/features/auth/api";
+import { LinkAccess } from "@/features/auth/LoginForm";
 import { useAuth } from "@/shared/lib/auth";
 import { siteConfig } from "@/shared/config/site";
-import { usePlans } from "@/features/plans/PlansProvider";
+import { CatalogUnavailable, usePlans } from "@/features/plans/PlansProvider";
 import { globalDiscountRubles } from "@/features/plans/effectivePrice";
 import {
   calcExtraDeviceCost,
   getTariffInfo,
   DEFAULT_DEVICES,
-  EXTRA_DEVICE_PRICE,
 } from "@/entities/payment/calc";
 import { reachGoal } from "@/shared/lib/analytics";
 import { PROMO_ERROR_MESSAGES, promoApi } from "@/features/promocode/api";
@@ -93,7 +92,8 @@ function PaymentForm() {
   // Runtime-цены: база фиксированного тарифа — из каталога (админ-оверрайд),
   // custom:N — из конфига (оверрайды не действуют). Глобальная скидка без
   // промокода применяется на витрине; итоговую сумму считает сервер.
-  const { prices, globalDiscount } = usePlans();
+  const { catalog, globalDiscount, reload } = usePlans();
+  const [offerAccepted, setOfferAccepted] = useState(false);
   const [promoDiscount, setPromoDiscount] = useState<number | null>(null);
   const [promoDevices, setPromoDevices] = useState<number | null>(null);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -106,7 +106,7 @@ function PaymentForm() {
   }, [appliedPromo]);
 
   useEffect(() => {
-    if (!authenticated || !planId || !getTariffInfo(planId)) return;
+    if (!authenticated || !planId || !getTariffInfo(planId, catalog)) return;
     let cancelled = false;
     experimentApi.resolve(CHECKOUT_EXPERIMENT, planId).then((result) => {
       if (!cancelled && result.ok && result.data.experiment.variant === "reassurance") {
@@ -116,7 +116,7 @@ function PaymentForm() {
     return () => {
       cancelled = true;
     };
-  }, [authenticated, planId]);
+  }, [authenticated, planId, catalog]);
 
   // Держим preview скидки актуальным для текущего тарифа И количества устройств:
   // срабатывает при входе с уже закреплённым промокодом и при изменении слайдера.
@@ -143,12 +143,8 @@ function PaymentForm() {
     };
   }, [appliedPromo, appliedPromo?.code, planId, deviceCount]);
 
-  const staticInfo = planId ? getTariffInfo(planId) : null;
-  // Эффективная база: каталог цен (оверрайд админки) для фиксированных тарифов.
-  const info =
-    staticInfo && !planId.startsWith("custom:") && prices[planId] != null
-      ? { ...staticInfo, basePrice: prices[planId] }
-      : staticInfo;
+  const info = planId ? getTariffInfo(planId, catalog) : null;
+  if (!catalog) return <CatalogUnavailable />;
 
   if (!info) {
     return (
@@ -176,7 +172,7 @@ function PaymentForm() {
   }
 
   const extraDevices = Math.max(0, deviceCount - DEFAULT_DEVICES);
-  const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices);
+  const extraCost = calcExtraDeviceCost(info.durationDays, extraDevices, catalog.extra_device_price_rubles);
   const total = info.basePrice + extraCost;
   const promoPreviewValid = promoDiscount != null && promoDevices === deviceCount;
   // Глобальная скидка без промокода (или пока preview недействителен): витрина
@@ -219,14 +215,17 @@ function PaymentForm() {
 
   const handlePayWithBalance = async (e: FormEvent) => {
     e.preventDefault();
+    if (!offerAccepted) return;
     setBalanceError("");
     setBalanceLoading(true);
-    const result = await paymentApi.payWithBalance(planId, deviceCount, balanceIdempotencyKey);
+    const result = await paymentApi.payWithBalance(planId, deviceCount, balanceIdempotencyKey, displayTotal * 100, offerAccepted);
     setBalanceLoading(false);
     if (!result.ok) {
       // Backend returns these as HTTP 4xx/5xx with {ok:false, error:<code>} (no `status`
       // field) — apiFetch surfaces them as result.error. Map each to a specific message.
-      if (result.error === "insufficient_balance") {
+      if (result.error === "price_changed") {
+        reload(); setOfferAccepted(false); setBalanceError("Цена изменилась. Подтвердите новую стоимость.");
+      } else if (result.error === "insufficient_balance") {
         setBalanceError("Недостаточно средств на балансе. Приглашайте друзей по реферальной ссылке.");
         await refresh();
       } else if (result.error === "payment_in_progress") {
@@ -251,10 +250,11 @@ function PaymentForm() {
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
+    if (!offerAccepted) return;
     setErrorMsg("");
     setLoading(true);
 
-    const result = await paymentApi.create(planId, deviceCount, paymentMethod);
+    const result = await paymentApi.create(planId, deviceCount, paymentMethod, displayTotal * 100, offerAccepted);
     setLoading(false);
 
     if (!result.ok) {
@@ -262,7 +262,8 @@ function PaymentForm() {
         router.push(`/login?next=/payment/${planId}${refParam ? `&ref=${encodeURIComponent(refParam)}` : ""}`);
         return;
       }
-      setErrorMsg("Не удалось создать платёж. Попробуйте позже.");
+      if (result.error === "price_changed") { reload(); setOfferAccepted(false); }
+      setErrorMsg(result.error === "price_changed" ? "Цена изменилась. Проверьте новую сумму и подтвердите оплату заново." : "Не удалось создать платёж. Попробуйте позже.");
       return;
     }
 
@@ -349,7 +350,7 @@ function PaymentForm() {
                 {extraDevices > 0 && (
                   <p className="mt-1 text-xs text-gray-400">
                     Доп. устройства: {extraDevices} &times;{" "}
-                    {Math.round((EXTRA_DEVICE_PRICE / 30) * info.durationDays)} ₽ ={" "}
+                    {Math.round((catalog.extra_device_price_rubles / 30) * info.durationDays)} ₽ ={" "}
                     {extraCost.toLocaleString("ru-RU")} ₽
                   </p>
                 )}
@@ -357,7 +358,7 @@ function PaymentForm() {
             )}
           </div>
 
-          {!showPromo && (
+          {!profile?.user?.pending && !showPromo && (
             <button
               type="button"
               onClick={() => setShowPromo(true)}
@@ -368,7 +369,7 @@ function PaymentForm() {
           )}
 
           {/* Промокод раскрывается по запросу; скидку по-прежнему считает backend. */}
-          {showPromo && (
+          {!profile?.user?.pending && showPromo && (
             <div className="mt-4 rounded-xl border border-gray-100 p-4 dark:border-zinc-700">
               {appliedPromo ? (
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -476,10 +477,16 @@ function PaymentForm() {
 
           {balanceError && <Alert className="mt-4">{balanceError}</Alert>}
 
+          <label className="mt-6 flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={offerAccepted} onChange={(e) => setOfferAccepted(e.target.checked)} className="mt-1" />
+            <span>Принимаю <Link href="/offer" target="_blank" className="underline">оферту</Link>, выбранный срок, количество устройств и итоговую стоимость.</span>
+          </label>
+          <p className="mt-3 text-xs text-gray-500">Обработка данных для заключения и исполнения договора описана в <Link href="/privacy" target="_blank" className="underline">политике конфиденциальности</Link>.</p>
+
           {canPayWithBalance && !balanceResult && (
             <button
               onClick={handlePayWithBalance}
-              disabled={busy}
+              disabled={busy || !offerAccepted}
               className="mt-6 w-full rounded-xl border border-brand-200 bg-brand-50 py-3 text-sm font-bold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
             >
               {balanceLoading
@@ -536,7 +543,7 @@ function PaymentForm() {
 
           <button
             onClick={handlePay}
-            disabled={busy || !!balanceResult}
+            disabled={busy || !offerAccepted || !!balanceResult}
             className="mt-3 w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
             {loading
@@ -552,139 +559,19 @@ function PaymentForm() {
             </p>
           )}
 
-          <p className="mt-4 text-center text-xs text-gray-400">
-            Нажимая кнопку, вы соглашаетесь с{" "}
-            <Link href="/offer" className="text-brand-600 underline">
-              условиями оферты
-            </Link>
-          </p>
+
         </div>
       </div>
     </section>
   );
 }
 
-function AuthGate({
-  info,
-  planId,
-  refParam,
-}: {
-  info: { label: string; durationDays: number; basePrice: number };
-  planId: string;
-  refParam: string | null;
-}) {
-  // Инлайн-заявка ссылки-подписки: не уводим пользователя с оффера. Почта —
-  // только канал доставки ссылки, нигде не сохраняется. ?ref= уходит в запрос
-  // (атрибуция при создании аккаунта), next возвращает сюда после входа.
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [sentTo, setSentTo] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const botUrl = `https://t.me/${siteConfig.botUsername}?start=${planId}`;
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    const trimmed = email.trim();
-    if (!trimmed.includes("@")) {
-      setError("Введите корректный email.");
-      return;
-    }
-    setBusy(true);
-    const result = await authApi.requestLink(
-      trimmed,
-      refParam ?? undefined,
-      `/payment/${planId}`,
-    );
-    setBusy(false);
-    if (!result.ok) {
-      setError(
-        result.error === "disposable_email"
-          ? "Регистрация с временной почтой недоступна. Используйте постоянный email."
-          : result.error === "rate_limited"
-            ? "Слишком много попыток. Попробуйте позже."
-            : "Не удалось отправить письмо. Попробуйте позже.",
-      );
-      return;
-    }
-    setSentTo(trimmed);
-  };
-
-  return (
-    <section className="py-12">
-      <div className="mx-auto max-w-lg px-4">
-        <Link href="/#tariffs" className="text-sm font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400">
-          &larr; Назад к тарифам
-        </Link>
-        <div className="mt-6 rounded-2xl border border-gray-100 bg-white p-8 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Оформление подписки</h1>
-          <div className="mt-6 space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Тариф</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{info.label}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Период</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{info.durationDays} дней</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Подписка</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{info.basePrice.toLocaleString("ru-RU")} ₽</span>
-            </div>
-          </div>
-
-          <div className="mt-8 rounded-xl bg-brand-50 p-4 text-center dark:bg-brand-900/20">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              Введите почту — отправим ссылку для входа и оплаты
-            </p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Почта нигде не сохраняется. Или оплатите через Telegram-бота — без регистрации
-            </p>
-          </div>
-
-          {sentTo ? (
-            <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4 text-center dark:border-brand-800 dark:bg-brand-900/20">
-              <p className="text-sm font-semibold text-brand-900 dark:text-brand-200">
-                Проверьте почту
-              </p>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Мы отправили ссылку на <strong>{sentTo}</strong>. Откройте её —
-                вернём сюда для оплаты.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="mt-4 space-y-3">
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@example.com"
-                className="block w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-gray-100"
-                disabled={busy}
-              />
-              {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-              <button
-                type="submit"
-                onClick={() => reachGoal("auth_gate_link", { plan: planId })}
-                disabled={busy}
-                className="w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
-              >
-                {busy ? "Отправка..." : "Получить ссылку"}
-              </button>
-            </form>
-          )}
-          <a
-            href={botUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => reachGoal("auth_gate_bot", { plan: planId })}
-            className="mt-3 block w-full rounded-xl border border-gray-200 bg-white py-3 text-center text-sm font-bold text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
-          >
-            Оплатить через Telegram-бот
-          </a>
-        </div>
-      </div>
-    </section>
-  );
+function AuthGate({ info, planId }: { info: { label: string; durationDays: number; basePrice: number }; planId: string; refParam: string | null }) {
+  return <section className="mx-auto max-w-lg px-4 py-12">
+    <Link href="/#tariffs" className="underline">Назад к тарифам</Link>
+    <h1 className="my-5 text-2xl font-bold">Оформление подписки</h1>
+    <p className="mb-6">{info.label} · {info.durationDays} дней · {info.basePrice.toLocaleString("ru-RU")} ₽</p>
+    <LinkAccess next={`/payment/${encodeURIComponent(planId)}`} />
+    <a href={`https://t.me/${siteConfig.botUsername}`} className="mt-6 block underline">Открыть Telegram-бот</a>
+  </section>;
 }

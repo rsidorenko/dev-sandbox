@@ -1,3 +1,12 @@
+vi.mock("@/features/plans/PlansProvider", () => ({
+  usePlans: () => ({catalog:{ok:true,plans:[
+    {plan_id:"1d",duration_days:1,base_rubles:12}, {plan_id:"7d",duration_days:7,base_rubles:99},
+    {plan_id:"14d",duration_days:14,base_rubles:169}, {plan_id:"1m",duration_days:30,base_rubles:249},
+    {plan_id:"3m",duration_days:90,base_rubles:699}, {plan_id:"6m",duration_days:180,base_rubles:1259},
+    {plan_id:"365d",duration_days:365,base_rubles:2199}],global_discount:null,custom_day_price_rubles:15,extra_device_price_rubles:80,devices:{base:5,max:20}},
+    prices:{"1d":12,"7d":99,"14d":169,"1m":249,"3m":699,"6m":1259,"365d":2199},globalDiscount:null,loaded:true,reload:vi.fn()}),
+  CatalogUnavailable: () => <p>Нет каталога</p>,
+}));
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
@@ -19,6 +28,7 @@ it("сообщает о принятой оплате устройств при 
   />);
   await user.click(screen.getByRole("button", { name: /Устройства/ }));
   fireEvent.change(screen.getByRole("slider"), { target: { value: "6" } });
+  await user.click(screen.getByRole("checkbox"));
   await user.click(screen.getByRole("button", { name: /С баланса/ }));
   expect(await screen.findByRole("status")).toHaveTextContent("Повторно платить не нужно");
   expect(screen.queryByRole("button", { name: /С баланса/ })).not.toBeInTheDocument();

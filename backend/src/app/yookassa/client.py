@@ -66,8 +66,9 @@ class YooKassaClient:
         return_url: str,
         description: str = "Bravada VPN subscription",
         metadata: dict[str, str] | None = None,
+        idempotency_key: str | None = None,
     ) -> YooKassaPaymentResult:
-        idempotency_key = str(uuid.uuid4())
+        idempotency_key = idempotency_key or str(uuid.uuid4())
         amount_str = f"{amount_rubles}.00"
 
         body: dict = {

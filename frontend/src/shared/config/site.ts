@@ -22,7 +22,6 @@ export const siteConfig = {
   // Бизнес-параметры (единообразно для лендинга и страницы оплаты)
   trialDays: 3, // бесплатный пробный период в Telegram-боте
   refundDays: 7, // гарантия возврата
-  customPricePerDay: 15, // «свой тариф»: стоимость одного дня (исходное значение)
   devices: devicesConfig, // число устройств: базовое и максимум (единый источник правды)
 
   tariffs: [
@@ -30,63 +29,42 @@ export const siteConfig = {
       id: "1d",
       label: "1 день",
       durationDays: 1,
-      price: 12,
-      priceLabel: "12 ₽",
-      perDay: "12 ₽/день",
       popular: false,
     },
     {
       id: "7d",
       label: "7 дней",
       durationDays: 7,
-      price: 99,
-      priceLabel: "99 ₽",
-      perDay: "≈ 14 ₽/день",
       popular: false,
     },
     {
       id: "14d",
       label: "2 недели",
       durationDays: 14,
-      price: 169,
-      priceLabel: "169 ₽",
-      perDay: "≈ 12 ₽/день",
       popular: false,
     },
     {
       id: "1m",
       label: "1 месяц",
       durationDays: 30,
-      price: 249,
-      priceLabel: "249 ₽",
-      perDay: "≈ 8 ₽/день",
       popular: false,
     },
     {
       id: "3m",
       label: "3 месяца",
       durationDays: 90,
-      price: 699,
-      priceLabel: "699 ₽",
-      perDay: "≈ 8 ₽/день",
       popular: true,
     },
     {
       id: "6m",
       label: "6 месяцев",
       durationDays: 180,
-      price: 1259,
-      priceLabel: "1 259 ₽",
-      perDay: "≈ 7 ₽/день",
       popular: false,
     },
     {
       id: "365d",
       label: "1 год",
       durationDays: 365,
-      price: 2199,
-      priceLabel: "2 199 ₽",
-      perDay: "≈ 6 ₽/день",
       popular: false,
     },
   ] as const,

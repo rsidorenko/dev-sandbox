@@ -1,3 +1,12 @@
+vi.mock("@/features/plans/PlansProvider", () => ({
+  usePlans: () => ({catalog:{ok:true,plans:[
+    {plan_id:"1d",duration_days:1,base_rubles:12}, {plan_id:"7d",duration_days:7,base_rubles:99},
+    {plan_id:"14d",duration_days:14,base_rubles:169}, {plan_id:"1m",duration_days:30,base_rubles:249},
+    {plan_id:"3m",duration_days:90,base_rubles:699}, {plan_id:"6m",duration_days:180,base_rubles:1259},
+    {plan_id:"365d",duration_days:365,base_rubles:2199}],global_discount:null,custom_day_price_rubles:15,extra_device_price_rubles:80,devices:{base:5,max:20}},
+    prices:{"1d":12,"7d":99,"14d":169,"1m":249,"3m":699,"6m":1259,"365d":2199},globalDiscount:null,loaded:true,reload:vi.fn()}),
+  CatalogUnavailable: () => <p>Нет каталога</p>,
+}));
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -64,34 +73,12 @@ describe("Checkout (payment/[planId])", () => {
     expect(screen.getByText("Тариф не найден")).toBeInTheDocument();
   });
 
-  it("shows the AuthGate (email link request + Telegram) for an unauthenticated visitor", () => {
+  it("предлагает вставить или создать ссылку без email", () => {
     auth.authenticated = false;
-    auth.loading = false;
     render(<PaymentPage />);
-    expect(screen.getByPlaceholderText("email@example.com")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Получить ссылку" }),
-    ).toBeInTheDocument();
-    const botLink = screen.getByRole("link", { name: /Telegram-бот/ });
-    expect(botLink.getAttribute("href")).toMatch(
-      /^https:\/\/t\.me\/.+bot\?start=1m$/,
-    );
-  });
-
-  it("requests a login link from the gate and shows the sent state", async () => {
-    auth.authenticated = false;
-    auth.loading = false;
-    authApi.requestLink.mockResolvedValue({ ok: true, data: { ok: true, sent: true } });
-    const user = userEvent.setup();
-    render(<PaymentPage />);
-    await user.type(screen.getByPlaceholderText("email@example.com"), "user@example.com");
-    await user.click(screen.getByRole("button", { name: "Получить ссылку" }));
-    expect(await screen.findByText("Проверьте почту")).toBeInTheDocument();
-    expect(authApi.requestLink).toHaveBeenCalledWith(
-      "user@example.com",
-      undefined,
-      "/payment/1m",
-    );
+    expect(screen.getByLabelText("Ссылка подписки")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"Получить ссылку подписки"})).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("email@example.com")).not.toBeInTheDocument();
   });
 
   it("renders the checkout form with the base total for an authenticated visitor", () => {
@@ -185,6 +172,7 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
+    await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /Оплатить с баланса/ }));
     await waitFor(() => {
       expect(paymentApi.payWithBalance).toHaveBeenCalled();
@@ -203,6 +191,7 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
+    await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /Оплатить с баланса/ }));
     expect(await screen.findByText(/Повторно платить не нужно/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Оплатить с баланса/ })).not.toBeInTheDocument();
@@ -218,11 +207,12 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
+    await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /Перейти к оплате/ }));
     await waitFor(() => {
       expect(window.location.href).toBe("https://pay.example/x");
     });
-    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5, "card");
+    expect(paymentApi.create).toHaveBeenCalledWith("1m", 5, "card", 24900, true);
   });
 
   it("shows an Alert when payment is unavailable", async () => {
@@ -236,6 +226,7 @@ describe("Checkout (payment/[planId])", () => {
     });
     const user = userEvent.setup();
     render(<PaymentPage />);
+    await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /Перейти к оплате/ }));
     expect(
       await screen.findByText("Оплата временно недоступна"),

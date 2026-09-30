@@ -1,5 +1,2 @@
-/** Ответ POST /api/v1/auth/link/request — заявка ссылки-подписки на почту. */
-export interface LinkRequestResponse {
-  ok: boolean;
-  sent: boolean;
-}
+/** Временная ссылка, выданная непосредственно на экране. */
+export interface LinkRequestResponse { ok: boolean; subscription_url: string; expires_at: string; }

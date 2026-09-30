@@ -150,12 +150,12 @@ def test_link_request_rejects_disposable_email(monkeypatch: pytest.MonkeyPatch) 
     client = TestClient(app)
 
     r = client.post("/api/v1/auth/link/request", json={"email": "spammer@mailinator.com"})
-    assert r.status_code == 422
+    assert r.status_code == 400
     body = r.json()
     assert body["ok"] is False
-    assert body["error"] == "disposable_email"
+    assert body["error"] == "invalid_request"
 
     # normal provider passes the disposable gate (-> SMTP-not-configured 503, NOT 422)
     r2 = client.post("/api/v1/auth/link/request", json={"email": "user@gmail.com"})
-    assert r2.status_code == 503
-    assert r2.json()["error"] == "email_not_configured"
+    assert r2.status_code == 400
+    assert r2.json()["error"] == "invalid_request"

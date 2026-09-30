@@ -521,6 +521,16 @@ async def fulfill_subscription_payment(
     if not internal_user_id:
         _LOGGER.warning("%s webhook: no user identity in metadata ref=%s", provider_key, external_payment_id)
         return safe_json_error(400, "invalid_payload")
+    if metadata.get("pending_web_attempt"):
+        from app.persistence.pending_web_links import promote_paid_link
+        try:
+            await promote_paid_link(pool, internal_user_id=internal_user_id,
+                attempt_id=metadata["pending_web_attempt"],
+                provider=external_event_id.split(":", 1)[0],
+                payment_id=external_payment_id, amount_kopecks=amount_kopecks)
+        except Exception:
+            _LOGGER.warning("pending_payment_promotion_failed", exc_info=False)
+            return safe_json_error(503, "temporarily_unavailable")
     if telegram_user_id <= 0:
         # u<tg>-identity → восстановить tg-id (нотификации/рефералки);
         # web_<hash> → 0 (у web-only аккаунта нет Telegram-чата).
@@ -619,4 +629,6 @@ async def fulfill_subscription_payment(
         },
     )
 
+    if metadata.get("pending_web_attempt"):
+        await pool.execute("UPDATE pending_web_payment_attempts SET fulfilled_at=now() WHERE attempt_id=$1 AND status='succeeded'", metadata["pending_web_attempt"])
     return JSONResponse({"ok": True, "accepted": True}, status_code=200)

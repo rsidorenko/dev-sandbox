@@ -13,9 +13,8 @@ describe("siteConfig tariffs (data invariants)", () => {
   it("every tariff has positive duration, price and string labels", () => {
     for (const t of tariffs) {
       expect(t.durationDays).toBeGreaterThan(0);
-      expect(t.price).toBeGreaterThan(0);
-      expect(typeof t.priceLabel).toBe("string");
-      expect(typeof t.perDay).toBe("string");
+      expect(typeof t.label).toBe("string");
+      expect(t).not.toHaveProperty("price");
     }
   });
 
@@ -30,7 +29,7 @@ describe("siteConfig tariffs (data invariants)", () => {
   it("business parameters are set", () => {
     expect(siteConfig.trialDays).toBeGreaterThan(0);
     expect(siteConfig.refundDays).toBeGreaterThan(0);
-    expect(siteConfig.customPricePerDay).toBeGreaterThan(0);
+    expect(siteConfig).not.toHaveProperty("customPricePerDay");
     expect(siteConfig.botUsername).toBeTruthy();
     expect(siteConfig.siteUrl).toMatch(/^https:\/\//);
   });

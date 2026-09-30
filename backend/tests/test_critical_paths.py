@@ -661,7 +661,7 @@ def test_create_payment_web_only_user_does_not_crash_and_carries_internal_id(mon
     # Secret IS set — must NOT trigger a crash for the web-only (tg=-1) user.
     monkeypatch.setenv("CHECKOUT_REFERENCE_SECRET", "super-secret")
 
-    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1d", "device_count": 5}, pool)))
+    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1d", "device_count": 5, "offer_accepted": True, "offer_version":"2026-09-30", "expected_amount_kopecks":1200}, pool)))
 
     assert resp.status_code == 200
     body = json.loads(resp.body)
@@ -696,7 +696,7 @@ def test_create_payment_telegram_user_still_creates_checkout_reference(monkeypat
     monkeypatch.setenv("YOOKASSA_ENABLED", "1")
     monkeypatch.setenv("CHECKOUT_REFERENCE_SECRET", "super-secret")
 
-    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1m", "device_count": 5}, pool)))
+    resp = _run(handle_create_payment(_PaymentRequest({"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version":"2026-09-30", "expected_amount_kopecks":24900}, pool)))
 
     assert resp.status_code == 200
     metadata = fake_client.create_payment.call_args.kwargs["metadata"]

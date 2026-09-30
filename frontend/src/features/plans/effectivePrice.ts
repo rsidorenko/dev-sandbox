@@ -8,6 +8,7 @@
  *   клэмп [1..base], округление как у промо;
  * - при равенстве выигрывает промокод (tie → promo, зеркалит бэкенд).
  */
+import { roundRubles } from "@/entities/payment/calc";
 import { discountedRubles } from "@/features/promocode/discount";
 import type { AppliedPromo } from "@/features/promocode/api";
 import type { GlobalDiscountDescriptor } from "@/entities/plans/types";
@@ -29,7 +30,7 @@ export function globalDiscountRubles(
   if (!gd || base <= 0 || planId.startsWith("custom:")) return base;
   const discounted =
     gd.discount_kind === "percent"
-      ? Math.round((base * (100 - gd.discount_value)) / 100)
+      ? roundRubles((base * (100 - gd.discount_value)) / 100)
       : base - gd.discount_value;
   return Math.max(1, Math.min(discounted, base));
 }

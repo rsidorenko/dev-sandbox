@@ -58,6 +58,7 @@ class BalancePaymentStatus(StrEnum):
     INVALID_DEVICE_COUNT = "invalid_device_count"
     VLESS_FAILED = "vless_creation_failed"
     INTERNAL_ERROR = "balance_payment_failed"
+    PRICE_CHANGED = "price_changed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,7 @@ async def pay_plan_from_balance(
     vless_provider: Any | None = None,
     notifier: FulfillmentActivationTelegramNotifier | None = None,
     active_until_normalization: str = "wall_clock",
+    expected_amount_kopecks: int | None = None,
 ) -> BalancePaymentResult:
     plan = await get_plan_pricing(pool).get_plan(plan_id)
     if plan is None:
@@ -132,6 +134,9 @@ async def pay_plan_from_balance(
         base_kopecks=total_kopecks,
         plan_id=plan_id,
     )
+
+    if expected_amount_kopecks is not None and expected_amount_kopecks != charge_kopecks:
+        return BalancePaymentResult(BalancePaymentStatus.PRICE_CHANGED, internal_user_id, cid, amount_kopecks=charge_kopecks)
 
     if pool is not None:
         result = await _pay_plan_pg(

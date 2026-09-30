@@ -1,62 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  CUSTOM_PRICE_PER_DAY,
-  DEFAULT_DEVICES,
-  EXTRA_DEVICE_PRICE,
-  calcExtraDeviceCost,
-  getTariffInfo,
-} from "./calc";
-
-describe("constants", () => {
-  it("DEFAULT_DEVICES is 5", () => {
-    expect(DEFAULT_DEVICES).toBe(5);
-  });
-
-  it("EXTRA_DEVICE_PRICE is 80", () => {
-    expect(EXTRA_DEVICE_PRICE).toBe(80);
-  });
-
-  it("CUSTOM_PRICE_PER_DAY mirrors siteConfig", () => {
-    expect(CUSTOM_PRICE_PER_DAY).toBe(15);
-  });
-});
-
-describe("calcExtraDeviceCost", () => {
-  it("returns 0 when there are no extra devices", () => {
-    expect(calcExtraDeviceCost(30, 0)).toBe(0);
-  });
-
-  it("charges per-device proportional to duration", () => {
-    // 30 дней (1 месяц): round(80/30*30) = 80 за каждое доп. устройство.
-    expect(calcExtraDeviceCost(30, 1)).toBe(80);
-    expect(calcExtraDeviceCost(30, 2)).toBe(160);
-    // 14 дней: round(80/30*14) = round(37.33) = 37.
-    expect(calcExtraDeviceCost(14, 2)).toBe(74);
-  });
-});
-
-describe("getTariffInfo", () => {
-  it("resolves a fixed plan from siteConfig", () => {
-    expect(getTariffInfo("1m")).toEqual({
-      label: "1 месяц",
-      durationDays: 30,
-      basePrice: 249,
-    });
-  });
-
-  it("resolves custom:N as days × CUSTOM_PRICE_PER_DAY", () => {
-    expect(getTariffInfo("custom:10")).toEqual({
-      label: "10 дней",
-      durationDays: 10,
-      basePrice: 150,
-    });
-  });
-
-  it("pluralizes custom:1 correctly", () => {
-    expect(getTariffInfo("custom:1")?.label).toBe("1 день");
-  });
-
-  it("returns null for an unknown plan", () => {
-    expect(getTariffInfo("nope")).toBeNull();
-  });
+import { calcExtraDeviceCost, getTariffInfo, roundRubles } from "./calc";
+import type { PlansCatalogResponse } from "@/entities/plans/types";
+export const catalog: PlansCatalogResponse = {ok:true, plans:[{plan_id:"1d",duration_days:1,base_rubles:12},{plan_id:"1m",duration_days:30,base_rubles:439}],global_discount:null,custom_day_price_rubles:17,extra_device_price_rubles:85,devices:{base:5,max:20}};
+describe("серверный каталог",()=>{
+ it("не подставляет устаревшую цену при отсутствии каталога",()=>expect(getTariffInfo("1m")).toBeNull());
+ it("использует цену и длительность сервера",()=>expect(getTariffInfo("1m",catalog)?.basePrice).toBe(439));
+ it("использует серверную цену произвольного срока",()=>expect(getTariffInfo("custom:10",catalog)?.basePrice).toBe(170));
+ it("ограничивает произвольный срок",()=>expect(getTariffInfo("custom:366",catalog)).toBeNull());
+ it("считает устройства по серверной цене",()=>expect(calcExtraDeviceCost(30,2,85)).toBe(170));
+ it("округляет как Python",()=>{expect(roundRubles(2.5)).toBe(2);expect(roundRubles(3.5)).toBe(4);});
 });
