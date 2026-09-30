@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { userApi } from "@/entities/user/api";
-import type { KeyEntry } from "@/entities/user/types";
+import type { KeyEntry, RotationStatus } from "@/entities/user/types";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { Modal } from "@/shared/ui/Modal";
 
@@ -18,27 +18,57 @@ export function KeysModal({ open, onClose }: Props) {
   const [loaded, setLoaded] = useState(false);
   const [reissueConfirm, setReissueConfirm] = useState(false);
   const [reissuing, setReissuing] = useState(false);
+  const [rotation, setRotation] = useState<RotationStatus>("idle");
+  const [error, setError] = useState("");
   const { copy, isCopied } = useCopyToClipboard();
 
   useEffect(() => {
-    if (!open || loaded) return;
+    if (!open) return;
+    let cancelled = false;
     setLoading(true);
     userApi.keys().then((result) => {
+      if (cancelled) return;
       if (result.ok) {
         setKeys(result.data.keys);
         setSubUrl(result.data.subscription_url);
+        setRotation(result.data.rotation_status ?? "idle");
+        setError("");
+      } else {
+        setError("Не удалось загрузить ключи. Закройте окно и попробуйте снова.");
       }
       setLoading(false);
       setLoaded(true);
     });
-  }, [open, loaded]);
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const pending = ["provisioning", "waiting", "retiring"].includes(rotation);
+  useEffect(() => {
+    if (!open || !pending) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      userApi.keys().then((result) => {
+        if (cancelled || !result.ok) return;
+        setKeys(result.data.keys);
+        setSubUrl(result.data.subscription_url);
+        setRotation(result.data.rotation_status ?? "idle");
+      });
+    }, 15000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [open, pending]);
 
   const handleReissue = async () => {
     setReissuing(true);
+    setError("");
     const result = await userApi.reissueKeys();
     if (result.ok) {
       setKeys(result.data.keys);
       setSubUrl(result.data.subscription_url);
+      setRotation(result.data.rotation_status ?? "waiting");
+    } else {
+      setError("Перевыпуск пока не подтверждён. Обновите статус или повторите попытку: новое поколение повторно не создастся.");
+      const current = await userApi.keys();
+      if (current.ok) setRotation(current.data.rotation_status ?? "idle");
     }
     setReissuing(false);
     setReissueConfirm(false);
@@ -63,6 +93,16 @@ export function KeysModal({ open, onClose }: Props) {
             ✕
           </button>
         </div>
+
+        {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
+        {rotation !== "idle" && (
+          <p role="status" className="mt-4 text-sm text-gray-600 dark:text-gray-300">
+            {rotation === "provisioning" && "Создаём новые ключи. Старые пока продолжают работать."}
+            {rotation === "waiting" && "Новые ключи готовы. Обновите подписку в VPN-приложении. После обнаружения первого трафика по новым ключам старые автоматически удалятся на всех серверах. Проверка выполняется периодически. Обновите подписку и на остальных устройствах. Ссылка подписки остаётся прежней."}
+            {rotation === "retiring" && "Трафик по новым ключам обнаружен. Завершаем удаление старых ключей на серверах."}
+            {rotation === "completed" && "Переход завершён: старые ключи удалены. На всех устройствах используйте обновлённую подписку."}
+          </p>
+        )}
 
         {!loaded && !loading && <p className="mt-6 text-center text-gray-500 dark:text-gray-400">Загрузка ключей...</p>}
 
@@ -121,15 +161,15 @@ export function KeysModal({ open, onClose }: Props) {
               {!reissueConfirm ? (
                 <button
                   onClick={() => setReissueConfirm(true)}
-                  disabled={reissuing}
+                  disabled={reissuing || pending}
                   className="w-full rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800/50 dark:text-red-400 dark:hover:bg-red-900/20"
                 >
-                  Перевыпустить ключи
+                  {pending ? "Перевыпуск выполняется" : "Перевыпустить ключи"}
                 </button>
               ) : (
                 <div className="space-y-2">
                   <p className="text-sm text-red-600 dark:text-red-400">
-                    Старые ключи перестанут работать. Продолжить?
+                    Будут созданы новые ключи. Старые удалятся на всех серверах после обнаружения первого трафика по новым. На всех устройствах потребуется обновить подписку; сама ссылка останется прежней. Продолжить?
                   </p>
                   <div className="flex gap-2">
                     <button

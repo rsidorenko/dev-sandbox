@@ -70,6 +70,8 @@ def resolve_server_id(configs: Sequence[XuiServerConfig], email: str) -> int | N
     нет (email не из этого хоста / конфиг сменился).
     """
     wanted_transport = "xhttp" if email.startswith("x-user-") else "tcp"
+    if "-g" in email and "-t" in email:
+        wanted_transport = email.rsplit("-t", 1)[1]
     for cfg in configs:
         if cfg.transport_type == wanted_transport:
             return cfg.server_id

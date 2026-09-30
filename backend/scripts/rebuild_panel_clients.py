@@ -61,10 +61,10 @@ def _is_bot_email(email: str) -> bool:
     return any(email.startswith(p) for p in _BOT_EMAIL_PREFIXES)
 
 
-def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
-    """Mirror of xui_vless_provider._email_from_internal."""
-    prefix = {"xhttp": "x-"}.get(transport_type, "")
-    return f"{prefix}user-{internal_user_id[:16]}"
+def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp", email_seed: str | None = None) -> str:
+    """Общий идентификатор поколения, совместимый с runtime-провайдером."""
+    from app.issuance.key_identity import key_email
+    return key_email(internal_user_id, transport_type, email_seed)
 
 
 def _vless_uuid_for_transport(internal_user_id: str, transport_type: str, key_seed: str | None = None) -> str:
@@ -297,8 +297,10 @@ async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
     do NOT select or filter on user_identities.vless_uuid (NULL for everyone on the
     Telegram flow since PR #320); the per-transport uuid is computed via
     _vless_uuid_for_transport at provisioning/verify time."""
+    if await pool.fetchval("SELECT EXISTS (SELECT 1 FROM user_identities WHERE vless_rotation_pending)"):
+        raise RuntimeError("Полная пересборка запрещена при незавершённой ротации; используйте штатную сверку")
     rows = await pool.fetch(
-        """SELECT i.internal_user_id, i.vless_key_seed,
+        """SELECT i.internal_user_id, i.vless_key_seed, i.vless_email_seed,
                   s.device_count, s.active_until_utc
            FROM user_identities i
            JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
@@ -309,6 +311,7 @@ async def _load_active_users(pool: asyncpg.Pool) -> list[dict]:
         {
             "internal_user_id": r["internal_user_id"],
             "vless_key_seed": r.get("vless_key_seed"),
+            "vless_email_seed": r.get("vless_email_seed"),
             "device_count": r["device_count"] or 0,
             "active_until_utc": r["active_until_utc"],
         }
@@ -447,7 +450,7 @@ async def phase_rebuild(users: list[dict], panels: list[PanelClient],
             for u in users:
                 uid = u["internal_user_id"]
                 uuid = _vless_uuid_for_transport(uid, pc.transport_type, u.get("vless_key_seed"))
-                email = _email_from_internal(uid, transport_type=pc.transport_type)
+                email = _email_from_internal(uid, transport_type=pc.transport_type, email_seed=u.get("vless_email_seed"))
                 expiry_ts = _expiry_from_datetime(u["active_until_utc"])
                 limit_ip = u["device_count"] if u["device_count"] > 0 else _TRIAL_DEVICE_LIMIT
 
@@ -498,7 +501,7 @@ async def phase_verify(users: list[dict], panels: list[PanelClient]) -> dict:
         uid = u["internal_user_id"]
 
         for pc in panels:
-            email = _email_from_internal(uid, transport_type=pc.transport_type)
+            email = _email_from_internal(uid, transport_type=pc.transport_type, email_seed=u.get("vless_email_seed"))
             # Expected uuid is DERIVED per (user, transport), not the stored
             # user_identities.vless_uuid (NULL since PR #320).
             expected_uuid = _vless_uuid_for_transport(uid, pc.transport_type, u.get("vless_key_seed"))

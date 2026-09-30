@@ -177,7 +177,7 @@ async def run_slice1_httpx_live_from_env() -> PollingRunSummary:
 
             vp = process.app.bundle.bundle.composition.vless_provider
             if isinstance(vp, XuiVlessProvider):
-                _sync_scheduler = ServerSyncScheduler(vless_provider=vp)
+                _sync_scheduler = ServerSyncScheduler(vless_provider=vp, pool=process.app.bundle.pg_pool)
                 asyncio.create_task(_sync_scheduler.run())
         except Exception:
             _LOGGER.warning("server_sync_scheduler_start_failed", exc_info=True)

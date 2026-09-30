@@ -114,6 +114,9 @@ class PostgresTrafficStatsRepository:
                               WHERE observed.email IN (
                                   'user-' || left(s.internal_user_id, 16),
                                   'x-user-' || left(s.internal_user_id, 16)
+                              ) OR EXISTS (
+                                  SELECT 1 FROM vless_key_emails ke
+                                  WHERE ke.internal_user_id=s.internal_user_id AND ke.email=observed.email
                               )
                           )
                         RETURNING s.internal_user_id
@@ -131,10 +134,11 @@ class PostgresTrafficStatsRepository:
             total = await conn.fetchval(
                 "SELECT COALESCE(SUM(uplink_bytes + downlink_bytes), 0) "
                 "FROM bare_xray_traffic_daily "
-                "WHERE email = ANY($1) AND stat_date >= $2 AND stat_date <= $3",
+                "WHERE (email = ANY($1) OR email IN (SELECT email FROM vless_key_emails WHERE internal_user_id=$4)) AND stat_date >= $2 AND stat_date <= $3",
                 list(user_emails_for_internal(internal_user_id)),
                 first,
                 last,
+                internal_user_id,
             )
         return int(total or 0)
 
@@ -146,10 +150,11 @@ class PostgresTrafficStatsRepository:
                 "SELECT COALESCE(SUM(uplink_bytes), 0) AS upload_bytes, "
                 "COALESCE(SUM(downlink_bytes), 0) AS download_bytes "
                 "FROM bare_xray_traffic_daily "
-                "WHERE email = ANY($1) AND stat_date >= $2 AND stat_date <= $3",
+                "WHERE (email = ANY($1) OR email IN (SELECT email FROM vless_key_emails WHERE internal_user_id=$4)) AND stat_date >= $2 AND stat_date <= $3",
                 list(user_emails_for_internal(internal_user_id)),
                 first,
                 last,
+                internal_user_id,
             )
         if row is None:
             return 0, 0
@@ -167,12 +172,13 @@ class PostgresTrafficStatsRepository:
                 "SELECT server_id, COALESCE(SUM(uplink_bytes), 0) AS up_bytes, "
                 "COALESCE(SUM(downlink_bytes), 0) AS down_bytes "
                 "FROM bare_xray_traffic_daily "
-                "WHERE email = ANY($1) AND stat_date >= $2 AND stat_date <= $3 "
+                "WHERE (email = ANY($1) OR email IN (SELECT email FROM vless_key_emails WHERE internal_user_id=$4)) AND stat_date >= $2 AND stat_date <= $3 "
                 "GROUP BY server_id "
                 "ORDER BY (SUM(uplink_bytes) + SUM(downlink_bytes)) DESC",
                 list(user_emails_for_internal(internal_user_id)),
                 first,
                 last,
+                internal_user_id,
             )
         return [
             {

@@ -20,6 +20,7 @@ def _request(row):
     pool = AsyncMock()
     pool.fetchrow.side_effect = fetchrow
     provider = AsyncMock()
+    provider.rotation_status.return_value = "waiting"
     provider.revoke_user.return_value = VlessProviderResult(VlessProviderOutcome.SUCCESS)
     provider.reissue_user.return_value = VlessProviderResult(
         VlessProviderOutcome.SUCCESS, VlessUserConfig("new", "subscription", ())

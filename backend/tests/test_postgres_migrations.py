@@ -152,6 +152,7 @@ def test_sorted_migration_sql_paths_repo_migrations_order() -> None:
         "105_trial_provisioned_at.sql",
         "106_broadcast_bonus_funnel.sql",
         "107_pending_web_links.sql",
+        "108_graceful_key_rotation.sql",
     ]
 
 

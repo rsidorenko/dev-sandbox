@@ -58,6 +58,7 @@ _SERVER_REGISTRY: tuple[dict[str, str], ...] = (
 
 
 class VlessProviderPort(Protocol):
+    async def rotation_status(self, internal_user_id: str) -> str: ...
     async def sync_user_access(self, *, internal_user_id: str) -> VlessProviderResult: ...
     async def create_user(
         self,
@@ -107,6 +108,9 @@ class StubVlessProvider:
     def __init__(self) -> None:
         self._created_users: set[str] = set()
         self._rotated_uuids: dict[str, str] = {}
+
+    async def rotation_status(self, internal_user_id: str) -> str:
+        return "idle"
 
     async def create_user(
         self,

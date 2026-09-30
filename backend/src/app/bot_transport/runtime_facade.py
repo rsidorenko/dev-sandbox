@@ -2492,38 +2492,32 @@ async def _process_remove_device(
     uid: int | None,
     new_count: int,
 ) -> tuple[str, dict[str, Any] | None]:
-    from app.application.interfaces import SubscriptionSnapshot
+    from app.application.device_limit_service import reduce_device_limit
 
     if uid is None:
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
-
     internal_user_id = await _get_internal_user_id(composition, uid)
     if internal_user_id is None:
         return text_error_generic(), back_only_keyboard(CB_SETTINGS)
-
-    snap = await composition.snapshots.get_for_user(internal_user_id)
-    if snap is None:
-        return text_add_device_unavailable(), back_only_keyboard(CB_MAIN_MENU)
-
-    current = snap.device_count or DEVICES_DEFAULT
-    if new_count >= current or new_count < DEVICES_DEFAULT:
-        plan_name = plan_display_name(snap.plan_id) if snap.plan_id else None
-        active_until = snap.active_until_utc.date().isoformat() if snap.active_until_utc else None
-        return text_settings(
-            True, plan_name=plan_name, device_count=current, active_until=active_until
-        ), settings_keyboard(True, current)
-
-    await composition.snapshots.upsert_state(
-        SubscriptionSnapshot(
-            internal_user_id=internal_user_id,
-            state_label=snap.state_label,
-            active_until_utc=snap.active_until_utc,
-            plan_id=snap.plan_id,
-            device_count=new_count,
-        )
+    status = await reduce_device_limit(
+        pool=_get_pool_from_composition(composition),
+        snapshots=composition.snapshots,
+        provider=composition.vless_provider,
+        internal_user_id=internal_user_id,
+        new_count=new_count,
     )
-
-    return text_remove_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
+    if status == "done":
+        return text_remove_device_success(new_count), back_only_keyboard(CB_MAIN_MENU)
+    if status == "pending":
+        return (
+            "Лимит сохранён. Применяем его на серверах; при временном сбое повторим автоматически.",
+            back_only_keyboard(CB_SETTINGS),
+        )
+    if status == "unchanged":
+        return "Лимит уже изменён. Откройте настройки заново.", back_only_keyboard(CB_SETTINGS)
+    if status == "busy":
+        return "Подписка обновляется. Попробуйте ещё раз чуть позже.", back_only_keyboard(CB_SETTINGS)
+    return text_add_device_unavailable(), back_only_keyboard(CB_SETTINGS)
 
 
 # ─── Storefront rendering ────────────────────────────────────────────
@@ -2833,7 +2827,13 @@ async def _render_storefront_response(
                     internal_user_id=id_rec.internal_user_id, **grant
                 )
                 if vless_result.outcome == VlessProviderOutcome.SUCCESS and vless_result.config is not None:
-                    text = "✅ Ключи перевыпущены!\n\n" + text_my_keys(vless_result.config)
+                    text = (
+                        "✅ Новые ключи готовы.\n\n"
+                        "Обновите подписку в VPN-приложении. После обнаружения первого трафика по новым ключам "
+                        "старые автоматически удалятся на всех серверах. Проверка выполняется периодически.\n"
+                        "На остальных устройствах тоже потребуется обновить подписку. Ссылка подписки остаётся прежней.\n\n"
+                        + text_my_keys(vless_result.config)
+                    )
                     keyboard = keys_keyboard()
                 else:
                     text, keyboard = text_keys_not_available(), back_only_keyboard(CB_MAIN_MENU)

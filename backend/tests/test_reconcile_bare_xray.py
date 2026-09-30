@@ -381,12 +381,12 @@ def test_reconcile_repairs_rotated_uuid_restored_by_restart():
     client = _FakeBareXrayClient(server_id=2, tag="tcp", transport="tcp", present=["user-u1"])
     client.list_user_accounts = AsyncMock(return_value={"user-u1": ("old-uuid", "xtls-rprx-vision")})
     p = _provider(_FakePool([{"internal_user_id": "u1"}]), [client])
-    p._uuid_for_transport = AsyncMock(return_value="rotated-uuid")
+    p._key_state = AsyncMock(return_value={"vless_key_seed": "rotated"})
 
     result = _run(p.reconcile_bare_xray())
 
     assert client.removed == ["user-u1"]
-    assert client.added == [("user-u1", "rotated-uuid")]
+    assert client.added == [("user-u1", _vless_uuid_for_transport("u1", "tcp", "rotated"))]
     assert result["failed_inbounds"] == 0
 
 

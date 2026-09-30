@@ -72,7 +72,7 @@ async def _show_plans(pool: asyncpg.Pool) -> None:
 
 async def _lookup_user(pool: asyncpg.Pool, tg_id: int) -> asyncpg.Record | None:
     return await pool.fetchrow(
-        "SELECT telegram_user_id, internal_user_id, vless_uuid, vless_key_seed, vless_rotation_pending FROM user_identities "
+        "SELECT telegram_user_id, internal_user_id, vless_uuid, vless_key_seed, vless_email_seed, vless_rotation_pending FROM user_identities "
         "WHERE telegram_user_id = $1",
         tg_id,
     )
@@ -99,7 +99,7 @@ async def _show_user(pool: asyncpg.Pool, tg_id: int) -> dict | None:
     else:
         print("  snapshot: NONE")
     return {"internal_user_id": ident["internal_user_id"], "vless_uuid": ident["vless_uuid"],
-            "vless_key_seed": ident["vless_key_seed"], "vless_rotation_pending": ident["vless_rotation_pending"],
+            "vless_key_seed": ident["vless_key_seed"], "vless_email_seed": ident["vless_email_seed"], "vless_rotation_pending": ident["vless_rotation_pending"],
             "snap": snap, "device_count": (snap["device_count"] if snap else None)}
 
 
@@ -194,7 +194,7 @@ async def grant(tg_id: int, plan_id: str, dsn: str) -> None:
                     inbound_id=s["inbound_id"], server_id=s["server_id"], label=s["label"],
                     transport_type=s["transport_type"], server_host=s["server_host"], server_port=s["server_port"],
                 )
-                email = _email_from_internal(internal_user_id, transport_type=s["transport_type"])
+                email = _email_from_internal(internal_user_id, transport_type=s["transport_type"], email_seed=info.get("vless_email_seed"))
                 ok = await pc.add_client(
                     user_uuid=_vless_uuid_for_transport(internal_user_id, s["transport_type"], info.get("vless_key_seed")),
                     email=email, expiry_ts=expiry_ts,

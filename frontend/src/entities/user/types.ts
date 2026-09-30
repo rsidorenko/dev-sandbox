@@ -39,7 +39,10 @@ export interface KeyEntry {
   link: string;
 }
 
+export type RotationStatus = "idle" | "provisioning" | "waiting" | "retiring" | "completed";
+
 export interface KeysResponse {
+  rotation_status?: RotationStatus;
   ok: boolean;
   keys: KeyEntry[];
   subscription_url: string | null;

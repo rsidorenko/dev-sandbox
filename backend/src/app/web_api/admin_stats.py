@@ -259,11 +259,12 @@ _ACTIVE_BY_PLAN = (
 # всегда по дню, без TZ-конверсий (в отличие от временных рядов выше). ГБ = up+down.
 _TRAFFIC_SERIES = (
     "WITH eligible_emails AS ("
-    "SELECT 'user-' || left(internal_user_id, 16) AS email FROM analytics_eligible_user_ids "
-    "UNION SELECT 'x-user-' || left(internal_user_id, 16) FROM analytics_eligible_user_ids) "
+    "SELECT 'user-' || left(internal_user_id, 16) AS email, internal_user_id FROM analytics_eligible_user_ids "
+    "UNION SELECT 'x-user-' || left(internal_user_id, 16), internal_user_id FROM analytics_eligible_user_ids "
+    "UNION SELECT ke.email, ke.internal_user_id FROM vless_key_emails ke JOIN analytics_eligible_user_ids e USING (internal_user_id)) "
     "SELECT t.stat_date AS bucket, "
     "ROUND(SUM(t.uplink_bytes + t.downlink_bytes) / 1073741824.0, 2) AS gb, "
-    "COUNT(DISTINCT t.email) AS users "
+    "COUNT(DISTINCT e.internal_user_id) AS users "
     "FROM bare_xray_traffic_daily t JOIN eligible_emails e ON e.email = t.email "
     "WHERE t.stat_date >= $1::date AND t.stat_date <= $2::date "
     "GROUP BY stat_date ORDER BY stat_date"
@@ -271,11 +272,12 @@ _TRAFFIC_SERIES = (
 
 _TRAFFIC_BY_SERVER = (
     "WITH eligible_emails AS ("
-    "SELECT 'user-' || left(internal_user_id, 16) AS email FROM analytics_eligible_user_ids "
-    "UNION SELECT 'x-user-' || left(internal_user_id, 16) FROM analytics_eligible_user_ids) "
+    "SELECT 'user-' || left(internal_user_id, 16) AS email, internal_user_id FROM analytics_eligible_user_ids "
+    "UNION SELECT 'x-user-' || left(internal_user_id, 16), internal_user_id FROM analytics_eligible_user_ids "
+    "UNION SELECT ke.email, ke.internal_user_id FROM vless_key_emails ke JOIN analytics_eligible_user_ids e USING (internal_user_id)) "
     "SELECT COALESCE(v.label, 'server ' || t.server_id::text) AS label, "
     "ROUND(SUM(t.uplink_bytes + t.downlink_bytes) / 1073741824.0, 2) AS gb, "
-    "COUNT(DISTINCT t.email) AS users "
+    "COUNT(DISTINCT e.internal_user_id) AS users "
     "FROM bare_xray_traffic_daily t JOIN eligible_emails e ON e.email = t.email "
     "LEFT JOIN vpn_servers v ON v.id = t.server_id "
     "WHERE t.stat_date >= $1::date AND t.stat_date <= $2::date "
@@ -322,8 +324,8 @@ WITH trials AS (
            sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
     FROM trials tr
     JOIN bare_xray_traffic_daily t
-      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
-                     'x-user-' || left(tr.internal_user_id, 16))
+      ON (t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=tr.internal_user_id AND ke.email=t.email))
     WHERE t.stat_date >= greatest($3::date, tr.trial_date)
       AND t.stat_date <= $4::date
     GROUP BY tr.internal_user_id, t.stat_date, tr.trial_date
@@ -467,8 +469,8 @@ WITH assignments AS (
     JOIN LATERAL (
         SELECT sum(t.uplink_bytes + t.downlink_bytes) AS total_bytes
         FROM bare_xray_traffic_daily t
-        WHERE t.email IN ('user-' || left(a.internal_user_id, 16),
-                          'x-user-' || left(a.internal_user_id, 16))
+        WHERE (t.email IN ('user-' || left(a.internal_user_id, 16),
+                          'x-user-' || left(a.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=a.internal_user_id AND ke.email=t.email))
           AND t.stat_date >= (a.assigned_at AT TIME ZONE 'Europe/Moscow')::date
           AND t.stat_date < ((a.assigned_at + interval '10 days') AT TIME ZONE 'Europe/Moscow')::date
     ) traffic ON traffic.total_bytes >= $3
@@ -583,8 +585,8 @@ WITH trials AS (
            sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
     FROM trials tr
     JOIN bare_xray_traffic_daily t
-      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
-                     'x-user-' || left(tr.internal_user_id, 16))
+      ON (t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=tr.internal_user_id AND ke.email=t.email))
     WHERE t.stat_date >= tr.trial_date
       AND t.stat_date <= $4::date
     GROUP BY tr.internal_user_id, t.stat_date
@@ -651,8 +653,8 @@ WITH trials AS (
            sum(t.uplink_bytes + t.downlink_bytes)::bigint AS bytes
     FROM trials tr
     JOIN bare_xray_traffic_daily t
-      ON t.email IN ('user-' || left(tr.internal_user_id, 16),
-                     'x-user-' || left(tr.internal_user_id, 16))
+      ON (t.email IN ('user-' || left(tr.internal_user_id, 16),
+                     'x-user-' || left(tr.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=tr.internal_user_id AND ke.email=t.email))
     WHERE t.stat_date >= tr.trial_date
       AND t.stat_date <= $5::date
     GROUP BY tr.internal_user_id, t.stat_date, tr.trial_date
@@ -901,16 +903,16 @@ WITH attributed AS (
                      AND e.occurred_at >= c.onboarding_at AND e.occurred_at < $2) AS payment_created,
            EXISTS (SELECT 1 FROM bare_xray_traffic_daily t
                    WHERE c.trial_started_at IS NOT NULL
-                     AND t.email IN ('user-' || left(c.internal_user_id, 16),
-                                     'x-user-' || left(c.internal_user_id, 16))
+                     AND (t.email IN ('user-' || left(c.internal_user_id, 16),
+                                     'x-user-' || left(c.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=c.internal_user_id AND ke.email=t.email))
                      AND t.stat_date >= (c.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                      AND t.stat_date >= $3 AND t.stat_date <= $4
                      AND t.uplink_bytes + t.downlink_bytes > 0) AS first_vpn_traffic,
            COALESCE((SELECT sum(t.uplink_bytes + t.downlink_bytes)
                      FROM bare_xray_traffic_daily t
                      WHERE c.trial_started_at IS NOT NULL
-                       AND t.email IN ('user-' || left(c.internal_user_id, 16),
-                                       'x-user-' || left(c.internal_user_id, 16))
+                       AND (t.email IN ('user-' || left(c.internal_user_id, 16),
+                                       'x-user-' || left(c.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=c.internal_user_id AND ke.email=t.email))
                        AND t.stat_date >= (c.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                        AND t.stat_date >= $3 AND t.stat_date <= $4), 0) >= $5
                AS meaningful_vpn_traffic,

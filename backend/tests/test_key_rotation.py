@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 import asyncpg
 import pytest
 
-from app.issuance.key_identity import vless_uuid_for_transport
+from app.issuance.key_identity import key_email, vless_uuid_for_transport
 from app.issuance.vless_provider import VlessProviderOutcome
 from app.issuance.xui_client import XuiClientResult, XuiOutcome
 from app.issuance.xui_vless_provider import XuiVlessProvider, _email_from_internal
@@ -43,11 +43,25 @@ class KeyPool:
                 vless_previous_key_seed=self.state["vless_key_seed"],
                 vless_key_seed=args[1],
                 vless_rotation_pending=True,
+                vless_rotation_phase="provisioning" if "vless_rotation_phase" in sql else None,
+                vless_previous_email_seed=self.state.get("vless_email_seed"),
+                vless_email_seed=args[1] if "vless_email_seed" in sql else None,
             )
         elif "vless_rotation_pending=FALSE" in sql:
-            self.state.update(vless_rotation_pending=False, vless_previous_key_seed=None)
+            self.state.update(
+                vless_rotation_pending=False,
+                vless_previous_key_seed=None,
+                vless_previous_email_seed=None,
+                vless_rotation_phase=None,
+            )
+        elif "vless_rotation_phase='waiting'" in sql:
+            self.state["vless_rotation_phase"] = "waiting"
+        elif "vless_rotation_phase='retiring'" in sql:
+            self.state.update(vless_rotation_phase="retiring", vless_first_traffic_at=datetime.now(UTC))
 
     async def fetch(self, sql, *args):
+        if "vless_rotation_phase IS NULL" in sql and self.state.get("vless_rotation_phase"):
+            return []
         if "WHERE vless_rotation_pending" in sql:
             return [{"internal_user_id": "rotation-test"}] if self.state["vless_rotation_pending"] else []
         return [{"internal_user_id": "rotation-test"}]
@@ -67,27 +81,46 @@ class Panel:
             auto_selection_route=0,
         )
         self.email = _email_from_internal(uid, transport_type=transport)
-        self.credentials = {vless_uuid_for_transport(uid, transport)}
+        self.accounts = {self.email: vless_uuid_for_transport(uid, transport)}
+        self.traffic = {}
+        self.disabled = set()
         self.remove_ok = True
         self.add_ok = True
         self.last_expiry = None
         self.last_limit = None
 
+    @property
+    def credentials(self):
+        return set(self.accounts.values())
+
     async def resolve_client_uuid(self, *, email):
-        return next(iter(self.credentials), None)
+        return self.accounts.get(email)
+
+    async def get_client_usage(self, *, email):
+        return self.traffic.get(email, (0, 0))
+
+    async def disable_client(self, *, user_uuid, **kwargs):
+        if not self.remove_ok:
+            return XuiClientResult(XuiOutcome.UNAVAILABLE)
+        self.disabled.add(user_uuid)
+        return XuiClientResult(XuiOutcome.SUCCESS)
 
     async def delete_client(self, *, user_uuid):
         if not self.remove_ok:
             return XuiClientResult(XuiOutcome.UNAVAILABLE)
-        self.credentials.discard(user_uuid)
+        self.accounts = {email: value for email, value in self.accounts.items() if value != user_uuid}
         return XuiClientResult(XuiOutcome.SUCCESS)
 
     async def add_client(self, *, user_uuid, expiry_ts, limit_ip, **kwargs):
         if not self.add_ok:
             return XuiClientResult(XuiOutcome.UNAVAILABLE)
-        self.credentials.add(user_uuid)
+        self.accounts[kwargs["email"]] = user_uuid
+        self.disabled.discard(user_uuid)
         self.last_expiry, self.last_limit = expiry_ts, limit_ip
         return XuiClientResult(XuiOutcome.SUCCESS)
+
+    async def update_client(self, **kwargs):
+        return await self.add_client(**kwargs)
 
 
 def provider_for(pool, panels):
@@ -105,21 +138,27 @@ def test_legacy_keys_unchanged_and_rotated_transports_distinct():
     assert vless_uuid_for_transport("u1", "tcp", "seed") != vless_uuid_for_transport("u1", "xhttp", "seed")
 
 
-async def test_reissue_removes_old_keys_and_preserves_entitlement():
+async def test_reissue_keeps_old_until_new_traffic_and_preserves_entitlement():
     pool = KeyPool()
     panels = [Panel(), Panel(transport="xhttp")]
     old = [set(p.credentials) for p in panels]
     provider = provider_for(pool, panels)
     result = await provider.reissue_user(internal_user_id="rotation-test")
     assert result.outcome == VlessProviderOutcome.SUCCESS
-    assert pool.state["vless_rotation_pending"] is False
+    assert pool.state["vless_rotation_phase"] == "waiting"
     for panel, old_keys in zip(panels, old, strict=True):
-        assert not panel.credentials & old_keys
+        assert old_keys < panel.credentials
         assert panel.last_expiry == int(pool.deadline.timestamp() * 1000)
         assert panel.last_limit == 9
-        assert panel.credentials == {
-            vless_uuid_for_transport("rotation-test", panel.server_config.transport_type, pool.state["vless_key_seed"])
-        }
+        panel.traffic[panel.email] = (1000, 1000)
+    await provider.process_key_rotations()
+    assert pool.state["vless_rotation_phase"] == "waiting"
+    panels[0].traffic[key_email("rotation-test", "tcp", pool.state["vless_email_seed"])] = (0, 1)
+    await provider.process_key_rotations()
+    assert not pool.state["vless_rotation_pending"]
+    for panel, old_keys in zip(panels, old, strict=True):
+        assert not panel.credentials & old_keys
+        assert len(panel.credentials) == 1
 
 
 async def test_other_provider_cache_observes_new_generation():
@@ -131,22 +170,37 @@ async def test_other_provider_cache_observes_new_generation():
     assert before.config.servers[0].vless_link != after.config.servers[0].vless_link
 
 
-@pytest.mark.parametrize("failure", ["remove", "add"])
-async def test_partial_failure_and_restart_finish_same_generation(failure):
+async def test_provisioning_failure_and_restart_keep_old_then_finish_same_generation():
     pool, panel = KeyPool(), Panel()
-    setattr(panel, f"{failure}_ok", False)
+    old = panel.credentials
+    panel.add_ok = False
     first = provider_for(pool, [panel])
     result = await first.reissue_user(internal_user_id="rotation-test")
     assert result.outcome != VlessProviderOutcome.SUCCESS
-    assert pool.state["vless_rotation_pending"] is True
     seed = pool.state["vless_key_seed"]
+    assert panel.credentials == old
     assert (await first.get_user_config(internal_user_id="rotation-test")).outcome == VlessProviderOutcome.UNAVAILABLE
-
-    setattr(panel, f"{failure}_ok", True)
+    panel.add_ok = True
     restarted = provider_for(pool, [panel])
-    await restarted._resume_pending_rotations()
+    await restarted.process_key_rotations()
     assert pool.state["vless_key_seed"] == seed
-    assert pool.state["vless_rotation_pending"] is False
+    assert pool.state["vless_rotation_phase"] == "waiting"
+    assert old < panel.credentials
+
+
+async def test_retire_failure_retries_after_restart_even_when_stats_reset():
+    pool, panel = KeyPool(), Panel()
+    first = provider_for(pool, [panel])
+    await first.reissue_user(internal_user_id="rotation-test")
+    seed = pool.state["vless_key_seed"]
+    panel.traffic[key_email("rotation-test", "tcp", seed)] = (1, 0)
+    panel.remove_ok = False
+    await first.process_key_rotations()
+    assert pool.state["vless_rotation_phase"] == "retiring"
+    panel.traffic.clear()
+    panel.remove_ok = True
+    await provider_for(pool, [panel]).process_key_rotations()
+    assert not pool.state["vless_rotation_pending"]
     assert panel.credentials == {vless_uuid_for_transport("rotation-test", "tcp", seed)}
 
 
@@ -173,12 +227,17 @@ async def test_lifecycle_after_failed_rotation_removes_both_generations(operatio
     panel.remove_ok = True
     result = await getattr(provider, operation)(internal_user_id="rotation-test")
     assert result.outcome == VlessProviderOutcome.SUCCESS
-    assert not panel.credentials
-    assert not pool.state["vless_rotation_pending"]
+    if operation == "delete_user":
+        assert not panel.credentials
+        assert not pool.state["vless_rotation_pending"]
+    else:
+        assert panel.disabled == panel.credentials
+        assert pool.state["vless_rotation_pending"]
 
 
 async def test_bare_failure_is_not_successful_revocation():
     pool = KeyPool()
+    pool.state.update(vless_key_seed="new", vless_rotation_pending=True)
     provider = provider_for(pool, [])
     config = SimpleNamespace(transport_type="tcp", server_id=1)
     provider._bare_xray_configs = (config,)
@@ -196,9 +255,9 @@ async def test_expired_pending_rotation_finishes_without_recreating():
     await provider.reissue_user(internal_user_id="rotation-test")
     pool.deadline = datetime.now(UTC) - timedelta(seconds=1)
     panel.remove_ok = True
-    await provider._resume_pending_rotations()
-    assert not pool.state["vless_rotation_pending"]
-    assert not panel.credentials
+    await provider.process_key_rotations()
+    assert pool.state["vless_rotation_pending"]
+    assert panel.disabled == panel.credentials
 
 
 async def test_cancelled_bare_mutation_waits_for_ssh_thread():
@@ -250,18 +309,18 @@ async def test_two_provider_instances_serialize_rotation_in_postgres():
         )
         panel = Panel(uid)
         entered, release = asyncio.Event(), asyncio.Event()
-        original_delete = panel.delete_client
+        original_add = panel.add_client
         first_call = True
 
-        async def delayed_delete(**kwargs):
+        async def delayed_add(**kwargs):
             nonlocal first_call
             if first_call:
                 first_call = False
                 entered.set()
                 await release.wait()
-            return await original_delete(**kwargs)
+            return await original_add(**kwargs)
 
-        panel.delete_client = delayed_delete
+        panel.add_client = delayed_add
         first, second = provider_for(pool, [panel]), provider_for(pool, [panel])
         task1 = asyncio.create_task(first.reissue_user(internal_user_id=uid))
         await asyncio.wait_for(entered.wait(), timeout=3)
@@ -272,7 +331,7 @@ async def test_two_provider_instances_serialize_rotation_in_postgres():
         results = await asyncio.wait_for(asyncio.gather(task1, task2), timeout=5)
         assert all(result.outcome == VlessProviderOutcome.SUCCESS for result in results)
         seed = await pool.fetchval("SELECT vless_key_seed FROM user_identities WHERE internal_user_id=$1", uid)
-        assert panel.credentials == {vless_uuid_for_transport(uid, "tcp", seed)}
+        assert panel.credentials == {vless_uuid_for_transport(uid, "tcp", seed), vless_uuid_for_transport(uid, "tcp")}
     finally:
         await pool.execute("DELETE FROM subscription_snapshots WHERE internal_user_id=$1", uid)
         await pool.execute("DELETE FROM user_identities WHERE internal_user_id=$1", uid)

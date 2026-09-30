@@ -51,7 +51,7 @@ async def run() -> None:
         from app.issuance.fleet_lock import vpn_fleet_lock
         async with vpn_fleet_lock(pool):
             users = await pool.fetch(
-                """SELECT i.internal_user_id, i.telegram_user_id, i.vless_key_seed,
+                """SELECT i.internal_user_id, i.telegram_user_id, i.vless_key_seed, i.vless_email_seed,
                           s.active_until_utc, s.device_count
                    FROM user_identities i
                    JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
@@ -85,7 +85,7 @@ async def run() -> None:
                         server_host=s["server_host"],
                         server_port=s["server_port"],
                     )
-                    email = _email_from_internal(uid, transport_type=s["transport_type"])
+                    email = _email_from_internal(uid, transport_type=s["transport_type"], email_seed=u.get("vless_email_seed"))
                     try:
                         ok = await pc.add_client(
                             user_uuid=_vless_uuid_for_transport(uid, s["transport_type"], u.get("vless_key_seed")),

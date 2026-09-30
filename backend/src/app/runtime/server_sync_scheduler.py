@@ -35,8 +35,18 @@ class ServerSyncScheduler:
         _LOGGER.info("server_sync_scheduler_started")
         async with asyncio.TaskGroup() as tasks:
             tasks.create_task(self._sync_loop())
+            tasks.create_task(self._rotation_loop())
             if self._pool is not None:
                 tasks.create_task(self._access_loop())
+
+    async def _rotation_loop(self) -> None:
+        """Ротация работает независимо от необязательного сбора статистики."""
+        while self._running:
+            try:
+                await self._provider.process_key_rotations()
+            except Exception:
+                _LOGGER.exception("key_rotation_worker_error")
+            await self._sleep(60)
 
     async def _access_loop(self) -> None:
         while self._running:

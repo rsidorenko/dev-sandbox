@@ -18,6 +18,8 @@ from urllib.parse import quote
 import asyncpg
 
 from app.issuance.fleet_lock import serialized_mutation
+from app.issuance.graceful_rotation import GracefulRotationMixin
+from app.issuance.key_identity import generation_accounts, key_email
 from app.issuance.key_identity import vless_uuid_for_transport as _vless_uuid_for_transport
 from app.issuance.subscription_token import (
     ensure_subscription_token,
@@ -103,8 +105,7 @@ async def _get_or_create_vless_uuid(pool: asyncpg.Pool, internal_user_id: str) -
 
 
 def _email_from_internal(internal_user_id: str, *, transport_type: str = "tcp") -> str:
-    prefix = {"xhttp": "x-"}.get(transport_type, "")
-    return f"{prefix}user-{internal_user_id[:16]}"
+    return key_email(internal_user_id, transport_type)
 
 
 def _expiry_timestamp(days: int = _DEFAULT_EXPIRY_DAYS) -> int:
@@ -298,7 +299,7 @@ async def _run_sequential_per_panel(
     return results
 
 
-class XuiVlessProvider(VlessProviderPort):
+class XuiVlessProvider(GracefulRotationMixin, VlessProviderPort):
     """Real VLESS provider: manages users across all active 3x-ui panels.
 
     Caches XuiApiClient instances with a TTL to avoid recreating HTTP clients
@@ -457,27 +458,22 @@ class XuiVlessProvider(VlessProviderPort):
         (live, no restart). Returns the number of failed inbounds; обычные lifecycle-вызовы
         полагаются на периодический reconcile, а destructive admin reset проверяет результат."""
         clients = await self._get_bare_xray_clients()
+        state = await self._key_state(internal_user_id)
         failed = 0
         for client in clients:
             transport = client.server_config.transport_type
-            email = _email_from_internal(internal_user_id, transport_type=transport)
-            try:
-                if action == "add":
-                    user_uuid = await self._uuid_for_transport(internal_user_id, transport)
-                    if not await client.add_client(user_uuid=user_uuid, email=email):
+            accounts = generation_accounts(internal_user_id, transport, state)
+            for email, user_uuid in accounts.items():
+                try:
+                    if action == "add":
+                        await self._remember_key_email(internal_user_id, transport, email)
+                        if not await client.add_client(user_uuid=user_uuid, email=email):
+                            failed += 1
+                    elif not await client.remove_client(email=email):
                         failed += 1
-                else:
-                    if not await client.remove_client(email=email):
-                        failed += 1
-            except Exception as exc:
-                failed += 1
-                _LOGGER.warning(
-                    "xray_api %s failed server=%s user=%s: %r",
-                    action,
-                    client.server_id,
-                    internal_user_id[:8],
-                    exc,
-                )
+                except Exception:
+                    failed += 1
+                    _LOGGER.warning("xray_lifecycle_failed action=%s server=%s", action, client.server_id)
         return failed
 
     async def _close_clients(self) -> None:
@@ -511,11 +507,16 @@ class XuiVlessProvider(VlessProviderPort):
 
     async def _key_state(self, internal_user_id: str):
         row = await self._pool.fetchrow(
-            "SELECT vless_key_seed, vless_previous_key_seed, vless_rotation_pending"
+            "SELECT vless_key_seed, vless_previous_key_seed, vless_rotation_pending,"
+            " vless_email_seed, vless_previous_email_seed, vless_rotation_phase, vless_first_traffic_at"
             " FROM user_identities WHERE internal_user_id=$1",
             internal_user_id,
         )
         return dict(row) if row is not None else {}
+
+    async def _email_for_transport(self, internal_user_id: str, transport_type: str) -> str:
+        state = await self._key_state(internal_user_id)
+        return key_email(internal_user_id, transport_type, state.get("vless_email_seed"))
 
     async def _uuid_for_transport(self, internal_user_id: str, transport_type: str) -> str:
         state = await self._key_state(internal_user_id)
@@ -555,6 +556,11 @@ class XuiVlessProvider(VlessProviderPort):
             return False
 
     async def _resume_rotation(self, internal_user_id: str) -> VlessProviderResult:
+        if (await self._key_state(internal_user_id)).get("vless_rotation_phase"):
+            return await self._resume_graceful_rotation(internal_user_id)
+        return await self._resume_legacy_rotation(internal_user_id)
+
+    async def _resume_legacy_rotation(self, internal_user_id: str) -> VlessProviderResult:
         from app.application.access_grant import access_grant
 
         self._invalidate_config_cache(internal_user_id)
@@ -579,7 +585,9 @@ class XuiVlessProvider(VlessProviderPort):
         return result
 
     async def _resume_pending_rotations(self) -> None:
-        pending = await self._pool.fetch("SELECT internal_user_id FROM user_identities WHERE vless_rotation_pending")
+        pending = await self._pool.fetch(
+            "SELECT internal_user_id FROM user_identities WHERE vless_rotation_pending AND vless_rotation_phase IS NULL"
+        )
         for row in pending:
             await self._resume_rotation(row["internal_user_id"])
 
@@ -594,7 +602,9 @@ class XuiVlessProvider(VlessProviderPort):
         async with self._user_lock(internal_user_id):
             await self._pool.execute(
                 "UPDATE user_identities SET vless_previous_key_seed=vless_key_seed,"
-                " vless_key_seed=$2, vless_rotation_pending=TRUE"
+                " vless_previous_email_seed=vless_email_seed, vless_email_seed=$2,"
+                " vless_rotation_phase='provisioning', vless_first_traffic_at=NULL,"
+                " vless_rotation_checked_at=NULL, vless_key_seed=$2, vless_rotation_pending=TRUE"
                 " WHERE internal_user_id=$1 AND NOT vless_rotation_pending",
                 internal_user_id,
                 str(uuid.uuid4()),
@@ -606,7 +616,8 @@ class XuiVlessProvider(VlessProviderPort):
         """Повтор выдачи использует актуальное право, а не параметры старого платежа."""
         from app.application.access_grant import access_grant
 
-        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+        state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_pending") and state.get("vless_rotation_phase") not in ("waiting", "retiring"):
             return await self._resume_rotation(internal_user_id)
         grant = await access_grant(pool=self._pool, internal_user_id=internal_user_id)
         if grant is None:
@@ -624,7 +635,10 @@ class XuiVlessProvider(VlessProviderPort):
         expiry_days: int = 365,
         expires_at: datetime | None = None,
     ) -> VlessProviderResult:
-        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+        state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_phase") in ("waiting", "retiring"):
+            return await self.sync_user_access(internal_user_id=internal_user_id)
+        if state.get("vless_rotation_pending"):
             return await self._resume_rotation(internal_user_id)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
@@ -654,24 +668,36 @@ class XuiVlessProvider(VlessProviderPort):
             _LOGGER.warning("no active vpn servers configured")
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
 
+        state = await self._key_state(internal_user_id)
+
         async def _add_or_update(client: XuiApiClient) -> tuple[XuiClientResult, str]:
-            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
-            # Distinct uuid per transport -> each inbound's client is a unique uuid
-            # (fixes the 3x-ui v3 client_inbounds under-mapping on multi-inbound panels).
-            user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
-            existing_uuid = await client.resolve_client_uuid(email=email)
-            if existing_uuid is not None and existing_uuid != user_uuid:
-                # Stale uuid on this email (e.g. pre-migration single uuid) -> remove so
-                # add_client upserts the correct per-transport uuid cleanly.
-                await client.delete_client(user_uuid=existing_uuid)
-            result = await client.add_client(
-                user_uuid=user_uuid,
-                email=email,
-                expiry_ts=expiry,
-                enable=True,
-                limit_ip=limit_ip,
-            )
-            return result, user_uuid
+            transport = client.server_config.transport_type
+            current_uuid = _vless_uuid_for_transport(internal_user_id, transport, state.get("vless_key_seed"))
+            for email, user_uuid in generation_accounts(internal_user_id, transport, state).items():
+                await self._remember_key_email(internal_user_id, transport, email)
+                existing_uuid = await client.resolve_client_uuid(email=email)
+                if (
+                    state.get("vless_rotation_phase") in ("provisioning", "waiting")
+                    and email == key_email(internal_user_id, transport, state.get("vless_previous_email_seed"))
+                    and existing_uuid is not None
+                ):
+                    # Старый фактический UUID мог появиться до перехода на детерминированные ключи.
+                    user_uuid = existing_uuid
+                if existing_uuid is not None and existing_uuid != user_uuid:
+                    removed = await client.delete_client(user_uuid=existing_uuid)
+                    if removed.outcome not in (XuiOutcome.SUCCESS, XuiOutcome.NOT_FOUND):
+                        return removed, current_uuid
+                operation = client.update_client if existing_uuid == user_uuid else client.add_client
+                result = await operation(
+                    user_uuid=user_uuid,
+                    email=email,
+                    expiry_ts=expiry,
+                    enable=True,
+                    limit_ip=limit_ip,
+                )
+                if result.outcome != XuiOutcome.SUCCESS:
+                    return result, current_uuid
+            return result, current_uuid
 
         successes: list[tuple[XuiApiClient, str]] = []
         if clients:
@@ -742,7 +768,7 @@ class XuiVlessProvider(VlessProviderPort):
         if self._observed_seeds.get(internal_user_id) != seed:
             self._invalidate_config_cache(internal_user_id)
             self._observed_seeds[internal_user_id] = seed
-        if state.get("vless_rotation_pending"):
+        if state.get("vless_rotation_pending") and state.get("vless_rotation_phase") not in ("waiting", "retiring"):
             return VlessProviderResult(outcome=VlessProviderOutcome.UNAVAILABLE)
         now = time.monotonic()
         cached = self._config_cache.get(internal_user_id)
@@ -779,7 +805,7 @@ class XuiVlessProvider(VlessProviderPort):
                 # Existence probe by email (per transport). The link uuid is whatever uuid
                 # the panel actually holds for that email — works under both the legacy
                 # single-uuid scheme and the per-transport scheme (and during migration).
-                email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+                email = await self._email_for_transport(internal_user_id, client.server_config.transport_type)
                 uuid = await client.resolve_client_uuid(email=email)
                 return client, uuid
 
@@ -875,6 +901,10 @@ class XuiVlessProvider(VlessProviderPort):
     async def revoke_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Disable (not delete) VLESS user on all servers."""
         state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_phase"):
+            self._invalidate_config_cache(internal_user_id)
+            removed = await self._deactivate_graceful_generations(internal_user_id, state)
+            return VlessProviderResult(VlessProviderOutcome.SUCCESS if removed else VlessProviderOutcome.UNAVAILABLE)
         if state.get("vless_rotation_pending"):
             self._invalidate_config_cache(internal_user_id)
             if not await self._remove_rotation_clients(internal_user_id, state):
@@ -897,7 +927,7 @@ class XuiVlessProvider(VlessProviderPort):
             return VlessProviderResult(outcome=VlessProviderOutcome.NOT_FOUND)
 
         async def _disable(client: XuiApiClient) -> XuiClientResult:
-            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+            email = await self._email_for_transport(internal_user_id, client.server_config.transport_type)
             user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             return await client.disable_client(user_uuid=user_uuid, email=email, expiry_ts=expiry)
 
@@ -918,7 +948,10 @@ class XuiVlessProvider(VlessProviderPort):
         self, *, internal_user_id: str, device_count: int = 0, expiry_days: int = 365
     ) -> VlessProviderResult:
         """Re-enable previously disabled VLESS user on all servers."""
-        if (await self._key_state(internal_user_id)).get("vless_rotation_pending"):
+        state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_phase") in ("waiting", "retiring"):
+            return await self.sync_user_access(internal_user_id=internal_user_id)
+        if state.get("vless_rotation_pending"):
             return await self._resume_rotation(internal_user_id)
         self._invalidate_config_cache(internal_user_id)
         async with self._user_lock(internal_user_id):
@@ -938,7 +971,7 @@ class XuiVlessProvider(VlessProviderPort):
 
         # Delete+re-add instead of enable_client to avoid 3x-ui client_traffics desync.
         async def _reactivate(client: XuiApiClient) -> XuiClientResult:
-            email = _email_from_internal(internal_user_id, transport_type=client.server_config.transport_type)
+            email = await self._email_for_transport(internal_user_id, client.server_config.transport_type)
             user_uuid = await self._uuid_for_transport(internal_user_id, client.server_config.transport_type)
             await client.delete_client(user_uuid=user_uuid)
             return await client.add_client(
@@ -977,6 +1010,10 @@ class XuiVlessProvider(VlessProviderPort):
     async def delete_user(self, *, internal_user_id: str) -> VlessProviderResult:
         """Permanently delete VLESS user from all servers."""
         state = await self._key_state(internal_user_id)
+        if state.get("vless_rotation_phase"):
+            self._invalidate_config_cache(internal_user_id)
+            removed = await self._remove_graceful_generations(internal_user_id, state)
+            return VlessProviderResult(VlessProviderOutcome.SUCCESS if removed else VlessProviderOutcome.UNAVAILABLE)
         if state.get("vless_rotation_pending"):
             self._invalidate_config_cache(internal_user_id)
             if not await self._remove_rotation_clients(internal_user_id, state):
@@ -1043,7 +1080,7 @@ class XuiVlessProvider(VlessProviderPort):
             "  s.state_label, s.device_count, s.active_until_utc "
             "FROM user_identities i "
             "JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id "
-            "WHERE NOT i.vless_rotation_pending AND s.state_label IN ('active', 'expired') "
+            "WHERE (NOT i.vless_rotation_pending OR i.vless_rotation_phase IS NOT NULL) AND s.state_label IN ('active', 'expired') "
             "  AND s.keys_deleted_at IS NULL"
         )
         if not users:
@@ -1080,52 +1117,53 @@ class XuiVlessProvider(VlessProviderPort):
             user_failed = False
 
             for client in clients:
-                email = _email_from_internal(uid, transport_type=client.server_config.transport_type)
-                # Check if client already exists on this panel — non-destructive probe
-                try:
-                    existing = await client.resolve_client_uuid(email=email)
-                except Exception:
-                    _LOGGER.debug("reconcile_probe_failed user=%s server=%s", uid[:8], client.server_id)
-                    user_failed = True
-                    continue
+                state = await self._key_state(uid)
+                accounts = generation_accounts(uid, client.server_config.transport_type, state)
+                for email, user_uuid in accounts.items():
+                    # Check if client already exists on this panel — non-destructive probe
+                    try:
+                        existing = await client.resolve_client_uuid(email=email)
+                    except Exception:
+                        _LOGGER.debug("reconcile_probe_failed user=%s server=%s", uid[:8], client.server_id)
+                        user_failed = True
+                        continue
 
-                if existing is not None:
-                    continue  # Already exists — skip, don't touch
+                    if existing is not None:
+                        continue  # Already exists — skip, don't touch
 
-                # Client missing on this server — add it (enabled iff subscription active)
-                try:
-                    user_uuid = await self._uuid_for_transport(uid, client.server_config.transport_type)
-                    result = await client.add_client(
-                        user_uuid=user_uuid,
-                        email=email,
-                        expiry_ts=expiry,
-                        enable=enable,
-                        limit_ip=limit_ip,
-                    )
-                    if result.outcome == XuiOutcome.SUCCESS:
-                        user_added = True
-                        _LOGGER.info(
-                            "reconcile_added user=%s server=%s enable=%s",
-                            uid[:8],
-                            client.server_id,
-                            enable,
+                    # Client missing on this server — add it (enabled iff subscription active)
+                    try:
+                        result = await client.add_client(
+                            user_uuid=user_uuid,
+                            email=email,
+                            expiry_ts=expiry,
+                            enable=enable,
+                            limit_ip=limit_ip,
                         )
-                    else:
+                        if result.outcome == XuiOutcome.SUCCESS:
+                            user_added = True
+                            _LOGGER.info(
+                                "reconcile_added user=%s server=%s enable=%s",
+                                uid[:8],
+                                client.server_id,
+                                enable,
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "reconcile_add_failed user=%s server=%s outcome=%s",
+                                uid[:8],
+                                client.server_id,
+                                result.outcome,
+                            )
+                            user_failed = True
+                    except Exception:
                         _LOGGER.warning(
-                            "reconcile_add_failed user=%s server=%s outcome=%s",
+                            "reconcile_add_exception user=%s server=%s",
                             uid[:8],
                             client.server_id,
-                            result.outcome,
+                            exc_info=True,
                         )
                         user_failed = True
-                except Exception:
-                    _LOGGER.warning(
-                        "reconcile_add_exception user=%s server=%s",
-                        uid[:8],
-                        client.server_id,
-                        exc_info=True,
-                    )
-                    user_failed = True
 
             if user_added:
                 added += 1
@@ -1177,7 +1215,7 @@ class XuiVlessProvider(VlessProviderPort):
             """SELECT i.internal_user_id
                FROM user_identities i
                JOIN subscription_snapshots s ON s.internal_user_id = i.internal_user_id
-               WHERE NOT i.vless_rotation_pending AND s.keys_deleted_at IS NULL
+               WHERE (NOT i.vless_rotation_pending OR i.vless_rotation_phase IS NOT NULL) AND s.keys_deleted_at IS NULL
                  AND s.state_label = 'active'
                  AND (
                    (s.trial_expires_at IS NOT NULL AND s.trial_expires_at > NOW())
@@ -1205,7 +1243,14 @@ class XuiVlessProvider(VlessProviderPort):
             transport = client.server_config.transport_type
             tag = client.server_config.xray_inbound_tag or client.server_config.label or ""
             key = f"{client.server_id}/{tag}" if tag else str(client.server_id)
-            desired = {_email_from_internal(uid, transport_type=transport) for uid in user_ids}
+            expected_flow = REALITY_TCP_FLOW if transport == "tcp" else ""
+            expected = {}
+            for uid in user_ids:
+                state = await self._key_state(uid)
+                for email, key_uuid in generation_accounts(uid, transport, state).items():
+                    await self._remember_key_email(uid, transport, email)
+                    expected[email] = (key_uuid, expected_flow)
+            desired = set(expected)
             try:
                 accounts = await client.list_user_accounts()
                 present = set(accounts)
@@ -1222,14 +1267,6 @@ class XuiVlessProvider(VlessProviderPort):
                 continue
 
             try:
-                expected_flow = REALITY_TCP_FLOW if transport == "tcp" else ""
-                expected = {
-                    _email_from_internal(uid, transport_type=transport): (
-                        await self._uuid_for_transport(uid, transport),
-                        expected_flow,
-                    )
-                    for uid in user_ids
-                }
                 if not await client.persist_accounts(expected):
                     raise RuntimeError("Cannot persist desired accounts")
             except Exception:
@@ -1246,10 +1283,8 @@ class XuiVlessProvider(VlessProviderPort):
 
             added = removed = 0
             mutation_failed = False
-            for uid in user_ids:
-                email = _email_from_internal(uid, transport_type=transport)
+            for email, (expected_uuid, expected_flow) in expected.items():
                 try:
-                    expected_uuid, expected_flow = expected[email]
                     if accounts.get(email) == (expected_uuid, expected_flow):
                         continue
                     if email in present:
@@ -1263,7 +1298,7 @@ class XuiVlessProvider(VlessProviderPort):
                         mutation_failed = True
                 except Exception:
                     mutation_failed = True
-                    _LOGGER.warning("reconcile_bare_xray update_failed user=%s server=%s", uid[:8], client.server_id)
+                    _LOGGER.warning("reconcile_bare_xray update_failed server=%s", client.server_id)
             for orphan in present - desired:
                 try:
                     if await client.remove_client(email=orphan):

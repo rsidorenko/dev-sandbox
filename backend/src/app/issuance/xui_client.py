@@ -304,6 +304,29 @@ class XuiApiClient:
             None,
         )
 
+    async def get_client_usage(self, *, email: str) -> tuple[int, int] | None:
+        """Читаем счётчики строго запрошенного поколения; ошибки не означают трафик."""
+        try:
+            if not await self._ensure_session():
+                return None
+            client = await self._get_client()
+            response = await client.get(
+                f"{self._base}/panel/api/inbounds/getClientTraffics/{email}",
+                headers=self._auth_headers(),
+                timeout=_DEFAULT_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            row = data.get("obj")
+            if data.get("success") is not True or not isinstance(row, dict) or row.get("email") != email:
+                return None
+            up, down = row.get("up"), row.get("down")
+            if type(up) is not int or type(down) is not int or up < 0 or down < 0:
+                return None
+            return up, down
+        except Exception:
+            return None
+
     async def update_client(
         self,
         *,
@@ -328,12 +351,16 @@ class XuiApiClient:
             "id": self._config.inbound_id,
             "settings": f'{{"clients": [{json.dumps(settings, separators=(",", ":"))}]}}',
         }
-        return await self._do_client_op(
+        result = await self._do_client_op(
             "POST",
             f"{self._base}/panel/api/inbounds/updateClient/{user_uuid}",
             payload,
             user_uuid=user_uuid,
         )
+        if result.outcome == XuiOutcome.NOT_FOUND:
+            self._v3_mode = True
+            return await self._add_client_via_update(settings)
+        return result
 
     async def delete_client(self, *, user_uuid: str) -> XuiClientResult:
         # v3 panels lack delClient — go straight to read-modify-write

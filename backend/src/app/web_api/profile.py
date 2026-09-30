@@ -203,7 +203,14 @@ async def handle_get_keys(request: Request) -> JSONResponse:
 
         result = await provider.get_user_config(internal_user_id=identity["internal_user_id"])
         if result.outcome != VlessProviderOutcome.SUCCESS or result.config is None:
-            return JSONResponse({"ok": True, "keys": [], "subscription_url": None})
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "keys": [],
+                    "subscription_url": None,
+                    "rotation_status": await provider.rotation_status(identity["internal_user_id"]),
+                }
+            )
 
         keys = [
             {
@@ -219,6 +226,7 @@ async def handle_get_keys(request: Request) -> JSONResponse:
                 "ok": True,
                 "keys": keys,
                 "subscription_url": result.config.subscription_url,
+                "rotation_status": await provider.rotation_status(identity["internal_user_id"]),
             }
         )
     except Exception:
@@ -269,6 +277,7 @@ async def handle_reissue_keys(request: Request) -> JSONResponse:
                 "ok": True,
                 "keys": keys,
                 "subscription_url": result.config.subscription_url,
+                "rotation_status": await provider.rotation_status(identity["internal_user_id"]),
             }
         )
     except Exception:

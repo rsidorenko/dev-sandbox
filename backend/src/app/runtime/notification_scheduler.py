@@ -244,8 +244,8 @@ class NotificationScheduler:
                AND COALESCE(s.active_until_utc, s.trial_expires_at) > NOW()
                AND NOT EXISTS (
                    SELECT 1 FROM bare_xray_traffic_daily t
-                   WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
-                                     'x-user-' || left(s.internal_user_id, 16))
+                   WHERE (t.email IN ('user-' || left(s.internal_user_id, 16),
+                                     'x-user-' || left(s.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=s.internal_user_id AND ke.email=t.email))
                      AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                      AND t.uplink_bytes + t.downlink_bytes > 0
                )
@@ -475,8 +475,8 @@ class NotificationScheduler:
                       COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at,
                       EXISTS (
                           SELECT 1 FROM bare_xray_traffic_daily t
-                          WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
-                                            'x-user-' || left(s.internal_user_id, 16))
+                          WHERE (t.email IN ('user-' || left(s.internal_user_id, 16),
+                                            'x-user-' || left(s.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=s.internal_user_id AND ke.email=t.email))
                             AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                             AND t.uplink_bytes + t.downlink_bytes > 0
                       ) AS has_traffic,
@@ -529,8 +529,8 @@ class NotificationScheduler:
                       COALESCE(s.active_until_utc, s.trial_expires_at) AS access_expires_at,
                       EXISTS (
                           SELECT 1 FROM bare_xray_traffic_daily t
-                          WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
-                                            'x-user-' || left(s.internal_user_id, 16))
+                          WHERE (t.email IN ('user-' || left(s.internal_user_id, 16),
+                                            'x-user-' || left(s.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=s.internal_user_id AND ke.email=t.email))
                             AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                             AND t.uplink_bytes + t.downlink_bytes > 0
                       ) AS has_traffic,
@@ -786,8 +786,8 @@ class NotificationScheduler:
                 AND s.trial_expires_at IS NOT NULL
                 AND EXISTS (
                     SELECT 1 FROM bare_xray_traffic_daily t
-                    WHERE t.email IN ('user-' || left(s.internal_user_id, 16),
-                                      'x-user-' || left(s.internal_user_id, 16))
+                    WHERE (t.email IN ('user-' || left(s.internal_user_id, 16),
+                                      'x-user-' || left(s.internal_user_id, 16)) OR EXISTS (SELECT 1 FROM vless_key_emails ke WHERE ke.internal_user_id=s.internal_user_id AND ke.email=t.email))
                       AND t.stat_date >= (s.trial_started_at AT TIME ZONE 'Europe/Moscow')::date
                       AND t.uplink_bytes + t.downlink_bytes > 0
                 )
