@@ -107,7 +107,16 @@ def test_balance_payment_success_completes_and_debits(pg_url, monkeypatch):
                 )
 
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900})
+            resp = await client.post(
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "1m",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+            )
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["status"] == "completed"
@@ -165,7 +174,16 @@ def test_balance_payment_insufficient_returns_402_and_no_audit(pg_url, monkeypat
                 )
 
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900})
+            resp = await client.post(
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "1m",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+            )
             assert resp.status_code == 402, resp.text
             assert resp.json()["error"] == "insufficient_balance"
 
@@ -214,11 +232,27 @@ def test_balance_payment_idempotent_same_key(pg_url, monkeypatch):
             client = _make_authed_client(pool)
             headers = {"X-Idempotency-Key": "stable-key-123"}
             r1 = await client.post(
-                "/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900}, headers=headers
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "1m",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+                headers=headers,
             )
             assert r1.status_code == 200 and r1.json()["status"] == "completed"
             r2 = await client.post(
-                "/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900}, headers=headers
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "1m",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+                headers=headers,
             )
             assert r2.status_code == 200 and r2.json()["status"] == "already_completed"
 
@@ -258,7 +292,16 @@ def test_balance_payment_invalid_plan_id(pg_url, monkeypatch):
                     _SUB_TOKEN,
                 )
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "nonexistent", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900})
+            resp = await client.post(
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "nonexistent",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+            )
             assert resp.status_code == 400 and resp.json()["error"] == "invalid_plan_id"
         finally:
             await _cleanup(pool)
@@ -301,7 +344,10 @@ def test_add_device_balance_increases_device_count_without_extending(pg_url, mon
                 )
 
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/add-devices/balance", json={"device_count": 7, "offer_accepted": True, "offer_version": "2026-09-30"})
+            resp = await client.post(
+                "/api/v1/payment/add-devices/balance",
+                json={"device_count": 7, "offer_accepted": True, "offer_version": "2026-09-30"},
+            )
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["status"] == "completed"
@@ -347,7 +393,10 @@ def test_add_device_balance_no_active_subscription(pg_url, monkeypatch):
                     _SUB_TOKEN,
                 )
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/add-devices/balance", json={"device_count": 7, "offer_accepted": True, "offer_version": "2026-09-30"})
+            resp = await client.post(
+                "/api/v1/payment/add-devices/balance",
+                json={"device_count": 7, "offer_accepted": True, "offer_version": "2026-09-30"},
+            )
             assert resp.status_code == 409 and resp.json()["error"] == "no_active_subscription"
         finally:
             await _cleanup(pool)
@@ -401,7 +450,16 @@ def test_balance_payment_credits_l1_commission_to_referrer(pg_url, monkeypatch):
                 )
 
             client = _make_authed_client(pool)
-            resp = await client.post("/api/v1/payment/balance", json={"plan_id": "1m", "device_count": 5, "offer_accepted": True, "offer_version": "2026-09-30", "expected_amount_kopecks":24900})
+            resp = await client.post(
+                "/api/v1/payment/balance",
+                json={
+                    "plan_id": "1m",
+                    "device_count": 5,
+                    "offer_accepted": True,
+                    "offer_version": "2026-09-30",
+                    "expected_amount_kopecks": 24900,
+                },
+            )
             assert resp.status_code == 200, resp.text
 
             async with pool.acquire() as conn:

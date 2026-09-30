@@ -23,10 +23,10 @@ from app.application.plan_pricing import (
 )
 from app.domain.devices import DEFAULT_DEVICE_LIMIT, extra_device_cost
 from app.domain.plans import calculate_total_price
+from app.persistence.pending_web_links import LinkExpiredError, attach_payment, begin_attempt
 from app.web_api.helpers import safe_json_error, truthy
-from app.web_api.middleware import require_auth
 from app.web_api.legal import OFFER_VERSION, validate_offer, validate_price
-from app.persistence.pending_web_links import LinkExpiredError, begin_attempt, attach_payment
+from app.web_api.middleware import require_auth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -170,7 +170,8 @@ async def handle_create_payment(request: Request) -> JSONResponse:
         internal_user_id = auth_result["internal_user_id"]
     else:
         identity = await pool.fetchrow(
-            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1", telegram_user_id)
+            "SELECT internal_user_id FROM user_identities WHERE telegram_user_id = $1", telegram_user_id
+        )
         if identity is None:
             return safe_json_error(404, "identity_not_found")
         internal_user_id = identity["internal_user_id"]
@@ -209,8 +210,9 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     price_error = validate_price(data, charge_kopecks)
     if price_error is not None:
         return price_error
-    from app.yookassa.client import YooKassaClient
     from app.cryptobot.client import CryptoBotClient
+    from app.yookassa.client import YooKassaClient
+
     client = CryptoBotClient.from_env() if payment_method == "crypto" else YooKassaClient.from_env()
     if client is None:
         return safe_json_error(503, "payment_provider_not_configured")
@@ -218,16 +220,22 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     pending_ttl = None
     if pending:
         from datetime import UTC, datetime
+
         try:
-            attempt_id, expires_at = await begin_attempt(pool, internal_user_id,
-                "cryptobot" if payment_method == "crypto" else "yookassa", charge_kopecks)
+            attempt_id, expires_at = await begin_attempt(
+                pool, internal_user_id, "cryptobot" if payment_method == "crypto" else "yookassa", charge_kopecks
+            )
         except LinkExpiredError:
             return safe_json_error(410, "link_expired")
         pending_ttl = max(1, int((expires_at - datetime.now(UTC)).total_seconds()))
     else:
         await pool.execute(
             "INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)",
-            internal_user_id, OFFER_VERSION, plan_id, charge_kopecks)
+            internal_user_id,
+            OFFER_VERSION,
+            plan_id,
+            charge_kopecks,
+        )
 
     if payment_method == "crypto":
         # CryptoBot carries the FULL context in its payload string (no client-side
@@ -364,7 +372,6 @@ async def handle_create_payment(request: Request) -> JSONResponse:
     )
 
 
-
 async def handle_get_payment_status(request: Request) -> JSONResponse:
     auth_result = await require_auth(request)
     if isinstance(auth_result, JSONResponse):
@@ -491,7 +498,13 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
     )
     charge_rubles = active_promo.price.discounted_rubles if active_promo is not None else cost_rubles
     expected_amount_kopecks = active_promo.price.discounted_kopecks if active_promo is not None else cost_kopecks
-    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", internal_user_id, OFFER_VERSION, "add_device:" + plan_id, expected_amount_kopecks)
+    await pool.execute(
+        "INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)",
+        internal_user_id,
+        OFFER_VERSION,
+        "add_device:" + plan_id,
+        expected_amount_kopecks,
+    )
     add_device_meta: dict[str, str] = {
         "kind": "add_device",
         "internal_user_id": internal_user_id,
@@ -603,7 +616,13 @@ async def handle_create_balance_payment(request: Request) -> JSONResponse:
 
     if type(data.get("expected_amount_kopecks")) is not int:
         return safe_json_error(400, "expected_amount_required")
-    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", identity["internal_user_id"], OFFER_VERSION, plan_id, data["expected_amount_kopecks"])
+    await pool.execute(
+        "INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)",
+        identity["internal_user_id"],
+        OFFER_VERSION,
+        plan_id,
+        data["expected_amount_kopecks"],
+    )
     result = await pay_plan_from_balance(
         expected_amount_kopecks=data["expected_amount_kopecks"],
         pool=pool,
@@ -650,7 +669,13 @@ async def handle_create_add_device_balance_payment(request: Request) -> JSONResp
     if identity is None:
         return safe_json_error(404, "identity_not_found")
 
-    await pool.execute("INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)", identity["internal_user_id"], OFFER_VERSION, "add_device", 0)
+    await pool.execute(
+        "INSERT INTO web_offer_acceptances (internal_user_id,offer_version,plan_id,amount_kopecks) VALUES ($1,$2,$3,$4)",
+        identity["internal_user_id"],
+        OFFER_VERSION,
+        "add_device",
+        0,
+    )
     result = await add_device_from_balance(
         pool=pool,
         composition=None,

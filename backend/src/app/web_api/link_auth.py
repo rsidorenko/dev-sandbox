@@ -1,9 +1,13 @@
 """Выдача временной ссылки на экране; адрес электронной почты не принимается."""
+
 from __future__ import annotations
+
 import re
 import time
+
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
 from app.persistence.pending_web_links import create_link
 from app.shared.site_url import get_site_base_url
 from app.web_api.helpers import safe_json_error
@@ -16,6 +20,7 @@ _rate_limit_last_cleanup = 0.0
 
 # Формат реферальной метки.
 _REF_CODE_RE = re.compile(r"^[a-z0-9]{4,32}$", re.IGNORECASE)
+
 
 def _check_rate_limit(client_ip: str) -> bool:
     """Ограничиваем создание временных ссылок с одного адреса."""
@@ -40,7 +45,6 @@ def _check_rate_limit(client_ip: str) -> bool:
     return True
 
 
-
 async def handle_link_request(request: Request) -> JSONResponse:
     try:
         data = await request.json()
@@ -55,7 +59,11 @@ async def handle_link_request(request: Request) -> JSONResponse:
     if not _REF_CODE_RE.fullmatch(referral_code):
         referral_code = None
     row = await create_link(request.app.state.pool, referral_code)
-    return JSONResponse({"ok": True,
-        "subscription_url": f"{get_site_base_url()}/sub/{row['subscription_token']}",
-        "expires_at": row["expires_at"].isoformat()},
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+    return JSONResponse(
+        {
+            "ok": True,
+            "subscription_url": f"{get_site_base_url()}/sub/{row['subscription_token']}",
+            "expires_at": row["expires_at"].isoformat(),
+        },
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )

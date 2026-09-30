@@ -523,11 +523,16 @@ async def fulfill_subscription_payment(
         return safe_json_error(400, "invalid_payload")
     if metadata.get("pending_web_attempt"):
         from app.persistence.pending_web_links import promote_paid_link
+
         try:
-            await promote_paid_link(pool, internal_user_id=internal_user_id,
+            await promote_paid_link(
+                pool,
+                internal_user_id=internal_user_id,
                 attempt_id=metadata["pending_web_attempt"],
                 provider=external_event_id.split(":", 1)[0],
-                payment_id=external_payment_id, amount_kopecks=amount_kopecks)
+                payment_id=external_payment_id,
+                amount_kopecks=amount_kopecks,
+            )
         except Exception:
             _LOGGER.warning("pending_payment_promotion_failed", exc_info=False)
             return safe_json_error(503, "temporarily_unavailable")
@@ -630,5 +635,8 @@ async def fulfill_subscription_payment(
     )
 
     if metadata.get("pending_web_attempt"):
-        await pool.execute("UPDATE pending_web_payment_attempts SET fulfilled_at=now() WHERE attempt_id=$1 AND status='succeeded'", metadata["pending_web_attempt"])
+        await pool.execute(
+            "UPDATE pending_web_payment_attempts SET fulfilled_at=now() WHERE attempt_id=$1 AND status='succeeded'",
+            metadata["pending_web_attempt"],
+        )
     return JSONResponse({"ok": True, "accepted": True}, status_code=200)

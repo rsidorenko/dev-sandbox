@@ -7,7 +7,9 @@ OFFER_VERSION = "2026-09-30"
 
 def validate_offer(data: dict) -> JSONResponse | None:
     if data.get("offer_accepted") is not True or data.get("offer_version") != OFFER_VERSION:
-        return JSONResponse({"ok": False, "error": "offer_acceptance_required", "offer_version": OFFER_VERSION}, status_code=400)
+        return JSONResponse(
+            {"ok": False, "error": "offer_acceptance_required", "offer_version": OFFER_VERSION}, status_code=400
+        )
     return None
 
 

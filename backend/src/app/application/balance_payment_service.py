@@ -136,7 +136,9 @@ async def pay_plan_from_balance(
     )
 
     if expected_amount_kopecks is not None and expected_amount_kopecks != charge_kopecks:
-        return BalancePaymentResult(BalancePaymentStatus.PRICE_CHANGED, internal_user_id, cid, amount_kopecks=charge_kopecks)
+        return BalancePaymentResult(
+            BalancePaymentStatus.PRICE_CHANGED, internal_user_id, cid, amount_kopecks=charge_kopecks
+        )
 
     if pool is not None:
         result = await _pay_plan_pg(

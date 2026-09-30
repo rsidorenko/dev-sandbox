@@ -79,13 +79,19 @@ async def _resolve_subscription_token(request: Request, token: str) -> dict[str,
     if row is None:
         pending = await pool.fetchrow(
             "SELECT internal_user_id, telegram_user_id, expires_at FROM pending_web_links "
-            "WHERE subscription_token=$1 AND promoted_at IS NULL AND expires_at > clock_timestamp()", token,
+            "WHERE subscription_token=$1 AND promoted_at IS NULL AND expires_at > clock_timestamp()",
+            token,
         )
         if pending is not None:
             if request.url.path not in ("/api/v1/user/profile", "/api/v1/payment/create"):
                 return JSONResponse({"ok": False, "error": "payment_required"}, status_code=403)
-            return {"internal_user_id": pending["internal_user_id"], "telegram_user_id": pending["telegram_user_id"],
-                    "email": None, "auth_method": "pending_link", "expires_at": pending["expires_at"].isoformat()}
+            return {
+                "internal_user_id": pending["internal_user_id"],
+                "telegram_user_id": pending["telegram_user_id"],
+                "email": None,
+                "auth_method": "pending_link",
+                "expires_at": pending["expires_at"].isoformat(),
+            }
     if row is None or row["telegram_user_id"] is None:
         _record_token_auth_fail(client_ip)
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
