@@ -114,6 +114,18 @@ describe("Checkout (payment/[planId])", () => {
     expect(screen.getByRole("button", { name: /Перейти к оплате 249 ₽/ })).toBeInTheDocument();
   });
 
+  it("требует нового подтверждения после изменения заказа", async () => {
+    const user = userEvent.setup();
+    render(<PaymentPage />);
+    const checkbox = screen.getByRole("checkbox");
+    await user.click(checkbox);
+    expect(screen.getByRole("button", {name:/Перейти к оплате/})).toBeEnabled();
+    await user.click(screen.getByRole("button", {name:"Нужно больше?"}));
+    fireEvent.change(screen.getByRole("slider"), {target:{value:"6"}});
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByRole("button", {name:/Перейти к оплате/})).toBeDisabled();
+  });
+
   it("reveals extra devices on demand and updates the total", async () => {
     const user = userEvent.setup();
     render(<PaymentPage />);

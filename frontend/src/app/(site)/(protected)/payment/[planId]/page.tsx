@@ -93,13 +93,18 @@ function PaymentForm() {
   // custom:N — из конфига (оверрайды не действуют). Глобальная скидка без
   // промокода применяется на витрине; итоговую сумму считает сервер.
   const { catalog, globalDiscount, reload } = usePlans();
-  const [offerAccepted, setOfferAccepted] = useState(false);
   const [promoDiscount, setPromoDiscount] = useState<number | null>(null);
   const [promoDevices, setPromoDevices] = useState<number | null>(null);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoError, setPromoError] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
+  const quote = JSON.stringify([planId, deviceCount, catalog, promoDiscount, promoDevices]);
+  const [acceptedQuote, setAcceptedQuote] = useState<string | null>(null);
+  const offerAccepted = acceptedQuote === quote;
+  const setOfferAccepted = (accepted: boolean) => setAcceptedQuote(accepted ? quote : null);
+  useEffect(() => { setAcceptedQuote(null); }, [quote]);
+
 
   useEffect(() => {
     if (appliedPromo) setShowPromo(true);
