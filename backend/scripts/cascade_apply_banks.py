@@ -13,8 +13,8 @@ the routing order (after geoip:private, before TikTok/foreign) on each cascade-e
 `domain:X` in xray matches X and all subdomains. Idempotent + backup + xray test +
 restart + verify. Reuses the merge pattern of manage_ru_egress.merge_domain_family_routing.
 
-Runs over SSH on the 4 bare_xray cascade-entries: DE 158.160.188.35 (Yandex, 2026-09-22) + FI 176.108.244.24
-(cloudru_key.pem), LT 158.160.80.40 (yandex_new_key), US 89.169.139.153 (yandex-relay) —
+Runs over SSH on the 4 bare_xray cascade-entries: DE 158.160.188.35 (Yandex, 2026-09-22) + FI 93.77.165.219
+(Yandex, 2026-10-03), LT 45.91.52.204 (romtan_key.pem), US 176.109.107.226 (yandex-relay) —
 all user romtan. All four are bare_xray now (US was converted from a 3x-ui panel 2026-07-27).
 
 NOTE: routing on these entries was canonicalized in-place on 2026-07-21 (canon_apply.py):
@@ -145,9 +145,9 @@ BARE_XRAY_ENTRIES = [
     # YouTube-only (158.160.82.113) and CDN-bypass (158.160.234.239) are NOT bank-routing targets.
     # All four are bare_xray now (US converted from x-ui on 2026-07-27).
     CascadeEntry("DE cascade-entry (Frankfurt egress)", "158.160.188.35"),
-    CascadeEntry("FI cascade-entry (Helsinki egress)", "176.108.244.24"),
-    CascadeEntry("LT cascade-entry (Lithuania egress)", "158.160.80.40", key="C:/Users/Roman/.ssh/yandex_new_key"),
-    CascadeEntry("US cascade-entry (US egress)", "89.169.139.153", key="D:/TelegramBotVPN/.ssh/yandex-relay"),
+    CascadeEntry("FI cascade-entry (Helsinki egress)", "93.77.165.219"),
+    CascadeEntry("LT cascade-entry (Lithuania egress)", "45.91.52.204", key="D:/tmp/romtan_key.pem"),
+    CascadeEntry("US cascade-entry (US egress)", "176.109.107.226", key="D:/TelegramBotVPN/.ssh/yandex-relay"),
 ]
 
 

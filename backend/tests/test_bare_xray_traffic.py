@@ -182,7 +182,7 @@ def _provider_with_clients(clients):
 def test_stats_hosts_dedupes_dual_inbound_host() -> None:
     de_tcp = _StatsFakeClient(2, "158.160.188.35", "tcp")
     de_xhttp = _StatsFakeClient(3, "158.160.188.35", "xhttp")
-    fi_tcp = _StatsFakeClient(4, "176.108.244.24", "tcp")
+    fi_tcp = _StatsFakeClient(4, "93.77.165.219", "tcp")
     provider = _provider_with_clients([de_tcp, de_xhttp, fi_tcp])
 
     hosts = _run(provider.bare_xray_stats_hosts())
@@ -192,7 +192,7 @@ def test_stats_hosts_dedupes_dual_inbound_host() -> None:
     de_client, de_configs = by_host["158.160.188.35"]
     assert de_client in (de_tcp, de_xhttp)
     assert {c.server_id for c in de_configs} == {2, 3}
-    assert {c.server_id for c in by_host["176.108.244.24"][1]} == {4}
+    assert {c.server_id for c in by_host["93.77.165.219"][1]} == {4}
 
 
 def test_stats_hosts_separates_different_api_ports() -> None:

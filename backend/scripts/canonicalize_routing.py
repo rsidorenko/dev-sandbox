@@ -438,11 +438,12 @@ TARGETS: list[RoutingTarget] = [
         normalize_log=True,  # access.log был включён для MAX-детекта 2026-08-19 — убрать
     ),
     RoutingTarget(
-        # cloud.ru (zone swap 2026-09-26: 82.202.x/176.108.255.x DPI-mangled), egress Helsinki.
-        # TG -> egress: правила жили в live-конфиге после rebuild 2026-09-26 — без ручки
-        # канонический прогон их бы стёр (cloud.ru не достукивается до TG:443).
+        # Yandex (мигрирован 2026-10-03 с cloud.ru 176.108.244.24), egress Helsinki.
+        # TG -> egress: TG DC:443 недостижим и с Yandex (проверено 2026-10-03) —
+        # правила держатся ручками extra_egress_*, канонический прогон их сохраняет.
         "FI",
-        "176.108.244.24",
+        "93.77.165.219",
+        key="D:/tmp/fi3_mig/new_key.pem",
         extra_egress_domains=TG_EGRESS_DOMAINS,
         extra_egress_ips=TG_EGRESS_IPS,
     ),
