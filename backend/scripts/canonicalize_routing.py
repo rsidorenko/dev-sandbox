@@ -460,11 +460,11 @@ TARGETS: list[RoutingTarget] = [
     ),
     RoutingTarget(
         "YT",
-        # Yandex, YouTube-ad-free, egress Albania. Migrated 2026-08-26 to 93.77.165.48
-        # (old 158.160.82.113 dead); yt_mig key = OpenSSH format, paramiko-friendly
-        # (the old yt_new_key.pem RSA-PEM is NOT parsed by paramiko 5.x).
-        "93.77.165.48",
-        key="D:/tmp/yt_mig/new_key.pem",
+        # Yandex, YouTube-ad-free, egress Albania. Migrated 2026-10-02 to 93.77.161.179
+        # (old 93.77.165.48 drained/decommissioned); key = RSA-PEM PKCS#1 from the
+        # operator creds file (ssh.exe-verified; paramiko loads it via RSAKey).
+        "93.77.161.179",
+        key="D:/tmp/yt2_mig/new_key.pem",
     ),
     RoutingTarget(
         "CDN-LT",

@@ -198,7 +198,7 @@ def test_targets_unique_names_and_current_hosts() -> None:
     hosts = {t.name: t.host for t in TARGETS}
     # актуальные хосты флота (fleet-state 2026-09). ⚠️ YT из canonicalize_routing
     # (158.160.82.113) удалён 2026-08-26 — сюда намеренно НЕ копировался.
-    assert hosts["YT"] == "93.77.165.48"
+    assert hosts["YT"] == "93.77.161.179"
     assert hosts["DE"] == "158.160.188.35"
     assert hosts["FI"] == "176.108.244.24"
     assert hosts["LT"] == "45.91.52.204"

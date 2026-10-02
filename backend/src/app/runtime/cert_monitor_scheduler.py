@@ -164,7 +164,7 @@ CERT_TARGETS: tuple[CertTarget, ...] = (
     CertTarget(
         name="entry-yt-camo",
         mode="ssh-file",
-        host="93.77.165.48",
+        host="93.77.161.179",
         cert_paths=(
             f"{_CERTBOT_LIVE}/yt.mediagenering.online/fullchain.pem",
             "/root/.acme.sh/yt.mediagenering.online_ecc/fullchain.cer",

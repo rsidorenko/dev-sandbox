@@ -82,8 +82,8 @@ TARGETS: list[StatsTarget] = [
     StatsTarget("US", "176.109.107.226", key="D:/TelegramBotVPN/.ssh/yandex-relay"),
     StatsTarget(
         "YT",
-        "93.77.165.48",  # albaniya-slava, мигрирован 2026-08-26 (старый 158.160.82.113 удалён)
-        key="D:/tmp/yt_mig/new_key.pem",
+        "93.77.161.179",  # albaniya, мигрирован 2026-10-02 (старый 93.77.165.48 в декоммиссии)
+        key="D:/tmp/yt2_mig/new_key.pem",
     ),
     StatsTarget(
         "CDN-LT",
