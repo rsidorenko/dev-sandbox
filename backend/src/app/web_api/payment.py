@@ -260,7 +260,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             context["pending_web_attempt"] = attempt_id
         created = await _cryptobot_create(
             amount_rubles=charge_rubles,
-            description=f"Bravada VPN - {plan_display_name_safe(plan_id)}",
+            description=f"BRAVADA-CONNECT - {plan_display_name_safe(plan_id)}",
             context=context,
             return_url=return_url,
             expires_in=pending_ttl,
@@ -335,7 +335,7 @@ async def handle_create_payment(request: Request) -> JSONResponse:
             plan_id=plan_id,
             device_count=device_count,
             return_url=return_url,
-            description=f"Bravada VPN — {plan_display_name_safe(plan_id)}",
+            description=f"BRAVADA-CONNECT - {plan_display_name_safe(plan_id)}",
             metadata=payment_metadata,
             **({"idempotency_key": attempt_id} if attempt_id else {}),
         )
@@ -529,7 +529,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
         context: dict[str, object] = {**add_device_meta}
         created = await _cryptobot_create(
             amount_rubles=charge_rubles,
-            description=f"Bravada VPN - add devices ({current}->{new_device_count})",
+            description=f"BRAVADA-CONNECT - add devices ({current}->{new_device_count})",
             context=context,
             return_url=f"{return_url}/success",
         )
@@ -561,7 +561,7 @@ async def handle_create_add_device_payment(request: Request) -> JSONResponse:
             plan_id=plan_id,
             device_count=new_device_count,
             return_url=f"{return_url}/success",
-            description=f"Bravada VPN — добавление устройств ({current}→{new_device_count})",
+            description=f"BRAVADA-CONNECT - добавление устройств ({current}→{new_device_count})",
             metadata=add_device_meta,
         )
     except Exception:

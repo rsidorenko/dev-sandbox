@@ -1866,7 +1866,7 @@ async def _process_yookassa_payment(
             plan_id=plan_id,
             device_count=device_count,
             return_url=f"{return_url}/dashboard",
-            description=f"Bravada VPN — {plan_display_name(plan_id)}",
+            description=f"BRAVADA-CONNECT - {plan_display_name(plan_id)}",
             metadata=payment_metadata,
         )
     except Exception:
@@ -2005,7 +2005,7 @@ async def _process_cryptobot_payment(
         result = await client.create_invoice(
             amount_rubles=charge_rubles,
             payload_str=encode_payment_context(context),
-            description=f"Bravada VPN - {plan_display_name(plan_id)}",
+            description=f"BRAVADA-CONNECT - {plan_display_name(plan_id)}",
             paid_btn_url=f"{return_url}/dashboard",
             expires_in=ttl,
         )
@@ -2307,7 +2307,7 @@ async def _process_add_device_yookassa(
             plan_id=snap.plan_id or "1m",
             device_count=new_count,
             return_url=f"{return_url}/dashboard",
-            description=f"Bravada VPN — добавление устройств ({current}→{new_count})",
+            description=f"BRAVADA-CONNECT - добавление устройств ({current}→{new_count})",
             metadata=add_device_meta,
         )
     except Exception:
@@ -2423,7 +2423,7 @@ async def _process_add_device_cryptobot(
         result = await client.create_invoice(
             amount_rubles=charge_rubles,
             payload_str=encode_payment_context(context),
-            description=f"Bravada VPN - add devices ({current}->{new_count})",
+            description=f"BRAVADA-CONNECT - add devices ({current}->{new_count})",
             paid_btn_url=f"{return_url}/dashboard",
             expires_in=ttl,
         )

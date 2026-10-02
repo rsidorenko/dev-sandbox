@@ -64,7 +64,7 @@ class YooKassaClient:
         plan_id: str,
         device_count: int,
         return_url: str,
-        description: str = "Bravada VPN subscription",
+        description: str = "BRAVADA-CONNECT",
         metadata: dict[str, str] | None = None,
         idempotency_key: str | None = None,
     ) -> YooKassaPaymentResult:
