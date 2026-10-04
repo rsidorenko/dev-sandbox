@@ -19,6 +19,7 @@ from scripts.canonicalize_routing import (
     MAX_IPCHECK_DOMAINS,
     RU_SERVICES_DOMAINS,
     SUPERCELL_DOMAINS,
+    TELEMOST_DOMAINS,
     TG_EGRESS_DOMAINS,
     TG_EGRESS_IPS,
     TIKTOK_DOMAINS,
@@ -76,6 +77,7 @@ def test_bank_domains_match_repo_authority():
         (MAX_DOMAINS, 4, "domain:okcdn.ru"),
         (MAX_IPCHECK_DOMAINS, 6, "domain:api.ipify.org"),
         (YANDEX_DOMAINS, 3, "domain:yandex.com"),
+        (TELEMOST_DOMAINS, 1, "domain:telemost.com"),
         (RU_SERVICES_DOMAINS, 30, "domain:ozon.com"),
         (TG_EGRESS_DOMAINS, 10, "domain:telegram.org"),
         (TG_EGRESS_DOMAINS, 10, "domain:t.me"),
@@ -108,6 +110,7 @@ def test_no_domain_appears_in_two_families():
         + MAX_DOMAINS
         + MAX_IPCHECK_DOMAINS
         + YANDEX_DOMAINS
+        + TELEMOST_DOMAINS
         + RU_SERVICES_DOMAINS
         + TG_EGRESS_DOMAINS
     )
@@ -119,8 +122,8 @@ def test_no_domain_appears_in_two_families():
 
 def test_canonical_order_with_api():
     rules = build_canonical_rules(egress_tag="to-exit", has_api=True)
-    # 1 api + 1 geoip:private + 4 foreign + 6 RU + regexp + tld + geoip:ru = 15
-    assert len(rules) == 15
+    # 1 api + 1 geoip:private + 4 foreign + 7 RU + regexp + tld + geoip:ru = 16
+    assert len(rules) == 16
     assert rules[0] == {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
     assert rules[1] == {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"}
     assert rules[-1] == {"type": "field", "ip": ["geoip:ru"], "outboundTag": "direct"}
@@ -129,8 +132,8 @@ def test_canonical_order_with_api():
 def test_canonical_order_without_api():
     rules = build_canonical_rules(egress_tag="egress", has_api=False)
     assert not any(r.get("inboundTag") == ["api"] for r in rules)
-    # api dropped -> 14 rules
-    assert len(rules) == 14
+    # api dropped -> 15 rules
+    assert len(rules) == 15
     assert rules[0] == {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"}
 
 
@@ -163,6 +166,9 @@ def test_ru_families_route_to_direct():
     assert "domain:vkvideo.com" in flat  # foreign-IP VK CDN must be explicit-direct
     assert "domain:vkuserapi.com" in flat  # Cloudflare-IP VK media
     assert "domain:yandex.com" in flat
+    # Телемост: telemost.com на AWS GA (foreign IP) — geoip:ru не матчит,
+    # явное direct-правило обязательно (см. TELEMOST_DOMAINS)
+    assert "domain:telemost.com" in flat
     assert "domain:ozon.com" in flat
     # MAX + its echo-check domains ride the RU leg alongside VK
     assert "domain:max.ru" in flat and "domain:okcdn.ru" in flat and "domain:apptracer.ru" in flat

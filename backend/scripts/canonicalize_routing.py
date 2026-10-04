@@ -18,7 +18,7 @@ Canonical order:
     geoip:private -> direct
     FOREIGN -> egress :  supercell, tiktok, ggsel, griffiny
     <target extra_egress_domains/ips>      # per-target override, e.g. Telegram on cloud.ru boxes
-    RU     -> direct :  banks, vk, yandex, ru_services, max, max_ipcheck
+    RU     -> direct :  banks, vk, yandex, telemost, ru_services, max, max_ipcheck
     <target extra_direct_domains>          # per-target override, e.g. LT YouTube
     regexp:.*\\.ru$           -> direct
     domain:ru,su,рф(xn--p1ai) -> direct
@@ -213,6 +213,21 @@ YT_DIRECT_DOMAINS: list[str] = [
 
 YANDEX_DOMAINS: list[str] = ["domain:yandex.com", "domain:yandex.net", "domain:yastatic.net"]
 
+# Яндекс.Телемост — видеозвонки. Сайт/веб-клиент telemost.com живёт на AWS
+# Global Accelerator (76.223.54.146 / 13.248.169.48 — foreign IP даже через DNS
+# Яндекса), поэтому geoip:ru его не матчит и без явного правила домен уезжал в
+# foreign egress: Телемост с датацентрового зарубежного IP = антифрод Яндекса.
+# Остальная инфраструктура Телемоста уже покрыта каноном (официальный whitelist
+# Yandex 360, yandex.ru/support/yandex-360/business/admin/ru/network-settings):
+# telemost.yandex.ru / telemost.360.yandex.ru / *.strm.yandex.ru -> regexp .*\.ru$;
+# telemost-api.yandex.net / turn.webrtc.yandex.net / stun.rtc.yandex.net /
+# *.cdn.yandex.net -> domain:yandex.net; медиа-серверы WebRTC — голые IP
+# 5.255.x / 37.9.x / 77.88.x UDP 20000-23000 -> geoip:ru. telemost.ru не
+# существует (NXDOMAIN, проверено 2026-10-04) — не добавлять.
+TELEMOST_DOMAINS: list[str] = [
+    "domain:telemost.com",
+]
+
 # Telegram -> foreign egress on cloud.ru boxes ONLY (FI entry + CDN-SL origin). cloud.ru blocks
 # TG:443 from its own IP space, so the RU leg cannot reach Telegram — without these rules TG
 # falls through geoip:ru-unmatched into the egress default anyway, but the explicit rules keep it
@@ -297,6 +312,7 @@ _RU_FAMILIES = [
     BANK_DOMAINS,
     VK_DOMAINS,
     YANDEX_DOMAINS,
+    TELEMOST_DOMAINS,
     RU_SERVICES_DOMAINS,
     MAX_DOMAINS,
     MAX_IPCHECK_DOMAINS,
