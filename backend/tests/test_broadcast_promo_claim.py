@@ -480,3 +480,55 @@ def test_claim_to_payment_pipeline_preserves_devices_price_and_promo(monkeypatch
         assert len(events) == 4
 
     _run(main())
+
+
+def test_promo_claim_per_tariff_shows_only_discounted_plans(monkeypatch) -> None:
+    """Per-tariff промокод: витрина сужена до тарифов из discounts_by_plan; «Свой тариф»
+    скрыт (на custom:* скидка не действует), «⚙️ Устройства…» остаётся (escape-hatch —
+    промокод закреплён и в полном магазине)."""
+
+    promo = dataclasses.replace(_make_promo(), discounts_by_plan={"1m": 25, "365d": 10})
+
+    async def _fake_apply(composition, internal_user_id, raw_code, *, now=None):
+        return "ok", _CODE, promo
+
+    monkeypatch.setattr("app.bot_transport.runtime_facade._apply_promo_to_user", _fake_apply)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await _register(c, uid=42)
+        c.identity._pool = _PromoClaimPool(claim_row={"code": _CODE})  # type: ignore[attr-defined]
+        return await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+
+    text, kb = _run(main())
+    buttons = _buttons(kb)
+    pay_callbacks = {b["callback_data"] for b in buttons if b.get("callback_data", "").startswith("bp:")}
+    assert pay_callbacks == {
+        payment_callback(_JOB_ID, "1m", 5),
+        payment_callback(_JOB_ID, "365d", 5),
+    }
+    assert not any(b.get("callback_data") == "custom_days" for b in buttons)
+    assert any(b.get("callback_data") == "buy_vpn" for b in buttons)
+
+
+def test_promo_claim_flat_promo_keeps_full_showcase(monkeypatch) -> None:
+    """Регресс: плоский промокод (без per-tariff карты) — вся витрина: все 7 тарифов + «Свой тариф»."""
+
+    async def _fake_apply(composition, internal_user_id, raw_code, *, now=None):
+        return "ok", _CODE, _make_promo()
+
+    monkeypatch.setattr("app.bot_transport.runtime_facade._apply_promo_to_user", _fake_apply)
+
+    async def main() -> None:
+        c = build_slice1_composition()
+        await _register(c, uid=42)
+        c.identity._pool = _PromoClaimPool(claim_row={"code": _CODE})  # type: ignore[attr-defined]
+        return await _handle_broadcast_promo_claim(c, 42, _JOB_ID)
+
+    text, kb = _run(main())
+    buttons = _buttons(kb)
+    pay_callbacks = {b["callback_data"] for b in buttons if b.get("callback_data", "").startswith("bp:")}
+    assert pay_callbacks == {
+        payment_callback(_JOB_ID, plan, 5) for plan in ("1d", "7d", "14d", "1m", "3m", "6m", "365d")
+    }
+    assert any(b.get("callback_data") == "custom_days" for b in buttons)

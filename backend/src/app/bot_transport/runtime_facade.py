@@ -1454,6 +1454,12 @@ async def _render_broadcast_promo_checkout(
         replace(plan, price_rubles=calculate_total_price(plan, device_count))
         for plan in await pricing.get_fixed_plans()
     )
+    # Per-tariff промокод: скидка есть только на тарифы из discounts_by_plan (остальные,
+    # «Свой» и add-device — без скидки, см. _resolve_discount_spec). Витрину сужаем до
+    # тарифов со скидкой, чтобы получатель сразу видел цель бонуса; «Свой тариф» прячем.
+    per_tariff = bool(promo.discounts_by_plan)
+    if per_tariff:
+        plans = tuple(p for p in plans if p.plan_id.value in promo.discounts_by_plan)
     text = (
         f"✅ Промокод {promo.code} применён!\n\n"
         f"{promo_offer_preview(promo)}\n\n"
@@ -1465,6 +1471,7 @@ async def _render_broadcast_promo_checkout(
         promo=promo,
         global_discount=await pricing.get_global_discount(),
         payment_device_count=device_count,
+        include_custom_plan=not per_tariff,
     )
 
     from app.application.broadcast_funnel import payment_callback, record_bonus_event

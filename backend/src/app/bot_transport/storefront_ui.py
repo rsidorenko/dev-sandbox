@@ -209,6 +209,7 @@ def buy_vpn_keyboard(
     promo: PromoCode | None = None,
     global_discount: GlobalDiscount | None = None,
     payment_device_count: int | None = None,
+    include_custom_plan: bool = True,
 ) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     for p in plans:
@@ -227,7 +228,11 @@ def buy_vpn_keyboard(
         rows.append([{"text": label, "callback_data": callback}])
     if payment_device_count is not None:
         rows.append([{"text": "⚙️ Устройства и другие способы оплаты", "callback_data": CB_BUY_VPN}])
-    rows.append([{"text": "📦 Свой тариф", "callback_data": CB_CUSTOM_DAYS}])
+    # include_custom_plan=False — когда «Свой» бессмысленен для сценария: per-tariff
+    # промокод из рассылки на custom:* не действует (см. _resolve_discount_spec),
+    # поэтому в бонусном checkout его не предлагаем.
+    if include_custom_plan:
+        rows.append([{"text": "📦 Свой тариф", "callback_data": CB_CUSTOM_DAYS}])
     rows.append([{"text": "↩️ Назад", "callback_data": CB_MAIN_MENU}])
     return _inline_kb(rows)
 
